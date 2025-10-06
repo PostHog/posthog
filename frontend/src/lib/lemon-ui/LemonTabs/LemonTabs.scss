@@ -27,6 +27,7 @@
     flex-shrink: 0;
     gap: var(--lemon-tabs-gap);
     align-items: stretch;
+    justify-content: space-between;
     margin-bottom: var(--lemon-tabs-margin-bottom);
     overflow-x: auto;
     list-style: none;
