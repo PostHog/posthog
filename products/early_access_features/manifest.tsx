@@ -12,14 +12,12 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/EarlyAccessFeatures'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-            activityScope: 'EarlyAccessFeature',
         },
         EarlyAccessFeature: {
             name: 'Early access feature',
             import: () => import('./frontend/EarlyAccessFeature'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-            activityScope: 'EarlyAccessFeature',
         },
     },
     routes: {

@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
@@ -33,6 +34,7 @@ import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/querie
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
@@ -1391,6 +1393,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     iconType: 'survey',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.survey],
+            (survey: Survey): SidePanelSceneContext | null => {
+                return survey?.id && survey.id !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.SURVEY,
+                          activity_item_id: `${survey.id}`,
+                      }
+                    : null
+            },
         ],
         projectTreeRef: [
             () => [(_, props: SurveyLogicProps) => props.id],
