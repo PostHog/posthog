@@ -39,7 +39,7 @@ import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from 
 
 const RESOURCE_TYPE = 'issue'
 
-interface RelatedIssue {
+interface SimilarIssue {
     id: string
     title: string
     description?: string
@@ -212,19 +212,19 @@ const SimilarIssues = (): JSX.Element => {
     const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
-    const [selectedIssue, setSelectedIssue] = useState<RelatedIssue | null>(null)
+    const [selectedIssue, setSelectedIssue] = useState<SimilarIssue | null>(null)
 
     useEffect(() => {
         loadSimilarIssues()
     }, [loadSimilarIssues])
 
-    const handleMerge = async (relatedIssue: RelatedIssue): Promise<void> => {
+    const handleMerge = async (similarIssue: SimilarIssue): Promise<void> => {
         if (issue) {
-            await mergeIssues([issue.id, relatedIssue.id])
+            await mergeIssues([issue.id, similarIssue.id])
             posthog.capture('user merged issues', {
                 original_issue_id: issue.id,
-                similar_issue_id: relatedIssue.id,
-                distance: relatedIssue?.distance || null,
+                similar_issue_id: similarIssue.id,
+                distance: similarIssue?.distance || null,
             })
             loadSimilarIssues()
         }
@@ -236,33 +236,33 @@ const SimilarIssues = (): JSX.Element => {
                 <Spinner />
             ) : similarIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {similarIssues.map((relatedIssue: RelatedIssue) => {
-                        const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
+                    {similarIssues.map((similarIssue: SimilarIssue) => {
+                        const relatedRuntime = getRuntimeFromLib(similarIssue.library)
                         return (
                             <div
-                                key={relatedIssue.id}
+                                key={similarIssue.id}
                                 className="flex items-center justify-between px-2 py-1 border rounded bg-surface-primary"
                             >
                                 <div
                                     className="flex flex-col gap-0.5 min-w-0 group flex-grow cursor-pointer"
                                     onClick={() => {
-                                        setSelectedIssue(relatedIssue)
+                                        setSelectedIssue(similarIssue)
                                         if (issue) {
                                             posthog.capture('user viewed similar issue', {
                                                 original_issue_id: issue.id,
-                                                similar_issue_id: relatedIssue.id,
-                                                distance: relatedIssue?.distance || null,
+                                                similar_issue_id: similarIssue.id,
+                                                distance: similarIssue?.distance || null,
                                             })
                                         }
                                     }}
                                 >
                                     <div className="font-medium flex items-center gap-2 text-sm truncate group-hover:text-accent">
                                         <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" className="shrink-0" />
-                                        {relatedIssue.title}
+                                        {similarIssue.title}
                                     </div>
-                                    {relatedIssue.description && (
+                                    {similarIssue.description && (
                                         <div className="text-xs text-secondary truncate">
-                                            {relatedIssue.description}
+                                            {similarIssue.description}
                                         </div>
                                     )}
                                 </div>
@@ -270,7 +270,7 @@ const SimilarIssues = (): JSX.Element => {
                                     size="xxs"
                                     onClick={(e) => {
                                         e.preventDefault()
-                                        handleMerge(relatedIssue)
+                                        handleMerge(similarIssue)
                                     }}
                                     className="shrink-0 px-2 py-3 h-full"
                                 >
