@@ -397,7 +397,7 @@ class FeatureFlagSerializer(
         groups = filters.get("groups", [])
         if isinstance(groups, list) and len(groups) == 0:
             raise serializers.ValidationError(
-            "Feature flag filters must contain at least one condition set. Empty 'groups' array is not allowed."
+                "Feature flag filters must contain at least one condition set. Empty 'groups' array is not allowed."
             )
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
