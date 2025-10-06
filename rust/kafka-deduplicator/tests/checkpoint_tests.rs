@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use kafka_deduplicator::store::deduplication_store::DeduplicationResult;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -278,7 +279,7 @@ async fn test_manual_checkpoint_export_incremental() {
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        assert_eq!(result.unwrap(), DeduplicationResult::New); // All events should be new
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -367,7 +368,7 @@ async fn test_checkpoint_manual_export_full() {
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        assert_eq!(result.unwrap(), DeduplicationResult::New); // All events should be new
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -449,7 +450,7 @@ async fn test_incremental_vs_full_upload_serial() {
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        assert_eq!(result.unwrap(), DeduplicationResult::New); // All events should be new
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -525,7 +526,7 @@ async fn test_unavailable_uploader() {
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        assert_eq!(result.unwrap(), DeduplicationResult::New); // All events should be new
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -581,7 +582,7 @@ async fn test_unpopulated_exporter() {
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        assert_eq!(result.unwrap(), DeduplicationResult::New); // All events should be new
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();

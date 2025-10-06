@@ -722,6 +722,10 @@ impl CleanupTaskHandle {
 
 #[cfg(test)]
 mod tests {
+    use crate::store::deduplication_store::{
+        DeduplicationResult, DeduplicationResultReason, DeduplicationType,
+    };
+
     use super::*;
     use common_types::RawEvent;
     use std::sync::Arc;
@@ -893,10 +897,19 @@ mod tests {
         };
 
         // Add event through store1
-        assert!(store1.handle_event_with_raw(&event).unwrap());
+        assert_eq!(
+            store1.handle_event_with_raw(&event).unwrap(),
+            DeduplicationResult::New
+        );
 
         // Event should be seen as duplicate in store2 (proving they're the same store)
-        assert!(!store2.handle_event_with_raw(&event).unwrap());
+        assert_eq!(
+            store2.handle_event_with_raw(&event).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::Timestamp,
+                DeduplicationResultReason::SameEvent
+            )
+        );
     }
 
     #[tokio::test]
@@ -938,11 +951,20 @@ mod tests {
         };
 
         // Add event through first store
-        assert!(stores[0].handle_event_with_raw(&event).unwrap());
+        assert_eq!(
+            stores[0].handle_event_with_raw(&event).unwrap(),
+            DeduplicationResult::New
+        );
 
         // All other stores should see it as duplicate (proving they're the same store)
         for store in &stores[1..] {
-            assert!(!store.handle_event_with_raw(&event).unwrap());
+            assert_eq!(
+                store.handle_event_with_raw(&event).unwrap(),
+                DeduplicationResult::ConfirmedDuplicate(
+                    DeduplicationType::Timestamp,
+                    DeduplicationResultReason::SameEvent
+                )
+            );
         }
     }
 }
