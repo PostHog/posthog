@@ -361,7 +361,7 @@ def select_from_sessions_table_v3(
     aggregate_fields["$exit_pathname"] = aggregate_fields["$end_pathname"]
 
     select_fields: list[ast.Expr] = []
-    group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id_v7"])]
+    group_by_fields: list[ast.Expr] = []
 
     for name, chain in requested_fields.items():
         if name in aggregate_fields:
