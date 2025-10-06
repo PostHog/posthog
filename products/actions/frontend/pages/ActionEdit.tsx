@@ -259,7 +259,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                                 step={step}
                                                 actionId={action.id || 0}
                                                 isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                                disabled={!canEdit}
+                                                disabledReason={cannotEditReason ? cannotEditReason : undefined}
+                                                disabled={!!cannotEditReason}
                                                 onDelete={() => {
                                                     const newSteps = [...stepsValue]
                                                     newSteps.splice(index, 1)

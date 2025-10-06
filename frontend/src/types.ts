@@ -689,7 +689,7 @@ export interface ProductIntentType {
 // scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
 export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
 
-export interface ActionType {
+export interface ActionType extends WithAccessControl {
     count?: number
     created_at: string
     deleted?: boolean
