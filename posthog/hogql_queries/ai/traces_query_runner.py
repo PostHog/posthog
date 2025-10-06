@@ -133,24 +133,24 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS input_tokens,
                 sumIf(toFloat(properties.$ai_output_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS output_tokens,
                 round(
                     sumIf(toFloat(properties.$ai_input_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS input_cost,
                 round(
                     sumIf(toFloat(properties.$ai_output_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS output_cost,
                 round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS total_cost,
                 arrayDistinct(
@@ -289,6 +289,15 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         properties_filter = self._get_properties_filter()
         if properties_filter is not None:
             exprs.append(properties_filter)
+
+        if self.query.personId:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
 
         return ast.And(exprs=exprs)
 

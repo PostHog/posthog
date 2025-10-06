@@ -240,7 +240,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    EMBEDDED_ANALYTICS = 'embedded_analytics',
+    ENDPOINTS = 'endpoints',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -321,6 +321,7 @@ export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
     hedgehog_config?: MinimalHedgehogConfig
+    role_at_organization?: string | null
 }
 
 /**
@@ -2110,7 +2111,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface QueryEndpointType extends WithAccessControl {
+export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
@@ -3821,7 +3822,7 @@ export interface ExperimentHoldoutType {
     id: number | null
     name: string
     description: string | null
-    filters: Record<string, any>
+    filters: FeatureFlagGroupType[]
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null

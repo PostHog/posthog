@@ -1044,3 +1044,116 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Verify no MULTIPLE_VARIANT_KEY appears in total_exposures for first_seen handling
         self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_with_action_as_exposure_criteria(self):
+        from posthog.schema import ActionsNode
+
+        from posthog.models.action.action import Action
+
+        # Create an action for purchase events with specific properties
+        action = Action.objects.create(
+            name="Qualified Purchase",
+            team=self.team,
+            steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
+        )
+
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Create test data - only premium purchases should count as exposures
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "control", "plan": "premium"},
+                    },
+                ],
+                "user_control_2": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "control", "plan": "premium"},
+                    },
+                ],
+                "user_control_3": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03",
+                        "properties": {ff_property: "control", "plan": "basic"},  # Should NOT count
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "test", "plan": "premium"},
+                    },
+                ],
+                "user_test_2": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "test", "plan": "premium"},
+                    },
+                ],
+                "user_test_3": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "test", "plan": "premium"},
+                    },
+                ],
+                "user_test_4": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03",
+                        "properties": {ff_property: "test", "plan": "basic"},  # Should NOT count
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # Set exposure criteria to use the action
+        self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
+        self.experiment.save()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+
+        response = query_runner.calculate()
+
+        # Only premium purchases should be counted as exposures
+        # Control: user_control_1 and user_control_2 (user_control_3 has basic plan)
+        # Test: user_test_1, user_test_2, user_test_3 (user_test_4 has basic plan)
+        self.assertEqual(response.total_exposures["control"], 2)
+        self.assertEqual(response.total_exposures["test"], 3)
+
+        # Verify timeseries data
+        control_series = next((s for s in response.timeseries if s.variant == "control"), None)
+        test_series = next((s for s in response.timeseries if s.variant == "test"), None)
+
+        assert control_series is not None
+        assert test_series is not None
+
+        # All control exposures on 2024-01-02
+        self.assertEqual(control_series.exposure_counts[-1], 2)
+        # All test exposures on 2024-01-02
+        self.assertEqual(test_series.exposure_counts[-1], 3)

@@ -230,7 +230,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
-    EMBEDDED_ANALYTICS: 'embedded-analytics', // owner: @sakce #team-clickhouse
+    ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
     CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-customer-analytics
@@ -305,7 +305,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
-    ADVANCED_ACTIVITY_LOGS: 'advanced-activity-logs', // owner: @yasen-posthog #team-platform-features
     SIMPLIFIED_PRELAUNCH_CHECKLIST: 'simplified-prelaunch-checklist', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_FORM_PERSISTENCE_FIELD: 'experiment-form-persistence-field', // owner: @jurajmajerik #team-experiments multivariate
     HOW_TO_READ_METRICS_EXPLANATION: 'how-to-read-metrics-explanation', // owner: @jurajmajerik #team-experiments
