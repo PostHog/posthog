@@ -10,7 +10,12 @@ interface SceneDuplicateProps extends SceneDataAttrKeyProps {
 
 export function SceneDuplicate({ dataAttrKey, onClick }: SceneDuplicateProps): JSX.Element {
     return (
-        <ButtonPrimitive menuItem onClick={onClick} data-attr={`${dataAttrKey}-duplicate-button`}>
+        <ButtonPrimitive
+            menuItem
+            onClick={onClick}
+            data-attr={`${dataAttrKey}-duplicate-button`}
+            tooltip="Duplicate resource"
+        >
             <IconCopy />
             Duplicate
         </ButtonPrimitive>
