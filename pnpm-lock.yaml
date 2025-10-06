@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.270.1
-        version: 1.270.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.272.0
+        version: 1.272.0(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -465,9 +465,9 @@ importers:
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
-      '@posthog/products-embedded-analytics':
+      '@posthog/products-endpoints':
         specifier: workspace:*
-        version: link:../products/embedded_analytics
+        version: link:../products/endpoints
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../products/error_tracking
@@ -826,8 +826,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.270.1
-        version: 1.270.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.272.0
+        version: 1.272.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1705,7 +1705,7 @@ importers:
         specifier: '*'
         version: 18.2.0
 
-  products/embedded_analytics:
+  products/endpoints:
     dependencies:
       '@posthog/icons':
         specifier: 0.30.0
@@ -1795,8 +1795,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.270.1
-        version: 1.270.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.272.0
+        version: 1.272.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2132,8 +2132,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.270.1
-        version: 1.270.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.272.0
+        version: 1.272.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2379,8 +2379,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.270.1
-        version: 1.270.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.272.0
+        version: 1.272.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -15145,8 +15145,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.270.1:
-    resolution: {integrity: sha512-HP7+vr19gE8Qx7n88ElJxkI/BwL8S5lH8D1OKp91YnAlcJuc0Vze0M9TMmFAgC2oUVGrvSgH5++sNg8qGlm9tg==}
+  posthog-js@1.272.0:
+    resolution: {integrity: sha512-q8vegjiB7PQSjo2sgRBf1lie0bPnBgqIyWCXHvH6U5BEqTV5fr3Zr+iv7KXL/sVP+g4xp4lEjbKmyLENz2Iybw==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -35506,7 +35506,7 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.270.1(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.272.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       '@posthog/core': 1.2.2
       core-js: 3.45.1

@@ -208,6 +208,8 @@ export interface SceneConfig {
     import?: () => Promise<any>
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
+    /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
+    canvasBackground?: boolean
 }
 
 // Map scenes to their access control resource types

@@ -14,7 +14,7 @@ import {
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingCommentsLogic } from 'scenes/session-recordings/player/sessionRecordingCommentsLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export interface ItemCommentProps {
@@ -105,8 +105,8 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
 function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.Element {
     const { startCommenting } = useActions(playerCommentModel)
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const dataLogic = sessionRecordingDataLogic(logicProps)
-    const { deleteComment } = useActions(dataLogic)
+    const commentsLogic = sessionRecordingCommentsLogic(logicProps)
+    const { deleteComment } = useActions(commentsLogic)
 
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">

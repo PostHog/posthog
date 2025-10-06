@@ -22,6 +22,7 @@ from posthog.constants import (
     BILLING_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     MAX_AI_TASK_QUEUE,
+    SESSION_REPLAY_TASK_QUEUE,
 )
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
@@ -166,7 +167,7 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             "enforce-max-replay-retention",
             EnforceMaxReplayRetentionInput(dry_run=False),
             id="enforce-max-replay-retention-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=SESSION_REPLAY_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             calendars=[
