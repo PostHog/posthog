@@ -6,7 +6,6 @@ from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
 )
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 #
 # error_tracking_issue_fingerprint_overrides: This table contains rows for all (team_id, fingerprint)
@@ -39,7 +38,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = lambda: (
     """
 ).format(
     table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    cluster=settings.CLICKHOUSE_CLUSTER,
     engine=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_ENGINE(),
     extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -50,7 +49,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = lambda: (
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
     lambda: ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL.format(
         table_name="kafka_" + ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
+        cluster=settings.CLICKHOUSE_CLUSTER,
         engine=kafka_engine(
             KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT, group="clickhouse-error-tracking-issue-fingerprint-overrides"
         ),
@@ -58,7 +57,9 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
     )
 )
 
-ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL = """
+
+def ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL():
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
@@ -73,14 +74,15 @@ _partition
 FROM {database}.kafka_{table_name}
 WHERE version > 0 -- only store updated rows, not newly inserted ones
 """.format(
-    table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-)
+        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 
-TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+
+def TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 
 INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = """
 INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
@@ -168,10 +170,9 @@ FROM {database}.{kafka_table}
         mv_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV,
         target_table=target_table,
         kafka_table=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
-        database=CLICKHOUSE_DATABASE,
+        database=settings.CLICKHOUSE_DATABASE,
     )
 
 
-TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+def TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
