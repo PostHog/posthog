@@ -152,6 +152,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_access_level": "manager",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
+            "minimum_access_level": "none",
         }
 
     def test_change_rejected_if_not_org_admin(self):

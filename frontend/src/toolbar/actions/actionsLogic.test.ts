@@ -3,12 +3,33 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { ActionType } from '~/types'
+import { AccessControlLevel, ActionType } from '~/types'
 
 const unsortedActions: ActionType[] = [
-    { name: 'zoo', created_at: '', created_by: null, id: 1, pinned_at: null },
-    { name: 'middle', created_at: '', created_by: null, id: 2, pinned_at: null },
-    { name: 'begin', created_at: '', created_by: null, id: 3, pinned_at: null },
+    {
+        name: 'zoo',
+        created_at: '',
+        created_by: null,
+        id: 1,
+        pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    },
+    {
+        name: 'middle',
+        created_at: '',
+        created_by: null,
+        id: 2,
+        pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    },
+    {
+        name: 'begin',
+        created_at: '',
+        created_by: null,
+        id: 3,
+        pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    },
 ]
 const apiJson = { results: unsortedActions }
 
