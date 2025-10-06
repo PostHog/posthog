@@ -722,9 +722,7 @@ impl CleanupTaskHandle {
 
 #[cfg(test)]
 mod tests {
-    use crate::store::deduplication_store::{
-        DeduplicationResult, DeduplicationResultReason, DeduplicationType,
-    };
+    use crate::store::{TimestampKey, TimestampMetadata};
 
     use super::*;
     use common_types::RawEvent;
@@ -762,7 +760,10 @@ mod tests {
                 properties: std::collections::HashMap::new(),
                 ..Default::default()
             };
-            store1.handle_event_with_raw(&event).unwrap();
+            // Add test data directly to the store
+            let key = TimestampKey::from(&event);
+            let metadata = TimestampMetadata::new(&event);
+            store1.put_timestamp_record(&key, &metadata).unwrap();
         }
 
         // Test that cleanup can be called without error
@@ -813,7 +814,10 @@ mod tests {
                 )]),
                 ..Default::default()
             };
-            store.handle_event_with_raw(&event).unwrap();
+            // Add test data directly to the store
+            let key = TimestampKey::from(&event);
+            let metadata = TimestampMetadata::new(&event);
+            store.put_timestamp_record(&key, &metadata).unwrap();
         }
 
         store.flush().unwrap();
@@ -897,19 +901,18 @@ mod tests {
         };
 
         // Add event through store1
-        assert_eq!(
-            store1.handle_event_with_raw(&event).unwrap(),
-            DeduplicationResult::New
-        );
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
 
-        // Event should be seen as duplicate in store2 (proving they're the same store)
-        assert_eq!(
-            store2.handle_event_with_raw(&event).unwrap(),
-            DeduplicationResult::ConfirmedDuplicate(
-                DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
-            )
-        );
+        // Store1 shouldn't have it yet
+        assert!(store1.get_timestamp_record(&key).unwrap().is_none());
+
+        // Add to store1
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+
+        // Now both store1 and store2 should have it (proving they're the same store instance)
+        assert!(store1.get_timestamp_record(&key).unwrap().is_some());
+        assert!(store2.get_timestamp_record(&key).unwrap().is_some());
     }
 
     #[tokio::test]
@@ -951,20 +954,18 @@ mod tests {
         };
 
         // Add event through first store
-        assert_eq!(
-            stores[0].handle_event_with_raw(&event).unwrap(),
-            DeduplicationResult::New
-        );
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
 
-        // All other stores should see it as duplicate (proving they're the same store)
-        for store in &stores[1..] {
-            assert_eq!(
-                store.handle_event_with_raw(&event).unwrap(),
-                DeduplicationResult::ConfirmedDuplicate(
-                    DeduplicationType::Timestamp,
-                    DeduplicationResultReason::SameEvent
-                )
-            );
+        // First store shouldn't have it yet
+        assert!(stores[0].get_timestamp_record(&key).unwrap().is_none());
+
+        // Add to first store
+        stores[0].put_timestamp_record(&key, &metadata).unwrap();
+
+        // All stores should now have it (proving they're all the same store instance)
+        for store in &stores {
+            assert!(store.get_timestamp_record(&key).unwrap().is_some());
         }
     }
 }
