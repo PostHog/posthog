@@ -55,13 +55,13 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "retrieve_revenue_analytics_property_values":
             result = self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)
             return tool_name, result
 
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         return [final_answer, retrieve_revenue_analytics_property_values]
@@ -82,7 +82,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
             values = find_values_for_revenue_analytics_property(property_name, self._team)
 
-        return self._format_property_values(values, sample_count=len(values))
+        return self._format_property_values(property_name, values, sample_count=len(values))
 
 
 class RevenueAnalyticsFilterNode(
