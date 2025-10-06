@@ -86,7 +86,7 @@ export function LemonTabs<T extends string | number>({
             data-attr={dataAttr}
         >
             <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
-                <div className="flex gap-x-4 md:gap-x-8">
+                <div className={cn('flex gap-x-4 md:gap-x-8', size === 'small' && 'md:gap-x-4')}>
                     {realTabs.map((tab) => {
                         const content = (
                             <>
