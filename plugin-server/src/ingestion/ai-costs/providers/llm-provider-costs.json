@@ -1777,6 +1777,14 @@
         }
     },
     {
+        "model": "gemini-flash-latest",
+        "provider": "gemini",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 0.0000025
+        }
+    },
+    {
         "model": "gemini-2.5-flash-lite",
         "provider": "gemini",
         "cost": {
