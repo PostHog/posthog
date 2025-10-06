@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
             model_name="notebook",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=255), null=True, blank=True, default=None
+                base_field=models.CharField(max_length=255), blank=True, default=list
             ),
         ),
     ]

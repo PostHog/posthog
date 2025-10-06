@@ -89,6 +89,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "content": content,
             "text_content": text_content,
             "title": None,
+            "tags": [],
             "version": 0,
             "created_at": mock.ANY,
             "created_by": response.json()["created_by"],
