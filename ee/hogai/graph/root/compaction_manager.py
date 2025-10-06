@@ -25,7 +25,7 @@ T = TypeVar("T", bound=AssistantMessageUnion)
 LangchainTools = Sequence[dict[str, Any] | type | Callable | BaseTool]
 
 
-class ConversationWindowManager(ABC):
+class ConversationCompactionManager(ABC):
     """
     Manages conversation window boundaries, message filtering, and summarization decisions.
     """
@@ -120,7 +120,7 @@ class ConversationWindowManager(ABC):
         raise NotImplementedError
 
 
-class AnthropicConversationWindowManager(ConversationWindowManager):
+class AnthropicConversationCompactionManager(ConversationCompactionManager):
     async def _get_token_count(
         self,
         model: ChatAnthropic,

@@ -32,13 +32,13 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
+from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.graph.root.tools.todo_write import TodoWriteTool
-from ee.hogai.graph.root.window_manager import AnthropicConversationWindowManager
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
+from ee.hogai.utils.helpers import insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -107,7 +107,7 @@ class RootNode(AssistantNode):
 
     def __init__(self, team: Team, user: User):
         super().__init__(team, user)
-        self._window_manager = AnthropicConversationWindowManager()
+        self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         # Add context messages on start of the conversation.
@@ -189,12 +189,6 @@ class RootNode(AssistantNode):
     @property
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.ROOT
-
-    def _is_first_turn(self, state: AssistantState) -> bool:
-        last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage):
-            return last_message == find_start_message(state.messages, start_id=state.start_id)
-        return False
 
     def _has_session_summarization_feature_flag(self) -> bool:
         """

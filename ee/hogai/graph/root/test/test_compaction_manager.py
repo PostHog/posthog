@@ -3,23 +3,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
+    BaseMessage,
     HumanMessage as LangchainHumanMessage,
 )
 from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-from ee.hogai.graph.root.window_manager import AnthropicConversationWindowManager
+from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
-class TestAnthropicConversationWindowManager(BaseTest):
+class TestAnthropicConversationCompactionManager(BaseTest):
     def setUp(self):
         super().setUp()
-        self.window_manager = AnthropicConversationWindowManager()
+        self.window_manager = AnthropicConversationCompactionManager()
 
     def test_find_window_boundary_basic(self):
         """Test finding window boundary with basic messages"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First message", id="1"),
             AssistantMessage(content="Response 1", id="2"),
             HumanMessage(content="Second message", id="3"),
@@ -32,7 +34,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
 
     def test_find_window_boundary_message_limit(self):
         """Test window boundary respects message count limit"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="Message 1", id="1"),
             AssistantMessage(content="Response 1", id="2"),
             HumanMessage(content="Message 2", id="3"),
@@ -47,7 +49,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
 
     def test_find_window_boundary_token_limit(self):
         """Test window boundary respects token limit"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="Short", id="1"),
             AssistantMessage(content="A" * 1000, id="2"),  # ~250 tokens
             HumanMessage(content="Message", id="3"),
@@ -60,7 +62,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
 
     def test_find_window_boundary_stops_at_human_or_assistant(self):
         """Test window boundary ensures it starts at human or assistant message"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First", id="1"),
             AssistantMessage(content="Response", id="2", tool_calls=[AssistantToolCall(id="t1", name="test", args={})]),
             AssistantToolCallMessage(content="Tool result", id="3", tool_call_id="t1"),
@@ -73,7 +75,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
 
     def test_get_messages_in_window_no_boundary(self):
         """Test getting messages when no boundary is set returns all messages"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First", id="1"),
             AssistantMessage(content="Second", id="2"),
             HumanMessage(content="Third", id="3"),
@@ -84,7 +86,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
 
     def test_get_messages_in_window_with_boundary(self):
         """Test getting messages from a specific boundary"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First", id="1"),
             AssistantMessage(content="Second", id="2"),
             HumanMessage(content="Third", id="3"),
@@ -98,7 +100,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
 
     def test_get_messages_in_window_boundary_not_found(self):
         """Test getting messages when boundary ID doesn't exist returns all messages"""
-        messages = [
+        messages: list[AssistantMessageUnion] = [
             HumanMessage(content="First", id="1"),
             AssistantMessage(content="Second", id="2"),
         ]
@@ -119,7 +121,7 @@ class TestAnthropicConversationWindowManager(BaseTest):
     async def test_should_compact_conversation(self, num_human_messages, token_count, should_compact):
         """Test conversation compaction decision based on message count and tokens"""
         # Create messages with the specified number of human messages
-        messages = []
+        messages: list[BaseMessage] = []
         for i in range(num_human_messages):
             messages.append(LangchainHumanMessage(content=f"Human message {i}"))
             if i < num_human_messages - 1:  # Don't add assistant message after last human
@@ -173,13 +175,10 @@ class TestAnthropicConversationWindowManager(BaseTest):
         mock_model = MagicMock()
         mock_model.get_num_tokens_from_messages = MagicMock(return_value=1234)
 
-        messages = [LangchainHumanMessage(content="Test")]
-        tools = []
+        messages: list[BaseMessage] = [LangchainHumanMessage(content="Test")]
         thinking_config = {"type": "enabled"}
 
-        result = await self.window_manager._get_token_count(
-            mock_model, messages, tools=tools, thinking_config=thinking_config
-        )
+        result = await self.window_manager._get_token_count(mock_model, messages, thinking_config=thinking_config)
 
         self.assertEqual(result, 1234)
-        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config, tools=tools)
+        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config)
