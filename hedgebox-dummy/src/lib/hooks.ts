@@ -1,16 +1,17 @@
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from './auth';
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+
+import { useAuth } from './auth'
 
 export const useAuthRedirect = (): void => {
-  const {  isLoading, user } = useAuth();
-  const router = useRouter();
+    const { isLoading, user } = useAuth()
+    const router = useRouter()
 
-  useEffect(() => {
-    console.log({isLoading, user})
-    if (!isLoading && !user) {
-      console.log('Redirecting to login');
-      router.push('/login');
-    }
-  }, [isLoading, user, router]);
-};
+    useEffect(() => {
+        console.log({ isLoading, user })
+        if (!isLoading && !user) {
+            console.log('Redirecting to login')
+            router.push('/login')
+        }
+    }, [isLoading, user, router])
+}
