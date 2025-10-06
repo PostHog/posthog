@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -36,7 +36,7 @@ function SceneTitlePanelButton(): JSX.Element | null {
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                     : setScenePanelOpen(!scenePanelOpen)
             }
-            icon={<IconEllipsis className="text-primary" />}
+            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
             tooltip={
                 !scenePanelOpen
                     ? 'Open Info & actions panel'
