@@ -3822,7 +3822,7 @@ export interface ExperimentHoldoutType {
     id: number | null
     name: string
     description: string | null
-    filters: FeatureFlagGroupType[]
+    filters: any
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null

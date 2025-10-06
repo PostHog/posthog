@@ -11606,12 +11606,7 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "filters": {
-                    "items": {
-                        "$ref": "#/definitions/FeatureFlagGroupType"
-                    },
-                    "type": "array"
-                },
+                "filters": {},
                 "id": {
                     "type": ["number", "null"]
                 },
@@ -12486,33 +12481,6 @@
                 }
             },
             "required": ["type"],
-            "type": "object"
-        },
-        "FeatureFlagGroupType": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": ["string", "null"]
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "rollout_percentage": {
-                    "type": ["number", "null"]
-                },
-                "sort_key": {
-                    "type": ["string", "null"]
-                },
-                "users_affected": {
-                    "type": "number"
-                },
-                "variant": {
-                    "type": ["string", "null"]
-                }
-            },
             "type": "object"
         },
         "FeaturePropertyFilter": {
