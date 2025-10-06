@@ -22,6 +22,9 @@ const meta: Meta<typeof ItemEvent> = {
             get: {},
         }),
     ],
+    parameters: {
+        mockDate: '2025-09-23',
+    },
 }
 export default meta
 

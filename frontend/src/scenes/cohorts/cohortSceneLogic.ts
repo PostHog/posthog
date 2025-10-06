@@ -1,5 +1,6 @@
-import { kea, key, path, props, selectors } from 'kea'
+import { kea, path, props, selectors } from 'kea'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +13,7 @@ import type { cohortSceneLogicType } from './cohortSceneLogicType'
 
 export const cohortSceneLogic = kea<cohortSceneLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    tabAwareScene(),
     path(['scenes', 'cohorts', 'cohortLogic']),
 
     selectors({
