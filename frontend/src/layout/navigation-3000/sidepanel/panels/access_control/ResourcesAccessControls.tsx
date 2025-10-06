@@ -28,6 +28,17 @@ import {
     resourcesAccessControlLogic,
 } from './resourcesAccessControlLogic'
 
+/**
+ * Returns the minimum allowed access level for a resource.
+ * Matches the backend minimum_access_level function in user_access_control.py
+ */
+const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
+    if (resource === 'action') {
+        return AccessControlLevel.Viewer
+    }
+    return null
+}
+
 const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === 'revenue_analytics') {
         return 'revenue analytics'
@@ -516,6 +527,30 @@ function ResourceAccessControlModal(props: {
         }))
     }
 
+    // Create options for the access level dropdown
+    const getLevelOptions = (
+        resource: APIScopeObject
+    ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
+        const minimumLevel = getMinimumAccessLevel(resource)
+        const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
+            availableLevels.map((level) => {
+                const isDisabled =
+                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                return {
+                    value: level as AccessControlLevel,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })
+
+        options.push({
+            value: null,
+            label: 'No override',
+        })
+
+        return options
+    }
+
     // Get appropriate title based on the type (member or role)
     const getModalTitle = (): string => {
         if (isEditMode) {
@@ -598,39 +633,22 @@ function ResourceAccessControlModal(props: {
                             Clear all
                         </Link>
                     </div>
-                    {resources.map((resource) => {
-                        const minimumLevel = resource === 'action' ? AccessControlLevel.Viewer : null
-                        const levelOptions = availableLevels.map((level) => {
-                            const isDisabled =
-                                minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
-                            return {
-                                value: level as AccessControlLevel,
-                                label: capitalizeFirstLetter(level ?? ''),
-                                disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
-                            }
-                        })
-                        levelOptions.push({
-                            value: null,
-                            label: 'No override',
-                        } as any)
-
-                        return (
-                            <div key={resource} className="flex gap-2 items-center justify-between">
-                                <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
-                                <div className="min-w-[8rem]">
-                                    <LemonSelect
-                                        placeholder="No override"
-                                        value={resourceLevels[resource]}
-                                        onChange={(newValue) =>
-                                            updateResourceLevel(resource, newValue as AccessControlLevel | null)
-                                        }
-                                        options={levelOptions}
-                                        disabled={!canEditRoleBasedAccessControls}
-                                    />
-                                </div>
+                    {resources.map((resource) => (
+                        <div key={resource} className="flex gap-2 items-center justify-between">
+                            <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
+                            <div className="min-w-[8rem]">
+                                <LemonSelect
+                                    placeholder="No override"
+                                    value={resourceLevels[resource]}
+                                    onChange={(newValue) =>
+                                        updateResourceLevel(resource, newValue as AccessControlLevel | null)
+                                    }
+                                    options={getLevelOptions(resource)}
+                                    disabled={!canEditRoleBasedAccessControls}
+                                />
                             </div>
-                        )
-                    })}
+                        </div>
+                    ))}
                 </div>
             </div>
         </LemonModal>
@@ -678,7 +696,7 @@ function DefaultResourceAccessControlModal(props: {
     const getLevelOptions = (
         resource: APIScopeObject
     ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
-        const minimumLevel = resource === 'action' ? AccessControlLevel.Viewer : null
+        const minimumLevel = getMinimumAccessLevel(resource)
         const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
             availableLevels.map((level) => {
                 const isDisabled =
