@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("CREATE EXTENSION ltree;", reverse_sql="DROP EXTENSION ltree;"),
+        migrations.RunSQL("CREATE EXTENSION IF NOT EXISTS ltree;", reverse_sql="DROP EXTENSION IF EXISTS ltree;"),
         migrations.CreateModel(
             name="DataWarehouseModelPath",
             fields=[

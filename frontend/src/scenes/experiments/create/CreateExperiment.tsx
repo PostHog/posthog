@@ -18,9 +18,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
+import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
-import { ExperimentTypePanel } from './panels/ExperimentTypePanel'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     return (

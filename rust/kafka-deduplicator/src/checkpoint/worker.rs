@@ -335,7 +335,9 @@ mod tests {
 
     use super::*;
     use crate::checkpoint::CheckpointConfig;
-    use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+    use crate::store::{
+        DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
+    };
 
     use common_types::RawEvent;
     use tempfile::TempDir;
@@ -394,7 +396,9 @@ mod tests {
 
         // Add an event to the store
         let event = create_test_event();
-        store.handle_event_with_raw(&event).unwrap();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -452,7 +456,9 @@ mod tests {
 
         // Add an event to the store
         let event = create_test_event();
-        store.handle_event_with_raw(&event).unwrap();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
 
         let partition = Partition::new("some_test_topic".to_string(), 0);
 

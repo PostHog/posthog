@@ -86,7 +86,7 @@ class Distributed:
 
     def __str__(self):
         # Evaluate cluster and database at call time, not at module import time
-        # This is critical for Python 3.12 where import order changed
+        # This is critical for test environments where settings are loaded after module imports
         cluster = self.cluster if self.cluster is not None else settings.CLICKHOUSE_CLUSTER
         database = settings.CLICKHOUSE_DATABASE
 
