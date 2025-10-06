@@ -78,7 +78,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { QueryEndpointModal } from 'products/embedded_analytics/frontend/QueryEndpointModal'
+import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
 
 import { getInsightIconTypeFromQuery } from './utils'
 
@@ -128,7 +128,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-    const [queryEndpointModalOpen, setQueryEndpointModalOpen] = useState<boolean>(false)
+    const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
 
     const dashboardOverridesExist =
         (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
@@ -206,9 +206,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
-                    <QueryEndpointModal
-                        isOpen={queryEndpointModalOpen}
-                        closeModal={() => setQueryEndpointModalOpen(false)}
+                    <EndpointModal
+                        isOpen={endpointModalOpen}
+                        closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
                         insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
                     />
@@ -360,10 +360,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] ? (
-                            <ButtonPrimitive onClick={() => setQueryEndpointModalOpen(true)} menuItem>
+                        {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
+                            <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
-                                Create query endpoint
+                                Create endpoint
                             </ButtonPrimitive>
                         ) : null}
 

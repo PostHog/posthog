@@ -465,9 +465,9 @@ importers:
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
-      '@posthog/products-embedded-analytics':
+      '@posthog/products-endpoints':
         specifier: workspace:*
-        version: link:../products/embedded_analytics
+        version: link:../products/endpoints
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../products/error_tracking
@@ -1705,7 +1705,7 @@ importers:
         specifier: '*'
         version: 18.2.0
 
-  products/embedded_analytics:
+  products/endpoints:
     dependencies:
       '@posthog/icons':
         specifier: 0.30.0
