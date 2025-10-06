@@ -218,8 +218,8 @@ export class SesWebhookHandler {
             const env = SnsEnvelopeSchema.parse(body)
             if (env.Type === 'Notification') {
                 const inner = parseJSON(env.Message)
-                const records = SesEventBatchSchema.parse(inner)
-                return { mode: 'sns', envelope: env, records }
+                const record = SesEventRecordSchema.parse(inner)
+                return { mode: 'sns', envelope: env, records: [record] }
             }
             // For non-Notification, return envelope; caller decides how to handle
             return { mode: 'sns', envelope: env }
