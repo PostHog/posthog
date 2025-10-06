@@ -390,3 +390,23 @@ class TestCohortDependencies(BaseTest):
             cache_type="dependents", result="hit"
         )._value._value
         self.assertEqual(dept_hits_after_second, dept_initial_hits + 1)
+
+    def test_warming_does_not_increment_counters(self):
+        """Verify that cache warming operations don't increment the counter metrics"""
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        cache.clear()
+
+        initial_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit")._value._value
+        initial_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss")._value._value
+
+        warm_team_cohort_dependency_cache(self.team.id)
+
+        # Verify counters did not increment during warming
+        final_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit")._value._value
+        final_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss")._value._value
+        self.assertEqual(final_hits, initial_hits)
+        self.assertEqual(final_misses, initial_misses)
