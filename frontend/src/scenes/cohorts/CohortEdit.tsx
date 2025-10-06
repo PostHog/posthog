@@ -36,10 +36,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { PersonType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
-import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
@@ -54,7 +53,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
             console.error('Expected record to be an array for person.$delete column')
             return <></>
         }
-        const personRecord = record[0] as PersonType
+        const personRecord = record[0] as PersonDisplayNameType
 
         return <RemovePersonFromCohortButton person={personRecord} cohortId={id as number} />
     }
