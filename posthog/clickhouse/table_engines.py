@@ -1,7 +1,7 @@
 import uuid
 from enum import StrEnum
 
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, E2E_TESTING, TEST
+from posthog import settings
 
 
 class ReplicationScheme(StrEnum):
@@ -48,7 +48,7 @@ class MergeTreeEngine:
             shard_key, replica_key = "noshard", "{replica}-{shard}"
 
         # ZK is not automatically cleaned up after DROP TABLE. Avoid zk path conflicts in tests by generating unique paths.
-        if (TEST or E2E_TESTING) and self.zookeeper_path_key is None or self.force_unique_zk_path:
+        if (settings.TEST or settings.E2E_TESTING) and self.zookeeper_path_key is None or self.force_unique_zk_path:
             self.set_zookeeper_path_key(str(uuid.uuid4()))
 
         if self.zookeeper_path_key is not None:
@@ -79,13 +79,18 @@ class AggregatingMergeTree(MergeTreeEngine):
 
 
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: str | None = None, cluster: str = CLICKHOUSE_CLUSTER):
+    def __init__(self, data_table: str, sharding_key: str | None = None, cluster: str | None = None):
         self.data_table = data_table
         self.sharding_key = sharding_key
         self.cluster = cluster
 
     def __str__(self):
-        if not self.sharding_key:
-            return f"Distributed('{self.cluster}', '{CLICKHOUSE_DATABASE}', '{self.data_table}')"
+        # Evaluate cluster and database at call time, not at module import time
+        # This is critical for Python 3.12 where import order changed
+        cluster = self.cluster if self.cluster is not None else settings.CLICKHOUSE_CLUSTER
+        database = settings.CLICKHOUSE_DATABASE
 
-        return f"Distributed('{self.cluster}', '{CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+        if not self.sharding_key:
+            return f"Distributed('{cluster}', '{database}', '{self.data_table}')"
+
+        return f"Distributed('{cluster}', '{database}', '{self.data_table}', {self.sharding_key})"
