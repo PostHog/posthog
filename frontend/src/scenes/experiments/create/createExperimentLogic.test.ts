@@ -26,6 +26,9 @@ describe('createExperimentLogic', () => {
     let routerPushSpy: jest.SpyInstance
 
     beforeEach(() => {
+        // Clear localStorage to prevent persisted state from affecting tests
+        localStorage.clear()
+
         useMocks({
             post: {
                 '/api/projects/@current/experiments': async (req) => {
