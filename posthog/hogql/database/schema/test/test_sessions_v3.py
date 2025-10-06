@@ -26,6 +26,8 @@ from posthog.models.utils import uuid7
 
 @snapshot_clickhouse_queries
 class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
+    snapshot_replace_all_numbers = True
+
     def __execute(
         self,
         query,

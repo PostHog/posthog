@@ -30,6 +30,8 @@ def create_session_id():
 
 @snapshot_clickhouse_queries
 class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
+    snapshot_replace_all_numbers = True
+
     def select_by_session_id(self, session_id):
         flush_persons_and_events()
         return query_with_columns(
