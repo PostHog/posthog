@@ -97,11 +97,11 @@ function getNamedQueryEndpointUrl(projectId: number | undefined, endpointName: s
 }
 
 function generateTerminalExample(
-    ndpointName: string | null,
+    endpointName: string | null,
     variables: Variable[],
     projectId: number | undefined
 ): string {
-    return `curl -X POST ${getNamedQueryEndpointUrl(projectId, ndpointName)} \\
+    return `curl -X POST ${getNamedQueryEndpointUrl(projectId, endpointName)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -300,7 +300,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                 </p>
                 <LemonField.Pure label="Endpoint name">
                     <LemonInput
-                        id={`query-endpoint-name-${tabId}`}
+                        id={`endpoint-name-${tabId}`}
                         type="text"
                         onChange={setEndpointName}
                         value={endpointName || ''}

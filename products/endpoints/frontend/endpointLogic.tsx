@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { NamedQueryRequest } from '~/queries/schema/schema-general'
 
+import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
@@ -16,7 +17,7 @@ export interface EndpointLogicProps {
     tabId: string
 }
 
-export const endpointLogic = kea([
+export const endpointLogic = kea<endpointLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointLogic']),
     props({} as EndpointLogicProps),
     key((props) => props.tabId),

@@ -79,7 +79,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     endpoints: {
         icon: <IconCode2 />,
-        iconColor: ['var(--color-product-endpoints-light', 'var(--color-product-endpoints-dark'],
+        iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
         icon: <IconServer />,

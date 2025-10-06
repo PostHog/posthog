@@ -7,6 +7,8 @@ import api from 'lib/api'
 import { NamedQueryLastExecutionTimesRequest } from '~/queries/schema/schema-general'
 import { EndpointType } from '~/types'
 
+import type { endpointsLogicType } from './endpointsLogicType'
+
 export interface EndpointsFilters {
     search: string
 }
@@ -19,7 +21,7 @@ export interface EndpointsLogicProps {
     tabId: string
 }
 
-export const endpointsLogic = kea([
+export const endpointsLogic = kea<endpointsLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsLogic']),
     props({} as EndpointsLogicProps),
     key((props) => props.tabId),

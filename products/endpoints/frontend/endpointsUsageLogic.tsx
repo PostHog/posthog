@@ -21,6 +21,7 @@ import {
     INITIAL_DATE_TO,
     INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED,
 } from './common'
+import type { endpointsUsageLogicType } from './endpointsUsageLogicType'
 import {
     createApiCpuSecondsQuery,
     createApiQueriesCountQuery,
@@ -38,7 +39,7 @@ export interface EndpointsUsageLogicProps {
     tabId: string
 }
 
-export const endpointsUsageLogic = kea([
+export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsUsageLogic']),
     props({} as EndpointsUsageLogicProps),
     key((props) => props.tabId),
