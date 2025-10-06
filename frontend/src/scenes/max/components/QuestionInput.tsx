@@ -55,7 +55,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const { conversation, threadLoading, inputDisabled, submissionDisabledReason, isSharedThread, deepResearchMode } =
+        useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
@@ -103,28 +104,32 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        <div className="pt-1">
-                            {!isThreadVisible ? (
-                                <div className="flex items-start justify-between">
+                        {!isSharedThread && (
+                            <div className="pt-1">
+                                {!isThreadVisible ? (
+                                    <div className="flex items-start justify-between">
+                                        <ContextDisplay size={contextDisplaySize} />
+                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                    </div>
+                                ) : (
                                     <ContextDisplay size={contextDisplaySize} />
-                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                                </div>
-                            ) : (
-                                <ContextDisplay size={contextDisplaySize} />
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
-                                value={question}
-                                onChange={setQuestion}
+                                value={isSharedThread ? '' : question}
+                                onChange={(value) => setQuestion(value)}
                                 placeholder={
-                                    threadLoading
-                                        ? 'Thinking…'
-                                        : isThreadVisible
-                                          ? placeholder || 'Ask follow-up (/ for commands)'
-                                          : 'Ask away (/ for commands)'
+                                    conversation && isSharedThread
+                                        ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        : threadLoading
+                                          ? 'Thinking…'
+                                          : isThreadVisible
+                                            ? placeholder || 'Ask follow-up (/ for commands)'
+                                            : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -140,10 +145,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
                     </div>
                     <div
-                        className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isThreadVisible,
-                            'bottom-[7px] right-2': !isThreadVisible,
-                        })}
+                        className={clsx(
+                            'absolute flex items-center',
+                            isThreadVisible ? 'bottom-[11px] right-3' : 'bottom-[7px] right-2',
+                            isSharedThread && 'hidden' // Submit not available at all for shared threads
+                        )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
@@ -194,13 +200,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay
-                    isFloating={isThreadVisible}
-                    tools={tools}
-                    bottomActions={bottomActions}
-                    deepResearchMode={deepResearchMode}
-                />
-                {showDeepResearchModeToggle && (
+                {!isSharedThread && (
+                    <ToolsDisplay
+                        isFloating={isThreadVisible}
+                        tools={tools}
+                        bottomActions={bottomActions}
+                        deepResearchMode={deepResearchMode}
+                    />
+                )}
+                {!isSharedThread && showDeepResearchModeToggle && (
                     <div className="flex justify-end gap-1 w-full p-1">
                         <LemonSwitch
                             checked={deepResearchMode}
