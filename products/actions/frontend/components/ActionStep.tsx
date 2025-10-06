@@ -27,7 +27,6 @@ interface Props {
     index: number
     identifier: string
     disabledReason?: string
-    disabled?: boolean
     onDelete: () => void
     onChange: (step: ActionStepType) => void
 }
@@ -39,7 +38,6 @@ export function ActionStep({
     index,
     identifier,
     disabledReason,
-    disabled = false,
     onDelete,
     onChange,
 }: Props): JSX.Element {
@@ -66,7 +64,7 @@ export function ActionStep({
                             size="small"
                             aria-label="delete"
                             onClick={onDelete}
-                            disabled={disabled}
+                            disabledReason={disabledReason}
                         />
                     )}
                 </div>
@@ -93,7 +91,7 @@ export function ActionStep({
                             }
                             placeholder="All events"
                             allEventsOption="explicit"
-                            disabled={disabled}
+                            disabled={!!disabledReason}
                         />
 
                         <small>
@@ -119,7 +117,7 @@ export function ActionStep({
                                 />
                             }
                             label="URL"
-                            disabled={disabled}
+                            disabledReason={disabledReason}
                         />
                         {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                             <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
@@ -157,7 +155,7 @@ function Option({
     placeholder = 'Specify a value to match on this',
     caption,
     labelExtra: extra_options,
-    disabled = false,
+    disabledReason,
 }: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
@@ -166,7 +164,7 @@ function Option({
     labelExtra?: JSX.Element | string
     placeholder?: string
     caption?: JSX.Element | string
-    disabled?: boolean
+    disabledReason?: string
 }): JSX.Element {
     const onOptionChange = (val: string): void => {
         sendStep({
@@ -188,7 +186,7 @@ function Option({
                 onChange={onOptionChange}
                 value={step[item] || ''}
                 placeholder={placeholder}
-                disabled={disabled}
+                disabledReason={disabledReason}
             />
         </div>
     )
@@ -259,7 +257,7 @@ function AutocaptureFields({
                     />
                 }
                 label="Element text"
-                disabled={!!disabledReason}
+                disabledReason={disabledReason}
             />
             <AndSeparator />
             <Option
@@ -281,7 +279,7 @@ function AutocaptureFields({
                         matched.
                     </>
                 }
-                disabled={!!disabledReason}
+                disabledReason={disabledReason}
             />
             {step['tag_name'] ? (
                 <>
@@ -298,7 +296,7 @@ function AutocaptureFields({
                                 instead. This field will disappear when cleared.
                             </span>
                         }
-                        disabled={!!disabledReason}
+                        disabledReason={disabledReason}
                     />
                 </>
             ) : undefined}
@@ -315,7 +313,7 @@ function AutocaptureFields({
                         <Link to={`${learnMoreLink}#matching-selectors`}>Learn more in Docs.</Link>
                     </span>
                 }
-                disabled={!!disabledReason}
+                disabledReason={disabledReason}
             />
             <AndSeparator />
             <Option
@@ -332,7 +330,7 @@ function AutocaptureFields({
                 }
                 label="Page URL"
                 caption="The page on which the interaction occurred."
-                disabled={!!disabledReason}
+                disabledReason={disabledReason}
             />
             {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                 <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
