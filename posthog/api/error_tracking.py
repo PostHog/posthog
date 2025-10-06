@@ -436,12 +436,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return earliest_timestamp, latest_timestamp
 
     def _serialize_issues_to_similar_issues(
-        self, issues, library_data: dict[str, str], distance_data: dict[str, float] | None = None
+        self, issues, library_data: dict[str, str], distance_data: dict[str, float]
     ):
         """Serialize ErrorTrackingIssue objects to similar issues format."""
-
-        if distance_data is None:
-            distance_data = {}
 
         return [
             {
@@ -461,8 +458,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         min_distance_threshold: float,
         model_name: str,
         embedding_version: int,
-    ) -> tuple[list[str], dict[str, float]]:
-        """Process all embeddings to find similar fingerprints and return top 10 most similar with distances."""
+    ) -> dict[str, float]:
+        """Process all embeddings to find similar fingerprints and return dict mapping fingerprints to distances."""
         similar_fingerprints = []
 
         # Search for similarities across all embeddings from the current issue
@@ -483,7 +480,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 similar_fingerprints.append((fingerprint, distance))
 
         if not similar_fingerprints or len(similar_fingerprints) == 0:
-            return [], {}
+            return {}
 
         # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
         fingerprint_best_distance: dict[str, float] = {}
@@ -492,14 +489,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 fingerprint_best_distance[fingerprint] = distance
 
         if not fingerprint_best_distance or len(fingerprint_best_distance) == 0:
-            return [], {}
+            return {}
 
         # Sort by distance (ascending - smaller distance = more similar) and take top 10
         sorted_fingerprint_best_distance = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
-        all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_fingerprint_best_distance]
-        fingerprint_distance_map = dict(sorted_fingerprint_best_distance)
 
-        return all_similar_fingerprints, fingerprint_distance_map
+        return dict(sorted_fingerprint_best_distance)
 
     @action(methods=["GET"], detail=True)
     def similar_issues(self, request: request.Request, **kwargs):
@@ -522,12 +517,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issue_embeddings or len(issue_embeddings) == 0:
             return Response([])
 
-        similar_fingerprints, fingerprint_distance_map = self._process_embeddings_for_similarity(
+        fingerprint_distance_map = self._process_embeddings_for_similarity(
             issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
         )
 
-        if not similar_fingerprints or len(similar_fingerprints) == 0:
+        if not fingerprint_distance_map:
             return Response([])
+
+        similar_fingerprints = list(fingerprint_distance_map.keys())
 
         # Get issue IDs that have these fingerprints
         fingerprint_issue_pairs = ErrorTrackingIssueFingerprintV2.objects.filter(
