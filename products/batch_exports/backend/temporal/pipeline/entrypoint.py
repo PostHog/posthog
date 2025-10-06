@@ -1,3 +1,4 @@
+import typing
 import datetime as dt
 import collections.abc
 
@@ -7,7 +8,7 @@ from temporalio import exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportInsertInputs
+from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -21,12 +22,34 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 
 LOGGER = get_write_only_logger(__name__)
 
-BatchExportInsertActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
+
+class _BatchExportInputsProtocol(typing.Protocol):
+    team_id: int
+    data_interval_start: str | None
+    data_interval_end: str
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    run_id: str | None = None
+    backfill_details: BackfillDetails | None = None
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
+    is_backfill: bool = False
+    batch_export_id: str | None = None
+    destination_default_fields: list[BatchExportField] | None = None
+
+
+class _ComposedBatchExportInputsProtocol(typing.Protocol):
+    batch_export: _BatchExportInputsProtocol
+
+
+InputsType = typing.TypeVar("InputsType", bound=_ComposedBatchExportInputsProtocol)
+
+BatchExportInsertActivity = collections.abc.Callable[[InputsType], collections.abc.Awaitable[BatchExportResult]]
 
 
 async def execute_batch_export_using_internal_stage(
     activity: BatchExportInsertActivity,
-    inputs: BatchExportInsertInputs,
+    inputs: InputsType,
     interval: str,
     heartbeat_timeout_seconds: int | None = 180,
     maximum_attempts: int = 0,
@@ -57,8 +80,6 @@ async def execute_batch_export_using_internal_stage(
     """
     get_export_started_metric().add(1)
 
-    assert inputs.run_id is not None
-    assert inputs.batch_export_id is not None
     finish_inputs = FinishBatchExportRunInputs(
         id=inputs.run_id,
         batch_export_id=inputs.batch_export_id,

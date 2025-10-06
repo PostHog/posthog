@@ -1948,5 +1948,13 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
 )
 def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
-    result = get_s3_key(inputs)
+    result = get_s3_key(
+        inputs.prefix,
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+        inputs.batch_export_model,
+        inputs.file_format,
+        inputs.file_number,
+        inputs.compression,
+    )
     assert result == expected

@@ -1,3 +1,4 @@
+import json
 import typing
 import datetime as dt
 import collections.abc
@@ -202,11 +203,61 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
         self.port = int(self.port)
 
 
+IAMRole = str
+
+
+@dataclass
+class Credentials:
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+
+@dataclass
+class RedshiftCopyInputs:
+    s3_bucket: str
+    region_name: str
+    authorization: IAMRole | Credentials
+    # TODO: Also support RBAC for bucket export
+    bucket_credentials: Credentials
+
+
 @dataclass(kw_only=True)
-class RedshiftBatchExportInputs(PostgresBatchExportInputs):
+class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
+    user: str
+    password: str
+    host: str
+    database: str
+    schema: str = "public"
+    table_name: str = "events"
+    port: int = 5439
     properties_data_type: str = "varchar"
+    mode: typing.Literal["COPY", "INSERT"] = "INSERT"
+    copy_inputs: RedshiftCopyInputs | None = None
+
+    def __post_init__(self):
+        if self.copy_inputs is not None:
+            raw_inputs = json.loads(self.copy_inputs)
+            bucket_credentials = Credentials(
+                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
+                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
+            )
+
+            if isinstance(raw_inputs["authorization"], str):
+                authorization: IAMRole | Credentials = raw_inputs["authorization"]
+            else:
+                authorization = Credentials(
+                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
+                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                )
+
+            self.copy_inputs = RedshiftCopyInputs(
+                s3_bucket=raw_inputs["s3_bucket"],
+                region_name=raw_inputs["region_name"],
+                authorization=authorization,
+                bucket_credentials=bucket_credentials,
+            )
 
 
 @dataclass(kw_only=True)
