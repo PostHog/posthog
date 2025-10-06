@@ -25,10 +25,13 @@ import {
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportSceneLogic } from './BatchExportScene'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
 
 export function BatchExportConfiguration(): JSX.Element {
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
     const {
         isNew,
         batchExportConfigTest,

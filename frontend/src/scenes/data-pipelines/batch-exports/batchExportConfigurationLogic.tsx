@@ -507,7 +507,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
 }
 
 export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
-    props({} as BatchExportConfigurationLogicProps),
+    props({ id: null, service: null } as BatchExportConfigurationLogicProps),
     key(({ service, id }: BatchExportConfigurationLogicProps) => {
         if (id) {
             return `ID:${id}`

@@ -2,11 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportSceneLogic } from './BatchExportScene'
+import {
+    BatchExportConfigurationLogicProps,
+    batchExportConfigurationLogic,
+    getDefaultConfiguration,
+} from './batchExportConfigurationLogic'
 
 export function BatchExportConfigurationSaveButton(): JSX.Element {
-    const { isNew, isConfigurationSubmitting, configurationChanged } = useValues(batchExportConfigurationLogic)
-    const { submitConfiguration } = useActions(batchExportConfigurationLogic)
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
+    const { isNew, isConfigurationSubmitting, configurationChanged } = useValues(logic)
+    const { submitConfiguration } = useActions(logic)
     return (
         <LemonButton
             type="primary"
