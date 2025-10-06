@@ -236,7 +236,7 @@ type ProductIconWrapperProps = {
 }
 
 export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIconWrapperProps): JSX.Element => {
-    const [lightColor, darkColor] = getIconColor(type, colorOverride)
+    const [light, dark] = getIconColor(type, colorOverride)
 
     // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
     return (
@@ -244,12 +244,10 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
             className="flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                (colorOverride
-                    ? { '--product-icon-color-light': colorOverride[0], '--product-icon-color-dark': colorOverride[1] }
-                    : {
-                          '--product-icon-color-light': lightColor,
-                          '--product-icon-color-dark': darkColor,
-                      }) as CSSProperties
+                {
+                    '--product-icon-color-light': light,
+                    '--product-icon-color-dark': dark,
+                } as CSSProperties
             }
         >
             {children}
