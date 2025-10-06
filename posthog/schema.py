@@ -2810,6 +2810,7 @@ class UserBasicType(BaseModel):
     id: float
     is_email_verified: Optional[Any] = None
     last_name: Optional[str] = None
+    role_at_organization: Optional[str] = None
     uuid: str
 
 
@@ -3851,7 +3852,7 @@ class ExperimentHoldoutType(BaseModel):
     created_at: Optional[str] = None
     created_by: Optional[UserBasicType] = None
     description: Optional[str] = None
-    filters: dict[str, Any]
+    filters: Any
     id: Optional[float] = None
     name: str
     updated_at: Optional[str] = None

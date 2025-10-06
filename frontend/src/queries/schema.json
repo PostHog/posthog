@@ -11606,9 +11606,7 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "filters": {
-                    "type": "object"
-                },
+                "filters": {},
                 "id": {
                     "type": ["number", "null"]
                 },
@@ -25776,6 +25774,9 @@
                 "is_email_verified": {},
                 "last_name": {
                     "type": "string"
+                },
+                "role_at_organization": {
+                    "type": ["string", "null"]
                 },
                 "uuid": {
                     "type": "string"

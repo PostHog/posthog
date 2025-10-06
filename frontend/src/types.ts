@@ -314,6 +314,7 @@ interface UserBaseType {
     first_name: string
     last_name?: string
     email: string
+    role_at_organization?: string | null
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -3821,7 +3822,7 @@ export interface ExperimentHoldoutType {
     id: number | null
     name: string
     description: string | null
-    filters: Record<string, any>
+    filters: any
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
