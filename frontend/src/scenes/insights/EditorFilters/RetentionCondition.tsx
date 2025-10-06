@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { toast } from 'react-toastify'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { toast } from 'react-toastify'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -54,18 +56,23 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
             />
             <LemonSelect
                 options={Object.entries(retentionOptions).map(([key, value]) => ({
-                    label: value,
                     value: key,
-                    element: (
-                        <>
-                            {value}
-                            <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                                <IconInfo className="info-indicator" />
+                    label: value,
+                    labelInMenu: (
+                        <div className="flex items-center justify-between w-full">
+                            <Tooltip
+                                placement="right"
+                                title={retentionOptionDescriptions[key as keyof typeof retentionOptionDescriptions]}
+                            >
+                                <div className="flex items-center gap-1">
+                                    <span>{value}</span>
+                                    <IconInfo className="info-indicator" />
+                                </div>
                             </Tooltip>
-                        </>
+                        </div>
                     ),
                 }))}
-                value={retentionType ? retentionOptions[retentionType] : undefined}
+                value={retentionType}
                 onChange={(value): void => updateInsightFilter({ retentionType: value as RetentionType })}
                 dropdownMatchSelectWidth={false}
             />

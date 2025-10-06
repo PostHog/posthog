@@ -5,7 +5,7 @@
     top: 0;
     z-index: var(--z-top-navigation);
     display: flex;
-    align-items: start;
+    align-items: flex-start;
     height: var(--breadcrumbs-height-full);
     white-space: nowrap;
     pointer-events: none;
@@ -17,22 +17,29 @@
 }
 
 .TopBar3000__content {
+    --total-height: calc(
+        (
+            var(--breadcrumbs-height-full) - (var(--breadcrumbs-height-full) - var(--breadcrumbs-height-compact)) *
+                var(--breadcrumbs-compaction-rate)
+        )
+    );
+    --content-padding: calc(var(--total-height) * 0.1);
+    --content-height: calc(var(--total-height) - 2 * var(--content-padding));
+    --content-font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
+
     display: flex;
     gap: 0.5rem;
     align-items: center;
     width: 100%;
-    height: calc(
-        var(--breadcrumbs-height-full) - (var(--breadcrumbs-height-full) - var(--breadcrumbs-height-compact)) *
-            var(--breadcrumbs-compaction-rate)
-    );
+    height: var(--total-height);
     padding: 0 1rem;
-    font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
+    font-size: var(--content-font-size);
     font-weight: 600;
     line-height: 1rem;
     pointer-events: auto;
-    background: var(--bg-surface-secondary);
+    background: var(--color-bg-surface-secondary);
     backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
 }
 
 .TopBar3000__hamburger {
@@ -47,49 +54,57 @@
 }
 
 .TopBar3000__trail {
+    // From 0.5 to 1
+    --trail-ratio: calc(0.45 + (1 - 0.45) * var(--breadcrumbs-compaction-rate));
+    --trail-height: calc(var(--content-height) * var(--trail-ratio));
+
+    box-sizing: border-box;
     display: flex;
     align-items: center;
-    margin-top: calc(0.25rem * (1 - var(--breadcrumbs-compaction-rate)));
-    overflow: visible;
 
-    .TopBar3000:not(.TopBar3000--compact) & {
-        // 1rem of trail height ensures nice tight spacing in the full or transitioning state,
-        // but we don't want it in the compact state, as it causes title edit buttons to be cut off at top&bottom
-        height: 1rem;
-    }
+    // Transition from compact-height to full-height
+    height: var(--trail-height);
+    overflow: visible;
 }
 
 .TopBar3000__here {
+    // From 0.5 to 0
+    --here-ratio: calc(0.55 + (0 - 0.55) * var(--breadcrumbs-compaction-rate));
+    --here-height: calc(var(--content-height) * var(--here-ratio));
+
     position: relative;
     box-sizing: content-box;
-    height: calc(1.2em * (1 - var(--breadcrumbs-compaction-rate)));
-    padding: calc(0.5rem * (1 - var(--breadcrumbs-compaction-rate))) 0 0;
+    height: var(--here-height);
     margin: 0;
     overflow: hidden;
     font-family: var(--font-sans) !important;
     font-size: 1rem;
     font-weight: 700;
-    line-height: 1.2;
+    line-height: var(--here-height);
 
-    .TopBar3000--compact & {
+    .TopBar3000--full & {
         // It wouldn't be necessary to set visibility, but for some reason without this positioning
         // of breadcrumbs becomes borked when entering title editing mode
-        visibility: hidden;
+        overflow: visible;
     }
 
     > * {
         position: absolute;
-        bottom: 0.25rem;
-        height: 1.2em;
+
+        // Align middle and follow transition
+        bottom: calc(50%);
+        transform: translateY(calc(50% * (1 - var(--breadcrumbs-compaction-rate))));
     }
 }
 
 .TopBar3000__breadcrumb {
+    position: relative;
     display: flex;
     flex-shrink: 0;
     align-items: center;
+    height: 100%;
     overflow: hidden;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     white-space: pre;
     cursor: default;
 
@@ -105,14 +120,24 @@
     .LemonTag--default {
         font-weight: 600; // Aligning with breadcrumb font-weightq
         text-transform: uppercase; // Increase readability at tiny size
-        border-color: var(--text-secondary); // The default is --border, which is invisible on the top bar's background
+
+        // The default is --border, which is invisible on the top bar's background
+        border-color: var(--color-text-secondary);
         opacity: var(--opacity-disabled);
     }
 
     &.TopBar3000__breadcrumb--here {
         flex-shrink: 1;
+        min-width: 200px;
+
+        // Increase height progressively to make it appear higher
+        height: calc(1rem + (var(--trail-height) - 1rem) * var(--breadcrumbs-compaction-rate));
         color: var(--text-3000);
         cursor: default;
+
+        .TopBar3000--compact & {
+            overflow: visible;
+        }
 
         .TopBar3000--full & {
             // It wouldn't be necessary to set visibility, but for some reason without this positioning
@@ -121,7 +146,10 @@
         }
 
         > * {
-            transform: translateY(calc(100% * (1 - var(--breadcrumbs-compaction-rate))));
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(calc(50% * (1 - 2 * var(--breadcrumbs-compaction-rate))));
         }
     }
 
@@ -140,13 +168,11 @@
 }
 
 .TopBar3000__separator {
+    display: flex;
     flex-shrink: 0;
-    margin: 0 0.5rem;
+    align-items: center;
+    margin: 0 0.1rem;
     opacity: 0.5;
-
-    &::after {
-        content: '/';
-    }
 }
 
 .TopBar3000__more {

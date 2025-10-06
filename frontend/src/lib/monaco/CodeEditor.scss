@@ -4,9 +4,13 @@
         display: block !important;
     }
 
-    .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left > .signature-label {
+    .suggest-widget .monaco-list .monaco-list-row > .contents > .main {
         width: 100%;
-        text-align: right;
+
+        .left > .signature-label {
+            width: 100%;
+            text-align: right;
+        }
     }
 }
 

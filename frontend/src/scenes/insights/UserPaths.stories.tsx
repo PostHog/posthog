@@ -1,7 +1,9 @@
+import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
+
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -43,9 +45,4 @@ export const UserPaths: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
 )
 UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
-export const UserPathsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
-    'edit'
-)
-UserPathsEdit.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
 /* eslint-enable @typescript-eslint/no-var-requires */

@@ -1,14 +1,45 @@
 import { StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { InsightModel } from '~/types'
+import { InsightVizNode, Node } from '~/queries/schema/schema-general'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { QueryBasedInsightModel } from '~/types'
+
+function setLegendFilter(query: Node | null | undefined, showLegend: boolean): Node | null | undefined {
+    if (!isInsightVizNode(query)) {
+        return query
+    }
+
+    if (isTrendsQuery(query.source)) {
+        return {
+            ...query,
+            source: {
+                ...query.source,
+                trendsFilter: { ...query.source.trendsFilter, showLegend },
+            },
+        } as InsightVizNode
+    } else if (isLifecycleQuery(query.source)) {
+        return {
+            ...query,
+            source: { ...query.source, lifecycleFilter: { ...query.source.lifecycleFilter, showLegend } },
+        } as InsightVizNode
+    } else if (isStickinessQuery(query.source)) {
+        return {
+            ...query,
+            source: { ...query.source, stickinessFilter: { ...query.source.stickinessFilter, showLegend } },
+        } as InsightVizNode
+    }
+
+    return query
+}
 
 let shortCounter = 0
 export function createInsightStory(
-    insight: Partial<InsightModel>,
+    insight: Partial<QueryBasedInsightModel>,
     mode: 'view' | 'edit' = 'view',
     showLegend: boolean = false
 ): StoryFn<typeof App> {
@@ -27,10 +58,7 @@ export function createInsightStory(
                                 ...insight,
                                 short_id: `${insight.short_id}${count}`,
                                 id: (insight.id ?? 0) + 1 + count,
-                                filters: {
-                                    ...insight.filters,
-                                    show_legend: showLegend,
-                                },
+                                query: setLegendFilter(insight.query, showLegend),
                             },
                         ],
                     }),
@@ -52,9 +80,9 @@ export function createInsightStory(
             },
         })
 
-        useEffect(() => {
+        useOnMountEffect(() => {
             router.actions.push(`/insights/${insight.short_id}${count}${mode === 'edit' ? '/edit' : ''}`)
-        }, [])
+        })
 
         return <App />
     }

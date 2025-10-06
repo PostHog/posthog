@@ -1,74 +1,65 @@
-import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { TrendsFormulaNode } from '~/queries/schema/schema-general'
 import { EditorFilterProps } from '~/types'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/
 
 export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { formula, formulas, hasFormula } = useValues(insightVizDataLogic(insightProps))
+    const { formulaNodes, hasFormula } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     // Initialize with at least one empty value
-    const [values, setValues] = useState<string[]>(formulas || (formula ? [formula] : ['']))
-    const [localValues, setLocalValues] = useState<string[]>(values)
+    const [values, setValues] = useState<TrendsFormulaNode[]>(formulaNodes)
+    const [localValues, setLocalValues] = useState<TrendsFormulaNode[]>(values)
 
     useEffect(() => {
         // Don't clear the formulas so that the values are still there after toggling the formula switch
-        if (formulas) {
-            setValues(formulas)
+        if (formulaNodes) {
+            setValues(formulaNodes)
             // Merge incoming formulas with existing local fields, maintaining order
             setLocalValues((prev) => {
                 const newValues = [...prev]
                 // Update existing non-empty fields with backend values
                 let backendIndex = 0
-                for (let i = 0; i < newValues.length && backendIndex < formulas.length; i++) {
-                    if (newValues[i].trim() !== '') {
-                        newValues[i] = formulas[backendIndex]
+                for (let i = 0; i < newValues.length && backendIndex < formulaNodes.length; i++) {
+                    if (newValues[i].formula.trim() !== '') {
+                        newValues[i] = formulaNodes[backendIndex]
                         backendIndex++
                     }
-                }
-                return newValues
-            })
-        } else if (formula) {
-            setValues([formula])
-            // Merge single formula with existing local fields, maintaining order
-            setLocalValues((prev) => {
-                const newValues = [...prev]
-                // Update first non-empty field with formula
-                const firstNonEmptyIndex = newValues.findIndex((v) => v.trim() !== '')
-                if (firstNonEmptyIndex >= 0) {
-                    newValues[firstNonEmptyIndex] = formula
                 }
                 return newValues
             })
         } else if (hasFormula) {
             // Always ensure at least one empty value when formula mode is enabled
             if (values.length === 0) {
-                setValues([''])
-                setLocalValues([''])
+                const emptyNode = { formula: '' }
+                setValues([emptyNode])
+                setLocalValues([emptyNode])
             }
         }
-    }, [formula, formulas, hasFormula])
+    }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const updateFormulas = (newValues: string[]): void => {
+    const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
         // Filter out empty values when updating the query but keep them in local state
-        const filledValues = newValues.filter((v) => v.trim() !== '')
+        const filledValues = newValues.filter((v) => v.formula.trim() !== '')
         if (filledValues.length === 0) {
             return
         }
 
-        if (filledValues.length === 1) {
-            // If there's only one formula, use the legacy formula field for backwards compatibility
-            updateInsightFilter({ formula: filledValues[0], formulas: undefined })
-        } else {
-            // If there are multiple formulas, use the new formulas field
-            updateInsightFilter({ formula: undefined, formulas: filledValues })
-        }
+        // Always use formulaNodes for consistency
+        updateInsightFilter({
+            formula: undefined,
+            formulas: undefined,
+            formulaNodes: filledValues,
+        })
     }
 
     const handleFormulaChange = (index: number, value: string): void => {
@@ -79,7 +70,13 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
             .split('')
             .filter((d) => ALLOWED_FORMULA_CHARACTERS.test(d))
             .join('')
-        newValues[index] = changedValue
+        newValues[index] = { ...newValues[index], formula: changedValue }
+        setLocalValues(newValues)
+    }
+
+    const handleCustomNameChange = (index: number, value: string): void => {
+        const newValues = [...localValues]
+        newValues[index] = { ...newValues[index], custom_name: value }
         setLocalValues(newValues)
     }
 
@@ -87,14 +84,17 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
         // Ignore TrendsFormulaLabel switch click to prevent conflicting updateInsightFilter calls
         if ((e.relatedTarget as HTMLElement | undefined)?.id !== 'trends-formula-switch') {
             // Only update if the current field has content
-            if (localValues[index].trim() !== '') {
+            if (localValues[index].formula.trim() !== '') {
                 updateFormulas(localValues)
             }
         }
     }
 
-    const handleFormulaFocus = (): void => {
-        // No longer update formulas on focus
+    const handleCustomNameBlur = (index: number): void => {
+        // Only update if the current field has a formula with content
+        if (localValues[index].formula.trim() !== '') {
+            updateFormulas(localValues)
+        }
     }
 
     const handleFormulaEnter = (): void => {
@@ -102,18 +102,18 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     }
 
     const addFormula = (): void => {
-        setLocalValues([...localValues, ''])
+        setLocalValues([...localValues, { formula: '' }])
     }
 
     const removeFormula = (index: number): void => {
         const newValues = localValues.filter((_, i) => i !== index)
         // Always ensure at least one empty value
         if (newValues.length === 0) {
-            newValues.push('')
+            newValues.push({ formula: '' })
         }
         setLocalValues(newValues)
         // Only update if there are non-empty values
-        if (newValues.some((v) => v.trim() !== '')) {
+        if (newValues.some((v) => v.formula.trim() !== '')) {
             updateFormulas(newValues)
         }
     }
@@ -121,26 +121,36 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     return hasFormula ? (
         <div className="deprecated-space-y-2">
             {localValues.map((value, index) => (
-                <div key={index} className="flex items-center gap-2">
-                    <LemonInput
-                        className="flex-1"
-                        placeholder="Example: (A + B) / 100"
-                        size="small"
-                        autoFocus={index === localValues.length - 1}
-                        value={value}
-                        onChange={(value) => handleFormulaChange(index, value)}
-                        onBlur={(e) => handleFormulaBlur(index, e)}
-                        onFocus={handleFormulaFocus}
-                        onPressEnter={handleFormulaEnter}
-                    />
-                    {localValues.length > 1 && (
-                        <LemonButton
-                            icon={<IconMinusSmall />}
-                            status="alt"
-                            onClick={() => removeFormula(index)}
-                            title="Remove formula"
+                <div key={index} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            className="flex-1"
+                            placeholder="Example: (A + B) / 100"
+                            size="small"
+                            autoFocus={index === localValues.length - 1}
+                            value={value.formula}
+                            onChange={(value) => handleFormulaChange(index, value)}
+                            onBlur={(e) => handleFormulaBlur(index, e)}
+                            onPressEnter={handleFormulaEnter}
                         />
-                    )}
+                        <LemonInput
+                            className="flex-1"
+                            placeholder="Formula name (optional)"
+                            size="small"
+                            value={value.custom_name || ''}
+                            onChange={(value) => handleCustomNameChange(index, value)}
+                            onBlur={() => handleCustomNameBlur(index)}
+                            onPressEnter={handleFormulaEnter}
+                        />
+                        {localValues.length > 1 && (
+                            <LemonButton
+                                icon={<IconTrash />}
+                                status="alt"
+                                onClick={() => removeFormula(index)}
+                                title="Remove formula"
+                            />
+                        )}
+                    </div>
                 </div>
             ))}
             <div>

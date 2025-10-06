@@ -7,11 +7,7 @@ from posthog.async_migrations.runner import (
     start_async_migration,
     update_migration_progress,
 )
-from posthog.async_migrations.utils import (
-    force_stop_migration,
-    process_error,
-    trigger_migration,
-)
+from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
 from posthog.models.instance_setting import get_instance_setting
 
 

@@ -1,19 +1,21 @@
+from uuid import UUID
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Prefetch
-from django.conf import settings
+
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
-from posthog.settings import TEST
-from uuid import UUID
-from posthog.warehouse.util import database_sync_to_async
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.sync import database_sync_to_async
 
 
-class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
     class PipelineVersion(models.TextChoices):
         V1 = "v1-dlt-sync", "v1-dlt-sync"
@@ -31,6 +33,8 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
 
     __repr__ = sane_repr("id")
 
@@ -41,10 +45,12 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             raise ValueError("Job does not have a schema")
 
     def url_pattern_by_schema(self, schema: str) -> str:
-        if TEST:
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+        if settings.USE_LOCAL_SETUP:
+            return (
+                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
+            )
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
 
 
 @database_sync_to_async
@@ -54,20 +60,6 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
-
-
-@database_sync_to_async
-def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
-    from posthog.warehouse.models import ExternalDataSchema
-
-    return list(
-        ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        )
-        .filter(schema_id=schema_id)
-        .order_by("-created_at")
-        .all()
-    )
 
 
 @database_sync_to_async

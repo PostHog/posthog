@@ -1,12 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { clamp } from 'lib/utils'
 import { MutableRefObject } from 'react'
+
+import { clamp } from 'lib/utils'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { getXPos, InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE } from '../utils/playerUtils'
+import { InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE, getXPos } from '../utils/playerUtils'
 import type { seekbarLogicType } from './seekbarLogicType'
 
 export const seekbarLogic = kea<seekbarLogicType>([
@@ -105,6 +106,10 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 }
                 return 0
             },
+        ],
+        scrubbingTimeSeconds: [
+            (selectors) => [selectors.scrubbingTime],
+            (scrubbingTime) => Math.floor(scrubbingTime / 1000),
         ],
     }),
     listeners(({ values, actions }) => ({

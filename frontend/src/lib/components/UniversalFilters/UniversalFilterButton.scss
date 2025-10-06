@@ -1,14 +1,14 @@
 .UniversalFilterButton {
     gap: 0.375rem;
-    height: 2rem;
-    padding: 0.25rem 0.625rem;
+    height: 1.625rem;
+    padding: 0.125rem 0.625rem;
     overflow: hidden;
     color: var(--text-3000);
     white-space: nowrap;
     cursor: default;
-    background: var(--border-primary);
-    border: 1px solid var(--secondary-3000-button-border);
-    border-radius: 99rem;
+    background: var(--color-bg-fill-button-tertiary-hover);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.275rem;
     outline: 0;
 
     &[aria-disabled='true']:not(.LemonButton--loading) {
@@ -45,8 +45,8 @@
 
     // Close button
     .LemonButton {
-        margin: 0 -0.375rem 0 -0.125rem;
-        border-radius: 99rem;
+        margin: 0 -0.5rem 0 -0.125rem;
+        border-radius: 0.25rem;
     }
 
     .LemonButton__chrome {

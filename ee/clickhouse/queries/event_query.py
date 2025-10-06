@@ -1,7 +1,7 @@
 from typing import Optional, Union
 
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -11,7 +11,9 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
 from posthog.models.team import Team
 from posthog.queries.event_query.event_query import EventQuery
-from posthog.schema import PersonsOnEventsMode
+
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 
 
 class EnterpriseEventQuery(EventQuery):

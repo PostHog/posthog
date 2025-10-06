@@ -1,5 +1,7 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
@@ -27,6 +29,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             isOpen={modalVisible}
             title={title}
             width={520}
+            forceAbovePopovers={true}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={hideModal}>

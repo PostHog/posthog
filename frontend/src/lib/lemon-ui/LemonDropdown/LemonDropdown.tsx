@@ -4,6 +4,12 @@ import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
     visible?: boolean
+    /**
+     *  Setting `visible` shifts the component to controlled mode.
+     *  This lets you choose whether to start open (Defaults to false).
+     *  Without having to take control of the visibility state.
+     *  */
+    startVisible?: boolean
     onVisibilityChange?: (visible: boolean) => void
     /**
      * Whether the dropdown should be closed on click inside.
@@ -34,6 +40,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                 closeOnClickInside = true,
                 trigger = 'click',
                 children,
+                startVisible,
                 ...popoverProps
             },
             ref
@@ -41,7 +48,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
             const isControlled = visible !== undefined
 
             const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
-            const [localVisible, setLocalVisible] = useState(visible ?? false)
+            const [localVisible, setLocalVisible] = useState(visible ?? startVisible ?? false)
 
             const floatingRef = useRef<HTMLDivElement>(null)
             const referenceRef = useRef<HTMLSpanElement>(null)

@@ -1,9 +1,11 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupsModel } from '~/models/groupsModel'
 
 import type { deleteDashboardLogicType } from './deleteDashboardLogicType'
 
@@ -19,6 +21,9 @@ const defaultFormValues: DeleteDashboardForm = {
 
 export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
     path(['scenes', 'dashboard', 'deleteDashboardLogic']),
+    connect(() => ({
+        actions: [groupsModel, ['removeDetailDashboard']],
+    })),
     actions({
         showDeleteDashboardModal: (id: number) => ({ id }),
         hideDeleteDashboardModal: true,
@@ -48,8 +53,10 @@ export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
         hideDeleteDashboardModal: () => {
             actions.resetDeleteDashboard()
         },
-        [dashboardsModel.actionTypes.deleteDashboardSuccess]: () => {
+        [dashboardsModel.actionTypes.deleteDashboardSuccess]: ({ dashboard }) => {
             actions.hideDeleteDashboardModal()
+
+            actions.removeDetailDashboard(dashboard.id)
 
             if (router.values.currentLocation.pathname !== urls.dashboards()) {
                 router.actions.push(urls.dashboards())

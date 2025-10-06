@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { onEvent, PaceMetaInput } from '../index'
+import { PaceMetaInput, onEvent } from '../index'
 
 describe('Pace: onEvent', () => {
     const fetchMock = jest.fn()

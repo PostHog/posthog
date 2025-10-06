@@ -19,7 +19,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_by_console_log_text_and_level
@@ -44,7 +47,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_log_text
@@ -69,7 +75,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event
@@ -89,7 +98,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event_property
@@ -109,7 +121,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_subquery_on_event_property_without_join
@@ -127,13 +142,16 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__events.`properties___$current_url`)
+         any(raw_session_replay_events__events.`properties___$current_url`) AS `any(events.properties.$current_url)`
   FROM session_replay_events
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
@@ -149,7 +167,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_event_person
@@ -172,12 +193,12 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__events__person ON equals(raw_session_replay_events__events.raw_session_replay_events__events___person_id, raw_session_replay_events__events__person.id)
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__events__person ON equals(raw_session_replay_events__events.raw_session_replay_events__events___person_id, raw_session_replay_events__events__person.id)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(ifNull(raw_session_replay_events__events__person.properties___person_property, 'false'), 'true'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -186,7 +207,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_person_distinct_id
@@ -208,7 +232,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_replay_person
@@ -237,13 +264,16 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_person_property
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -257,12 +287,12 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE equals(session_replay_events.team_id, 99999)
   GROUP BY session_replay_events.session_id
   ORDER BY session_replay_events.session_id ASC
@@ -272,13 +302,16 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_with_join_optimization
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -292,12 +325,12 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', ''), 'true'), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', ''), 'true'), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(raw_session_replay_events__pdi__person.properties___person_property, 'true'), 0))
   GROUP BY session_replay_events.session_id
   ORDER BY session_replay_events.session_id ASC
@@ -307,13 +340,16 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_without_join_optimization
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -327,12 +363,12 @@
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
-     WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                          (SELECT person.id AS id, max(person.version) AS version
-                                                           FROM person
-                                                           WHERE equals(person.team_id, 99999)
-                                                           GROUP BY person.id
-                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(raw_session_replay_events__pdi__person.properties___person_property, 'true'), 0))
   GROUP BY session_replay_events.session_id
   ORDER BY session_replay_events.session_id ASC
@@ -342,7 +378,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysBySessions.test_select_by_duration_with_session_duration_filter
@@ -358,7 +397,7 @@
               raw_sessions.session_id_v7) AS raw_session_replay_events__session ON equals(toUInt128(accurateCastOrNull(session_replay_events.session_id, 'UUID')), raw_session_replay_events__session.session_id_v7)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greater(raw_session_replay_events__session.duration, 3600), 0))
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600), 0)
+  HAVING equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600)
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -366,7 +405,10 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFilterSessionReplaysBySessions.test_select_by_duration_without_session_filter
@@ -375,7 +417,7 @@
   FROM session_replay_events
   WHERE equals(session_replay_events.team_id, 99999)
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600), 0)
+  HAVING equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600)
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -383,6 +425,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

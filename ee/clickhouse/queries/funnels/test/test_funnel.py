@@ -1,28 +1,21 @@
 from datetime import datetime
 
-from ee.clickhouse.queries.funnels.test.breakdown_cases import (
-    funnel_breakdown_group_test_factory,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.funnels.funnel import ClickhouseFunnel
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.funnel_unordered_persons import (
-    ClickhouseFunnelUnorderedActors,
-)
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.funnels.test.test_funnel import _create_action
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_group_test_factory
 
 
 class TestFunnelGroupBreakdown(
@@ -68,10 +61,10 @@ class TestClickhouseFunnel(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

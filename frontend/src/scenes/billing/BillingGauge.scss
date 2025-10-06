@@ -10,7 +10,7 @@
         font-size: 0.8rem;
         line-height: 1rem;
         white-space: nowrap;
-        background-color: var(--bg-light);
+        background-color: var(--color-bg-light);
         border-left: 1px solid var(--border-light);
 
         &--bottom {
@@ -25,11 +25,11 @@
     }
 
     &.BillingGaugeItem--free_tier {
-        background-color: var(--border-primary-opaque);
+        background-color: var(--color-border-primary-opaque);
     }
 
     &.BillingGaugeItem--billing_limit {
-        background-color: var(--border-primary-opaque);
+        background-color: var(--color-border-primary-opaque);
     }
 
     &.BillingGaugeItem--current_usage {
@@ -58,12 +58,6 @@
                 var(--data-color-1-hover) 0.5rem,
                 var(--data-color-1-hover) 1rem
             );
-        }
-    }
-
-    &.BillingGaugeItem--addon {
-        .BillingGaugeItem__info {
-            background-color: var(--bg-primary);
         }
     }
 }

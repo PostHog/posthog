@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 
 import { useMocks } from '~/mocks/jest'

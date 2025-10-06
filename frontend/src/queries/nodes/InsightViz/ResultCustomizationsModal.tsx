@@ -1,5 +1,7 @@
-import { LemonButton, LemonColorButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonColorButton, LemonModal } from '@posthog/lemon-ui'
+
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -86,7 +88,7 @@ type TrendsInfoProps = {
 }
 
 function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { breakdownFilter } = useValues(insightVizDataLogic)
 
@@ -103,7 +105,7 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
                         {formatBreakdownLabel(
                             dataset.breakdown_value,
                             breakdownFilter,
-                            cohorts.results,
+                            allCohorts.results,
                             formatPropertyValueForDisplay
                         )}
                     </b>

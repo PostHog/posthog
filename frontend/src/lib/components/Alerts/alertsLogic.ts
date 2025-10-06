@@ -1,5 +1,6 @@
 import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import { AlertState } from '~/queries/schema/schema-general'

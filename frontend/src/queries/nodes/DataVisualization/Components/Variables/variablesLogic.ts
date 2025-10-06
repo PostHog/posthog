@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
@@ -41,17 +40,10 @@ export const variablesLogic = kea<variablesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variablesLogic']),
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
-        values: [
-            dataVisualizationLogic,
-            ['query'],
-            variableDataLogic,
-            ['variables', 'variablesLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-    }),
+        values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
+    })),
     actions(({ values }) => ({
         addVariable: (variable: HogQLVariable) => ({ variable }),
         _addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -67,6 +59,7 @@ export const variablesLogic = kea<variablesLogicType>([
         setEditorQuery: (query: string) => ({ query }),
         updateSourceQuery: true,
         resetVariables: true,
+        updateInternalSelectedVariable: (variable: HogQLVariable) => ({ variable }),
     })),
     propsChanged(({ props, actions, values }, oldProps) => {
         if (oldProps.queryInput !== props.queryInput) {
@@ -74,10 +67,6 @@ export const variablesLogic = kea<variablesLogicType>([
         }
 
         if (props.sourceQuery) {
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                return
-            }
-
             const variables = Object.values(props.sourceQuery?.source.variables ?? {})
 
             if (variables.length) {
@@ -112,7 +101,7 @@ export const variablesLogic = kea<variablesLogicType>([
                     return [...state, { ...variable }]
                 },
                 addVariables: (_state, { variables }) => {
-                    return [...variables.map((n) => ({ ...n }))]
+                    return variables.map((n) => ({ ...n }))
                 },
                 updateVariableValue: (state, { variableId, value, isNull, allVariables }) => {
                     const variableIndex = state.findIndex((n) => n.variableId === variableId)
@@ -122,7 +111,6 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     const variableType = allVariables.find((n) => n.id === variableId)?.type
                     const valueWithType = convertValueToCorrectType(value, variableType ?? 'String')
-
                     const variablesInState = [...state]
                     variablesInState[variableIndex] = {
                         ...variablesInState[variableIndex],
@@ -152,6 +140,18 @@ export const variablesLogic = kea<variablesLogicType>([
                 },
                 resetVariables: () => {
                     return []
+                },
+                updateInternalSelectedVariable: (state, { variable }) => {
+                    const variableIndex = state.findIndex((n) => n.variableId === variable.variableId)
+                    if (variableIndex < 0) {
+                        return state
+                    }
+                    const variablesInState = [...state]
+                    variablesInState[variableIndex] = {
+                        ...variable,
+                    }
+
+                    return variablesInState
                 },
             },
         ],
@@ -203,10 +203,6 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.updateSourceQuery()
         },
         updateSourceQuery: () => {
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                return
-            }
-
             if (!props.sourceQuery?.source) {
                 return
             }
@@ -217,18 +213,21 @@ export const variablesLogic = kea<variablesLogicType>([
                 ...props.sourceQuery,
                 source: {
                     ...props.sourceQuery?.source,
-                    variables: variables.reduce((acc, cur) => {
-                        if (cur.variableId) {
-                            acc[cur.variableId] = {
-                                variableId: cur.variableId,
-                                value: cur.value,
-                                code_name: cur.code_name,
-                                isNull: cur.isNull,
+                    variables: variables.reduce(
+                        (acc, cur) => {
+                            if (cur.variableId) {
+                                acc[cur.variableId] = {
+                                    variableId: cur.variableId,
+                                    value: cur.value,
+                                    code_name: cur.code_name,
+                                    isNull: cur.isNull,
+                                }
                             }
-                        }
 
-                        return acc
-                    }, {} as Record<string, HogQLVariable>),
+                            return acc
+                        },
+                        {} as Record<string, HogQLVariable>
+                    ),
                 },
             }
             const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, props.sourceQuery?.source)
@@ -271,11 +270,7 @@ export const variablesLogic = kea<variablesLogicType>([
             })
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-            return
-        }
-
+    afterMount(({ actions }) => {
         actions.getVariables()
     }),
 ])

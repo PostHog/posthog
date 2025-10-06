@@ -417,7 +417,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_strict
@@ -765,7 +768,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_unordered
@@ -1513,6 +1519,9 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

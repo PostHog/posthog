@@ -35,8 +35,8 @@ fn python_exceptions() {
 
     let frames = props
         .exception_list
-        .into_iter()
-        .map(|e| e.stack.unwrap())
+        .iter()
+        .map(|e| e.stack.clone().unwrap())
         .flat_map(|t| {
             let Stacktrace::Raw { frames } = t else {
                 panic!("Expected a Raw stacktrace")
@@ -62,8 +62,8 @@ fn node_exceptions() {
 
     let frames = props
         .exception_list
-        .into_iter()
-        .map(|e| e.stack.unwrap())
+        .iter()
+        .map(|e| e.stack.clone().unwrap())
         .flat_map(|t| {
             let Stacktrace::Raw { frames } = t else {
                 panic!("Expected a Raw stacktrace")

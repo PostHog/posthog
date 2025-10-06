@@ -1,6 +1,8 @@
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
@@ -31,6 +33,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
             <PayGateMini
                 feature={AvailableFeature.SUBSCRIPTIONS}
+                handleSubmit={closeModal}
                 background={false}
                 className="py-8"
                 docsLink="https://posthog.com/docs/user-guides/subscriptions"

@@ -1,8 +1,9 @@
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+
+from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentHoldoutCRUD(APILicensedTest):
@@ -143,3 +144,56 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Filters are required to create an holdout group")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts",
+            data={
+                "name": "xyz",
+                "filters": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 150,
+                        "variant": "holdout",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Rollout percentage must be between 0 and 100.")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts",
+            data={
+                "name": "xyz",
+                "filters": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": -10,
+                        "variant": "holdout",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Rollout percentage must be between 0 and 100.")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts",
+            data={
+                "name": "xyz",
+                "filters": [
+                    {
+                        "properties": [],
+                        "variant": "holdout",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Rollout percentage must be present.")

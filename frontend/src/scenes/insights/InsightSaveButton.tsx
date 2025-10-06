@@ -24,6 +24,7 @@ export function InsightSaveButton({
             onClick={() => saveInsight(true)}
             data-attr="insight-save-button"
             disabled={disabled}
+            size="small"
             loading={!disabled && insightSaving}
             sideAction={{
                 dropdown: {
@@ -51,7 +52,7 @@ export function InsightSaveButton({
                 'data-attr': 'insight-save-dropdown',
             }}
         >
-            {disabled ? 'No changes to be saved' : addingToDashboard ? 'Save & add to dashboard' : 'Save'}
+            {disabled ? 'No changes' : addingToDashboard ? 'Save & add to dashboard' : 'Save'}
         </LemonButton>
     )
 }

@@ -1,5 +1,8 @@
 import { expectLogic, truth } from 'kea-test-utils'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+
+import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -18,21 +21,25 @@ const dashboard = (extras: Partial<DashboardType>): DashboardType => {
         ...extras,
     } as any as DashboardType
 }
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.Dashboards]: blankScene }
+
 describe('dashboardsLogic', () => {
     let logic: ReturnType<typeof dashboardsLogic.build>
 
     const allDashboards = [
-        { ...dashboard({ created_by: { uuid: 'user1' } as UserBasicType, is_shared: true }) },
-        { ...dashboard({ created_by: { uuid: 'user1' } as UserBasicType, pinned: true }) },
+        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType, is_shared: true }) },
+        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType, pinned: true }) },
         { ...dashboard({ created_by: { uuid: 'user2' } as UserBasicType, pinned: true }) },
         {
             ...dashboard({
-                created_by: { uuid: 'user1' } as UserBasicType,
+                created_by: { uuid: 'USER_UUID' } as UserBasicType,
                 is_shared: true,
                 pinned: true,
             }),
         },
-        { ...dashboard({ created_by: { uuid: 'user1' } as UserBasicType }) },
+        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType }) },
         { ...dashboard({ created_by: { uuid: 'user2' } as UserBasicType, name: 'needle' }) },
     ]
 
@@ -52,13 +59,37 @@ describe('dashboardsLogic', () => {
 
         dashboardsModel.mount()
         await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
 
-        logic = dashboardsLogic()
+        logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
     })
 
     it('shows all dashboards when no filters', async () => {
         expect(logic.values.dashboards).toHaveLength(allDashboards.length)
+    })
+
+    it('shows correct dashboards when on pinned tab', async () => {
+        expectLogic(logic, () => {
+            logic.actions.setCurrentTab(DashboardsTab.Pinned)
+        }).toMatchValues({
+            dashboards: truth((dashboards: DashboardType[]) => {
+                return dashboards.length === 3 && dashboards.every((d) => d.pinned)
+            }),
+        })
+    })
+
+    it('shows correct dashboards when on my tab', async () => {
+        expectLogic(logic, () => {
+            logic.actions.setCurrentTab(DashboardsTab.Yours)
+        }).toMatchValues({
+            dashboards: truth((dashboards: DashboardType[]) => {
+                return dashboards.length === 4 && dashboards.every((d) => d.created_by?.uuid === 'USER_UUID')
+            }),
+        })
     })
 
     it('shows correct dashboards when filtering by name', async () => {
@@ -83,9 +114,10 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('shows correct dashboards when filtering by name and pinned', async () => {
+    it('shows correct dashboards when filtering by name and on pinned tab', async () => {
         expectLogic(logic, () => {
-            logic.actions.setFilters({ createdBy: 'user2', pinned: true })
+            logic.actions.setCurrentTab(DashboardsTab.Pinned)
+            logic.actions.setFilters({ createdBy: 'user2' })
         }).toMatchValues({
             dashboards: truth((dashboards: DashboardType[]) => {
                 return dashboards.length === 1 && dashboards[0].pinned
@@ -93,25 +125,16 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('shows correct dashboards when only pinned', async () => {
+    it('shows correct dashboards filtering by shared and on pinned tab', async () => {
         expectLogic(logic, () => {
-            logic.actions.setFilters({ pinned: true })
-        }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => {
-                return dashboards.length === 3 && dashboards.every((d) => d.pinned)
-            }),
-        })
-    })
-
-    it('shows correct dashboards when pinned and shared', async () => {
-        expectLogic(logic, () => {
-            logic.actions.setFilters({ pinned: true, shared: true })
+            logic.actions.setCurrentTab(DashboardsTab.Pinned)
+            logic.actions.setFilters({ shared: true })
         }).toMatchValues({
             dashboards: truth((dashboards: DashboardType[]) => {
                 return (
                     dashboards.length === 1 &&
                     dashboards.every((d) => d.pinned && d.is_shared) &&
-                    dashboards[0].created_by?.uuid === 'user1'
+                    dashboards[0].created_by?.uuid === 'USER_UUID'
                 )
             }),
         })
@@ -119,13 +142,14 @@ describe('dashboardsLogic', () => {
 
     it('shows correct dashboards when searching by name', async () => {
         expectLogic(logic, () => {
-            logic.actions.setFilters({ pinned: true, shared: true })
+            logic.actions.setCurrentTab(DashboardsTab.Pinned)
+            logic.actions.setFilters({ shared: true })
         }).toMatchValues({
             dashboards: truth((dashboards: DashboardType[]) => {
                 return (
                     dashboards.length === 1 &&
                     dashboards.every((d) => d.pinned && d.is_shared) &&
-                    dashboards[0].created_by?.uuid === 'user1'
+                    dashboards[0].created_by?.uuid === 'USER_UUID'
                 )
             }),
         })

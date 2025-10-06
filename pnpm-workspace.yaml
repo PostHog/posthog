@@ -1,12 +1,10 @@
 packages:
     - '.'
     - common/esbuilder
-    - common/eslint_rules
     - common/hogvm/typescript
     - common/plugin_transpiler
     - common/storybook
     - common/tailwind
-    - cypress
     - ee/frontend
     - frontend
     - playwright

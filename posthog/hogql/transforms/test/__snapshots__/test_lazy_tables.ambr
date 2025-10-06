@@ -288,7 +288,7 @@
 # name: TestLazyJoins.test_select_count_from_lazy_table
   '''
   
-  SELECT count() 
+  SELECT count() AS `count()` 
   FROM (
   SELECT person.id AS id 
   FROM person 

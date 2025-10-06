@@ -1,14 +1,14 @@
-import csv
-import datetime
 import os
 import re
-
-from .currencies import SUPPORTED_CURRENCY_CODES
+import csv
+import datetime
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings import CLICKHOUSE_PASSWORD
+from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
+
+from .currencies import SUPPORTED_CURRENCY_CODES
 
 
 # This loads historical data from `historical.csv`
@@ -124,14 +124,14 @@ ORDER BY (date, currency);
     )
 
 
-def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
     return "DROP TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
     return "TRUNCATE TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -207,7 +207,7 @@ EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_
 # Also, note the `anyLast` function on the query construction
 # It is used to get the latest rate for a given date and currency from the underlying table
 # given that we might have more than one while the merges haven't finished yet
-def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
+def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
     return """
 CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
     currency String,
@@ -216,7 +216,7 @@ CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clau
     rate Decimal64({decimal_precision})
 )
 PRIMARY KEY currency
-SOURCE(CLICKHOUSE(QUERY '{query}' PASSWORD '{clickhouse_password}'))
+SOURCE(CLICKHOUSE(QUERY '{query}' USER '{clickhouse_user}' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))
 RANGE(MIN start_date MAX end_date)""".format(
@@ -224,11 +224,12 @@ RANGE(MIN start_date MAX end_date)""".format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
         query=EXCHANGE_RATE_DICTIONARY_QUERY,
+        clickhouse_user=CLICKHOUSE_USER,
         clickhouse_password=CLICKHOUSE_PASSWORD,
     )
 
 
-def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
+def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
     return "DROP DICTIONARY IF EXISTS {dictionary_name} {on_cluster_clause}".format(
         dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),

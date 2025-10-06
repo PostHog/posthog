@@ -1,8 +1,9 @@
 import { City } from '@maxmind/geoip2-node'
+
 import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
 
 import { defaultConfig } from '../../../../config/config'
-import { GeoIp, GeoIPService } from '../../../../utils/geoip'
+import { GeoIPService, GeoIp } from '../../../../utils/geoip'
 import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'

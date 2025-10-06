@@ -1,17 +1,17 @@
 import json
-from typing import Any, Optional
 from collections.abc import Callable
+from typing import Any, Optional
 
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.parser import parse_expr, parse_program
 
 from common.hogvm.python.execute import execute_bytecode, get_nested_value
 from common.hogvm.python.operation import (
-    Operation as op,
     HOGQL_BYTECODE_IDENTIFIER as _H,
     HOGQL_BYTECODE_VERSION as VERSION,
+    Operation as op,
 )
 from common.hogvm.python.utils import UncaughtHogVMException
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.parser import parse_expr, parse_program
 
 
 class TestBytecodeExecute:
@@ -181,7 +181,7 @@ class TestBytecodeExecute:
         try:
             execute_bytecode(bytecode, {})
         except Exception as e:
-            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes."
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Attempted to use 75497504 bytes"
         else:
             raise AssertionError("Expected Exception not raised")
 
@@ -268,7 +268,7 @@ class TestBytecodeExecute:
         try:
             execute_bytecode(bytecode, {})
         except Exception as e:
-            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes."
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Attempted to use 67155164 bytes"
         else:
             raise AssertionError("Expected Exception not raised")
 

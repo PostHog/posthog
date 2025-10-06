@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
@@ -9,7 +10,7 @@ import type { queryEditorLogicType } from './queryEditorLogicType'
 function prettyJSON(source: string): string {
     try {
         return JSON.stringify(JSON.parse(source), null, 2) + '\n'
-    } catch (e) {
+    } catch {
         return source
     }
 }

@@ -1,18 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const VIEW_EMPTY_STATE_COPY = [
     'Resolving joins between your tables…',
     'Saving references to your tables…',
     'Searching saved queries for references…',
     'Fetching all references to optimize view…',
-    'Constructing HOGQL expressions…',
+    'Constructing SQL expressions…',
 ]
 
 export function ViewEmptyState(): JSX.Element {
     const [messageIndex, setMessageIndex] = useState(0)
     const [isMessageVisible, setIsMessageVisible] = useState(true)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const TOGGLE_INTERVAL = 3000
         const FADE_OUT_DURATION = 300
 
@@ -31,7 +33,7 @@ export function ViewEmptyState(): JSX.Element {
         }, TOGGLE_INTERVAL)
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     return (
         <div data-attr="view-empty-state" className="flex flex-col flex-1 items-center justify-center">

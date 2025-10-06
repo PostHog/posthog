@@ -3,14 +3,18 @@ import uuid
 from datetime import timedelta
 from itertools import cycle
 from typing import Annotated, Any
+
+import pytest
 from unittest.mock import patch
 
-import cohere
-import pytest
-import pytest_asyncio
-from cohere import EmbeddingsByTypeEmbedResponse
 from django.conf import settings
 from django.utils import timezone
+
+import pytest_asyncio
+from azure.ai.inference.aio import EmbeddingsClient
+from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
+from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from pydantic import BaseModel, PlainValidator
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -24,6 +28,7 @@ from posthog.temporal.ai.sync_vectors import (
     BatchEmbedAndSyncActionsInputs,
     BatchEmbedAndSyncActionsOutputs,
     BatchSummarizeActionsInputs,
+    EmbeddingVersion,
     GetApproximateActionsCountInputs,
     SyncVectorsInputs,
     SyncVectorsWorkflow,
@@ -40,7 +45,11 @@ from posthog.temporal.common.clickhouse import get_client
 @pytest.fixture(autouse=True)
 def cleanup():
     yield
-    sync_execute(TRUNCATE_PG_EMBEDDINGS_TABLE_SQL())
+
+    try:
+        sync_execute(TRUNCATE_PG_EMBEDDINGS_TABLE_SQL())
+    except:
+        pass
 
 
 @pytest.fixture
@@ -106,18 +115,22 @@ def summarized_actions_with_embeddings(summarized_actions) -> list[tuple[dict[st
     ]
 
 
-@pytest.fixture
-def mock_flag(ateam):
-    with patch(
-        "posthog.temporal.ai.sync_vectors._get_orgs_from_the_feature_flag", return_value=[str(ateam.organization.id)]
-    ) as mock:
-        yield mock
+def _wrap_embeddings_response(embeddings: list[list[float]]) -> EmbeddingsResult:
+    return EmbeddingsResult(
+        id="test",
+        model="test",
+        usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
+        data=[EmbeddingItem(embedding=embedding, index=index) for index, embedding in enumerate(embeddings)],
+    )
 
 
 @pytest.fixture
-def cohere_mock():
+def azure_mock():
     with patch(
-        "posthog.temporal.ai.sync_vectors.get_async_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")
+        "posthog.temporal.ai.sync_vectors.get_async_azure_embeddings_client",
+        side_effect=lambda: EmbeddingsClient(
+            endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
+        ),
     ) as mock:
         yield mock
 
@@ -128,7 +141,7 @@ def _query_pg_embeddings() -> list[tuple]:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs(mock_flag, actions):
+async def test_get_actions_qs(actions):
     qs = await get_actions_qs(timezone.now())
     assert await qs.acount() == 3
     qs = await get_actions_qs(timezone.now(), 0, 1)
@@ -147,7 +160,7 @@ async def test_get_actions_qs(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs_with_deleted_actions(mock_flag, actions):
+async def test_get_actions_qs_with_deleted_actions(actions):
     start_dt = timezone.now()
 
     # Never summarized and deleted
@@ -173,7 +186,7 @@ async def test_get_actions_qs_with_deleted_actions(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganization):
+async def test_get_actions_qs_with_unapproved_organization(aorganization):
     aorganization.is_ai_data_processing_approved = False
     await aorganization.asave()
     qs = await get_actions_qs(timezone.now())
@@ -182,14 +195,14 @@ async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganizat
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_approximate_actions_count(mock_flag, actions):
+async def test_get_approximate_actions_count(actions):
     res = await get_approximate_actions_count(GetApproximateActionsCountInputs(start_dt=timezone.now().isoformat()))
     assert res == 3
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_basic_batch_summarization(mock_flag, cohere_mock, actions):
+async def test_basic_batch_summarization(azure_mock, actions):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
@@ -230,7 +243,7 @@ async def test_basic_batch_summarization(mock_flag, cohere_mock, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_summarize_with_errors(mock_flag, cohere_mock, actions: tuple[Action], ateam):
+async def test_batch_summarize_with_errors(azure_mock, actions: tuple[Action], ateam):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
@@ -273,16 +286,12 @@ async def test_batch_summarize_with_errors(mock_flag, cohere_mock, actions: tupl
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embedding(mock_flag, cohere_mock, actions):
+async def test_batch_embedding(azure_mock, actions):
     with (
-        patch("cohere.AsyncClientV2.embed") as embeddings_mock,
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
     ):
         # batch_size=1, one call
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [[0.12, 0.054]]},
-            id="test",
-            texts=["Test1"],
-        )
+        embeddings_mock.return_value = _wrap_embeddings_response([[0.12, 0.054]])
 
         res = await batch_embed_actions([{"summary": "Test1"}], batch_size=1)
         assert embeddings_mock.call_count == 1
@@ -291,11 +300,7 @@ async def test_batch_embedding(mock_flag, cohere_mock, actions):
         embeddings_mock.reset_mock()
 
         # batch_size=2, one call
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [[0.1, 0.7], [0.8, 0.6663]]},
-            id="test",
-            texts=["Test2", "Test3"],
-        )
+        embeddings_mock.return_value = _wrap_embeddings_response([[0.1, 0.7], [0.8, 0.6663]])
 
         res = await batch_embed_actions([{"summary": "Test2"}, {"summary": "Test3"}], batch_size=2)
         assert embeddings_mock.call_count == 1
@@ -304,11 +309,7 @@ async def test_batch_embedding(mock_flag, cohere_mock, actions):
         embeddings_mock.reset_mock()
 
         # batch_size=2, two parallel calls
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [[0.12, 0.054], [0.1, 0.7]]},
-            id="test",
-            texts=["Test1", "Test2", "Test3"],
-        )
+        embeddings_mock.return_value = _wrap_embeddings_response([[0.12, 0.054], [0.1, 0.7]])
 
         res = await batch_embed_actions(
             [{"summary": "Test1"}, {"summary": "Test2"}, {"summary": "Test3"}], batch_size=2
@@ -323,8 +324,8 @@ async def test_batch_embedding(mock_flag, cohere_mock, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embedding_with_errors(cohere_mock, mock_flag, actions: tuple[Action]):
-    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
+async def test_batch_embedding_with_errors(azure_mock, actions: tuple[Action]):
+    with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
         # batch_size=1, one call
         embeddings_mock.side_effect = ValueError("Test error")
 
@@ -338,12 +339,8 @@ async def test_batch_embedding_with_errors(cohere_mock, mock_flag, actions: tupl
             nonlocal call_count
             call_count += 1
             if call_count == 2:
-                raise ValueError("Test error")
-            return EmbeddingsByTypeEmbedResponse(
-                embeddings={"float_": [[0.12, 0.054]]},
-                id="test",
-                texts=["Test1"],
-            )
+                raise AzureHttpResponseError
+            return _wrap_embeddings_response([[0.12, 0.054]])
 
         embeddings_mock.reset_mock()
         embeddings_mock.side_effect = side_effect
@@ -382,7 +379,7 @@ def parse_records(rows: list[tuple]) -> list[PgEmbeddingRecord]:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_clickhouse_sync_single_batch(mock_flag, summarized_actions, summarized_actions_with_embeddings, ateam):
+async def test_clickhouse_sync_single_batch(summarized_actions, summarized_actions_with_embeddings, ateam):
     start_dt = timezone.now()
     async with get_client() as client:
         await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
@@ -415,9 +412,7 @@ async def test_clickhouse_sync_single_batch(mock_flag, summarized_actions, summa
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_clickhouse_sync_multiple_batches(
-    mock_flag, summarized_actions, summarized_actions_with_embeddings, ateam
-):
+async def test_clickhouse_sync_multiple_batches(summarized_actions, summarized_actions_with_embeddings, ateam):
     start_dt = timezone.now()
     async with get_client() as client:
         await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
@@ -450,15 +445,14 @@ async def test_clickhouse_sync_multiple_batches(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_actions, ateam):
+async def test_batch_embed_and_sync_actions(azure_mock, summarized_actions, ateam):
     start_dt = timezone.now()
     embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
-    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": embeddings},
-            id="test",
-            texts=["Test1", "Test2", "Test3"],
-        )
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
         result = await batch_embed_and_sync_actions(
             BatchEmbedAndSyncActionsInputs(
                 start_dt=start_dt.isoformat(),
@@ -486,14 +480,15 @@ async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_a
         ]
         assert expected_result == parse_records(rows)
 
-        result = await batch_embed_and_sync_actions(
-            BatchEmbedAndSyncActionsInputs(
-                start_dt=start_dt.isoformat(),
-                insert_batch_size=10,
-                embeddings_batch_size=10,
-                max_parallel_requests=4,
+        with patch("temporalio.activity.heartbeat"):
+            result = await batch_embed_and_sync_actions(
+                BatchEmbedAndSyncActionsInputs(
+                    start_dt=start_dt.isoformat(),
+                    insert_batch_size=10,
+                    embeddings_batch_size=10,
+                    max_parallel_requests=4,
+                )
             )
-        )
         assert result.has_more is False
         rows = _query_pg_embeddings()
         assert len(rows) == 3
@@ -501,16 +496,15 @@ async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_a
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, summarized_actions, ateam):
+async def test_batch_embed_and_sync_actions_in_batches(azure_mock, summarized_actions, ateam):
     start_dt = timezone.now()
     embeddings = [[0.12, 0.054]]
 
-    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": embeddings},
-            id="test",
-            texts=["Test1", "Test2", "Test3"],
-        )
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
         result = await batch_embed_and_sync_actions(
             BatchEmbedAndSyncActionsInputs(
                 start_dt=start_dt.isoformat(),
@@ -567,7 +561,7 @@ async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, s
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, mock_flag, ateam):
+async def test_batch_embed_and_sync_actions_filters_out_actions(azure_mock, ateam):
     start_dt = timezone.now()
     embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
 
@@ -590,12 +584,11 @@ async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, moc
     ]
     await Action.objects.abulk_create(actions)
 
-    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": embeddings},
-            id="test",
-            texts=["Test1", "Test2", "Test3"],
-        )
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
         for expected_has_more in (True, False):
             result = await batch_embed_and_sync_actions(
                 BatchEmbedAndSyncActionsInputs(
@@ -617,7 +610,7 @@ async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, moc
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(mock_flag, ateam):
+async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(ateam):
     start_dt = timezone.now()
 
     # Create actions with different last_summarized_at values
@@ -628,14 +621,15 @@ async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(
     ]
     await Action.objects.abulk_create(actions)
 
-    result = await batch_embed_and_sync_actions(
-        BatchEmbedAndSyncActionsInputs(
-            start_dt=start_dt.isoformat(),
-            insert_batch_size=1000,
-            embeddings_batch_size=96,
-            max_parallel_requests=4,
+    with patch("temporalio.activity.heartbeat"):
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=1000,
+                embeddings_batch_size=96,
+                max_parallel_requests=4,
+            )
         )
-    )
     assert result.has_more is False
     rows = _query_pg_embeddings()
     assert len(rows) == 0
@@ -675,18 +669,17 @@ async def _create_actions_with_embedding_version(ateam, start_dt):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_embedding_version(cohere_mock, mock_flag, ateam):
+async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, ateam):
     start_dt = timezone.now()
     embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
 
     actions = await _create_actions_with_embedding_version(ateam, start_dt)
 
-    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": embeddings},
-            id="test",
-            texts=["Test1", "Test2", "Test3"],
-        )
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
 
         for expected_has_more in (True, False):
             result = await batch_embed_and_sync_actions(
@@ -706,6 +699,13 @@ async def test_batch_embed_and_sync_actions_embedding_version(cohere_mock, mock_
         assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
             action.id for action in parse_records(rows)
         }
+        assert {
+            action.properties["embedding_version"] if action.properties else None for action in parse_records(rows)
+        } == {2}
+
+        for action in actions:
+            await action.arefresh_from_db()
+            assert action.embedding_version == 2
 
 
 @pytest.mark.asyncio
@@ -855,19 +855,15 @@ async def test_actions_workflow_cancels():
             assert call_count == [3, 0, 0]
 
 
-@patch("cohere.AsyncClientV2.embed")
+@patch("azure.ai.inference.aio.EmbeddingsClient.embed")
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_updates_embedding_version(embeddings_mock, cohere_mock, ateam):
+async def test_updates_embedding_version(embeddings_mock, azure_mock, ateam):
     start_dt = timezone.now()
     actions = await _create_actions_with_embedding_version(ateam, start_dt)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]},
-            id="test",
-            texts=["Test1", "Test2", "Test3"],
-        )
+        embeddings_mock.return_value = _wrap_embeddings_response([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]])
 
         async with Worker(
             activity_environment.client,
@@ -882,7 +878,11 @@ async def test_updates_embedding_version(embeddings_mock, cohere_mock, ateam):
         ):
             await activity_environment.client.execute_workflow(
                 SyncVectorsWorkflow.run,
-                SyncVectorsInputs(start_dt=start_dt.isoformat(), delay_between_batches=0, embedding_version=2),
+                SyncVectorsInputs(
+                    start_dt=start_dt.isoformat(),
+                    delay_between_batches=0,
+                    embedding_versions=EmbeddingVersion(actions=2),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -896,3 +896,224 @@ async def test_updates_embedding_version(embeddings_mock, cohere_mock, ateam):
             for action in actions:
                 await action.arefresh_from_db()
                 assert action.embedding_version == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_not_retried_on_authentication_error():
+    """Test that the workflow fails immediately on ClientAuthenticationError without retries."""
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        return 0  # No actions to summarize
+
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
+        call_count[1] += 1
+
+    @activity.defn(name="batch_embed_and_sync_actions")
+    async def batch_embed_and_sync_actions_mocked(
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
+        call_count[2] += 1
+        # Raise ClientAuthenticationError which should not be retried
+        from azure.core.exceptions import ClientAuthenticationError
+
+        raise ClientAuthenticationError("Authentication failed")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_actions_mocked,
+                batch_embed_and_sync_actions_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    SyncVectorsWorkflow.run,
+                    SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
+            # Should be called only once (no retries) due to non_retryable_error_types
+            assert call_count == [1, 0, 1]
+
+
+@pytest.mark.asyncio
+async def test_workflow_retried_on_rate_limit_error():
+    """Test that the workflow retries on rate limit HttpResponseError (429)."""
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        return 0  # No actions to summarize
+
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
+        call_count[1] += 1
+
+    @activity.defn(name="batch_embed_and_sync_actions")
+    async def batch_embed_and_sync_actions_mocked(
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
+        call_count[2] += 1
+        if call_count[2] < 3:
+            # Raise rate limit error which should be retried
+            from azure.core.exceptions import HttpResponseError
+
+            response = type("MockResponse", (), {"status_code": 429})()
+            raise HttpResponseError(response=response)
+        return BatchEmbedAndSyncActionsOutputs(has_more=False)
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_actions_mocked,
+                batch_embed_and_sync_actions_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                SyncVectorsWorkflow.run,
+                SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+            # Should be retried 3 times (due to retry policy with maximum_attempts=3)
+            assert call_count == [1, 0, 3]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_during_embedding_process(azure_mock, summarized_actions, ateam):
+    """Test that heartbeat is called during the batch_embed_and_sync_actions activity."""
+    start_dt = timezone.now()
+    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
+
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat") as heartbeat_mock,
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
+
+        await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+
+        # Heartbeat should be called at least twice:
+        # 1. At the start of the embedding loop
+        # 2. Before syncing vectors
+        assert heartbeat_mock.call_count >= 2
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_multiple_times_with_large_batch(azure_mock, ateam):
+    """Test that heartbeat is called multiple times when processing larger batches."""
+    start_dt = timezone.now()
+
+    # Create more actions to process multiple iterations
+    actions = []
+    for i in range(10):
+        actions.append(
+            Action(
+                team=ateam,
+                name=f"Action {i}",
+                description=f"Description {i}",
+                last_summarized_at=start_dt - timedelta(days=1),
+                summary=f"Summary {i}",
+                steps_json=[{"event": f"event_{i}"}],
+            )
+        )
+    await Action.objects.abulk_create(actions)
+
+    embeddings = [[0.1, 0.1] for _ in range(10)]
+
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat") as heartbeat_mock,
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
+
+        await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=5,  # Small batch size to trigger multiple iterations
+                embeddings_batch_size=2,
+                max_parallel_requests=2,
+            )
+        )
+
+        # With a small insert_batch_size and multiple actions, we should see more heartbeat calls
+        # as the loop iterates multiple times (at least 3: one per iteration + one before sync)
+        assert heartbeat_mock.call_count >= 3
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_even_when_no_actions(ateam):
+    """Test that heartbeat is called once even when there are no actions to process."""
+    start_dt = timezone.now()
+
+    with patch("temporalio.activity.heartbeat") as heartbeat_mock:
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+
+        # Heartbeat is called once at the start of the loop even when no actions exist
+        assert heartbeat_mock.call_count == 1
+        assert result.has_more is False
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_before_sync_when_actions_exist(azure_mock, summarized_actions, ateam):
+    """Test that heartbeat is specifically called before the sync_action_vectors call."""
+    start_dt = timezone.now()
+    embeddings = [[0.12, 0.054]]
+
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat") as heartbeat_mock,
+        patch("posthog.temporal.ai.sync_vectors.sync_action_vectors") as sync_mock,
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
+        sync_mock.return_value = None
+
+        await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+
+        # Verify sync was called
+        assert sync_mock.call_count == 1
+
+        # Verify heartbeat was called at least once before sync
+        assert heartbeat_mock.call_count >= 1

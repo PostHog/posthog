@@ -1,10 +1,10 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 
 import { InsightActorsQuery, InsightActorsQueryOptionsResponse } from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { StepOrderValue } from '~/types'
 
 export const funnelTitle = (props: {
@@ -20,20 +20,20 @@ export const funnelTitle = (props: {
             {props.order_type === StepOrderValue.UNORDERED ? (
                 <>
                     {props.converted ? (
-                        <>Completed {pluralize(props.step, 'step', 'steps')} </>
+                        <>Completed {pluralize(props.step, 'step', 'steps')}</>
                     ) : (
                         <>
                             Completed {pluralize(props.step - 1, 'step', 'steps')}, did not complete{' '}
-                            {pluralize(props.step, 'step', 'steps')}{' '}
+                            {pluralize(props.step, 'step', 'steps')}
                         </>
                     )}
                 </>
             ) : (
                 <>
                     {props.converted ? 'Completed' : 'Dropped off at'} step {props.step} •{' '}
-                    <PropertyKeyInfo value={props.label || ''} disablePopover type={TaxonomicFilterGroupType.Events} />{' '}
+                    <PropertyKeyInfo value={props.label || ''} disablePopover type={TaxonomicFilterGroupType.Events} />
                 </>
-            )}
+            )}{' '}
             {props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
         </>
     )

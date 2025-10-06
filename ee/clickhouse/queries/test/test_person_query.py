@@ -1,13 +1,14 @@
 import pytest
+from posthog.test.base import _create_person
 
-from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
+from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
-from posthog.test.base import _create_person
-from posthog.models.cohort import Cohort
-from posthog.models.property import Property
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def person_query(team: Team, filter: Filter, **kwargs):
@@ -78,7 +79,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
         _create_person(
             team_id=team.pk,
             distinct_ids=[f"person{i}"],
-            properties={"group": i, "email": f"{i}@hey.com"},
+            properties={"group": str(i), "email": f"{i}@hey.com"},
         )
 
     cohort1 = Cohort.objects.create(
@@ -91,7 +92,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                         "type": "OR",
                         "values": [
                             {"key": "group", "value": "none", "type": "person"},
-                            {"key": "group", "value": [1, 2, 3], "type": "person"},
+                            {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                         ],
                     }
                 ],
@@ -111,7 +112,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                         "values": [
                             {
                                 "key": "group",
-                                "value": [1, 2, 3, 4, 5, 6],
+                                "value": ["1", "2", "3", "4", "5", "6"],
                                 "type": "person",
                             },
                         ],

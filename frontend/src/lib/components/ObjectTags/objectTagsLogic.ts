@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+
 import { uniqueBy } from 'lib/utils'
 
 import type { objectTagsLogicType } from './objectTagsLogicType'

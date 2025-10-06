@@ -1,8 +1,21 @@
+import { TeamId } from '../../../../types'
+
+export interface WriteSessionData {
+    /** The serialized session block data */
+    buffer: Buffer
+
+    sessionId: string
+
+    teamId: TeamId
+}
+
 export interface WriteSessionResult {
     /** Number of bytes written */
     bytesWritten: number
     /** URL to access this session block, if available */
     url: string | null
+    /** Retention period, in days, for this block, if available */
+    retentionPeriodDays: number | null
 }
 
 /**
@@ -13,18 +26,18 @@ export interface SessionBatchFileWriter {
      * Writes a session block to the batch
      * Handles backpressure from the underlying stream
      *
-     * @param buffer - The serialized session block data
+     * @param data - The session data to write
      * @returns Promise that resolves with the number of bytes written and URL for the block
      * @throws If there is an error writing the data
      */
-    writeSession(buffer: Buffer): Promise<WriteSessionResult>
+    writeSession(data: WriteSessionData): Promise<WriteSessionResult>
 
     /**
      * Completes the writing process for the entire batch
      * Should be called after all session recordings in the batch have been written
      * For example, this might finalize an S3 multipart upload or close a file
      */
-    finish: () => Promise<void>
+    finish(): Promise<void>
 }
 
 /**

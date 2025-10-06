@@ -1,8 +1,11 @@
-import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { FieldNamePath, forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
+import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
+
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -12,18 +15,27 @@ import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
+import {
+    BillingPeriod,
+    BillingPlan,
+    BillingPlanType,
+    BillingProductV2Type,
+    BillingType,
+    ProductKey,
+    StartupProgramLabel,
+} from '~/types'
 
-import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
+import type { billingLogicType } from './billingLogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
+
+const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
 
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
@@ -78,6 +90,54 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     return data as BillingType
 }
 
+const storeBillingAlertDismissal = (
+    organizationId: string | undefined,
+    productType: string,
+    billingPeriodEnd: string | null | undefined,
+    suffix: string = ''
+): void => {
+    if (billingPeriodEnd && organizationId) {
+        try {
+            const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${organizationId}.${productType}${suffix}`
+            localStorage.setItem(dismissKey, billingPeriodEnd)
+        } catch (error) {
+            // localStorage not available, continue without storing
+            console.warn('localStorage not available for billing alert dismissal:', error)
+        }
+    }
+}
+
+const isBillingAlertDismissed = (
+    organizationId: string | undefined,
+    productType: string,
+    billingPeriodEnd: string | null | undefined,
+    suffix: string = ''
+): boolean => {
+    if (!billingPeriodEnd || !organizationId) {
+        return false
+    }
+
+    try {
+        const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${organizationId}.${productType}${suffix}`
+        const dismissedData = localStorage.getItem(dismissKey)
+
+        if (dismissedData) {
+            // If the stored billing period end is different from current, remove the key and show the alert
+            if (dismissedData !== billingPeriodEnd) {
+                localStorage.removeItem(dismissKey)
+                return false
+            }
+            // Alert was dismissed for this period, don't show it
+            return true
+        }
+        return false
+    } catch (error) {
+        // localStorage not available, continue to show alert
+        console.warn('localStorage not available for billing alert dismissal:', error)
+        return false
+    }
+}
+
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
@@ -91,8 +151,8 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingShown: true,
         registerInstrumentationProps: true,
         reportCreditsCTAShown: (creditOverview: any) => ({ creditOverview }),
-        setRedirectPath: true,
-        setIsOnboarding: true,
+        setRedirectPath: (redirectPath: string) => ({ redirectPath }),
+        setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
         determineBillingAlert: true,
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
@@ -100,9 +160,18 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
+        scrollToProduct: (productType: string) => ({ productType }),
     }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [
             userLogic,
             ['loadUser'],
@@ -144,17 +213,13 @@ export const billingLogic = kea<billingLogicType>([
         redirectPath: [
             '' as string,
             {
-                setRedirectPath: () => {
-                    return window.location.pathname.includes('/onboarding')
-                        ? window.location.pathname + window.location.search
-                        : ''
-                },
+                setRedirectPath: (_, { redirectPath }) => redirectPath,
             },
         ],
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
+                setIsOnboarding: (_, { isOnboarding }) => isOnboarding,
             },
         ],
         unsubscribeError: [
@@ -204,13 +269,19 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         computedDiscount: [
-            0,
+            null as number | null,
             {
                 setComputedDiscount: (_, { discount }) => discount,
             },
         ],
+        creditBrackets: [
+            [],
+            {
+                setCreditBrackets: (_, { creditBrackets }) => creditBrackets || [],
+            },
+        ],
     }),
-    loaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -308,7 +379,7 @@ export const billingLogic = kea<billingLogicType>([
         billingError: [
             null as BillingError | null,
             {
-                getInvoices: async () => {
+                loadInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
@@ -343,42 +414,47 @@ export const billingLogic = kea<billingLogicType>([
         creditOverview: [
             {
                 eligible: false,
-                estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                estimated_monthly_credit_amount_usd: null,
                 status: 'none',
                 invoice_url: null,
                 collection_method: null,
                 cc_last_four: null,
                 email: null,
+                credit_brackets: [],
             },
             {
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
                     if (values.billing?.has_active_subscription) {
                         const response = await api.get('api/billing/credits/overview')
+
                         if (!values.creditForm.creditInput) {
-                            actions.setCreditFormValue(
-                                'creditInput',
-                                Math.round(
-                                    (response.estimated_monthly_credit_amount_usd ||
-                                        DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD) * 12
-                                )
-                            )
+                            let spend = DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+
+                            if (response.estimated_monthly_credit_amount_usd !== null) {
+                                spend = response.estimated_monthly_credit_amount_usd
+                            }
+
+                            actions.setCreditBrackets(response.credit_brackets)
+                            actions.setCreditFormValue('creditInput', Math.round(spend * 12))
                         }
 
                         if (response.eligible && response.status === 'none') {
                             actions.reportCreditsCTAShown(response)
                         }
+
                         return response
                     }
                     // Return default values if not subscribed
                     return {
                         eligible: false,
-                        estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                        estimated_monthly_credit_amount_usd: null,
                         status: 'none',
                         invoice_url: null,
                         collection_method: null,
                         cc_last_four: null,
                         email: null,
+                        credit_brackets: [],
                     }
                 },
             },
@@ -398,22 +474,6 @@ export const billingLogic = kea<billingLogicType>([
         isUnlicensedDebug: [
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
-        ],
-        projectedTotalAmountUsdWithBillingLimits: [
-            (s) => [s.billing],
-            (billing: BillingType): number => {
-                if (!billing) {
-                    return 0
-                }
-                let projectedTotal = 0
-                for (const product of billing.products || []) {
-                    const billingLimit =
-                        billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
-                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
-                }
-                return projectedTotal
-            },
         ],
         supportPlans: [
             (s) => [s.billing],
@@ -441,6 +501,80 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
+        billingPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
+        ],
+        startupProgramLabelCurrent: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        startupProgramLabelPrevious: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null =>
+                billing?.startup_program_label_previous || null,
+        ],
+        isAnnualPlanCustomer: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
+        ],
+        billingPeriodUTC: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPeriod => ({
+                start: billing?.billing_period?.current_period_start?.utc() || null,
+                end: billing?.billing_period?.current_period_end?.utc() || null,
+                interval: billing?.billing_period?.interval || null,
+            }),
+        ],
+        showBillingSummary: [
+            (s) => [s.billing, s.isOnboarding],
+            (billing: BillingType | null, isOnboarding: boolean): boolean => {
+                return !isOnboarding && !!billing?.billing_period
+            },
+        ],
+        showCreditCTAHero: [
+            (s) => [s.creditOverview, s.featureFlags],
+            (creditOverview, featureFlags): boolean => {
+                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+                return isEligible && creditOverview.status !== 'paid'
+            },
+        ],
+        showBillingHero: [
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
+            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero
+            },
+        ],
+        isManagedAccount: [
+            (s) => [s.billing],
+            (billing: BillingType): boolean => {
+                return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
+        accountOwner: [
+            (s) => [s.billing],
+            (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
+        ],
+        estimatedMonthlyCreditAmountUsd: [
+            (s) => [s.creditOverview],
+            (creditOverview): number | null => {
+                if (creditOverview === null) {
+                    return null
+                }
+
+                if (
+                    creditOverview.estimated_monthly_credit_amount_usd === null ||
+                    creditOverview.estimated_monthly_credit_amount_usd === undefined
+                ) {
+                    return DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+                }
+
+                return creditOverview.estimated_monthly_credit_amount_usd
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -477,8 +611,7 @@ export const billingLogic = kea<billingLogicType>([
             },
             submit: async ({ creditInput, collectionMethod }) => {
                 await api.create('api/billing/credits/purchase', {
-                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                    discount_percent: values.computedDiscount * 100,
+                    annual_credit_amount_usd: +creditInput,
                     collection_method: collectionMethod,
                 })
 
@@ -519,9 +652,9 @@ export const billingLogic = kea<billingLogicType>([
                 creditInput: !creditInput
                     ? 'Please enter the amount of credits you want to purchase'
                     : // This value is used because 3333 - 10% = 3000
-                    +creditInput < 3333
-                    ? 'Please enter a credit amount of at least $3,333'
-                    : undefined,
+                      +creditInput < 3333
+                      ? 'Please enter a credit amount of at least $3,333'
+                      : undefined,
                 collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
             }),
         },
@@ -552,8 +685,7 @@ export const billingLogic = kea<billingLogicType>([
             posthog.capture('credits cta shown', {
                 eligible: creditOverview.eligible,
                 status: creditOverview.status,
-                estimated_monthly_credit_amount_usd:
-                    creditOverview.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
             })
         },
         toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
@@ -584,6 +716,11 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         determineBillingAlert: () => {
+            // If we already have a billing alert, don't show another one
+            if (values.billingAlert) {
+                return
+            }
+
             if (values.productSpecificAlert) {
                 actions.setBillingAlert(values.productSpecificAlert)
                 return
@@ -593,20 +730,27 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (values.billing.free_trial_until && values.billing.free_trial_until.isAfter(dayjs())) {
-                const remainingDays = values.billing.free_trial_until.diff(dayjs(), 'days')
-                const remainingHours = values.billing.free_trial_until.diff(dayjs(), 'hours')
+            const trial = values.billing.trial
+            if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
+                if (trial.type === 'autosubscribe' || trial.status !== 'active') {
+                    // Only show for standard ones (managed by sales)
+                    return
+                }
 
+                const remainingDays = dayjs(trial.expires_at).diff(dayjs(), 'days')
+                const remainingHours = dayjs(trial.expires_at).diff(dayjs(), 'hours')
                 if (remainingHours > 72) {
                     return
                 }
 
+                const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
+                const contactName = values.billing.account_owner?.name || 'sales'
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial will end in ${
+                    title: `Your free trial for the ${capitalizeFirstLetter(trial.target)} plan will end in ${
                         remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                     }.`,
-                    message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    message: `If you have any questions, please reach out to ${contactName} at ${contactEmail}.`,
                 })
                 return
             }
@@ -626,19 +770,42 @@ export const billingLogic = kea<billingLogicType>([
             })
 
             if (productOverLimit) {
+                const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
+
+                // Check if this alert was dismissed for the current billing period
+                const billingPeriodEnd = values.billing.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                if (isBillingAlertDismissed(values.currentOrganization?.id, productOverLimit.type, billingPeriodEnd)) {
+                    return
+                }
+
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
-                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
+                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
                         or ${
                             productOverLimit.name === 'Data warehouse'
                                 ? 'data will not be synced'
                                 : productOverLimit.name === 'Feature flags & Experiments'
-                                ? 'feature flags will not evaluate'
-                                : 'data loss may occur'
+                                  ? 'feature flags will not evaluate'
+                                  : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
+                    onClose: () => {
+                        // Store dismissal in localStorage
+                        const billingPeriodEnd =
+                            values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                        storeBillingAlertDismissal(
+                            values.currentOrganization?.id,
+                            productOverLimit.type,
+                            billingPeriodEnd
+                        )
+                        actions.setBillingAlert(null)
+                    },
                 })
                 return
             }
@@ -650,6 +817,25 @@ export const billingLogic = kea<billingLogicType>([
             )
 
             if (productApproachingLimit) {
+                const hideProductFlag = `billing_hide_product_${productApproachingLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
+
+                // Check if this alert was dismissed for the current billing period
+                const billingPeriodEnd = values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                if (
+                    isBillingAlertDismissed(
+                        values.currentOrganization?.id,
+                        productApproachingLimit.type,
+                        billingPeriodEnd,
+                        '-approaching'
+                    )
+                ) {
+                    return
+                }
+
                 actions.setBillingAlert({
                     status: 'info',
                     title: 'You will soon hit your usage limit',
@@ -659,6 +845,18 @@ export const billingLogic = kea<billingLogicType>([
                         productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
                     } allocation.`,
                     dismissKey: 'usage-limit-approaching',
+                    onClose: () => {
+                        // Store dismissal in localStorage
+                        const billingPeriodEnd =
+                            values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                        storeBillingAlertDismissal(
+                            values.currentOrganization?.id,
+                            productApproachingLimit.type,
+                            billingPeriodEnd,
+                            '-approaching'
+                        )
+                        actions.setBillingAlert(null)
+                    },
                 })
                 return
             }
@@ -668,23 +866,24 @@ export const billingLogic = kea<billingLogicType>([
         setCreditFormValue: ({ name, value }) => {
             if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {
                 const spend = +value
-                let discount = 0
-                if (spend >= 100000) {
-                    discount = 0.35
-                } else if (spend >= 60000) {
-                    discount = 0.25
-                } else if (spend >= 20000) {
-                    discount = 0.2
-                } else if (spend >= 3000) {
-                    discount = 0.1
+
+                for (const bracket of values.creditBrackets) {
+                    if (
+                        spend >= bracket.annual_credit_from_inclusive &&
+                        spend < (bracket.annual_credit_to_exclusive || Infinity)
+                    ) {
+                        actions.setComputedDiscount(bracket.discount)
+                        return
+                    }
                 }
-                actions.setComputedDiscount(discount)
+
+                actions.setComputedDiscount(0)
             }
         },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.billing) {
-                const payload = {
+                const payload: { [key: string]: any } = {
                     has_billing_plan: !!values.billing.has_active_subscription,
                     free_trial_until: values.billing.free_trial_until?.toISOString(),
                     customer_deactivated: values.billing.deactivated,
@@ -719,12 +918,18 @@ export const billingLogic = kea<billingLogicType>([
                 actions.reportCreditsModalShown()
             }
         },
+        scrollToProduct: ({ productType }) => {
+            let element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            if (element == null) {
+                element = document.querySelector(`[data-attr="billing-product-${productType}"]`)
+            }
+            element?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            })
+        },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBilling()
-        actions.getInvoices()
-    }),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -741,14 +946,32 @@ export const billingLogic = kea<billingLogicType>([
                     status: 'error',
                     title: 'Error',
                     message: _search.billing_error,
+                    contactSupport: true,
                 })
             }
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
         '*': () => {
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
     })),
 ])

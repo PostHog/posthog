@@ -1,34 +1,38 @@
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
 from typing import Any, Optional
-import posthoganalytics
-from celery import shared_task
+
 from django.conf import settings
-from prometheus_client import Counter, Histogram
-from pydantic import ValidationError
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
-from posthog.tasks.utils import CeleryQueue
-from posthog.redis import get_client
-from posthog.schema import (
-    RecordingsQuery,
-    FilterLogicalOperator,
-    PropertyOperator,
-    PropertyFilterType,
-    RecordingPropertyFilter,
-)
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
+import posthoganalytics
+from celery import shared_task
+from prometheus_client import Counter, Gauge, Histogram
+from pydantic import ValidationError
 from structlog import get_logger
+
+from posthog.schema import (
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
+
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
+from posthog.redis import get_client
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.session_recording_api import filter_from_params_to_query, list_recordings_from_query
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
 
 THIRTY_SIX_HOURS_IN_SECONDS = 36 * 60 * 60
 TASK_EXPIRATION_TIME = (
-    # we definitely want to expire this task after a while
+    # we definitely want to expire this task after a while,
     # but we don't want to expire it too quickly
     # so we multiply the schedule by some factor or fallback to a long time
     settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 15
@@ -68,11 +72,26 @@ REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED = Counter(
     "when a count task for a playlist converts legacy filters to universal filters",
 )
 
+REPLAY_PLAYLIST_COULD_NOT_ADD_ERROR_COUNT = Counter(
+    "replay_playlist_could_not_add_error_count",
+    "when a count task for a playlist could not add an error count",
+)
+
 
 REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
     "replay_playlist_with_filters_count_timer_seconds",
     "Time spent loading session recordings that match filters in a playlist in seconds",
     buckets=(1, 2, 4, 8, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
+
+REPLAY_TOTAL_PLAYLISTS_GAUGE = Gauge(
+    "replay_total_playlists_gauge",
+    "Total number of playlists in the database",
+)
+
+REPLAY_PLAYLISTS_IN_REDIS_GAUGE = Gauge(
+    "replay_playlists_in_redis_gauge",
+    "Number of playlists in Redis",
 )
 
 DEFAULT_RECORDING_FILTERS = {
@@ -89,6 +108,18 @@ DEFAULT_RECORDING_FILTERS = {
     ],
     "order": "start_time",
 }
+
+
+def count_playlists_in_redis() -> int:
+    redis_client = get_client()
+    playlist_count = 0
+    cursor = 0
+    while True:
+        cursor, keys = redis_client.scan(cursor, match=f"{PLAYLIST_COUNT_REDIS_PREFIX}*", count=1000)
+        playlist_count += len(keys)
+        if cursor == 0:
+            break
+    return playlist_count
 
 
 def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter:
@@ -280,21 +311,86 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
         raise
 
 
+def try_to_store_error_count(playlist_short_id: str | None) -> None:
+    try:
+        if not playlist_short_id:
+            return
+
+        redis_client = get_client()
+
+        existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist_short_id}")
+        if existing_value:
+            existing_value = json.loads(existing_value)
+        else:
+            existing_value = {}
+
+        error_date = timezone.now()
+        value_to_set = json.dumps(
+            {
+                **existing_value,
+                "errored_at": error_date.isoformat(),
+                "error_count": existing_value.get("error_count", 0) + 1,
+            }
+        )
+
+        redis_client.setex(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist_short_id}", THIRTY_SIX_HOURS_IN_SECONDS, value_to_set
+        )
+    except Exception:
+        REPLAY_PLAYLIST_COULD_NOT_ADD_ERROR_COUNT.inc()
+        pass
+
+
+def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
+    """
+    Returns the difference in seconds between two datetime objects,
+    making sure they are timezone-aware. or python will complain
+    """
+    if dt1.tzinfo is None:
+        dt1 = timezone.make_aware(dt1)
+    if dt2.tzinfo is None:
+        dt2 = timezone.make_aware(dt2)
+    return int((dt1 - dt2).total_seconds())
+
+
+def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
+    # if we have results from the last hour we don't need to run the query
+    if existing_value.get("refreshed_at"):
+        last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
+        # Make last_refreshed_at timezone-aware if it isn't already
+        seconds_since_refresh = safe_seconds_difference(timezone.now(), last_refreshed_at)
+
+        if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
+            REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
+            return True
+
+    # don't retry for a while if we're getting errors
+    if existing_value.get("errored_at"):
+        last_errored_at = datetime.fromisoformat(existing_value["errored_at"])
+        seconds_since_refresh = safe_seconds_difference(timezone.now(), last_errored_at)
+
+        if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
+            REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="error_cooldown").inc()
+            return True
+
+    # don't keep retrying if we keep getting errors
+    if existing_value.get("error_count", 0) >= 5:
+        REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="max_error_cooldown").inc()
+        return True
+
+    # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
+    if playlist_filters == DEFAULT_RECORDING_FILTERS:
+        REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+        return True
+
+    return False
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-    # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
-    rate_limit="180/h",
+    rate_limit="1/m",
     expires=TASK_EXPIRATION_TIME,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    # will retry twice, once after 120 seconds (with jitter)
-    # and once after 240 seconds (with jitter)
-    # will be retried again on the next run anyway
-    # so does not need many retries here
-    retry_jitter=True,
-    retry_backoff=120,
-    max_retries=2,
-    store_errors_even_if_ignored=True,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     playlist: SessionRecordingPlaylist | None = None
@@ -304,38 +400,49 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
 
-            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            tag_queries(product=Product.REPLAY, team_id=playlist.team.pk, replay_playlist_id=playlist_id)
+
+            existing_value = redis_client.getex(
+                name=f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", ex=THIRTY_SIX_HOURS_IN_SECONDS
+            )
             if existing_value:
                 existing_value = json.loads(existing_value)
             else:
                 existing_value = {}
 
-            # if we have results from the last hour we don't need to run the query
-            if existing_value.get("refreshed_at"):
-                last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
-                seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
-
-                if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
-                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
-                    return
-
-            # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
-            if playlist.filters == DEFAULT_RECORDING_FILTERS:
-                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+            if should_skip_task(existing_value, playlist.filters):
                 return
 
             query = convert_filters_to_recordings_query(playlist)
+
+            # if we already have some data and the query is sorted by start_time,
+            # we can query only new recordings, to (hopefully) reduce load on CH
+            has_existing_data = existing_value.get("refreshed_at", None)
+            can_query_only_new_recordings = query.order == "start_time"
+
+            if has_existing_data and can_query_only_new_recordings:
+                query.date_from = existing_value["refreshed_at"]
+
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
 
-            counted_at_date = datetime.now()
+            counted_at_date = timezone.now()
+            new_session_ids = [r.session_id for r in recordings]
+
+            if has_existing_data and can_query_only_new_recordings:
+                # these results are only used for counting and checking if unwatched
+                # so we can merge them without caring about order
+                new_session_ids = list(set(new_session_ids + existing_value["session_ids"]))
+
             value_to_set = json.dumps(
                 {
-                    "session_ids": [r.session_id for r in recordings],
+                    "session_ids": new_session_ids,
                     "has_more": more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
                     "refreshed_at": counted_at_date.isoformat(),
+                    "error_count": 0,
+                    "errored_at": None,
                 }
             )
             redis_client.setex(
@@ -345,6 +452,17 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist.save(update_fields=["last_counted_at"])
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
+            posthoganalytics.capture(
+                distinct_id=f"playlist_counting_for_team_{playlist.team.pk}",
+                event="replay_playlist_saved_filters_counted",
+                properties={
+                    "team_id": playlist.team.pk,
+                    "saved_filters_short_id": playlist.short_id,
+                    "saved_filters_name": playlist.name or playlist.derived_name,
+                    "count": len(new_session_ids),
+                    "previous_count": len(existing_value.get("session_ids", [])),
+                },
+            )
     except SessionRecordingPlaylist.DoesNotExist:
         logger.info(
             "Playlist does not exist",
@@ -365,31 +483,43 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "playlist_id": playlist_id,
                 "playlist_short_id": playlist.short_id if playlist else None,
                 "posthog_feature": "session_replay_playlist_counters",
-                "filters": playlist.filters if playlist else None,
-                "query": query_json,
             },
         )
         logger.exception(
             "Failed to count recordings that match playlist filters",
             playlist_id=playlist_id,
             playlist_short_id=playlist.short_id if playlist else None,
-            filters=playlist.filters if playlist else None,
             query=query_json,
             error=e,
         )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.labels(error=e.__class__.__name__).inc()
+        try_to_store_error_count(playlist.short_id if playlist else None)
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    all_playlists = (
+    base_query = (
         SessionRecordingPlaylist.objects.filter(
             deleted=False,
             filters__isnull=False,
         )
         .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
-        .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
+        .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
+        .annotate(pinned_item_count=Count("playlist_items"))
+        .filter(pinned_item_count=0)
     )
 
-    for playlist in all_playlists:
-        count_recordings_that_match_playlist_filters.delay(playlist.id)
+    total_playlists_count = base_query.count()
+
+    all_playlists = base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list("id", flat=True)[
+        : settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT
+    ]
+
+    cached_counted_playlists_count = count_playlists_in_redis()
+
+    # these two gauges let us see how "full" the cache is
+    REPLAY_TOTAL_PLAYLISTS_GAUGE.set(total_playlists_count)
+    REPLAY_PLAYLISTS_IN_REDIS_GAUGE.set(cached_counted_playlists_count)
+
+    for playlist_id in all_playlists:
+        count_recordings_that_match_playlist_filters.delay(playlist_id)
         REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()

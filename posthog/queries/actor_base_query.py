@@ -1,16 +1,11 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
+
+from posthog.schema import ActorsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.hogql_queries.actor_strategies import PersonStrategy
@@ -21,8 +16,8 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import ActorsQuery
 
 
 class EventInfoForRecording(TypedDict):
@@ -273,17 +268,18 @@ def get_people(
 ) -> tuple[QuerySet[Person], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[
-            :distinct_id_limit
-        ]
+        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(person_id=OuterRef("person_id"))
+        .values_list("id", flat=True)[:distinct_id_limit]
     )
     persons: QuerySet[Person] = (
-        Person.objects.filter(team_id=team.pk, uuid__in=people_ids)
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(
             Prefetch(
                 "persondistinctid_set",
                 to_attr="distinct_ids_cache",
-                queryset=PersonDistinctId.objects.filter(id__in=distinct_id_subquery),
+                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=distinct_id_subquery),
             )
         )
         .order_by("-created_at", "uuid")

@@ -1,13 +1,15 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
 import { useActions, useValues } from 'kea'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
-import { urls } from 'scenes/urls'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
-import { notebookNodeLogic } from './notebookNodeLogic'
 import { useEffect } from 'react'
+
 import { NotFound } from 'lib/components/NotFound'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
     const { id } = attributes
@@ -19,6 +21,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExample
         setTitlePlaceholder(
             featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example'
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [featureFlag?.key])
 
     if (!featureFlagMissing) {

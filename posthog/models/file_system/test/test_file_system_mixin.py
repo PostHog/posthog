@@ -1,16 +1,6 @@
 from django.test import TestCase
 
-from posthog.models import (
-    Team,
-    User,
-    Organization,
-    FeatureFlag,
-    Experiment,
-    Insight,
-    Dashboard,
-    Notebook,
-    FileSystem,
-)
+from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Notebook, Organization, Team, User
 
 
 class TestFileSystemSyncMixin(TestCase):
@@ -25,12 +15,13 @@ class TestFileSystemSyncMixin(TestCase):
         a new FileSystem entry should be created via the Mixin's signals.
         """
         # Create a FeatureFlag
-        flag = FeatureFlag.objects.create(team=self.team, name="My Feature", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="My Feature", deleted=False, created_by=self.user)
         # The Mixin's post_save signal should create a FileSystem row
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/My Feature")
         self.assertEqual(fs_entry.created_by, self.user)
+        self.assertEqual(fs_entry.shortcut, False)
 
     def test_feature_flag_delete_field_triggers_file_removal_on_save(self):
         """
@@ -38,7 +29,7 @@ class TestFileSystemSyncMixin(TestCase):
         the Mixin's post_save signal should remove the FileSystem entry,
         because DSL config says: `should_delete: lambda instance: instance.deleted`.
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="My Feature", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="My Feature", deleted=False, created_by=self.user)
         self.assertEqual(FileSystem.objects.count(), 1)  # It's created
 
         # Now mark as deleted
@@ -54,7 +45,7 @@ class TestFileSystemSyncMixin(TestCase):
         """
         On a real delete (post_delete), the Mixin should remove the FileSystem entry.
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="Temp Feature", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="Temp Feature", deleted=False, created_by=self.user)
         self.assertEqual(FileSystem.objects.count(), 1)
 
         flag_id = flag.id
@@ -68,17 +59,17 @@ class TestFileSystemSyncMixin(TestCase):
         If a FeatureFlag's name changes, we verify that the FileSystem path
         also updates (depending on your DSL or create_or_update_file logic).
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="Old Name", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="Old Key", deleted=False, created_by=self.user)
         fs_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/Old Name")
+        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/Old Key")
 
         # Update name
-        flag.name = "New Name"
+        flag.key = "New Key"
         flag.save()
 
         fs_entry.refresh_from_db()
         # Confirm the path changed to the new name
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/New Name")
+        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/New Key")
 
     def test_experiment_always_saved(self):
         """
@@ -86,11 +77,12 @@ class TestFileSystemSyncMixin(TestCase):
         So we expect the FileSystem entry to always exist, ignoring any 'deleted' field.
         (If your model doesn't have a 'deleted' field, this just ensures it's created.)
         """
-        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         exp = Experiment.objects.create(team=self.team, name="Exp #1", created_by=self.user, feature_flag=ff)
         fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
+        self.assertEqual(fs_entry.shortcut, False)
 
         # If we manually add a field `deleted=True` (if it existed),
         # the DSL says ignore. We'll simulate that:
@@ -156,12 +148,45 @@ class TestFileSystemSyncMixin(TestCase):
         then physically deleting it removes the entry.
         """
         note = Notebook.objects.create(team=self.team, title="My Notebook", deleted=False, created_by=self.user)
-        fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.id)).first()
+        fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.short_id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Notebooks/My Notebook")
 
         # Physical delete
-        note_id = note.id
+        note_id = note.short_id
         note.delete()
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note_id)).first()
         assert fs_entry2 is None
+
+    def test_notebook_internal_visibility(self):
+        note = Notebook.objects.create(
+            team=self.team, title="My Notebook", created_by=self.user, visibility=Notebook.Visibility.INTERNAL
+        )
+        fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.id)).first()
+
+        assert fs_entry is None, "Should not create file system entry for internal notebook"
+        assert note.get_file_system_representation().should_delete, "Internal notebook should be set for deletion"
+
+    def test_notebook_internal_visibility_delete_existing_entry(self):
+        note = Notebook.objects.create(
+            team=self.team, title="My Notebook", created_by=self.user, visibility=Notebook.Visibility.INTERNAL
+        )
+        fs_entry = FileSystem.objects.create(
+            team=self.team,
+            path=f"{note._get_assigned_folder('Unfiled/Notebooks')}/My Notebook",
+            depth=2,
+            type="notebook",
+            ref=str(note.short_id),
+            href=f"/notebooks/{note.short_id}",
+            meta={"created_at": str(note.created_at)},
+            shortcut=False,
+            created_by_id=self.user.id,
+            created_at=note.created_at,
+        )
+        fs_entry_id = fs_entry.id
+
+        note.save()
+
+        assert (
+            FileSystem.objects.filter(id=fs_entry_id).exists() is False
+        ), "Existing entries for internal notebooks should be deleted"

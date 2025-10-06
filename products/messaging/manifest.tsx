@@ -1,55 +1,73 @@
-import { IconMegaphone } from '@posthog/icons'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import type { MessagingSceneTab } from './frontend/MessagingScene'
 
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingBroadcasts: {
-            import: () => import('./frontend/Broadcasts'),
+        Messaging: {
+            import: () => import('./frontend/MessagingScene'),
             name: 'Messaging',
             projectBased: true,
         },
-        MessagingProviders: {
-            import: () => import('./frontend/Providers'),
+        MessagingCampaign: {
+            import: () => import('./frontend/Campaigns/CampaignScene'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessagingLibraryTemplate: {
+            import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
             name: 'Messaging',
             projectBased: true,
         },
     },
     routes: {
         // URL: [Scene, SceneKey]
-        '/messaging/providers': ['MessagingProviders', 'messagingProviders'],
-        '/messaging/providers/:id': ['MessagingProviders', 'messagingProvider'],
-        '/messaging/providers/new': ['MessagingProviders', 'messagingProviderNew'],
-        '/messaging/providers/new/*': ['MessagingProviders', 'messagingProviderNew'],
-        '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
-        '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
-        '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
+        '/messaging/:tab': ['Messaging', 'messagingCampaigns'],
+        '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
+        '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new?messageId=:messageId': [
+            'MessagingLibraryTemplate',
+            'messagingLibraryTemplateFromMessage',
+        ],
     },
     redirects: {
-        '/messaging': '/messaging/broadcasts',
+        '/messaging': '/messaging/campaigns',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/workflow',
     },
     urls: {
-        messagingBroadcasts: (): string => '/messaging/broadcasts',
-        messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
-        messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-        messagingProviders: (): string => '/messaging/providers',
-        messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-        messagingProviderNew: (template?: string): string =>
-            '/messaging/providers/new' + (template ? `/${template}` : ''),
+        messaging: (tab?: MessagingSceneTab): string => `/messaging/${tab || 'campaigns'}`,
+        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'workflow'}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new/workflow',
+        messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
+        messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+        messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
+        messagingLibraryTemplateFromMessage: (id?: string): string =>
+            `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        broadcast: {
-            icon: <IconMegaphone />,
-            href: (ref: string) => urls.messagingBroadcast(ref),
+        messaging: {
+            name: 'Campaign',
+            iconType: 'messaging',
+            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
+            href: (ref: string) => urls.messagingCampaign(ref),
+            filterKey: 'messaging',
         },
     },
-    treeItems: [
+    treeItemsProducts: [
         {
-            path: `Create new/Broadcast`,
-            type: 'broadcast',
-            href: () => urls.messagingBroadcastNew(),
+            path: 'Messaging',
+            href: urls.messaging(),
+            type: 'messaging',
+            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            category: 'Unreleased',
+            tags: ['alpha'],
+            flag: FEATURE_FLAGS.MESSAGING,
+            iconType: 'messaging',
+            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
         },
     ],
 }

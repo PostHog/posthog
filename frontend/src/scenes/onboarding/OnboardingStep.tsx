@@ -1,11 +1,16 @@
-import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 
-import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
+import { IconArrowRight } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+
+import { OnboardingStepKey } from '~/types'
+
+import { breadcrumbExcludeSteps, onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -89,11 +94,7 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div
-                className={`${stepKey !== 'product_intro' && 'p-2'} ${
-                    stepKey !== 'product_intro' && !fullWidth && 'max-w-screen-md mx-auto'
-                }`}
-            >
+            <div className={clsx('p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
                 {subtitle && (
                     <div className="max-w-screen-md mx-auto">
                         <p>{subtitle}</p>

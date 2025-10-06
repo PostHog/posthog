@@ -1,23 +1,32 @@
+import { useActions, useValues } from 'kea'
+import { Dispatch, SetStateAction, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
+
+import type { OrganizationBasicType } from '~/types'
 
 export function DeleteOrganizationModal({
     isOpen,
     setIsOpen,
+    organization,
+    redirectPath,
 }: {
+    organization: OrganizationBasicType | null
     isOpen: boolean
     setIsOpen: Dispatch<SetStateAction<boolean>>
-}): JSX.Element {
-    const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
+    redirectPath?: string
+}): JSX.Element | null {
+    const { organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
-    const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
+    const isDeletionInProgress = !!organization && organizationBeingDeleted === organization.id
 
     return (
         <LemonModal
@@ -34,10 +43,12 @@ export function DeleteOrganizationModal({
                         disabled={!isDeletionConfirmed}
                         loading={isDeletionInProgress}
                         data-attr="delete-organization-ok"
-                        onClick={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
-                    >{`Delete ${
-                        currentOrganization ? currentOrganization.name : 'the current organization'
-                    }`}</LemonButton>
+                        onClick={
+                            organization
+                                ? () => deleteOrganization({ organizationId: organization.id, redirectPath })
+                                : undefined
+                        }
+                    >{`Delete ${organization ? organization.name : 'the current organization'}`}</LemonButton>
                 </>
             }
             isOpen={isOpen}
@@ -47,15 +58,13 @@ export function DeleteOrganizationModal({
                 related to all projects within this organization.
             </p>
             <p>
-                Please type{' '}
-                <strong>{currentOrganization ? currentOrganization.name : "this organization's name"}</strong> to
-                confirm.
+                Please type <strong>{organization ? organization.name : "this organization's name"}</strong> to confirm.
             </p>
             <LemonInput
                 type="text"
                 onChange={(value) => {
-                    if (currentOrganization) {
-                        setIsDeletionConfirmed(value.toLowerCase() === currentOrganization.name.toLowerCase())
+                    if (organization) {
+                        setIsDeletionConfirmed(value.toLowerCase() === organization.name.toLowerCase())
                     }
                 }}
                 data-attr="delete-organization-confirmation-input"
@@ -92,7 +101,14 @@ export function OrganizationDangerZone(): JSX.Element {
                     Delete {currentOrganization?.name || 'the current organization'}
                 </LemonButton>
             </div>
-            <DeleteOrganizationModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
+            {currentOrganization && (
+                <DeleteOrganizationModal
+                    isOpen={isModalVisible}
+                    setIsOpen={setIsModalVisible}
+                    organization={currentOrganization}
+                    redirectPath={urls.default()}
+                />
+            )}
         </>
     )
 }

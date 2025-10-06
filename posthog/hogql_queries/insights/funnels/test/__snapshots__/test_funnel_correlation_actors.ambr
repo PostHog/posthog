@@ -108,7 +108,8 @@
                     steps
            HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                          and isNull(max(max_steps))))
-        WHERE ifNull(in(steps, [1, 2]), 0)
+        WHERE in(steps,
+                 [1, 2])
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed']), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
@@ -123,21 +124,27 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.2
@@ -315,7 +322,8 @@
                     steps
            HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                          and isNull(max(max_steps))))
-        WHERE ifNull(in(steps, [1, 2, 3]), 0)
+        WHERE in(steps,
+                 [1, 2, 3])
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed', 'insight updated']), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, 3), 1))
      GROUP BY actor_id
@@ -330,21 +338,27 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.3
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_properties_with_recordings
@@ -446,19 +460,20 @@
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
                           FROM person
-                          WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                                FROM person
-                                                                                WHERE equals(person.team_id, 99999)
-                                                                                GROUP BY person.id
-                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                          WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                        (SELECT person.id AS id, max(person.version) AS version
+                                                                         FROM person
+                                                                         WHERE equals(person.team_id, 99999)
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed')), ifNull(equals(e__person.properties___foo, 'bar'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
            HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                          and isNull(max(max_steps))))
-        WHERE ifNull(in(steps, [1, 2]), 0)
+        WHERE in(steps,
+                 [1, 2])
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -473,20 +488,26 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_properties_with_recordings.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
+import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -28,13 +32,18 @@ export function AddInsightToDashboardModal(): JSX.Element {
                         >
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            data-attr="dashboard-add-new-insight"
-                            to={urls.insightNew({ dashboardId: dashboard?.id })}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New insight
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="dashboard-add-new-insight"
+                                to={urls.insightNew({ dashboardId: dashboard?.id })}
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             >

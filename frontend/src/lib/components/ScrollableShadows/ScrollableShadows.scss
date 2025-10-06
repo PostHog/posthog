@@ -1,4 +1,6 @@
 .ScrollableShadows {
+    --scrollable-shadows-offset-top: 0px;
+
     position: relative;
     display: flex;
     overflow: hidden;
@@ -6,9 +8,9 @@
     &::before,
     &::after {
         position: absolute;
-        top: 0;
+        top: var(--scrollable-shadows-offset-top);
         left: 0;
-        z-index: 1;
+        z-index: 5; // Bumped from 1 because in new scene layout we use scrollable shadows in around the main content, and some content has their own z-index > 1
         width: 100%;
         height: 100%;
         pointer-events: none;

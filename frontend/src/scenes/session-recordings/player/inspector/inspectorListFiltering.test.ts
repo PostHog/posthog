@@ -1,3 +1,4 @@
+import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
@@ -5,10 +6,11 @@ import {
     InspectorListItemComment,
     InspectorListItemDoctor,
     InspectorListItemEvent,
+    InspectorListItemNotebookComment,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { FilterableInspectorListItemTypes, PerformanceEvent } from '~/types'
+import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
     it('hides context events when no other events', () => {
@@ -29,6 +31,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: false,
             })
         ).toHaveLength(0)
     })
@@ -55,8 +58,9 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: true,
             }).map((item) => item.type)
-        ).toEqual(['browser-visibility', 'offline-status', 'comment', 'events'])
+        ).toEqual(['browser-visibility', 'offline-status', 'events'])
     })
 
     it.each([
@@ -73,6 +77,34 @@ describe('filtering inspector list items', () => {
             showOnlyMatching: false,
             allowMatchingEventsFilter: false,
             trackedWindow: null,
+            hasEventsToDisplay: true,
+        })
+        expect(filteredItems).toHaveLength(expectedLength)
+    })
+
+    it.each([
+        [true, 2],
+        [false, 0],
+    ])('hides/shows comment items when %s', (enabled, expectedLength) => {
+        const filteredItems = filterInspectorListItems({
+            allItems: [
+                {
+                    type: 'doctor',
+                } as InspectorListItemDoctor,
+                {
+                    type: 'comment',
+                    source: 'notebook',
+                } as InspectorListItemNotebookComment,
+                {
+                    type: 'comment',
+                    source: 'comment',
+                } as InspectorListItemComment,
+            ],
+            miniFiltersByKey: { comment: { enabled } as unknown as SharedListMiniFilter },
+            showOnlyMatching: false,
+            allowMatchingEventsFilter: false,
+            trackedWindow: null,
+            hasEventsToDisplay: true,
         })
         expect(filteredItems).toHaveLength(expectedLength)
     })
@@ -82,12 +114,12 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         windowId: 'this window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         windowId: 'a different window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
@@ -96,6 +128,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: 'a different window',
+                hasEventsToDisplay: true,
             })
         ).toHaveLength(1)
     })
@@ -105,7 +138,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: 'an event' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -113,6 +146,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: true,
             })
         ).toHaveLength(0)
     })
@@ -125,7 +159,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -133,7 +167,35 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: true,
             })
         ).toHaveLength(expectedLength)
+    })
+
+    it('only shows matching events when show matching events is true', () => {
+        expect(
+            filterInspectorListItems({
+                allItems: [
+                    {
+                        type: 'events',
+                        data: { event: '$exception' } as unknown as PerformanceEvent,
+                        highlightColor: 'primary',
+                    } as unknown as InspectorListItemEvent,
+                    {
+                        type: 'network',
+                        data: { event: '$pageview' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemPerformance,
+                    {
+                        type: 'doctor',
+                        data: { event: '$pageview' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemDoctor,
+                ],
+                miniFiltersByKey: { 'events-exceptions': { enabled: true } as unknown as SharedListMiniFilter },
+                showOnlyMatching: true,
+                allowMatchingEventsFilter: true,
+                trackedWindow: null,
+                hasEventsToDisplay: true,
+            })
+        ).toHaveLength(1)
     })
 })

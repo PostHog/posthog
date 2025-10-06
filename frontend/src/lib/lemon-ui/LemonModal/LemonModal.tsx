@@ -1,11 +1,13 @@
 import './LemonModal.scss'
 
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
+
+import { IconX } from '@posthog/icons'
+
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -51,6 +53,8 @@ export interface LemonModalProps {
      * they can push a specific value to control their position in the stacking order
      */
     zIndex?: '1161' | '1162' | '1166' | '1167' | '1168' | '1169'
+    className?: string
+    overlayClassName?: string
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -90,6 +94,8 @@ export function LemonModal({
     hideCloseButton = false,
     'data-attr': dataAttr,
     zIndex,
+    className,
+    overlayClassName,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -171,7 +177,7 @@ export function LemonModal({
             {modalContent}
         </div>
     ) : (
-        // eslint-disable-next-line posthog/warn-elements
+        // eslint-disable-next-line react/forbid-elements
         <Modal
             isOpen={isOpen}
             onRequestClose={(e) => {
@@ -186,11 +192,12 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
+            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen', className)}
             overlayClassName={clsx(
                 'LemonModal__overlay',
                 zIndex && `LemonModal__overlay--z-${zIndex}`,
-                forceAbovePopovers && 'LemonModal__overlay--force-modal-above-popovers'
+                forceAbovePopovers && 'LemonModal__overlay--force-modal-above-popovers',
+                overlayClassName
             )}
             style={{
                 content: {

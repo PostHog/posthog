@@ -1,7 +1,8 @@
 from typing import cast
-from unittest.mock import Mock
 
 import pytest
+from unittest.mock import Mock
+
 from django.contrib.gis.geoip2 import GeoIP2, GeoIP2Exception
 from django.test import TestCase
 

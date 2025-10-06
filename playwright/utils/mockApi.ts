@@ -35,7 +35,7 @@ export const mockFeatureFlags = async (page: Page, overrides: Record<string, any
         await route.continue()
     })
 
-    await page.route('**/decide/*', async (route) => {
+    await page.route('**/flags/*', async (route) => {
         await route.fulfill({
             status: 200,
             body: JSON.stringify({

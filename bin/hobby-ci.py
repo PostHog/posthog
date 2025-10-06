@@ -1,15 +1,16 @@
 #!/usr/local/bin/python
+# ruff: noqa: T201 allow print statements
 
-import datetime
 import os
-import random
-import string
 import sys
 import time
+import random
+import string
+import datetime
 
-import digitalocean
+import urllib3
 import requests
-
+import digitalocean
 
 DOMAIN = "posthog.cc"
 
@@ -21,7 +22,7 @@ class HobbyTester:
         name=None,
         region="sfo3",
         image="ubuntu-22-04-x64",
-        size="s-4vcpu-8gb",
+        size="s-8vcpu-16gb",
         release_tag="latest-release",
         branch=None,
         hostname=None,
@@ -67,10 +68,19 @@ class HobbyTester:
             "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
             "git clone https://github.com/PostHog/posthog.git \n"
             "cd posthog \n"
+            f'echo "Using branch: {self.branch}" \n'
             f"git checkout {self.branch} \n"
+            "CURRENT_COMMIT=$(git rev-parse HEAD) \n"
+            'echo "Current commit: $CURRENT_COMMIT" \n'
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
-            f"./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
+            f'if [ "{self.branch}" != "main" ] && [ "{self.branch}" != "master" ] && [ -n "{self.branch}" ]; then \n'
+            f'    echo "Using commit hash for feature branch deployment" \n'
+            f"    ./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
+            f"else \n"
+            f'     echo "Installing PostHog version: {self.release_tag}" \n'
+            f"    ./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
+            f"fi \n"
         )
 
     def block_until_droplet_is_started(self):
@@ -117,30 +127,38 @@ class HobbyTester:
         self.droplet.create()
         return self.droplet
 
-    def test_deployment(self, timeout=20, retry_interval=15):
+    def test_deployment(self, timeout=30, retry_interval=15):
         if not self.hostname:
             return
         # timeout in minutes
         # return true if success or false if failure
         print("Attempting to reach the instance")
         print(f"We will time out after {timeout} minutes")
+
+        # Suppress SSL warnings for staging Let's Encrypt certificates
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         url = f"https://{self.hostname}/_health"
         start_time = datetime.datetime.now()
+        attempt = 1
         while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
+            print(f"Trying to connect... (attempt {attempt})")
             try:
-                # verify is set False here because we are hitting the staging endoint for Let's Encrypt
+                # verify is set False here because we are hitting the staging endpoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
                 # This mitigates the chances of getting throttled or banned
-                r = requests.get(url, verify=False)
+                r = requests.get(url, verify=False, timeout=10)
             except Exception as e:
-                print(f"Host is probably not up. Received exception\n{e}")
+                print(f"Connection failed: {type(e).__name__}")
                 time.sleep(retry_interval)
+                attempt += 1
                 continue
             if r.status_code == 200:
                 print("Success - received heartbeat from the instance")
                 return True
-            print("Instance not ready - sleeping")
+            print(f"Instance not ready (HTTP {r.status_code}) - sleeping")
             time.sleep(retry_interval)
+            attempt += 1
         print("Failure - we timed out before receiving a heartbeat")
         return False
 

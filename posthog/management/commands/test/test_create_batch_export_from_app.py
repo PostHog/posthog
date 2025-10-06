@@ -1,21 +1,21 @@
-import collections
-import datetime as dt
 import json
-import typing
 import uuid
+import typing
+import datetime as dt
+import collections
 
 import pytest
-from asgiref.sync import async_to_sync
+
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from asgiref.sync import async_to_sync
+
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.management.commands.create_batch_export_from_app import (
-    map_plugin_config_to_destination,
-)
+from posthog.management.commands.create_batch_export_from_app import map_plugin_config_to_destination
 from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
@@ -101,7 +101,7 @@ def redshift_plugin(organization) -> typing.Generator[Plugin, None, None]:
     plugin.delete()
 
 
-test_snowflake_config = {
+test_snowflake_config: dict[str, typing.Any] = {
     "account": "snowflake-account",
     "username": "test-user",
     "password": "test-password",
@@ -111,7 +111,7 @@ test_snowflake_config = {
     "table": "test-table",
     "role": "test-role",
 }
-test_s3_config = {
+test_s3_config: dict[str, typing.Any] = {
     "awsAccessKey": "access-key",
     "awsSecretAccessKey": "secret-access-key",
     "s3BucketName": "test-bucket",
@@ -120,7 +120,7 @@ test_s3_config = {
     "compression": "gzip",
     "eventsToIgnore": "$feature_flag_called",
 }
-test_bigquery_config = {
+test_bigquery_config: dict[str, typing.Any] = {
     "tableId": "my_table_id",
     "datasetId": "my_dataset_id",
     "googleCloudKeyJson": {
@@ -137,7 +137,7 @@ test_bigquery_config = {
     },
     "exportEventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
 }
-test_postgres_config = {
+test_postgres_config: dict[str, typing.Any] = {
     "host": "localhost",
     "port": "5432",
     "dbName": "dev",
@@ -148,7 +148,7 @@ test_postgres_config = {
     "eventsToIgnore": "$feature_flag_called",
     "hasSelfSignedCert": "Yes",
 }
-test_postgres_config_with_database_url = {
+test_postgres_config_with_database_url: dict[str, typing.Any] = {
     "port": "54322",
     "dbName": "prod",
     "host": "localhost",
@@ -159,7 +159,7 @@ test_postgres_config_with_database_url = {
     "eventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
     "hasSelfSignedCert": "Yes",
 }
-test_redshift_config = {
+test_redshift_config: dict[str, typing.Any] = {
     "clusterHost": "localhost",
     "clusterPort": "5439",
     "dbName": "dev",
@@ -176,7 +176,7 @@ PluginConfigParams = collections.namedtuple(
 
 
 @pytest.fixture
-def config(request) -> dict[str, str]:
+def config(request) -> dict[str, typing.Any]:
     """Dispatch into one of the configurations for testing according to export/plugin type."""
     if isinstance(request.param, tuple):
         params = PluginConfigParams(*request.param)
@@ -424,16 +424,16 @@ def test_create_batch_export_from_app(
 
     codec = EncryptionCodec(settings=settings)
     decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
-    args = json.loads(decoded_payload[0].data)
+    input_args = json.loads(decoded_payload[0].data)
 
     # Common inputs
-    assert args["team_id"] == plugin_config.team.pk
-    assert args["batch_export_id"] == str(batch_export_data["id"])
-    assert args["interval"] == interval
+    assert input_args["team_id"] == plugin_config.team.pk
+    assert input_args["batch_export_id"] == str(batch_export_data["id"])
+    assert input_args["interval"] == interval
 
     # Type specific inputs
     for key, expected in config.items():
-        assert args[key] == expected
+        assert input_args[key] == expected
 
 
 @pytest.mark.django_db
@@ -496,13 +496,13 @@ def test_create_batch_export_from_app_with_disabled_plugin(
 
     codec = EncryptionCodec(settings=settings)
     decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
-    args = json.loads(decoded_payload[0].data)
+    input_args = json.loads(decoded_payload[0].data)
 
     # Common inputs
-    assert args["team_id"] == plugin_config.team.pk
-    assert args["batch_export_id"] == str(batch_export_data["id"])
-    assert args["interval"] == interval
+    assert input_args["team_id"] == plugin_config.team.pk
+    assert input_args["batch_export_id"] == str(batch_export_data["id"])
+    assert input_args["interval"] == interval
 
     # Type specific inputs
     for key, expected in config.items():
-        assert args[key] == expected
+        assert input_args[key] == expected

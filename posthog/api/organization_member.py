@@ -2,21 +2,24 @@ from typing import cast
 
 from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
+
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.serializers import raise_errors_on_nested_writes
 from social_django.admin import UserSocialAuth
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
+from posthog.event_usage import groups
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
-from posthog.event_usage import groups
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -147,16 +150,31 @@ class OrganizationMemberViewSet(
         is_self_removal = requesting_user.id == removed_user.id
 
         posthoganalytics.capture(
-            str(requesting_user.distinct_id),
-            "organization member removed",
+            distinct_id=str(requesting_user.distinct_id),
+            event="organization member removed",
             properties={
                 "removed_member_id": removed_user.distinct_id,
                 "removed_by_id": requesting_user.distinct_id,
                 "organization_id": instance.organization_id,
                 "organization_name": instance.organization.name,
                 "removal_type": "self_removal" if is_self_removal else "removed_by_other",
+                "removed_email": removed_user.email,
+                "removed_user_id": removed_user.id,
             },
             groups=groups(instance.organization),
         )
 
         instance.user.leave(organization=instance.organization)
+
+    @action(detail=True, methods=["get"])
+    def scoped_api_keys(self, request, *args, **kwargs):
+        instance = self.get_object()
+        api_keys_data = instance.get_scoped_api_keys()
+
+        return Response(
+            {
+                "has_keys": api_keys_data["has_keys"],
+                "has_keys_active_last_week": api_keys_data["has_keys_active_last_week"],
+                "keys": api_keys_data["keys"],
+            }
+        )

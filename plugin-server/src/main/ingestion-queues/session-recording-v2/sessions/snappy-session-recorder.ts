@@ -1,10 +1,13 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
-import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
+import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from '../segmentation'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
@@ -69,7 +72,7 @@ export interface EndResult {
 export class SnappySessionRecorder {
     private readonly uncompressedChunks: Buffer[] = []
     private eventCount: number = 0
-    private rawBytesWritten: number = 0
+    private size: number = 0
     private ended = false
     private startDateTime: DateTime | null = null
     private endDateTime: DateTime | null = null
@@ -85,7 +88,12 @@ export class SnappySessionRecorder {
     private segmentationEvents: SegmentationEvent[] = []
     private droppedUrlsCount: number = 0
 
-    constructor(public readonly sessionId: string, public readonly teamId: number, public readonly batchId: string) {}
+    constructor(
+        public readonly sessionId: string,
+        public readonly teamId: number,
+        public readonly batchId: string,
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+    ) {}
 
     /**
      * Records a message containing events for this session
@@ -128,35 +136,45 @@ export class SnappySessionRecorder {
 
         for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
             for (const event of events) {
-                // Store segmentation event for later use in active time calculation
-                this.segmentationEvents.push(toSegmentationEvent(event))
-
-                const eventUrl = hrefFrom(event)
-                if (eventUrl) {
-                    this.addUrl(eventUrl)
-                }
-
-                if (isClick(event)) {
-                    this.clickCount += 1
-                }
-
-                if (isKeypress(event)) {
-                    this.keypressCount += 1
-                }
-
-                if (isMouseActivity(event)) {
-                    this.mouseActivityCount += 1
-                }
-
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
+
+                const eventTimestamp = event.timestamp
+                const shouldComputeMetadata = eventPassesMetadataSwitchoverTest(
+                    eventTimestamp,
+                    this.metadataSwitchoverDate
+                )
+
+                if (shouldComputeMetadata) {
+                    // Store segmentation event for later use in active time calculation
+                    this.segmentationEvents.push(toSegmentationEvent(event))
+
+                    const eventUrl = hrefFrom(event)
+                    if (eventUrl) {
+                        this.addUrl(eventUrl)
+                    }
+
+                    if (isClick(event)) {
+                        this.clickCount += 1
+                    }
+
+                    if (isKeypress(event)) {
+                        this.keypressCount += 1
+                    }
+
+                    if (isMouseActivity(event)) {
+                        this.mouseActivityCount += 1
+                    }
+
+                    this.eventCount++
+                    this.size += chunk.length
+                }
+
                 rawBytesWritten += chunk.length
-                this.eventCount++
             }
         }
 
-        this.rawBytesWritten += rawBytesWritten
         this.messageCount += 1
         return rawBytesWritten
     }
@@ -183,7 +201,7 @@ export class SnappySessionRecorder {
             this.droppedUrlsCount++
             logger.warn(
                 '🔗',
-                `Dropping URL (count limit reached) for session ${this.sessionId}, dropped ${this.droppedUrlsCount} URLs`
+                `Dropping URL (count limit reached) for session ${this.sessionId} team ${this.teamId}, dropped ${this.droppedUrlsCount} URLs`
             )
         }
     }
@@ -228,7 +246,7 @@ export class SnappySessionRecorder {
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: activeTime,
-            size: uncompressedBuffer.length,
+            size: this.size,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,

@@ -1,19 +1,17 @@
-import argparse
 import logging
+import argparse
 
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import (
-    logger,
-    materialize_properties_task,
-)
-from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
+
+from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
+from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 
 
 class Command(BaseCommand):
@@ -36,8 +34,14 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--table-column",
+            type=str,
             help="The column to which --property should be materialised from.",
             default=DEFAULT_TABLE_COLUMN,
+            choices=[
+                "properties",
+                "group_properties",
+                "person_properties",
+            ],
         )
         parser.add_argument(
             "--backfill-period",

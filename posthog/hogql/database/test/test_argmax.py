@@ -1,6 +1,7 @@
+from posthog.test.base import BaseTest
+
 from posthog.hogql import ast
 from posthog.hogql.database.argmax import argmax_select
-from posthog.test.base import BaseTest
 
 
 class TestArgmax(BaseTest):

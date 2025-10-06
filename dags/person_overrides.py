@@ -1,6 +1,6 @@
-import datetime
 import time
 import uuid
+import datetime
 from dataclasses import dataclass
 from functools import partial
 
@@ -8,16 +8,17 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
-from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
-    ClickhouseCluster,
-    MutationWaiter,
     AlterTableMutationRunner,
+    ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    MutationWaiter,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+from dags.common import JobOwners
 
 
 @dataclass
@@ -110,7 +111,7 @@ class PersonOverridesSnapshotDictionary:
                 version Int64
             )
             PRIMARY KEY team_id, distinct_id
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -118,6 +119,7 @@ class PersonOverridesSnapshotDictionary:
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
+                "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
             },
         )
@@ -172,8 +174,8 @@ class PersonOverridesSnapshotDictionary:
     @property
     def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
         return AlterTableMutationRunner(
-            EVENTS_DATA_TABLE(),
-            {
+            table=EVENTS_DATA_TABLE(),
+            commands={
                 "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
             },
             parameters={"name": self.qualified_name},
@@ -182,8 +184,8 @@ class PersonOverridesSnapshotDictionary:
     @property
     def overrides_delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
         return LightweightDeleteMutationRunner(
-            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-            "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
+            table=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+            predicate="isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
             parameters={"name": self.qualified_name},
         )
 
@@ -400,10 +402,9 @@ def cleanup_orphaned_person_overrides_snapshot():
     cleanup_snapshot_resources(dictionary)
 
 
-# Schedule to run squash at 10 PM on Saturdays
 squash_schedule = dagster.ScheduleDefinition(
     job=squash_person_overrides,
-    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
+    cron_schedule=settings.SQUASH_PERSON_OVERRIDES_SCHEDULE,
     execution_timezone="UTC",
     name="squash_person_overrides_schedule",
 )

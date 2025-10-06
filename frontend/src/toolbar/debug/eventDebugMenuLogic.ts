@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
+
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { EventType } from '~/types'
 

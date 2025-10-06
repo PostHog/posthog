@@ -1,24 +1,23 @@
 import './PersonDisplay.scss'
 
-import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
 import { router } from 'kea-router'
+import React, { useMemo, useState } from 'react'
+
+import { IconCopy } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { asDisplay, asLink } from './person-utils'
 import { PersonPreview } from './PersonPreview'
-
-type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
+import { PersonPropType, asDisplay, asLink } from './person-utils'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
+    displayName?: string
     withIcon?: boolean | ProfilePictureProps['size']
     href?: string
     noLink?: boolean
@@ -32,9 +31,11 @@ export interface PersonDisplayProps {
 
 export function PersonIcon({
     person,
+    displayName,
     ...props
-}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'user' | 'name' | 'email'>): JSX.Element {
-    const display = asDisplay(person)
+}: Pick<PersonDisplayProps, 'person'> &
+    Omit<ProfilePictureProps, 'user' | 'name' | 'email'> & { displayName?: string }): JSX.Element {
+    const display = displayName || asDisplay(person)
 
     const email: string | undefined = useMemo(() => {
         // The email property could be correct but it could also be set strangely such as an array or not even a string
@@ -57,6 +58,7 @@ export function PersonIcon({
 
 export function PersonDisplay({
     person,
+    displayName,
     withIcon,
     noEllipsis,
     noPopover,
@@ -67,7 +69,7 @@ export function PersonDisplay({
     withCopyButton,
     placement,
 }: PersonDisplayProps): JSX.Element {
-    const display = asDisplay(person)
+    const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
@@ -85,7 +87,13 @@ export function PersonDisplay({
 
     let content = children || (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
-            {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
+            {withIcon && (
+                <PersonIcon
+                    displayName={displayName}
+                    person={person}
+                    size={typeof withIcon === 'string' ? withIcon : 'md'}
+                />
+            )}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )
@@ -112,35 +120,35 @@ export function PersonDisplay({
         </span>
     )
 
-    content =
-        noPopover || notebookNode ? (
-            content
-        ) : (
-            <Popover
-                overlay={
-                    person?.distinct_id || person?.distinct_ids?.[0] ? (
-                        <PersonPreview
-                            distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
-                            onClose={() => setVisible(false)}
-                        />
-                    ) : null
-                }
-                visible={visible}
-                onClickOutside={() => setVisible(false)}
-                placement={placement || 'top'}
-                fallbackPlacements={['bottom', 'right']}
-                showArrow
-            >
-                {withCopyButton ? (
-                    <div className="flex flex-row items-center justify-between">
-                        {content}
-                        <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
-                    </div>
-                ) : (
-                    <span>{content}</span>
-                )}
-            </Popover>
-        )
+    if (noPopover || notebookNode) {
+        return content
+    }
 
-    return content
+    return (
+        <Popover
+            overlay={
+                person?.distinct_id || person?.distinct_ids?.[0] || person?.id ? (
+                    <PersonPreview
+                        distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                        personId={person?.id}
+                        onClose={() => setVisible(false)}
+                    />
+                ) : null
+            }
+            visible={visible}
+            onClickOutside={() => setVisible(false)}
+            placement={placement || 'top'}
+            fallbackPlacements={['bottom', 'right']}
+            showArrow
+        >
+            {withCopyButton ? (
+                <div className="flex flex-row items-center justify-between">
+                    {content}
+                    <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                </div>
+            ) : (
+                <span>{content}</span>
+            )}
+        </Popover>
+    )
 }

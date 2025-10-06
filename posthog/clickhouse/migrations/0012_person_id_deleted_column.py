@@ -1,8 +1,5 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.person.sql import (
-    KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
-    PERSONS_DISTINCT_ID_TABLE_MV_SQL,
-)
+from posthog.models.person.sql import KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_DISTINCT_ID_TABLE_MV_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 operations = [

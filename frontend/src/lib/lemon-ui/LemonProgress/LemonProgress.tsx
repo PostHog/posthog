@@ -6,6 +6,12 @@ export type LemonProgressProps = {
     bgColor?: string
     strokeColor?: string
     percent: number
+    /**
+     * Whether to use a CSS transition for the bar. This is the default behavior.
+     * Useful to disable if you already have smooth movement thanks to extremely frequent updates (50+ per second).
+     * @default true
+     */
+    smoothing?: boolean
     children?: React.ReactNode
     className?: string
 }
@@ -15,7 +21,8 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
         {
             size = 'medium',
             percent,
-            bgColor = 'var(--bg-primary)',
+            smoothing = true,
+            bgColor = 'var(--color-bg-primary)',
             strokeColor = 'var(--brand-blue)',
             children,
             className,
@@ -37,8 +44,9 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
             >
                 <span
                     className={clsx(
-                        'LemonProgress__track block h-full rounded-full transition-all',
-                        width > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null
+                        'LemonProgress__track block h-full rounded-full',
+                        width > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null,
+                        smoothing && 'transition-all'
                     )}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: `${width}%`, backgroundColor: strokeColor }}

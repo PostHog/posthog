@@ -9,6 +9,7 @@ use axum::{routing::get, Router};
 use batch_import_worker::{
     config::Config,
     context::AppContext,
+    error::get_user_message,
     job::{model::JobModel, Job},
     spawn_liveness_loop,
 };
@@ -69,7 +70,7 @@ pub async fn main() -> Result<(), Error> {
     while context.is_running() {
         liveness.report_healthy().await;
         info!("Looking for next job");
-        let Some(model) = JobModel::claim_next_job(context.clone()).await? else {
+        let Some(mut model) = JobModel::claim_next_job(context.clone()).await? else {
             if !context.is_running() {
                 break;
             }
@@ -81,7 +82,32 @@ pub async fn main() -> Result<(), Error> {
         info!("Claimed job: {:?}", model.id);
 
         let init_liveness_run = spawn_liveness_loop(liveness.clone());
-        let mut next_step = Some(Job::new(model, context.clone()).await?);
+
+        let mut next_step = match Job::new(model.clone(), context.clone()).await {
+            Ok(job) => Some(job),
+            Err(e) => {
+                let error_msg = format!("Job initialization failed for job {}: {:?}", model.id, e);
+                error!("{}", error_msg);
+                // A developer can tag an error with a user facing message, which we'll surface to the user
+                // via the display_status_message field on the job model
+                let user_facing_error_message = get_user_message(&e);
+                if let Err(pause_err) = model
+                    .pause(
+                        context.clone(),
+                        error_msg,
+                        Some(user_facing_error_message.to_string()),
+                    )
+                    .await
+                {
+                    error!(
+                        "Failed to pause job after initialization error: {:?}",
+                        pause_err
+                    );
+                }
+                init_liveness_run.store(false, Ordering::Relaxed);
+                continue;
+            }
+        };
         init_liveness_run.store(false, Ordering::Relaxed);
 
         while let Some(job) = next_step {

@@ -1,44 +1,53 @@
-import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { useState } from 'react'
+
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useState } from 'react'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
-import { sanitizeSurveyAppearance, validateColor } from 'scenes/surveys/utils'
+import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SurveyAppearance } from '~/types'
 
-import { defaultSurveyAppearance, NEW_SURVEY } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-import { Customization } from './SurveyCustomization'
+import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
+import { Customization } from './survey-appearance/SurveyCustomization'
 
 interface Props {
     isModal?: boolean
 }
 
 function SurveyPopupToggle(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
     return (
         <div className="flex flex-col gap-1">
-            <LemonSwitch
-                data-attr="opt-in-surveys-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({
-                        surveys_opt_in: checked,
-                    })
-                }}
-                fullWidth
-                bordered={false}
-                label="Enable surveys"
-                labelClassName="text-base font-semibold"
-                checked={!!currentTeam?.surveys_opt_in}
-                className="p-0"
-            />
+            {currentTeam?.surveys_opt_in !== undefined && (
+                <LemonSwitch
+                    data-attr="opt-in-surveys-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            surveys_opt_in: checked,
+                        })
+                    }}
+                    fullWidth
+                    bordered={false}
+                    label="Enable surveys"
+                    labelClassName="text-base font-semibold"
+                    checked={currentTeam.surveys_opt_in}
+                    className="p-0"
+                    disabled={currentTeamLoading}
+                    disabledReason={currentTeamLoading ? 'Loading...' : undefined}
+                />
+            )}
             <span>
                 Please note your website needs to have the{' '}
                 <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or at least version 1.81.1 of{' '}
@@ -70,11 +79,18 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
         ValidationErrorType
     > | null>(null)
 
-    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
-        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
-    )
+    const [editableSurveyConfig, setEditableSurveyConfig] = useState({
+        ...defaultSurveyAppearance,
+        ...currentTeam?.survey_config?.appearance,
+    })
 
-    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
+    const [templatedSurvey, setTemplatedSurvey] = useState({
+        ...NEW_SURVEY,
+        appearance: {
+            ...NEW_SURVEY.appearance,
+            ...currentTeam?.survey_config?.appearance,
+        },
+    })
 
     if (templatedSurvey.appearance === defaultSurveyAppearance) {
         templatedSurvey.appearance = editableSurveyConfig
@@ -82,20 +98,10 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
 
     const updateSurveySettings = (): void => {
         const sanitizedAppearance = sanitizeSurveyAppearance(editableSurveyConfig)
-        const errors = {
-            backgroundColor: validateColor(sanitizedAppearance?.backgroundColor, 'background color'),
-            borderColor: validateColor(sanitizedAppearance?.borderColor, 'border color'),
-            ratingButtonActiveColor: validateColor(
-                sanitizedAppearance?.ratingButtonActiveColor,
-                'rating button active color'
-            ),
-            ratingButtonColor: validateColor(sanitizedAppearance?.ratingButtonColor, 'rating button color'),
-            submitButtonColor: validateColor(sanitizedAppearance?.submitButtonColor, 'button color'),
-            submitButtonTextColor: validateColor(sanitizedAppearance?.submitButtonTextColor, 'button text color'),
-        }
+        const errors = sanitizedAppearance && validateSurveyAppearance(sanitizedAppearance, true, templatedSurvey.type)
 
         // Check if there are any validation errors
-        const hasErrors = Object.values(errors).some((error) => error !== undefined)
+        const hasErrors = errors && Object.values(errors).some((error) => error !== undefined)
         setValidationErrors(errors)
 
         if (hasErrors || !sanitizedAppearance) {
@@ -121,7 +127,7 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
             <LemonDivider className="m-0" />
 
             <div className="flex items-center gap-1 flex-1 justify-between">
-                <LemonField.Pure label="Appearance" className="text-base gap-1">
+                <LemonField.Pure label="Default appearance" className="text-base gap-1">
                     <span className="text-sm">These settings apply to new surveys in this organization.</span>
                 </LemonField.Pure>
                 {globalSurveyAppearanceConfigAvailable && (
@@ -131,36 +137,40 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                 )}
             </div>
 
-            <div className="flex gap-2 mb-2 align-top">
-                <Customization
-                    appearance={editableSurveyConfig}
-                    hasBranchingLogic={false}
-                    customizeRatingButtons={true}
-                    customizePlaceholderText={true}
-                    onAppearanceChange={(appearance) => {
-                        setEditableSurveyConfig({
-                            ...editableSurveyConfig,
-                            ...appearance,
-                        })
-                        setTemplatedSurvey({
-                            ...templatedSurvey,
-                            ...{ appearance: appearance },
-                        })
-                    }}
-                    validationErrors={validationErrors}
-                />
-                <div className="flex-1" />
-                <div className="mt-10 mr-5 survey-view">
-                    {globalSurveyAppearanceConfigAvailable && (
-                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
-                    )}
+            <div className="flex gap-8">
+                <div className="min-w-1/2">
+                    <Customization
+                        survey={templatedSurvey}
+                        hasBranchingLogic={false}
+                        hasRatingButtons={true}
+                        hasPlaceholderText={true}
+                        onAppearanceChange={(appearance) => {
+                            const newAppearance = {
+                                ...editableSurveyConfig,
+                                ...appearance,
+                            }
+                            const errors = validateSurveyAppearance(newAppearance, true, templatedSurvey.type)
+                            setValidationErrors(errors)
+                            setEditableSurveyConfig(newAppearance)
+                            setTemplatedSurvey({
+                                ...templatedSurvey,
+                                appearance: newAppearance,
+                            })
+                        }}
+                        validationErrors={validationErrors}
+                    />
                 </div>
+                {globalSurveyAppearanceConfigAvailable && (
+                    <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
+                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                    </div>
+                )}
             </div>
         </div>
     )
 }
 
-export function openSurveysSettingsDialog(): void {
+function openSurveysSettingsDialog(): void {
     LemonDialog.open({
         title: 'Surveys settings',
         content: <SurveySettings isModal />,
@@ -169,4 +179,42 @@ export function openSurveysSettingsDialog(): void {
             children: 'Done',
         },
     })
+}
+
+export function SurveysDisabledBanner(): JSX.Element | null {
+    const { showSurveysDisabledBanner } = useValues(surveysLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
+
+    if (!showSurveysDisabledBanner) {
+        return null
+    }
+
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                type: 'secondary',
+                icon: <IconGear />,
+                onClick: () => openSurveysSettingsDialog(),
+                children: 'Configure',
+            }}
+            className="mb-2"
+        >
+            Surveys are currently disabled for this {settingLevel}. Re-enable them in the settings, otherwise surveys
+            will not be rendered in your app (either automatically or{' '}
+            <Link to="https://posthog.com/docs/surveys/implementing-custom-surveys#rendering-surveys-programmatically">
+                using the <code>renderSurvey</code> function
+            </Link>
+            ). Surveys API is enabled if you are{' '}
+            <Link
+                to="https://posthog.com/docs/surveys/implementing-custom-surveys#fetching-surveys-manually"
+                target="_blank"
+            >
+                fetching and rendering them manually
+            </Link>
+            .
+        </LemonBanner>
+    )
 }

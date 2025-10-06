@@ -1,6 +1,6 @@
-import collections.abc
-import datetime as dt
 import typing
+import datetime as dt
+import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -19,16 +19,12 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-)
-from posthog.clickhouse.client import sync_execute
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
+
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -92,6 +88,7 @@ class BaseBatchExportInputs:
         interval: The range of data we are exporting.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
+        integration_id: The ID of the integration that contains the credentials for the destination.
     """
 
     batch_export_id: str
@@ -106,6 +103,7 @@ class BaseBatchExportInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    integration_id: int | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -155,10 +153,14 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    use_virtual_style_addressing: bool = False
 
     def __post_init__(self):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
+
+        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
+            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
 
 
 @dataclass(kw_only=True)
@@ -228,6 +230,23 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class DatabricksBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Databricks export workflow.
+
+    NOTE: we store config related to the Databricks instance in the integration model instead.
+    (including sensitive config such as client ID and client secret)
+    """
+
+    http_path: str
+    catalog: str
+    schema: str
+    table_name: str
+    use_variant_type: bool = True
+    use_automatic_schema_evolution: bool = True
+    table_partition_field: str | None = None
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
@@ -248,6 +267,7 @@ DESTINATION_WORKFLOWS = {
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
+    "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
 }
@@ -657,7 +677,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(batch_export.team.id, context.modifiers)
+    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -679,6 +699,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     # This assignment should be removed after updating all existing exports to use
                     # `batch_export_model` instead.
                     batch_export_schema=None,
+                    integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
             ),
@@ -695,7 +716,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=batch_export.jitter,
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,
@@ -916,6 +937,9 @@ class BatchExportInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
+    # TODO - pass these in to all inherited classes
+    batch_export_id: str | None = None
+    destination_default_fields: list[BatchExportField] | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

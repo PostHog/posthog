@@ -1,58 +1,61 @@
-import dataclasses
 import os
+import gzip
 import json
 import base64
-import gzip
+import logging
+import dataclasses
 from collections import Counter
-from collections.abc import Sequence
-from datetime import datetime
+from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
+
+from django.conf import settings
+from django.db import connection
+from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
-import logging
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
-from django.conf import settings
-from django.db import connection
-from django.db.models import Count, Q, Sum
 from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.clickhouse.query_tagging import tags_context
-from posthog.exceptions_capture import capture_exception
+from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.clickhouse.client.connection import Workload
+from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import GroupTypeMapping, OrganizationMembership, User
+from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import (
-    get_helm_info_env,
-    get_instance_realm,
-    get_instance_region,
-    get_previous_day,
-)
-from posthog.warehouse.models import ExternalDataJob
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
-
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
+
+# AI events dynamically generated from AIEventType TS enum
+# Changes to the AIEventType enum will impact usage reporting
+AI_EVENTS = [event.value for event in AIEventType]
 
 
 class Period(TypedDict):
@@ -94,6 +97,7 @@ class UsageReportCounters:
     # Recordings
     recording_count_in_period: int
     recording_bytes_in_period: int
+    zero_duration_recording_count_in_period: int
     mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
@@ -118,9 +122,9 @@ class UsageReportCounters:
     query_api_rows_read: int
     query_api_duration_ms: int
 
-    # QaaS usage
-    qaas_query_count: int
-    qaas_bytes_read: int
+    # API Queries usage
+    api_queries_query_count: int
+    api_queries_bytes_read: int
 
     # Event Explorer
     event_explorer_app_bytes_read: int
@@ -133,16 +137,29 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+    free_historical_rows_synced_in_period: int
+
+    # Data Warehouse metadata
+    active_external_data_schemas_in_period: int
+
+    # Batch Exports metadata
+    rows_exported_in_period: int
+    active_batch_exports_in_period: int
+
+    dwh_total_storage_in_s3_in_mib: float
+    dwh_tables_storage_in_s3_in_mib: float
+    dwh_mat_views_storage_in_s3_in_mib: float
     # Error Tracking
     issues_created_total: int
     symbol_sets_count: int
     resolved_symbol_sets_count: int
     exceptions_captured_in_period: int
-    # LLM Observability
+    # LLM Analytics
     ai_event_count_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
+    cdp_billable_invocations_in_period: int
     # SDK usage
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
@@ -157,6 +174,9 @@ class UsageReportCounters:
     python_events_count_in_period: int
     php_events_count_in_period: int
     dotnet_events_count_in_period: int
+    elixir_events_count_in_period: int
+    active_hog_destinations_in_period: int
+    active_hog_transformations_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -317,17 +337,13 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
 
-    logger.info(f"[Send Usage Report To Billing] Sending Usage Report to billing for organization: {org_id}")
-
     try:
         license = get_cached_instance_license()
         if not license or not license.is_v2_license:
-            logger.info(f"[Send Usage Report To Billing] No license found for organization: {org_id}")
             return
 
         organization = Organization.objects.get(id=org_id)
         if not organization:
-            logger.info(f"[Send Usage Report To Billing] No organization found for organization: {org_id}")
             return
 
         token = build_billing_token(license, organization)
@@ -336,13 +352,10 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             headers["Authorization"] = f"Bearer {token}"
 
         response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
-        logger.info(f"[Send Usage Report To Billing] Usage response: {response.status_code}")
         if response.status_code != 200:
             raise Exception(
                 f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
             )
-
-        logger.info(f"[Send Usage Report To Billing] Usage Report sent to Billing for organization: {org_id}")
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
@@ -359,6 +372,90 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             properties={"err": str(err)},
         )
         raise
+
+
+def _execute_split_query(
+    begin: datetime,
+    end: datetime,
+    query_template: str,
+    params: dict,
+    num_splits: int = 2,
+    combine_results_func: Optional[Callable[[list], Any]] = None,
+) -> Any:
+    """
+    Helper function to execute a query split into multiple parts to reduce load.
+    Splits the time period into num_splits parts and runs separate queries, then combines the results.
+
+    Args:
+        begin: Start of the time period
+        end: End of the time period
+        query_template: SQL query template with %(begin)s and %(end)s placeholders
+        params: Additional parameters for the query
+        num_splits: Number of time splits to make (default: 2)
+        combine_results_func: Optional function to combine results from multiple queries
+                             If None, uses the default team_id count combiner
+
+    Returns:
+        Combined query results
+    """
+    # Calculate the time interval for each split
+    time_delta = (end - begin) / num_splits
+
+    all_results = []
+
+    # Execute query for each time split
+    for i in range(num_splits):
+        split_begin = begin + (time_delta * i)
+        split_end = begin + (time_delta * (i + 1))
+
+        # For the last split, use the exact end time to avoid rounding issues
+        if i == num_splits - 1:
+            split_end = end
+
+        # Create a copy of params and update with the split time range
+        split_params = params.copy()
+        split_params["begin"] = split_begin
+        split_params["end"] = split_end
+
+        # Execute the query for this time split
+        split_result = sync_execute(
+            query_template,
+            split_params,
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+        all_results.append(split_result)
+
+    # If no custom combine function is provided, use the default team_id count combiner
+    if combine_results_func is None:
+        return _combine_team_count_results(all_results)
+    else:
+        return combine_results_func(all_results)
+
+
+def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
+    """
+    Default function to combine results from multiple queries that return (team_id, count) tuples.
+
+    Args:
+        results_list: List of query results, each containing (team_id, count) tuples
+
+    Returns:
+        Combined list of (team_id, count) tuples
+    """
+    team_counts: dict[int, int] = {}
+
+    # Combine all results
+    for results in results_list:
+        for team_id, count in results:
+            if team_id in team_counts:
+                team_counts[team_id] += count
+            else:
+                team_counts[team_id] = count
+
+    # Convert back to the expected format
+    return list(team_counts.items())
 
 
 @timed_log()
@@ -378,18 +475,25 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
-    result = sync_execute(
-        f"""
+    # We also exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
+    query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
         GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
+    """
+
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -408,18 +512,26 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    result = sync_execute(
-        f"""
+    # We exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
+    query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
+    """
+
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -429,10 +541,10 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         GROUP BY team_id
-    """,
+        """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
@@ -446,8 +558,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
-    results = sync_execute(
-        f"""
+    query_template = f"""
         SELECT
             team_id,
             multiIf(
@@ -468,43 +579,64 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-python', 'python_events',
                 {lib_expression} = 'posthog-php', 'php_events',
                 {lib_expression} = 'posthog-dotnet', 'dotnet_events',
+                {lib_expression} = 'posthog-elixir', 'elixir_events',
                 'other'
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp BETWEEN %(begin)s AND %(end)s
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
+    """
+
+    # Define a custom function to combine results from multiple queries
+    def combine_event_metrics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
+        metrics: dict[str, dict[int, int]] = {
+            "helicone_events": {},
+            "langfuse_events": {},
+            "keywords_ai_events": {},
+            "traceloop_events": {},
+            "web_events": {},
+            "web_lite_events": {},
+            "node_events": {},
+            "android_events": {},
+            "flutter_events": {},
+            "ios_events": {},
+            "go_events": {},
+            "java_events": {},
+            "react_native_events": {},
+            "ruby_events": {},
+            "python_events": {},
+            "php_events": {},
+            "dotnet_events": {},
+            "elixir_events": {},
+        }
+
+        # Process each result set
+        for results in results_list:
+            for team_id, metric, count in results:
+                if metric in metrics:  # Make sure the metric exists in our dictionary
+                    if team_id in metrics[metric]:
+                        metrics[metric][team_id] += count
+                    else:
+                        metrics[metric][team_id] = count
+
+        # Convert to the expected format
+        result = {}
+        for metric, team_counts in metrics.items():
+            result[metric] = list(team_counts.items())
+
+        return result
+
+    # Execute the split query with 3 splits
+    return _execute_split_query(
+        begin=begin,
+        end=end,
+        query_template=query_template,
+        params={},
+        num_splits=3,
+        combine_results_func=combine_event_metrics_results,
     )
-
-    metrics: dict[str, list[tuple[int, int]]] = {
-        "helicone_events": [],
-        "langfuse_events": [],
-        "keywords_ai_events": [],
-        "traceloop_events": [],
-        "web_events": [],
-        "web_lite_events": [],
-        "node_events": [],
-        "android_events": [],
-        "flutter_events": [],
-        "ios_events": [],
-        "go_events": [],
-        "java_events": [],
-        "react_native_events": [],
-        "ruby_events": [],
-        "python_events": [],
-        "php_events": [],
-        "dotnet_events": [],
-    }
-
-    for team_id, metric, count in results:
-        metrics[metric].append((team_id, count))
-
-    return metrics
 
 
 @timed_log()
@@ -520,7 +652,7 @@ def get_teams_with_recording_count_in_period(
         FROM (
             SELECT any(team_id) as team_id, session_id
             FROM session_replay_events
-            WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
+            WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
         )
@@ -532,12 +664,48 @@ def get_teams_with_recording_count_in_period(
             -- begin is the very first instant of the period we are interested in
             -- we assume it is also the very first instant of a day
             -- so we can to subtract 1 second to get the day before
-            WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
+            WHERE min_first_timestamp >= %(previous_begin)s AND min_first_timestamp < %(begin)s
             GROUP BY session_id
         )
         GROUP BY team_id
     """,
         {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    previous_begin = begin - (end - begin)
+
+    result = sync_execute(
+        """
+        SELECT team_id, count(distinct session_id) as count
+        FROM (
+            SELECT any(team_id) as team_id, session_id
+            FROM session_replay_events
+            WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
+            GROUP BY session_id
+            HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+        )
+        WHERE session_id NOT IN (
+            -- we want to exclude sessions that might have events with timestamps
+            -- before the period we are interested in
+            SELECT DISTINCT session_id
+            FROM session_replay_events
+            -- begin is the very first instant of the period we are interested in
+            -- we assume it is also the very first instant of a day
+            -- so we can to subtract 1 second to get the day before
+            WHERE min_first_timestamp >= %(previous_begin)s AND min_first_timestamp < %(begin)s
+            GROUP BY session_id
+        )
+        GROUP BY team_id
+    """,
+        {"previous_begin": previous_begin, "begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -556,10 +724,10 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
         FROM (
             SELECT any(team_id) as team_id, session_id
             FROM session_replay_events
-            WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
+            WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
-            AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native'))
+            AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -569,7 +737,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             -- begin is the very first instant of the period we are interested in
             -- we assume it is also the very first instant of a day
             -- so we can to subtract 1 second to get the day before
-            WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
+            WHERE min_first_timestamp >= %(previous_begin)s AND min_first_timestamp < %(begin)s
             GROUP BY session_id
         )
         GROUP BY team_id
@@ -584,7 +752,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_qaas_metrics(
+def get_teams_with_api_queries_metrics(
     begin: datetime,
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
@@ -593,14 +761,14 @@ def get_teams_with_qaas_metrics(
     query = f"""
         SELECT JSONExtractInt(log_comment, 'team_id') team_id, count(1) cnt, sum(read_bytes) read_bytes
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
-        WHERE type != 'QueryStart'
+        WHERE type = 'QueryFinish'
         AND is_initial_query
-        AND event_time between %(begin)s AND %(end)s
+        AND event_time >= %(begin)s AND event_time < %(end)s
         AND team_id > 0
-        AND JSONExtractBool(log_comment, 'qaas')
+        AND JSONExtractBool(log_comment, 'chargeable')
         GROUP BY team_id
     """
-    with tags_context(usage_report="get_teams_with_qaas_metrics"):
+    with tags_context(usage_report="get_teams_with_api_queries_metrics"):
         results = sync_execute(
             query,
             {
@@ -642,7 +810,7 @@ def get_teams_with_query_metric(
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
         AND is_initial_query = 1
         {query_types_clause}
-        AND query_start_time between %(begin)s AND %(end)s
+        AND query_start_time >= %(begin)s AND query_start_time < %(end)s
         AND access_method = %(access_method)s
         GROUP BY team_id
     """
@@ -675,7 +843,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
         """
         SELECT distinct_id as team, sum(JSONExtractInt(properties, 'count')) as sum
         FROM events
-        WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp between %(begin)s AND %(end)s
+        WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
         GROUP BY team
     """,
@@ -699,13 +867,31 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    results = sync_execute(
-        """
-        SELECT team_id, COUNT() as count
+    # Construct the subquery for unique event UUIDs
+    unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+        base_conditions_sql=[
+            "timestamp >= %(begin)s AND timestamp < %(end)s",
+        ],
+        group_by_prefix_expressions=[
+            "team_id",
+            "JSONExtractString(properties, '$survey_id')",  # Deduplicate per team_id, per survey_id
+        ],
+    )
+
+    query = f"""
+        SELECT
+            team_id,
+            COUNT() as count
         FROM events
-        WHERE event = 'survey sent' AND timestamp between %(begin)s AND %(end)s
+        WHERE
+            event = 'survey sent'
+            AND timestamp >= %(begin)s AND timestamp < %(end)s
+            AND uuid IN {unique_uuids_subquery}
         GROUP BY team_id
-    """,
+    """
+
+    results = sync_execute(
+        query,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
@@ -724,10 +910,10 @@ def get_teams_with_ai_event_count_in_period(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event LIKE '$ai_%%' AND timestamp between %(begin)s AND %(end)s
+        WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end},
+        {"begin": begin, "end": end, "ai_events": AI_EVENTS},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -739,9 +925,100 @@ def get_teams_with_ai_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
-        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end, billable=True)
+        ExternalDataJob.objects.filter(
+            finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
+        )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        ExternalDataJob.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+            pipeline__created_at__gte=end - timedelta(days=7),
+        )
+        .values("team_id")
+        .annotate(total=Sum("rows_synced"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        BatchExportRun.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            status=BatchExportRun.Status.COMPLETED,
+            batch_export__deleted=False,
+        )
+        .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .values(team_id=F("batch_export__team_id"))
+        .annotate(total=Sum("records_completed"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_external_data_schemas_in_period() -> list:
+    # get all external data schemas that are running or completed at run time
+    return list(
+        ExternalDataSchema.objects.filter(
+            status__in=[ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.COMPLETED]
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_batch_exports_in_period() -> list:
+    # get all batch exports that are active or completed at run time
+    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_dwh_tables_storage_in_s3() -> list:
+    return list(
+        DataWarehouseTable.objects.filter(
+            ~Q(deleted=True), size_in_s3_mib__isnull=False, external_data_source_id__isnull=False
+        )
+        .values("team_id")
+        .annotate(total=Sum("size_in_s3_mib"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
+    return list(
+        DataWarehouseSavedQuery.objects.filter(
+            ~Q(table__deleted=True),
+            Q(status=DataWarehouseSavedQuery.Status.COMPLETED) | Q(last_run_at__isnull=False),
+            table__isnull=False,
+            table__size_in_s3_mib__isnull=False,
+        )
+        .values("team_id")
+        .annotate(total=Sum("table__size_in_s3_mib"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_dwh_total_storage_in_s3() -> list:
+    return list(
+        DataWarehouseTable.objects.filter(~Q(deleted=True), size_in_s3_mib__isnull=False)
+        .values("team_id")
+        .annotate(total=Sum("size_in_s3_mib"))
     )
 
 
@@ -751,12 +1028,16 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # We are excluding "persistence.isDisabled is not a function" errors because of a bug in our own SDK
+    # Can be eventually removed once we're happy that the usage report for 3rd October 2025 does not need to be rerun
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event = '$exception' AND timestamp between %(begin)s AND %(end)s
-        AND not(JSONHas(properties, '$sentry_event_id'))
+        WHERE
+            event = '$exception' AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
+            timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -777,7 +1058,7 @@ def get_teams_with_hog_function_calls_in_period(
         """
         SELECT team_id, SUM(count) as count
         FROM app_metrics2
-        WHERE app_source='hog_function' AND metric_name IN ('succeeded','failed') AND timestamp between %(begin)s AND %(end)s
+        WHERE app_source='hog_function' AND metric_name IN ('succeeded','failed') AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric_name
     """,
         {"begin": begin, "end": end},
@@ -798,8 +1079,29 @@ def get_teams_with_hog_function_fetch_calls_in_period(
         """
         SELECT team_id, SUM(count) as count
         FROM app_metrics2
-        WHERE app_source='hog_function' AND metric_name IN ('fetch') AND timestamp between %(begin)s AND %(end)s
+        WHERE app_source='hog_function' AND metric_name IN ('fetch') AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric_name
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_cdp_billable_invocations_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_function' AND metric_name IN ('billable_invocation') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
     """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
@@ -822,7 +1124,7 @@ def get_teams_with_recording_bytes_in_period(
         FROM (
             SELECT any(team_id) as team_id, session_id, sum(size) as total_size
             FROM session_replay_events
-            WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
+            WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
         )
@@ -834,7 +1136,7 @@ def get_teams_with_recording_bytes_in_period(
             -- begin is the very first instant of the period we are interested in
             -- we assume it is also the very first instant of a day
             -- so we can to subtract 1 second to get the day before
-            WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
+            WHERE min_first_timestamp >= %(previous_begin)s AND min_first_timestamp < %(begin)s
             GROUP BY session_id
         )
         GROUP BY team_id
@@ -847,10 +1149,37 @@ def get_teams_with_recording_bytes_in_period(
     return result
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_hog_destinations_in_period() -> list:
+    return list(
+        HogFunction.objects.filter(
+            type=HogFunctionType.DESTINATION,
+            enabled=True,
+            deleted=False,
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_hog_transformations_in_period() -> list:
+    return list(
+        HogFunction.objects.filter(
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=False,
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
-    pha_client: PostHogClient,
-    capture_event_name: str,
     organization_id: Optional[str] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[str] = None,
@@ -858,21 +1187,21 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
     try:
+        pha_client = get_ph_client(sync_mode=True)
         capture_event(
             pha_client=pha_client,
-            name=capture_event_name,
+            name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
         )
-        logger.info(f"UsageReport sent to PostHog for organization {organization_id}")
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
         )
         capture_event(
             pha_client=pha_client,
-            name=f"{capture_event_name} failure",
+            name="organization usage report failure",
             organization_id=organization_id,
             properties={"error": str(err)},
         )
@@ -884,13 +1213,15 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         report.event_count_in_period > 0
         or report.enhanced_persons_event_count_in_period > 0
         or report.recording_count_in_period > 0
-        # explicitly not including mobile_recording_count_in_period for now
+        or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
-        # explicitly not including issues_created or exceptions_captured
-        # for now given we do not charge for error tracking yet
+        or report.cdp_billable_invocations_in_period > 0
+        or report.rows_exported_in_period > 0
+        or report.exceptions_captured_in_period > 0
+        or report.ai_event_count_in_period > 0
     )
 
 
@@ -913,7 +1244,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     """
 
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
-    qaas_usage = get_teams_with_qaas_metrics(period_start, period_end)
+    api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -942,8 +1273,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_python_events_count_in_period": all_metrics["python_events"],
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
+        "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
+        ),
+        "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
+            period_start, period_end
         ),
         "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="web"
@@ -1041,8 +1376,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             metric="query_duration_ms",
             access_method="personal_api_key",
         ),
-        "teams_with_qaas_count": qaas_usage["count"],
-        "teams_with_qaas_read_bytes": qaas_usage["read_bytes"],
+        "teams_with_api_queries_count": api_queries_usage["count"],
+        "teams_with_api_queries_read_bytes": api_queries_usage["read_bytes"],
         "teams_with_event_explorer_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
@@ -1089,6 +1424,15 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
+            period_start, period_end
+        ),
+        "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
+        "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
+        "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
+        "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
+        "teams_with_dwh_mat_views_storage_in_s3_in_mib": get_teams_with_dwh_mat_views_storage_in_s3(),
+        "teams_with_dwh_total_storage_in_s3_in_mib": get_teams_with_dwh_total_storage_in_s3(),
         "teams_with_exceptions_captured_in_period": get_teams_with_exceptions_captured_in_period(
             period_start, period_end
         ),
@@ -1098,7 +1442,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
+        "teams_with_cdp_billable_invocations_in_period": get_teams_with_cdp_billable_invocations_in_period(
+            period_start, period_end
+        ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
+        "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
+        "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
     }
 
 
@@ -1143,6 +1492,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         recording_bytes_in_period=all_data["teams_with_recording_bytes_in_period"].get(team.id, 0),
+        zero_duration_recording_count_in_period=all_data["teams_with_zero_duration_recording_count_in_period"].get(
+            team.id, 0
+        ),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         mobile_recording_bytes_in_period=all_data["teams_with_mobile_recording_bytes_in_period"].get(team.id, 0),
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
@@ -1165,8 +1517,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         query_api_bytes_read=all_data["teams_with_query_api_bytes_read"].get(team.id, 0),
         query_api_rows_read=all_data["teams_with_query_api_rows_read"].get(team.id, 0),
         query_api_duration_ms=all_data["teams_with_query_api_duration_ms"].get(team.id, 0),
-        qaas_query_count=all_data["teams_with_qaas_count"].get(team.id, 0),
-        qaas_bytes_read=all_data["teams_with_qaas_read_bytes"].get(team.id, 0),
+        api_queries_query_count=all_data["teams_with_api_queries_count"].get(team.id, 0),
+        api_queries_bytes_read=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
         event_explorer_app_bytes_read=all_data["teams_with_event_explorer_app_bytes_read"].get(team.id, 0),
         event_explorer_app_rows_read=all_data["teams_with_event_explorer_app_rows_read"].get(team.id, 0),
         event_explorer_app_duration_ms=all_data["teams_with_event_explorer_app_duration_ms"].get(team.id, 0),
@@ -1175,11 +1527,23 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(
+            team.id, 0
+        ),
+        rows_exported_in_period=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
+        active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
+            team.id, 0
+        ),
+        active_batch_exports_in_period=all_data["teams_with_active_batch_exports_in_period"].get(team.id, 0),
+        dwh_total_storage_in_s3_in_mib=all_data["teams_with_dwh_total_storage_in_s3_in_mib"].get(team.id, 0),
+        dwh_tables_storage_in_s3_in_mib=all_data["teams_with_dwh_tables_storage_in_s3_in_mib"].get(team.id, 0),
+        dwh_mat_views_storage_in_s3_in_mib=all_data["teams_with_dwh_mat_views_storage_in_s3_in_mib"].get(team.id, 0),
         issues_created_total=all_data["teams_with_issues_created_total"].get(team.id, 0),
         symbol_sets_count=all_data["teams_with_symbol_sets_count"].get(team.id, 0),
         resolved_symbol_sets_count=all_data["teams_with_resolved_symbol_sets_count"].get(team.id, 0),
         hog_function_calls_in_period=all_data["teams_with_hog_function_calls_in_period"].get(team.id, 0),
         hog_function_fetch_calls_in_period=all_data["teams_with_hog_function_fetch_calls_in_period"].get(team.id, 0),
+        cdp_billable_invocations_in_period=all_data["teams_with_cdp_billable_invocations_in_period"].get(team.id, 0),
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
@@ -1193,8 +1557,13 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
+        elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
+        active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
+            team.id, 0
+        ),
     )
 
 
@@ -1233,27 +1602,26 @@ def _add_team_report_to_org_reports(
 
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    logger.info("Getting all usage data...")  # noqa T201
-    time_now = datetime.now()
+    logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
+
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
 
-    logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
+    logger.info("Querying all teams")
 
-    logger.info("Getting teams for usage reports...")  # noqa T201
-    time_now = datetime.now()
     teams = _get_teams_for_usage_reports()
-    logger.debug(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
+
+    logger.info("Querying all teams complete", teams_count=len(teams))
 
     org_reports: dict[str, OrgReport] = {}
 
-    logger.info("Generating reports for teams...")  # noqa T201
-    time_now = datetime.now()
+    logger.info("Generating org reports")
+
     for team in teams:
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
-    time_since = datetime.now() - time_now
-    logger.debug(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
+    logger.info("Generating org reports complete", org_reports_count=len(org_reports))
+
     return org_reports
 
 
@@ -1269,8 +1637,6 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
-    logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
-
     json_data = json.dumps(
         {"organization_id": organization_id, "usage_report": full_report_dict}, separators=(",", ":")
     )
@@ -1285,7 +1651,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
     response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
 
     if not response:
-        logger.error(f"Failed to send usage report for organization {organization_id}")
+        logger.exception(f"Failed to send usage report for organization {organization_id}")
 
     return
 
@@ -1294,15 +1660,13 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
-    capture_event_name: Optional[str] = None,
     skip_capture_event: bool = False,
 ) -> None:
     import posthoganalytics
-    from sentry_sdk import capture_message
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
-        capture_message(f"Usage reports are disabled for {at}")
+        posthoganalytics.capture_exception(Exception(f"Usage reports are disabled for {at}"))
         return
 
     at_date = parser.parse(at) if at else None
@@ -1337,9 +1701,9 @@ def send_all_org_usage_reports(
     queue_time_start = datetime.now()
 
     pha_client.capture(
-        "internal_billing_events",
-        "usage reports starting",
-        {
+        distinct_id="internal_billing_events",
+        event="usage reports starting",
+        properties={
             "total_orgs": total_orgs,
             "region": get_instance_region(),
         },
@@ -1361,9 +1725,7 @@ def send_all_org_usage_reports(
             if not skip_capture_event:
                 try:
                     at_date_str = at_date.isoformat() if at_date else None
-                    capture_report(
-                        pha_client=pha_client,
-                        capture_event_name=capture_event_name or "organization usage report",
+                    capture_report.delay(
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
@@ -1384,10 +1746,12 @@ def send_all_org_usage_reports(
 
     queue_time_duration = (datetime.now() - queue_time_start).total_seconds()
     pha_client.capture(
-        "internal_billing_events",
-        "usage reports complete",
-        {
+        distinct_id="internal_billing_events",
+        event="usage reports complete",
+        properties={
             "total_orgs": total_orgs,
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,

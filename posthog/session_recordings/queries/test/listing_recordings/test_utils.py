@@ -1,13 +1,15 @@
 import datetime
 
-from posthog.models import Team
+from posthog.test.base import _create_event
+
 from posthog.schema import RecordingsQuery
+
+from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import (
-    SessionRecordingQueryResult,
     SessionRecordingListFromQuery,
+    SessionRecordingQueryResult,
 )
 from posthog.session_recordings.session_recording_api import query_as_params_to_dict
-from posthog.test.base import _create_event
 
 
 def create_event(
@@ -28,18 +30,29 @@ def create_event(
     )
 
 
-def filter_recordings_by(team: Team, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
+def filter_recordings_by(
+    team: Team, recordings_filter: dict | None = None, allow_event_property_expansion: bool = False
+) -> SessionRecordingQueryResult:
     the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
     session_recording_list_instance = SessionRecordingListFromQuery(
-        query=the_query, team=team, hogql_query_modifiers=None
+        query=the_query,
+        team=team,
+        hogql_query_modifiers=None,
+        allow_event_property_expansion=allow_event_property_expansion,
     )
     return session_recording_list_instance.run()
 
 
 def assert_query_matches_session_ids(
-    team: Team, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
+    team: Team,
+    query: dict | None,
+    expected: list[str],
+    sort_results_when_asserting: bool = True,
+    allow_event_property_expansion: bool = False,
 ) -> None:
-    (session_recordings, more_recordings_available, _) = filter_recordings_by(team=team, recordings_filter=query)
+    (session_recordings, more_recordings_available, _) = filter_recordings_by(
+        team=team, recordings_filter=query, allow_event_property_expansion=allow_event_property_expansion
+    )
 
     # in some tests we care about the order of results e.g. when testing sorting
     # generally we want to sort results since the order is not guaranteed

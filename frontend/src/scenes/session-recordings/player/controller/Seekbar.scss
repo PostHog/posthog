@@ -25,9 +25,11 @@
         z-index: 2;
         height: var(--bar-height);
         cursor: pointer;
-        background-color: var(--border-primary);
+        background-color: var(--color-border-primary);
         border-radius: var(--bar-height);
-        transition: height 150ms ease-in-out, top 150ms ease-in-out;
+        transition:
+            height 150ms ease-in-out,
+            top 150ms ease-in-out;
 
         .PlayerSeekbar__bufferbar,
         .PlayerSeekbar__currentbar,
@@ -41,13 +43,13 @@
 
         .PlayerSeekbar__bufferbar {
             z-index: 2;
-            background-color: var(--border-primary);
+            background-color: var(--color-border-primary);
             border-radius: var(--bar-height);
         }
 
         .PlayerSeekbar__currentbar {
             z-index: 3;
-            background-color: var(--accent-primary);
+            background-color: var(--color-accent);
             border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
 
@@ -60,7 +62,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: var(--bg-surface-primary);
+                background-color: var(--color-bg-surface-primary);
                 opacity: 0.5;
 
                 &--active {
@@ -76,8 +78,8 @@
             width: var(--thumb-size);
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
-            background-color: var(--accent-primary);
-            border: 2px solid var(--bg-surface-primary);
+            background-color: var(--color-accent);
+            border: 2px solid var(--color-bg-surface-primary);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;
@@ -99,7 +101,7 @@
             .PlayerSeekBarPreview__tooltip__content {
                 display: inline-block;
                 padding: 0.1rem;
-                margin-bottom: 0.5rem;
+                margin-bottom: 3.5rem;
                 font-size: 0.8rem;
                 font-weight: 600;
                 color: #fff;
@@ -118,8 +120,10 @@
     height: 0.75rem;
 
     .PlayerSeekbarTick {
-        --tick-color: var(--text-secondary);
+        --tick-color: var(--color-text-secondary);
         --tick-width: 3px;
+        --emoji-width: 16px;
+        --comment-width: 12px;
 
         position: absolute;
         top: 0;
@@ -136,7 +140,7 @@
         }
 
         &--primary {
-            --tick-color: var(--accent-primary);
+            --tick-color: var(--color-accent);
         }
 
         .PlayerSeekbarTick__line {
@@ -149,34 +153,22 @@
             opacity: 0.5;
         }
 
-        .PlayerSeekbarTick__info {
+        .PlayerSeekbarTick__emoji {
             position: absolute;
-            bottom: 100%;
-            max-width: 20rem;
-            padding: 0.25rem 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.8rem;
-            color: #fff;
-            white-space: nowrap;
-            visibility: hidden;
-            background-color: var(--tick-color);
-            border-radius: var(--radius);
-            opacity: 0;
-            transition: opacity 150ms ease-in-out;
-            transform: translateX(-50%);
+            bottom: 5px;
+            width: var(--emoji-width);
+            height: 100%;
+            margin-left: calc(var(--emoji-width) / 2 * -1);
+            opacity: 0.75;
         }
 
-        &:hover {
-            --tick-width: 5px;
-
-            .PlayerSeekbarTick__info {
-                visibility: visible;
-                opacity: 1;
-            }
-
-            .PlayerSeekbarTick__line {
-                opacity: 1;
-            }
+        .PlayerSeekbarTick__comment {
+            position: absolute;
+            bottom: 5px;
+            width: var(--comment-width);
+            height: 100%;
+            margin-left: calc(var(--comment-width) / 2 * -1);
+            opacity: 0.65;
         }
     }
 }

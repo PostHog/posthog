@@ -1,17 +1,19 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Context, Ok, Result};
 use core::str;
+use globset::{Glob, GlobSetBuilder};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
 use std::collections::BTreeMap;
+use std::str::Lines;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use tracing::{info, warn};
-use walkdir::WalkDir;
+use tracing::{debug, info, warn};
+use walkdir::{DirEntry, WalkDir};
 
 use super::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE};
 
@@ -64,8 +66,12 @@ pub struct ChunkUpload {
 }
 
 impl SourcePair {
+    pub fn has_chunk_id(&self) -> bool {
+        self.chunk_id.is_some()
+    }
+
     pub fn set_chunk_id(&mut self, chunk_id: String) -> Result<()> {
-        if self.chunk_id.is_some() {
+        if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
         let (new_source_content, source_adjustment) = {
@@ -99,8 +105,18 @@ impl SourcePair {
         let new_sourcemap = {
             // Update the sourcemap with the new mappings
             let mut original_sourcemap =
-                SourceMap::from_slice(self.sourcemap.content.as_bytes())
-                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?;
+                match sourcemap::decode_slice(self.sourcemap.content.as_bytes())
+                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?
+                {
+                    sourcemap::DecodedMap::Regular(map) => map,
+                    sourcemap::DecodedMap::Index(index_map) => index_map
+                        .flatten()
+                        .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?,
+                    sourcemap::DecodedMap::Hermes(_) => {
+                        anyhow::bail!("Hermes source maps are not supported")
+                    }
+                };
+
             original_sourcemap.adjust_mappings(&source_adjustment);
 
             let mut new_sourcemap_bytes = Vec::new();
@@ -137,21 +153,34 @@ impl SourcePair {
     }
 }
 
-pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
+pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<SourcePair>> {
     // Make sure the directory exists
     if !directory.exists() {
         bail!("Directory does not exist");
     }
 
+    let mut builder = GlobSetBuilder::new();
+    for glob in ignore_globs {
+        builder.add(Glob::new(glob)?);
+    }
+    let set: globset::GlobSet = builder.build()?;
+
     let mut pairs = Vec::new();
     for entry in WalkDir::new(directory).into_iter().filter_map(|e| e.ok()) {
         let entry_path = entry.path().canonicalize()?;
-        info!("Processing file: {}", entry_path.display());
-        if is_javascript_file(&entry_path) {
+
+        if set.is_match(&entry_path) {
+            info!(
+                "Skipping because it matches an ignored glob: {}",
+                entry_path.display()
+            );
+            continue;
+        } else if is_javascript_file(&entry) {
+            info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
-            let sourcemap_path = guess_sourcemap_path(&source.path);
-            if sourcemap_path.exists() {
-                let sourcemap = SourceFile::load(&sourcemap_path)?;
+            let sourcemap_path = get_sourcemap_path(&source)?;
+            if let Some(path) = sourcemap_path {
+                let sourcemap = SourceFile::load(&path).context(format!("reading {path:?}"))?;
                 let chunk_id = get_chunk_id(&sourcemap);
                 pairs.push(SourcePair {
                     chunk_id,
@@ -176,6 +205,40 @@ pub fn get_chunk_id(sourcemap: &SourceFile) -> Option<String> {
         .ok()
 }
 
+pub fn get_sourcemap_reference(lines: Lines) -> Result<Option<String>> {
+    for line in lines.rev() {
+        if line.starts_with("//# sourceMappingURL=") || line.starts_with("//@ sourceMappingURL=") {
+            let url = str::from_utf8(&line.as_bytes()[21..])?.trim().to_owned();
+            let decoded_url = urlencoding::decode(&url)?;
+            return Ok(Some(decoded_url.into_owned()));
+        }
+    }
+    Ok(None)
+}
+
+pub fn get_sourcemap_path(source: &SourceFile) -> Result<Option<PathBuf>> {
+    match get_sourcemap_reference(source.content.lines())? {
+        Some(url) => {
+            let sourcemap_path = source
+                .path
+                .parent()
+                .map(|p| p.join(&url))
+                .unwrap_or_else(|| PathBuf::from(&url));
+            debug!("Found sourcemap path: {}", sourcemap_path.display());
+            Ok(Some(sourcemap_path))
+        }
+        None => {
+            let sourcemap_path = guess_sourcemap_path(&source.path);
+            debug!("Guessed sourcemap path: {}", sourcemap_path.display());
+            if sourcemap_path.exists() {
+                Ok(Some(sourcemap_path))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
 pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
     // Try to resolve the sourcemap by adding .map to the path
     let mut sourcemap_path = path.to_path_buf();
@@ -186,7 +249,10 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
     sourcemap_path
 }
 
-fn is_javascript_file(path: &Path) -> bool {
-    path.extension()
-        .map_or(false, |ext| ext == "js" || ext == "mjs" || ext == "cjs")
+fn is_javascript_file(entry: &DirEntry) -> bool {
+    entry.file_type().is_file()
+        && entry
+            .path()
+            .extension()
+            .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }

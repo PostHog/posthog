@@ -1,15 +1,18 @@
 import './TaxonomicPropertyFilter.scss'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
-    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -20,15 +23,29 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { useMemo } from 'react'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    GroupTypeIndex,
+    PropertyDefinitionType,
+    PropertyFilterType,
+} from '~/types'
 
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 let uniqueMemoizedIndex = 0
+export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.EventFeatureFlags,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.Elements,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
 
 export function TaxonomicPropertyFilter({
     pageKey: pageKeyInput,
@@ -43,6 +60,7 @@ export function TaxonomicPropertyFilter({
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
+    size = 'medium',
     hasRowOperator,
     metadataSource,
     propertyAllowList,
@@ -51,16 +69,12 @@ export function TaxonomicPropertyFilter({
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
     hideBehavioralCohorts,
+    addFilterDocLink,
+    editable = true,
+    operatorAllowlist,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const groupTypes = taxonomicGroupTypes || [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.EventFeatureFlags,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.HogQLExpression,
-    ]
+    const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const taxonomicOnChange: (
         group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
@@ -101,11 +115,24 @@ export function TaxonomicPropertyFilter({
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+    const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
     const cohortOrOtherValue =
         filter?.type === 'cohort' ? (!Array.isArray(filter?.value) && filter?.value) || undefined : filter?.key
+
+    // Get the base property type, defaulting to Event if not specified
+    const basePropertyType = filter?.type || PropertyDefinitionType.Event
+
+    // Get the group type index if this is a group property filter
+    const groupTypeIndex = isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
+
+    // For data warehouse person properties, use columnsJoinedToPersons, otherwise use property definitions
+    const propertyDefinitions =
+        filter?.type === PropertyFilterType.DataWarehousePersonProperty
+            ? columnsJoinedToPersons
+            : propertyDefinitionsByType(basePropertyType, groupTypeIndex)
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -120,15 +147,15 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            selectFirstItem={!cohortOrOtherValue}
         />
     )
 
     const operatorValueSelect = (
         <OperatorValueSelect
-            propertyDefinitions={propertyDefinitionsByType(
-                filter?.type || PropertyDefinitionType.Event,
-                isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
-            )}
+            propertyDefinitions={propertyDefinitions}
+            size={size}
+            editable={editable}
             type={filter?.type}
             propertyKey={filter?.key}
             operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
@@ -141,18 +168,42 @@ export function TaxonomicPropertyFilter({
                 if (filter?.key && filter?.type) {
                     setFilter(index, {
                         key: filter?.key,
-                        value: newValue || null,
+                        value: newValue === undefined ? null : newValue,
                         operator: newOperator,
                         type: filter?.type,
+                        label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
+                        ...(filter.type === PropertyFilterType.Cohort ? { cohort_name: filter.cohort_name } : {}),
                     } as AnyPropertyFilter)
                 }
                 if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {
                     onComplete()
                 }
             }}
+            groupTypeIndex={
+                isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
+                    ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
+            operatorAllowlist={operatorAllowlist}
         />
     )
+
+    const filterContent =
+        filter?.type === 'cohort'
+            ? filter.cohort_name || `Cohort #${filter?.value}`
+            : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
+              ? filter.label || `Group ${filter?.value}`
+              : filter?.type === PropertyFilterType.Flag && filter?.label
+                ? filter.label
+                : filter?.key && (
+                      <PropertyKeyInfo
+                          value={filter.key}
+                          disablePopover
+                          ellipsis
+                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                      />
+                  )
 
     return (
         <div
@@ -167,6 +218,7 @@ export function TaxonomicPropertyFilter({
                     className={clsx('TaxonomicPropertyFilter__row', {
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
+                        'TaxonomicPropertyFilter__row--editable': editable,
                     })}
                 >
                     {hasRowOperator && (
@@ -174,8 +226,12 @@ export function TaxonomicPropertyFilter({
                             {orFiltering ? (
                                 <>
                                     {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="text-sm font-medium">
-                                            {propertyGroupType === FilterLogicalOperator.And ? '&' : propertyGroupType}
+                                        <div className="flex items-center">
+                                            {propertyGroupType === FilterLogicalOperator.And ? (
+                                                <OperandTag operand="and" />
+                                            ) : (
+                                                <OperandTag operand="or" />
+                                            )}
                                         </div>
                                     )}
                                 </>
@@ -195,33 +251,28 @@ export function TaxonomicPropertyFilter({
                     )}
                     <div className="TaxonomicPropertyFilter__row-items">
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
-                        <LemonDropdown
-                            overlay={taxonomicFilter}
-                            placement="bottom-start"
-                            visible={dropdownOpen}
-                            onClickOutside={closeDropdown}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                icon={!valuePresent ? <IconPlusSmall /> : undefined}
-                                data-attr={'property-select-toggle-' + index}
-                                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
-                                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                        {editable ? (
+                            <LemonDropdown
+                                overlay={taxonomicFilter}
+                                placement="bottom-start"
+                                visible={dropdownOpen}
+                                onClickOutside={closeDropdown}
                             >
-                                {filter?.type === 'cohort' ? (
-                                    filter.cohort_name || `Cohort #${filter?.value}`
-                                ) : filter?.key ? (
-                                    <PropertyKeyInfo
-                                        value={filter.key}
-                                        disablePopover
-                                        ellipsis
-                                        type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                                    />
-                                ) : (
-                                    addText || 'Add filter'
-                                )}
-                            </LemonButton>
-                        </LemonDropdown>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={!valuePresent ? <IconPlusSmall /> : undefined}
+                                    data-attr={'property-select-toggle-' + index}
+                                    sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
+                                    onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                                    size={size}
+                                    tooltipDocLink={addFilterDocLink}
+                                >
+                                    {filterContent ?? (addText || 'Add filter')}
+                                </LemonButton>
+                            </LemonDropdown>
+                        ) : (
+                            filterContent
+                        )}
                         {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>

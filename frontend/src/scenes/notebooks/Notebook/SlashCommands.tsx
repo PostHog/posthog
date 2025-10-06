@@ -1,3 +1,10 @@
+import { Extension } from '@tiptap/core'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
+import Fuse from 'fuse.js'
+import { useValues } from 'kea'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+
 import {
     IconCursor,
     IconFunnels,
@@ -6,6 +13,7 @@ import {
     IconPeople,
     IconRetention,
     IconRewindPlay,
+    IconSquareRoot,
     IconStickiness,
     IconTrends,
     IconUpload,
@@ -13,26 +21,22 @@ import {
 } from '@posthog/icons'
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { Extension } from '@tiptap/core'
-import { ReactRenderer } from '@tiptap/react'
-import Suggestion from '@tiptap/suggestion'
-import Fuse from 'fuse.js'
-import { useValues } from 'kea'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+
+import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { selectFiles } from 'lib/utils/file-utils'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
+import { NotebookNodeType } from '../types'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
-import { EditorCommands, EditorRange } from './utils'
 
 type SlashCommandConditionalProps =
     | {
@@ -318,7 +322,7 @@ order by count() desc
                 if (files.length) {
                     return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
-            } catch (e) {
+            } catch {
                 lemonToast.error('Something went wrong when trying to select a file.')
             }
 
@@ -332,6 +336,16 @@ order by count() desc
         command: async (chain, pos) => {
             return chain.insertContentAt(pos, buildNodeEmbed())
         },
+    },
+    {
+        title: 'LaTeX',
+        search: 'latex math formula equation',
+        icon: <IconSquareRoot color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Latex,
+                attrs: { content: '' }, // Default empty content
+            }),
     },
 ]
 
@@ -351,6 +365,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             keys: ['title', 'search'],
             threshold: 0.3,
         })
+        // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])
 
     const filteredCommands = useMemo(() => {
@@ -358,6 +373,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
+        // oxlint-disable-next-line exhaustive-deps
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
@@ -427,6 +443,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             return false
         },
+        // oxlint-disable-next-line exhaustive-deps
         [selectedIndex, selectedHorizontalIndex, filteredCommands]
     )
 

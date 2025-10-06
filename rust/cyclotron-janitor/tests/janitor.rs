@@ -18,7 +18,7 @@ async fn janitor_test(db: PgPool) {
     let should_compress_vm_state = default_worker_cfg.should_compress_vm_state();
 
     let worker = Worker::from_pool(db.clone(), default_worker_cfg);
-    let manager = QueueManager::from_pool(db.clone(), should_compress_vm_state);
+    let manager = QueueManager::from_pool(db.clone(), should_compress_vm_state, false);
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly

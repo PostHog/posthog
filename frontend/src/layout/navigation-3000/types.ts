@@ -1,9 +1,11 @@
-import { LemonTagType, SideAction } from '@posthog/lemon-ui'
 import { Logic, LogicWrapper } from 'kea'
+import React from 'react'
+
+import { LemonTagType, SideAction } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import React from 'react'
 
 export interface SidebarLogic extends Logic {
     actions: Record<never, never> // No actions required in the base version
@@ -31,6 +33,7 @@ interface NavbarItemBase {
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     tag?: 'alpha' | 'beta' | 'new'
     sideAction?: Omit<SideAction, 'divider' | 'data-attr' | 'tooltipPlacement'> & { identifier: string }
+    tooltipDocLink?: string
     /** @deprecated */
     onClick?: () => void
 }
@@ -52,7 +55,7 @@ export interface SidebarCategoryBase {
     /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
     noun: string | [singular: string, plural: string]
     items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]
-
+    icon?: JSX.Element
     /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
     ref?: React.MutableRefObject<HTMLElement | null>
 }
@@ -87,6 +90,11 @@ export interface SidebarCategory extends SidebarCategoryBase {
         /** The "page" size. @default 100 */
         minimumBatchSize?: number
     }
+
+    /** Optional component to render when the category is empty. */
+    emptyComponent?: JSX.Element
+    /** Optional function to determine whether the empty component should be shown */
+    emptyComponentLogic?: (items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]) => boolean
 }
 
 export interface SearchMatch {
@@ -140,6 +148,8 @@ export interface BasicListItem {
     ref?: React.MutableRefObject<HTMLElement | null>
     /** If this item is inside an accordion, this is the depth of the accordion. */
     depth?: number
+    /** Element to render at the end of the row */
+    endElement?: string | JSX.Element
 }
 
 export type ExtraListItemContext = string | Dayjs

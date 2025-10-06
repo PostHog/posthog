@@ -1,7 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { DataColorToken } from 'lib/colors'
 import { useState } from 'react'
 
+import { DataColorToken } from 'lib/colors'
+
+import { LemonButton } from '../LemonButton'
 import { LemonColorPicker } from './LemonColorPicker'
 
 type Story = StoryObj<typeof LemonColorPicker>
@@ -47,6 +49,21 @@ export const HideDropdown: Story = {
                 selectedColorToken={colorToken}
                 onSelectColorToken={setColorToken}
                 hideDropdown
+            />
+        )
+    },
+}
+
+export const CustomButton: Story = {
+    render: () => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const [colorToken, setColorToken] = useState<DataColorToken>('preset-1')
+        return (
+            <LemonColorPicker
+                colorTokens={colorTokens}
+                selectedColorToken={colorToken}
+                onSelectColorToken={setColorToken}
+                customButton={<LemonButton>Customize color</LemonButton>}
             />
         )
     },

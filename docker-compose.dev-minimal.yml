@@ -1,0 +1,169 @@
+#
+# docker-compose file used ONLY for local development - LIGHT VERSION.
+# This is a minimal version without temporal, kafka-ui, jaeger, and otel-collector.
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# PostHog has sunset support for self-hosted K8s deployments.
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
+
+services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        extra_hosts:
+            - 'web:host-gateway'
+            - 'plugins:host-gateway'
+            - 'capture:host-gateway'
+            - 'replay-capture:host-gateway'
+            - 'feature-flags:host-gateway'
+        environment:
+            CADDYFILE: |
+                http://localhost:8000 {
+                    @replay-capture {
+                        path /s
+                        path /s/*
+                    }
+
+                    @capture {
+                        path /e
+                        path /e/*
+                        path /i/v0/*
+                        path /batch
+                        path /batch*
+                        path /capture
+                        path /capture*
+                    }
+
+                    @flags {
+                        path /flags
+                        path /flags*
+                    }
+
+                    @webhooks {
+                        path /public/webhooks
+                        path /public/webhooks/*
+                        path /public/m/
+                        path /public/m/*
+                    }
+
+                    handle @capture {
+                        reverse_proxy capture:3307
+                    }
+
+                    handle @replay-capture {
+                        reverse_proxy replay-capture:3306
+                    }
+
+                    handle @flags {
+                        reverse_proxy feature-flags:3001
+                    }
+
+                    handle @webhooks {
+                        reverse_proxy plugins:6738
+                    }
+
+                    handle {
+                        reverse_proxy web:8000
+                    }
+                }
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5432:5432'
+        # something in the django app when running in dev mode
+        # (maybe only in Pycharm) keeps many idle transactions open
+        # and eventually kills postgres, these settings aim to stop that happening.
+        # They are only for DEV and should not be used in production.
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
+    redis:
+        extends:
+            file: docker-compose.base.yml
+            service: redis
+        ports:
+            - '6379:6379'
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6479:6379'
+    clickhouse:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        hostname: clickhouse
+        environment:
+            - AWS_ACCESS_KEY_ID=object_storage_root_user
+            - AWS_SECRET_ACCESS_KEY=object_storage_root_password
+        ports:
+            - '8123:8123'
+            - '8443:8443'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        depends_on:
+            - kafka
+            - zookeeper
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+        ports:
+            - '2181:2181'
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+        ports:
+            - '9092:9092'
+        depends_on:
+            - zookeeper
+
+    objectstorage:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+
+    # capture-rs
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db
+
+volumes:
+    redpanda-data:

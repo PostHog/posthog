@@ -1,10 +1,9 @@
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
-
-const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
-const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
 
 const lazyLoaderCacheHits = new Counter({
     name: 'lazy_loader_cache_hits',
@@ -30,6 +29,12 @@ const lazyLoaderQueuedCacheHits = new Counter({
     labelNames: ['name', 'hit'],
 })
 
+const lazyLoaderCacheSize = new Gauge({
+    name: 'lazy_loader_cache_size',
+    help: 'Current number of entries in the cache',
+    labelNames: ['name'],
+})
+
 /**
  * We have a common pattern across consumers where we want to:
  * - Load a value lazily
@@ -48,22 +53,33 @@ export type LazyLoaderOptions<T> = {
     /** Function to load the values */
     loader: (key: string[]) => Promise<Record<string, T | null | undefined>>
     /** How long to cache the value */
-    refreshAge?: number
+    refreshAgeMs?: number
     /** How long to cache null values */
-    refreshNullAge?: number
+    refreshNullAgeMs?: number
+    /** How long to cache the value before refreshing in the background - must be smaller than refreshAgeMs */
+    refreshBackgroundAgeMs?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
     /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
     bufferMs?: number
+    /** Maximum number of entries in the cache - LRU eviction when exceeded */
+    maxSize?: number
 }
 
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
 
 export class LazyLoader<T> {
-    public readonly cache: LazyLoaderMap<T>
+    private cache: LazyLoaderMap<T>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
+    private backgroundRefreshAfter: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
+
+    private refreshAgeMs: number
+    private refreshNullAgeMs: number
+    private refreshBackgroundAgeMs?: number
+    private refreshJitterMs: number
+    private maxSize: number
 
     private buffer:
         | {
@@ -76,7 +92,22 @@ export class LazyLoader<T> {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.backgroundRefreshAfter = {}
         this.pendingLoads = {}
+
+        this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
+        this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
+        this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
+        this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
+        this.maxSize = this.options.maxSize ?? defaultConfig.LAZY_LOADER_MAX_SIZE
+
+        if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
+            throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
+        }
+    }
+
+    public getCache(): LazyLoaderMap<T> {
+        return this.cache
     }
 
     public async get(key: string): Promise<T | null> {
@@ -94,22 +125,32 @@ export class LazyLoader<T> {
         }
     }
 
+    public clear(): void {
+        this.cache = {}
+        this.lastUsed = {}
+        this.cacheUntil = {}
+        this.backgroundRefreshAfter = {}
+        // this.pendingLoads = {} // NOTE: We don't clear this
+        this.updateCacheSizeMetric()
+    }
+
     private setValues(map: LazyLoaderMap<T>): void {
-        const {
-            refreshAge = REFRESH_AGE,
-            refreshNullAge = REFRESH_AGE,
-            refreshJitterMs = REFRESH_JITTER_MS,
-        } = this.options
         for (const [key, value] of Object.entries(map)) {
             this.cache[key] = value ?? null
             // Always update the lastUsed time
             this.lastUsed[key] = Date.now()
             const valueOrNull = value ?? null
+            const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             this.cacheUntil[key] =
-                Date.now() +
-                (valueOrNull === null ? refreshNullAge : refreshAge) +
-                Math.floor(Math.random() * refreshJitterMs)
+                Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
+
+            if (this.refreshBackgroundAgeMs) {
+                this.backgroundRefreshAfter[key] =
+                    Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+            }
         }
+        this.evictLRU()
+        this.updateCacheSizeMetric()
     }
 
     /**
@@ -120,50 +161,60 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
-        const results: Record<string, T | null> = {}
-        const keysToLoad = new Set<string>()
+        return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
+            const results: Record<string, T | null> = {}
+            const keysToLoad = new Set<string>()
 
-        // First, check if all keys are already cached and update the lastUsed time
-        for (const key of keys) {
-            const cached = this.cache[key]
+            // First, check if all keys are already cached and update the lastUsed time
+            for (const key of keys) {
+                const cached = this.cache[key]
 
-            if (cached !== undefined) {
-                results[key] = cached
-                // Always update the lastUsed time
-                this.lastUsed[key] = Date.now()
+                if (cached !== undefined) {
+                    results[key] = cached
+                    // Always update the lastUsed time
+                    this.lastUsed[key] = Date.now()
 
-                const cacheUntil = this.cacheUntil[key] ?? 0
+                    const cacheUntil = this.cacheUntil[key] ?? 0
+                    const backgroundRefreshAfter = this.backgroundRefreshAfter[key]
 
-                if (Date.now() > cacheUntil) {
+                    if (Date.now() > cacheUntil) {
+                        keysToLoad.add(key)
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                        continue
+                    }
+
+                    // If we haven't triggered a hard refresh, we check for a background refresh
+                    if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
+                        void this.load([key])
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
+                        continue
+                    }
+                } else {
                     keysToLoad.add(key)
                     lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                     continue
                 }
-            } else {
-                keysToLoad.add(key)
-                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                continue
+
+                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-        }
+            if (keysToLoad.size === 0) {
+                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                return results
+            }
 
-        if (keysToLoad.size === 0) {
-            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+            // We have something to load so we schedule it and then await all of them
+            await this.load(Array.from(keysToLoad))
+
+            for (const key of keys) {
+                // Grab the new cached result for all keys
+                results[key] = this.cache[key] ?? null
+            }
+
             return results
-        }
-
-        lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-
-        // We have something to load so we schedule it and then await all of them
-        await this.load(Array.from(keysToLoad))
-
-        for (const key of keys) {
-            // Grab the new cached result for all keys
-            results[key] = this.cache[key] ?? null
-        }
-
-        return results
+        })
     }
 
     /**
@@ -198,7 +249,7 @@ export class LazyLoader<T> {
                     })
                         .then((keys) => {
                             // Pull out the keys to load and clear the buffer
-                            logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
+                            logger.debug('[LazyLoader]', this.options.name, 'Loading: ', keys)
                             return this.options.loader(keys)
                         })
                         .then((map) => {
@@ -232,5 +283,38 @@ export class LazyLoader<T> {
         this.setValues(mappedResults)
 
         return mappedResults
+    }
+
+    private evictLRU(): void {
+        const cacheSize = Object.keys(this.cache).length
+        if (cacheSize <= this.maxSize) {
+            return
+        }
+
+        // Sort keys by lastUsed time (oldest first)
+        const sortedKeys = Object.entries(this.lastUsed)
+            .filter(([key]) => key in this.cache)
+            .sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
+
+        // Calculate how many to evict
+        const toEvict = cacheSize - this.maxSize
+        const keysToEvict = sortedKeys.slice(0, toEvict).map(([key]) => key)
+
+        // Evict the least recently used entries
+        for (const key of keysToEvict) {
+            delete this.cache[key]
+            delete this.lastUsed[key]
+            delete this.cacheUntil[key]
+            delete this.backgroundRefreshAfter[key]
+        }
+
+        if (keysToEvict.length > 0) {
+            this.updateCacheSizeMetric()
+        }
+    }
+
+    private updateCacheSizeMetric(): void {
+        const cacheSize = Object.keys(this.cache).length
+        lazyLoaderCacheSize.labels({ name: this.options.name }).set(cacheSize)
     }
 }

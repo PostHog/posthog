@@ -1,10 +1,12 @@
-import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useEffect } from 'react'
 
-import { SocialLoginButtons, SSOEnforcedLoginButton } from '../SocialLoginButton/SocialLoginButton'
+import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { SSOEnforcedLoginButton, SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
@@ -22,11 +24,14 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const showPassword = !ssoEnforcement && user?.has_password
 
     const extraQueryParams = {
-        next: window.location.pathname,
+        next: encodeURI(location.href.replace(location.origin, '')),
+        email: user?.email || '',
+        reauth: 'true',
     }
 
     return (
         <LemonModal
+            zIndex="1169" // The re-authentication modal should be above the all popovers, including the AI consent popover
             title="Re-authenticate for security"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
@@ -115,11 +120,9 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
 export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.Element }): JSX.Element {
     const { timeSensitiveAuthenticationRequired } = useValues(timeSensitiveAuthenticationLogic)
-    const { setDismissedReauthentication, checkReauthentication } = useActions(timeSensitiveAuthenticationLogic)
 
-    useEffect(() => {
-        checkReauthentication()
-    }, [])
+    const { setDismissedReauthentication, checkReauthentication } = useActions(timeSensitiveAuthenticationLogic)
+    useOnMountEffect(checkReauthentication)
 
     return timeSensitiveAuthenticationRequired ? (
         <div className="flex-1 bg-primary border border-primary rounded flex flex-col items-center p-6 text-center w-full">

@@ -1,6 +1,6 @@
-import { getProducerConfigFromEnv } from './config'
+import { getKafkaConfigFromEnv } from './config'
 
-describe('getProducerConfigFromEnv', () => {
+describe('getKafkaConfigFromEnv', () => {
     const OLD_ENV = process.env
 
     beforeEach(() => {
@@ -17,44 +17,44 @@ describe('getProducerConfigFromEnv', () => {
         process.env.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MS = '1000'
         process.env.KAFKA_PRODUCER_ENABLE_IDEMPOTENCE = 'false'
 
-        const config = getProducerConfigFromEnv()
+        const config = getKafkaConfigFromEnv('PRODUCER')
 
-        expect(config).toEqual({
-            'compression.type': 'gzip',
-            'queue.buffering.max.ms': 1000,
-            'enable.idempotence': false,
-        })
+        expect(config).toMatchInlineSnapshot(`
+            {
+              "compression.type": "gzip",
+              "enable.idempotence": false,
+              "queue.buffering.max.ms": 1000,
+            }
+        `)
     })
 
-    it('ignores env vars that do not start with KAFKA_PRODUCER_', () => {
+    it('ignores env vars that do not start with its prefix', () => {
         process.env.KAFKA_CONSUMER_GROUP_ID = 'test-group'
         process.env.KAFKA_PRODUCER_COMPRESSION_TYPE = 'gzip'
 
-        const config = getProducerConfigFromEnv()
-
-        expect(config).toEqual({
-            'compression.type': 'gzip',
-        })
+        expect(getKafkaConfigFromEnv('PRODUCER')).toMatchInlineSnapshot(`
+            {
+              "compression.type": "gzip",
+            }
+        `)
+        expect(getKafkaConfigFromEnv('CONSUMER')).toMatchInlineSnapshot(`
+            {
+              "group.id": "test-group",
+            }
+        `)
+        expect(getKafkaConfigFromEnv('CDP_PRODUCER')).toMatchInlineSnapshot(`{}`)
     })
 
     it('ignores empty values', () => {
         process.env.KAFKA_PRODUCER_COMPRESSION_TYPE = ''
         process.env.KAFKA_PRODUCER_VALID_SETTING = 'value'
 
-        const config = getProducerConfigFromEnv()
+        const config = getKafkaConfigFromEnv('PRODUCER')
 
-        expect(config).toEqual({
-            'valid.setting': 'value',
-        })
-    })
-
-    it('does not override keys that exist in defaultConfig', () => {
-        // Add a mock value to defaultConfig
-        const mockKey = 'KAFKA_PRODUCER_HOSTS'
-        process.env[mockKey] = 'env-value'
-
-        const config = getProducerConfigFromEnv()
-
-        expect(config).toEqual({})
+        expect(config).toMatchInlineSnapshot(`
+            {
+              "valid.setting": "value",
+            }
+        `)
     })
 })

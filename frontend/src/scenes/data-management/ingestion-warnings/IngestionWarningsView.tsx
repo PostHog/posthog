@@ -1,17 +1,23 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ReadingHog } from 'lib/components/hedgehogs'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { ReadingHog } from 'lib/components/hedgehogs'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/types'
 
-import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
+import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
 const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
@@ -24,6 +30,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
+    set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -223,6 +230,21 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    set_on_exception: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            event_uuid: string
+        } = {
+            event_uuid: warning.details.event_uuid,
+        }
+
+        return (
+            <>
+                {' '}
+                Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
+                events
+            </>
+        )
+    },
 }
 
 export function IngestionWarningsView(): JSX.Element {
@@ -231,9 +253,16 @@ export function IngestionWarningsView(): JSX.Element {
     const { setSearchQuery } = useActions(ingestionWarningsLogic)
 
     return (
-        <div data-attr="manage-events-table">
-            <div className="flex flex-col deprecated-space-y-2">
-                <div>Data ingestion related warnings from past 30 days.</div>
+        <SceneContent data-attr="manage-events-table">
+            <SceneTitleSection
+                name="Ingestion warnings"
+                description="Data ingestion related warnings from past 30 days."
+                resourceType={{
+                    type: 'ingestion_warning',
+                }}
+            />
+            <SceneDivider />
+            <SceneSection>
                 <LemonInput
                     fullWidth
                     value={searchQuery}
@@ -297,7 +326,7 @@ export function IngestionWarningsView(): JSX.Element {
                     }}
                     noSortingCancellation
                 />
-            </div>
+            </SceneSection>
             {showProductIntro && (
                 <ProductIntroduction
                     productName="Ingestion warnings"
@@ -309,7 +338,7 @@ export function IngestionWarningsView(): JSX.Element {
                     customHog={ReadingHog}
                 />
             )}
-        </div>
+        </SceneContent>
     )
 }
 

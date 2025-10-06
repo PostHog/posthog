@@ -1,15 +1,17 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
+    TemplateHubspotMigrator,
     template as template_hubspot,
     template_event as template_hubspot_event,
-    TemplateHubspotMigrator,
 )
 from posthog.models import PluginConfig
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 class TestTemplateHubspot(BaseHogFunctionTemplateTest):
@@ -127,7 +129,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: EVENT_DEFINITION_RESPONSE  # type: ignore
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=False, event="purchase"),
+            inputs=self._inputs(include_all_properties=False, event="purchase subscription"),
             globals={
                 "event": {"properties": {"product": "CDP"}},
             },
@@ -138,7 +140,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=self._inputs(include_all_properties=True),
             globals={
-                "event": {"event": "purchase", "properties": {"product": "CDP"}},
+                "event": {"event": "purchase subscription", "properties": {"product": "CDP"}},
             },
         )
 
@@ -370,17 +372,17 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         )
 
     def test_allowed_event_names(self):
-        for event_name, allowed in [
-            ("$identify", False),
-            ("$pageview", False),
-            ("sign up", False),
-            ("purchase", True),
-            ("6month_subscribed", False),
-            ("event-name", True),
-            ("subscribed_6-months", True),
-            ("custom", True),
+        for event_name, formatted_name in [
+            ("$identify", "identify"),
+            ("$pageview", "pageview"),
+            ("sign up", "sign_up"),
+            ("purchase", "purchase"),
+            ("6month_subscribed", None),
+            ("event-name", "event-name"),
+            ("subscribed_6-months", "subscribed_6-months"),
+            ("custom", "custom"),
         ]:
-            if allowed:
+            if formatted_name:
                 self.run_function(
                     inputs=self._inputs(eventName=event_name),
                     globals={
@@ -391,7 +393,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                 )
                 assert (
                     self.get_mock_fetch_calls()[0][0]
-                    == f"https://api.hubapi.com/events/v3/event-definitions/{event_name}/?includeProperties=true"
+                    == f"https://api.hubapi.com/events/v3/event-definitions/{formatted_name}/?includeProperties=true"
                 )
             else:
                 with pytest.raises(UncaughtHogVMException) as e:
@@ -404,10 +406,10 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                             },
                         },
                     )
-                    assert (
-                        e.value.message
-                        == f"Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event: {event_name}"
-                    )
+                assert (
+                    e.value.message
+                    == f"Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event..."
+                )
 
 
 class TestTemplateMigration(BaseTest):
@@ -423,8 +425,8 @@ class TestTemplateMigration(BaseTest):
 
     def test_default_config(self):
         obj = self.get_plugin_config({})
-        template = TemplateHubspotMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
+        fn = TemplateHubspotMigrator.migrate(obj)
+        assert fn["inputs"] == snapshot(
             {
                 "access_token": {"value": "toky"},
                 "email": {"value": "{person.properties.email}"},
@@ -440,15 +442,15 @@ class TestTemplateMigration(BaseTest):
                 },
             }
         )
-        assert template["filters"] == {
+        assert fn["filters"] == {
             "properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}],
             "events": [
                 {"id": "$identify", "name": "$identify", "type": "events", "properties": []},
                 {"id": "$set", "name": "$set", "type": "events", "properties": []},
             ],
         }
-        assert template["inputs_schema"][0]["key"] == "access_token"
-        assert template["inputs_schema"][0]["type"] == "string"
-        assert template["inputs_schema"][0]["secret"]
-        assert "inputs.oauth.access_token" not in template["hog"]
-        assert "inputs.access_token" in template["hog"]
+        assert fn["inputs_schema"][0]["key"] == "access_token"
+        assert fn["inputs_schema"][0]["type"] == "string"
+        assert fn["inputs_schema"][0]["secret"]
+        assert "inputs.oauth.access_token" not in fn["hog"]
+        assert "inputs.access_token" in fn["hog"]

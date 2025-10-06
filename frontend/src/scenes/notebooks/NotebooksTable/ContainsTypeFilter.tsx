@@ -1,8 +1,9 @@
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import posthog from 'posthog-js'
+
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '../types'
 
 export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
@@ -12,6 +13,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
+    | NotebookNodeType.Latex
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',
@@ -26,6 +28,8 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
     [NotebookNodeType.Cohort]: 'Cohorts',
     [NotebookNodeType.Group]: 'Groups',
+    [NotebookNodeType.TaskCreate]: 'Task suggestions',
+    [NotebookNodeType.LLMTrace]: 'LLM traces',
 }
 
 export function ContainsTypeFilters({

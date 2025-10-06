@@ -1,33 +1,37 @@
-import contextlib
 import time
+import contextlib
 from collections.abc import Iterator, Mapping
 from datetime import datetime
 from uuid import UUID
 
+import pytest
+from posthog.test.base import materialized
+
 import dagster
 import pydantic
-import pytest
 from clickhouse_driver import Client
+
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 from dags.materialized_columns import (
     MaterializationConfig,
     PartitionRange,
+    join_mappings,
     materialize_column,
     run_materialize_mutations,
-    zip_values,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, Query
-from posthog.test.base import materialized
 
 
-def test_zip_values():
-    assert [*zip_values({1: ["a", "b"], 2: ["c", "d"]})] == [
-        {1: "a", 2: "c"},
-        {1: "b", 2: "d"},
-    ]
+def test_join_mappings():
+    assert join_mappings({}) == {}
 
-    with pytest.raises(ValueError):
-        next(zip_values({1: ["a"], 2: ["c", "d"]}))
+    assert join_mappings({1: {"a": 1}}) == {"a": {1: 1}}
+
+    # overlapping keys
+    assert join_mappings({1: {"a": 1}, 2: {"a": 2}}) == {"a": {1: 1, 2: 2}}
+
+    # non-overlapping keys
+    assert join_mappings({1: {"a": 1}, 2: {"b": 2}}) == {"a": {1: 1}, "b": {2: 2}}
 
 
 def test_partition_range_validation():
@@ -41,6 +45,17 @@ def test_partition_range_validation():
 
     with pytest.raises(pydantic.ValidationError):
         PartitionRange(lower="202401", upper="")
+
+
+def test_materialization_config_force_default():
+    # Test that force defaults to False
+    config = MaterializationConfig(
+        table="test_table",
+        columns=["test_column"],
+        indexes=[],
+        partitions=PartitionRange(lower="202401", upper="202403"),
+    )
+    assert config.force is False
 
 
 @contextlib.contextmanager
@@ -98,7 +113,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
                 assert len(shard_mutations) == 3
-                for mutation in shard_mutations:
+                for mutation in shard_mutations.values():
                     # mutations should only be for the column
                     assert all("MATERIALIZE COLUMN" in command for command in mutation.commands)
 
@@ -119,7 +134,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                 materialize_column_config.get_mutations_to_run
             ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
-                assert shard_mutations == []
+                assert shard_mutations == {}
 
             # XXX: if ee.* not importable, this text should have been xfailed by the materialize context manager
             from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
@@ -136,7 +151,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
                 assert len(shard_mutations) == 3
-                for mutation in shard_mutations:
+                for mutation in shard_mutations.values():
                     # skip the column (as it has been materialized), but materialize the index
                     assert all("MATERIALIZE INDEX" in command for command in mutation.commands)
 
@@ -148,3 +163,22 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             )
 
             # XXX: ideally we'd assert here that the index now exists, but there is no way to do that like there is for columns
+
+            # Test force option: even though columns are already materialized, force should re-materialize them
+            force_materialize_config = MaterializationConfig(
+                table="sharded_events",
+                columns=[column.name],
+                indexes=[],
+                partitions=partitions,
+                force=True,
+            )
+
+            # When force=True, should return mutations for all partitions even though they're already materialized
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(
+                force_materialize_config.get_mutations_to_run
+            ).result()
+            for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
+                assert len(shard_mutations) == 3
+                for mutation in shard_mutations.values():
+                    # mutations should only be for the column
+                    assert all("MATERIALIZE COLUMN" in command for command in mutation.commands)

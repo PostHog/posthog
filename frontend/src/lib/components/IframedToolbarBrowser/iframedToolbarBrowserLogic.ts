@@ -1,18 +1,19 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import {
-    authorizedUrlListLogic,
-    AuthorizedUrlListType,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import {
-    calculateViewportRange,
-    DEFAULT_HEATMAP_FILTERS,
-    PostHogAppToolbarEvent,
-} from 'lib/components/IframedToolbarBrowser/utils'
-import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+
+import {
+    AuthorizedUrlListType,
+    authorizedUrlListLogic,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    DEFAULT_HEATMAP_FILTERS,
+    PostHogAppToolbarEvent,
+    calculateViewportRange,
+} from 'lib/components/IframedToolbarBrowser/utils'
+import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ToolbarUserIntent } from '~/types'
@@ -47,7 +48,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         automaticallyAuthorizeBrowserUrl: false,
     } as IframedToolbarBrowserLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
@@ -60,7 +61,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             teamLogic,
             ['updateCurrentTeamSuccess'],
         ],
-    }),
+    })),
 
     actions({
         setBrowserUrl: (url: string | null) => ({ url }),
@@ -70,12 +71,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             type,
             payload,
         }),
-        // TRICKY: duplicated with the heatmapLogic so that we can share the settings picker
-        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
-        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
-        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
-        setCommonFilters: (filters: CommonFilters) => ({ filters }),
-        // TRICKY: duplication ends
         setIframeWidth: (width: number | null) => ({ width }),
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
@@ -223,26 +218,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 }
             }
         },
-        // heatmaps
-        patchHeatmapFilters: ({ filters }) => {
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters })
-        },
-
-        setHeatmapFixedPositionMode: ({ mode }) => {
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE, {
-                fixedPositionMode: mode,
-            })
-        },
-
-        setHeatmapColorPalette: ({ Palette }) => {
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE, {
-                colorPalette: Palette,
-            })
-        },
-
-        setCommonFilters: ({ filters }) => {
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS, { commonFilters: filters })
-        },
 
         // actions
         enableElementSelector: () => {
@@ -261,19 +236,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             // but there's no slam dunk way to do that
 
             const init = (): void => {
-                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT, {
-                    filters: values.heatmapFilters,
-                    colorPalette: values.heatmapColorPalette,
-                    fixedPositionMode: values.heatmapFixedPositionMode,
-                    commonFilters: values.commonFilters,
-                })
-                switch (props.userIntent) {
-                    case 'heatmaps':
-                        actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
-                            enabled: true,
-                        })
-                        break
-                }
+                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT)
             }
 
             const onIframeMessage = (e: MessageEvent): void => {
@@ -308,26 +271,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                             // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
                             return actions.startTrackingLoading()
                         }
-                        return
-                    case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING:
-                        return actions.startTrackingLoading()
-                    case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED:
-                        posthog.capture('in-app heatmap loaded', {
-                            inapp_heatmap_page_url_visited: values.browserUrl,
-                            inapp_heatmap_filters: values.heatmapFilters,
-                            inapp_heatmap_color_palette: values.heatmapColorPalette,
-                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
-                        })
-                        return actions.stopTrackingLoading()
-                    case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED:
-                        posthog.capture('in-app heatmap failed', {
-                            inapp_heatmap_page_url_visited: values.browserUrl,
-                            inapp_heatmap_filters: values.heatmapFilters,
-                            inapp_heatmap_color_palette: values.heatmapColorPalette,
-                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
-                        })
-                        actions.stopTrackingLoading()
-                        actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load.' })
                         return
                     case PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED:
                         actions.setNewActionName(null)
@@ -394,7 +337,15 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.startTrackingLoading()
         }
     }),
-    beforeUnmount(({ actions, props }) => {
+    beforeUnmount(({ actions, props, cache }) => {
         props.clearBrowserUrlOnUnmount && actions.setBrowserUrl('')
+
+        // Clean up loading timeouts to prevent memory leaks and ghost banner messages
+        if (cache.errorTimeout) {
+            clearTimeout(cache.errorTimeout)
+        }
+        if (cache.warnTimeout) {
+            clearTimeout(cache.warnTimeout)
+        }
     }),
 ])

@@ -1,6 +1,7 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
@@ -27,7 +28,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),
     props({} as TextCardModalProps),
     key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}`),
-    connect({ actions: [dashboardsModel, ['updateDashboard']] }),
+    connect(() => ({ actions: [dashboardsModel, ['updateDashboard']] })),
     listeners(({ props, actions }) => ({
         submitTextTileFailure: (error) => {
             if (props.dashboard && props.textTileId) {

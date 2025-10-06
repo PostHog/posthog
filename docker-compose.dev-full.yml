@@ -92,6 +92,7 @@ services:
             - '2080:2080'
         environment:
             - PORT=2080
+            - OTEL_SDK_DISABLED=true
 
     worker:
         extends:
@@ -231,23 +232,6 @@ services:
             - objectstorage
             - temporal
 
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        ports:
-            - '3304:3304' # Expose the fetch service port
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            WORKER_ID: 'default_worker_id'
-            DEBUG: 1 # Add debug mode like other services
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     cyclotron-janitor:
         extends:
             file: docker-compose.base.yml
@@ -261,3 +245,27 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
+
+    otel-collector:
+        extends:
+            file: docker-compose.base.yml
+            service: otel-collector
+        depends_on:
+            - jaeger
+
+    jaeger:
+        extends:
+            file: docker-compose.base.yml
+            service: jaeger
+
+    localstack:
+        extends:
+            file: docker-compose.base.yml
+            service: localstack
+
+networks:
+    otel_network:
+        driver: bridge
+
+volumes:
+    redpanda-data:

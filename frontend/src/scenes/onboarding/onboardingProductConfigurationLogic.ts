@@ -1,5 +1,7 @@
-import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
+
+import { LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
@@ -33,9 +35,9 @@ export type ProductConfigOption = ProductConfigurationToggle | ProductConfigurat
 
 export const onboardingProductConfigurationLogic = kea<onboardingProductConfigurationLogicType>([
     path(() => ['scenes', 'onboarding', 'onboardingProductConfigurationLogic']),
-    connect({
+    connect(() => ({
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions({
         setConfigOptions: (configOptions: ProductConfigOption[]) => ({ configOptions }),
         saveConfiguration: true,

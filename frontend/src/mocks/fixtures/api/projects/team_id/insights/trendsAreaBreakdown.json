@@ -3,25 +3,7 @@
     "short_id": "ff3YKuwB",
     "name": "AreaBreakdown",
     "derived_name": "Pageview count by event's Browser",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "ActionsAreaGraph",
-        "insight": "TRENDS",
-        "interval": "day",
-        "breakdown": "$browser",
-        "properties": [],
-        "breakdown_type": "event",
-        "filter_test_accounts": false,
-        "date_from": "-7d"
-    },
+    "filters": {},
     "filters_hash": "cache_791152196c17bdcdfe51f283a870825a",
     "order": null,
     "deleted": false,
@@ -1800,8 +1782,34 @@
         "email": "test@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "timezone": "UTC",
-    "tags": []
+    "tags": [],
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "$browser",
+                "breakdown_type": "event"
+            },
+            "dateRange": {
+                "date_from": "-7d"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsAreaGraph",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

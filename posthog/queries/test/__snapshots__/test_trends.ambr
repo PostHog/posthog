@@ -1,16 +1,6 @@
 # serializer version: 1
 # name: TestTrends.test_action_filtering_with_cohort
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestTrends.test_action_filtering_with_cohort.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -19,20 +9,7 @@
     AND version = 2
   '''
 # ---
-# name: TestTrends.test_action_filtering_with_cohort.2
-  '''
-  /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
-  SELECT team_id,
-         count() AS stale_people_count
-  FROM cohortpeople
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND cohort_id = 99999
-    AND version < 2
-  GROUP BY team_id
-  HAVING stale_people_count > 0
-  '''
-# ---
-# name: TestTrends.test_action_filtering_with_cohort.3
+# name: TestTrends.test_action_filtering_with_cohort.1
   '''
   /* cohort_calculation: */
   SELECT groupArray(day_start) as date,
@@ -90,17 +67,123 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_action_filtering_with_cohort_poe_v2
+# name: TestTrends.test_action_filtering_with_cohort.2
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
+  /* cohort_calculation: */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+             AND distinct_id IN
+               (SELECT distinct_id
+                FROM events
+                WHERE team_id = 99999
+                  AND event IN ['sign up']
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC'))
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 99999
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 99999
+                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+        WHERE team_id = 99999
+          AND ((event = 'sign up'
+                AND (if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) IN
+                       (SELECT DISTINCT person_id
+                        FROM cohortpeople
+                        WHERE team_id = 99999
+                          AND cohort_id = 99999
+                          AND version = 2 ))))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
+# name: TestTrends.test_action_filtering_with_cohort.3
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+             AND distinct_id IN
+               (SELECT distinct_id
+                FROM events
+                WHERE team_id = 99999
+                  AND event IN ['sign up']
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC'))
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 99999
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 99999
+                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+        WHERE team_id = 99999
+          AND ((event = 'sign up'
+                AND (if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) IN
+                       (SELECT DISTINCT person_id
+                        FROM cohortpeople
+                        WHERE team_id = 99999
+                          AND cohort_id = 99999
+                          AND version = 2 ))))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '''
+# ---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2
   '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
@@ -110,22 +193,91 @@
     AND version = 2
   '''
 # ---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
+  '''
+  /* cohort_calculation: */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+        WHERE team_id = 99999
+          AND ((event = 'sign up'
+                AND (if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) IN
+                       (SELECT DISTINCT person_id
+                        FROM cohortpeople
+                        WHERE team_id = 99999
+                          AND cohort_id = 99999
+                          AND version = 2 ))))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+          AND (has(['x'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$bool_prop'), '^"|"$', '')))
+          AND notEmpty(e.person_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
   '''
-  /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
-  SELECT team_id,
-         count() AS stale_people_count
-  FROM cohortpeople
-  WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
-    AND cohort_id = 99999
-    AND version < 2
-  GROUP BY team_id
-  HAVING stale_people_count > 0
+  /* cohort_calculation: */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+        WHERE team_id = 99999
+          AND ((event = 'sign up'
+                AND (if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) IN
+                       (SELECT DISTINCT person_id
+                        FROM cohortpeople
+                        WHERE team_id = 99999
+                          AND cohort_id = 99999
+                          AND version = 2 ))))
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+          AND (has(['x'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$bool_prop'), '^"|"$', '')))
+          AND notEmpty(e.person_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
   '''
-  /* cohort_calculation: */
+  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -1267,16 +1419,6 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestTrends.test_filter_events_by_precalculated_cohort.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -1285,9 +1427,61 @@
     AND version = 0
   '''
 # ---
+# name: TestTrends.test_filter_events_by_precalculated_cohort.1
+  '''
+  /* cohort_calculation: */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        LEFT OUTER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 99999
+             AND distinct_id IN
+               (SELECT distinct_id
+                FROM events
+                WHERE team_id = 99999
+                  AND event = 'event_name'
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC'))
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 99999
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 99999
+                  AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+        WHERE team_id = 99999
+          AND event = 'event_name'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
   '''
-  
+  /* cohort_calculation: */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -1339,16 +1533,6 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -1357,9 +1541,37 @@
     AND version = 0
   '''
 # ---
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
+  '''
+  /* cohort_calculation: */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        WHERE team_id = 99999
+          AND event = 'event_name'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+          AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '')))
+          AND notEmpty(e.person_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
   '''
-  
+  /* cohort_calculation: */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM

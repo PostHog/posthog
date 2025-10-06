@@ -8,7 +8,6 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
-
 logger.setLevel("DEBUG")
 
 deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])

@@ -1,12 +1,15 @@
-import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { PaginationManual, Sorting } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { Breadcrumb } from '~/types'
 
+import { NotebookListItemType, NotebookNodeType } from '../types'
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
 
 export interface NotebooksListFilters {
@@ -35,17 +38,17 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         }),
         setPage: (page: number) => ({ page }),
     }),
-    connect({
+    connect(() => ({
         values: [notebooksModel, ['notebookTemplates']],
         actions: [notebooksModel, ['deleteNotebookSuccess']],
-    }),
+    })),
     reducers({
         filters: [
             DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...state,
                         ...filters,
                     }),
             },
@@ -136,4 +139,16 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
             },
         ],
     })),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'notebooks',
+                    name: 'Notebooks',
+                    iconType: 'notebook',
+                },
+            ],
+        ],
+    }),
 ])

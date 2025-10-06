@@ -9,7 +9,7 @@ use crate::metrics::metrics_consts::{
     COOKIELESS_CACHE_HIT_COUNTER, COOKIELESS_CACHE_MISS_COUNTER, COOKIELESS_REDIS_ERROR_COUNTER,
 };
 use common_metrics::inc;
-use common_redis::{Client as RedisClient, CustomRedisError};
+use common_redis::{Client as RedisClient, CustomRedisError, RedisValueFormat};
 use moka::sync::Cache;
 use rand::RngCore;
 use thiserror::Error;
@@ -97,10 +97,17 @@ impl SaltCache {
 
         // Try to get it from Redis
         let redis_key = format!("cookieless_salt:{yyyymmdd}");
-        let salt_base64 = match self.redis_client.get(redis_key.clone()).await {
+        let salt_base64 = match self
+            .redis_client
+            .get_with_format(redis_key.clone(), RedisValueFormat::Utf8)
+            .await
+        {
             Ok(value) => Some(value),
             Err(CustomRedisError::NotFound) => None,
             Err(e) => {
+                // log the error to info, and increment the error counter
+                tracing::info!("Failed to get salt from Redis the first time: {}", e);
+
                 inc(
                     COOKIELESS_REDIS_ERROR_COUNTER,
                     &[
@@ -115,9 +122,15 @@ impl SaltCache {
 
         if let Some(salt_base64) = salt_base64 {
             // Decode the base64 salt
-            let salt = match general_purpose::STANDARD.decode(salt_base64) {
+            let salt = match general_purpose::STANDARD.decode(strip_quotes(&salt_base64.clone())) {
                 Ok(s) => s,
-                Err(_) => {
+                Err(e) => {
+                    tracing::info!(
+                        "Failed to decode the salt from redis: {} {}",
+                        e,
+                        salt_base64
+                    );
+
                     inc(
                         COOKIELESS_REDIS_ERROR_COUNTER,
                         &[
@@ -144,7 +157,12 @@ impl SaltCache {
         // Try to set it in Redis with NX (only if it doesn't exist) and with TTL in a single operation
         match self
             .redis_client
-            .set_nx_ex(redis_key.clone(), new_salt_base64.clone(), SALT_TTL_SECONDS)
+            .set_nx_ex_with_format(
+                redis_key.clone(),
+                new_salt_base64.clone(),
+                SALT_TTL_SECONDS,
+                RedisValueFormat::Utf8,
+            )
             .await
         {
             Ok(true) => {
@@ -156,9 +174,15 @@ impl SaltCache {
             }
             Ok(false) => {
                 // Someone else set it, try to get it again
-                let salt_base64_retry = match self.redis_client.get(redis_key).await {
+                let salt_base64_retry = match self
+                    .redis_client
+                    .get_with_format(redis_key, RedisValueFormat::Utf8)
+                    .await
+                {
                     Ok(value) => value,
                     Err(e) => {
+                        tracing::info!("Failed to get the salt from redis the second time: {}", e);
+
                         inc(
                             COOKIELESS_REDIS_ERROR_COUNTER,
                             &[
@@ -171,9 +195,12 @@ impl SaltCache {
                     }
                 };
 
-                let salt = match general_purpose::STANDARD.decode(salt_base64_retry) {
+                let salt = match general_purpose::STANDARD.decode(strip_quotes(&salt_base64_retry))
+                {
                     Ok(s) => s,
-                    Err(_) => {
+                    Err(e) => {
+                        tracing::info!("Failed to decode the salt from redis 2: {}", e);
+
                         inc(
                             COOKIELESS_REDIS_ERROR_COUNTER,
                             &[
@@ -192,6 +219,7 @@ impl SaltCache {
                 Ok(salt)
             }
             Err(e) => {
+                tracing::info!("Failed to set the salt NX: {}", e);
                 inc(
                     COOKIELESS_REDIS_ERROR_COUNTER,
                     &[
@@ -262,6 +290,10 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     now_utc >= start_of_day_minus_12 && now_utc < end_of_day_plus_14
 }
 
+fn strip_quotes(s: &str) -> &str {
+    s.trim_matches('"')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,7 +307,7 @@ mod tests {
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let salt = general_purpose::STANDARD.decode(salt_base64).unwrap();
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
 
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
@@ -303,7 +335,7 @@ mod tests {
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let salt = general_purpose::STANDARD.decode(salt_base64).unwrap();
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
 
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);

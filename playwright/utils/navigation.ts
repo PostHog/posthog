@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test'
+
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +23,7 @@ export class Navigation {
         await this.page.goto(urls.projectHomepage())
     }
 
-    async openMenuItem(name: Identifier): Promise<void> {
+    async openMenuItem(name: string): Promise<void> {
         await this.page.getByTestId(`menu-item-${name}`).click()
     }
 }

@@ -20,19 +20,31 @@ pub enum OperatorType {
     IsDateBefore,
     In,
     NotIn,
+    FlagEvaluatesTo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyType {
+    #[serde(rename = "person")]
+    Person,
+    #[serde(rename = "cohort")]
+    Cohort,
+    #[serde(rename = "group")]
+    Group,
+    // A flag property is compared to another flag evaluation result
+    #[serde(rename = "flag")]
+    Flag,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
-    // TODO: Probably need a default for value?
-    // incase operators like is_set, is_not_set are used
-    // not guaranteed to have a value, if say created via api
-    pub value: serde_json::Value,
+    // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
+    pub value: Option<serde_json::Value>,
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
-    // TODO: worth making a enum here to differentiate between cohort and person filters?
-    pub prop_type: String,
+    pub prop_type: PropertyType,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
 }

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'

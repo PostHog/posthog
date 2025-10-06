@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO posthog_grouptypemapping (id, group_type, group_type_index, team_id, project_id)\n            VALUES(1, 'Organization', 1, 111, 111)\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "3a3aa6426262c39e793869c353a1fe91b98d1652d9054aac5fecd3d8aed3d3c9"
+}

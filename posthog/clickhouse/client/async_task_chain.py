@@ -1,13 +1,14 @@
-import threading
+import uuid
 import typing
+import threading
 from contextlib import contextmanager
 from functools import partial
-import uuid
+
+from django.db import transaction
 
 from celery import chain
 from celery.canvas import Signature
 from celery.result import EagerResult
-from django.db import transaction
 
 from posthog.schema import QueryStatus
 

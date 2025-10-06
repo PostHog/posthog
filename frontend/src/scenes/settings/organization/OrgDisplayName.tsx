@@ -1,8 +1,10 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export function OrganizationDisplayName(): JSX.Element {
@@ -32,12 +34,12 @@ export function OrganizationDisplayName(): JSX.Element {
                     restrictionReason
                         ? restrictionReason
                         : !name
-                        ? 'You must provide a name'
-                        : !currentOrganization
-                        ? 'Organization not loaded'
-                        : currentOrganization.name === name
-                        ? 'Name unchanged'
-                        : undefined
+                          ? 'You must provide a name'
+                          : !currentOrganization
+                            ? 'Organization not loaded'
+                            : currentOrganization.name === name
+                              ? 'Name unchanged'
+                              : undefined
                 }
                 loading={currentOrganizationLoading}
             >

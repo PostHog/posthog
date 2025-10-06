@@ -1,5 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -19,24 +21,29 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
  * - Persists the batch to storage
  * - Handles partition revocation
  *
- * One SessionBatchRecorder corresponds to one batch file:
+ * One SessionBatchRecorder corresponds to one batch file per retention period:
  * ```
- * Session Batch File 1 (previous)
+ * Session Batch 1 (previous)
  * └── ... (previous batch)
  *
- * Session Batch File 2 <── One SessionBatchRecorder corresponds to one batch file
- * ├── Compressed Session Recording Block 1
- * │   └── JSONL Session Recording Block
- * │       ├── [windowId, event1]
- * │       ├── [windowId, event2]
- * │       └── ...
- * ├── Compressed Session Recording Block 2
- * │   └── JSONL Session Recording Block
- * │       ├── [windowId, event1]
- * │       └── ...
+ * Session Batch 2 <── One SessionBatchRecorder corresponds to one batch
+ * ├── Batch file 1 (30 day retention)
+ * │   ├── Compressed Session Recording Block 1
+ * │   │   └── JSONL Session Recording Block
+ * │   │       ├── [windowId, event1]
+ * │   │       ├── [windowId, event2]
+ * │   │       └── ...
+ * │   └── ...
+ * ├── Batch file 2 (1 year retention)
+ * │   ├── Compressed Session Recording Block 2
+ * │   │   └── JSONL Session Recording Block
+ * │   │       ├── [windowId, event3]
+ * │   │       ├── [windowId, event4]
+ * │   │       └── ...
+ * │   └── ...
  * └── ...
  *
- * Session Batch File 3 (next)
+ * Session Batch 3 (next)
  * └── ... (future batch)
  * ```
  *
@@ -62,7 +69,8 @@ export class SessionBatchRecorder {
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
-        private readonly consoleLogStore: SessionConsoleLogStore
+        private readonly consoleLogStore: SessionConsoleLogStore,
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {
         this.batchId = uuidv7()
         logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
@@ -78,6 +86,7 @@ export class SessionBatchRecorder {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
+        const teamSessionKey = `${teamId}$${sessionId}`
 
         if (!this.partitionSessions.has(partition)) {
             this.partitionSessions.set(partition, new Map())
@@ -85,7 +94,7 @@ export class SessionBatchRecorder {
         }
 
         const sessions = this.partitionSessions.get(partition)!
-        const existingRecorders = sessions.get(sessionId)
+        const existingRecorders = sessions.get(teamSessionKey)
 
         if (existingRecorders) {
             const [sessionBlockRecorder] = existingRecorders
@@ -99,13 +108,19 @@ export class SessionBatchRecorder {
                 return 0
             }
         } else {
-            sessions.set(sessionId, [
-                new SnappySessionRecorder(sessionId, teamId, this.batchId),
-                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
+            sessions.set(teamSessionKey, [
+                new SnappySessionRecorder(sessionId, teamId, this.batchId, this.metadataSwitchoverDate),
+                new SessionConsoleLogRecorder(
+                    sessionId,
+                    teamId,
+                    this.batchId,
+                    this.consoleLogStore,
+                    this.metadataSwitchoverDate
+                ),
             ])
         }
 
-        const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(sessionId)!
+        const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(teamSessionKey)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
 
@@ -121,6 +136,7 @@ export class SessionBatchRecorder {
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
             sessionId,
+            teamId,
             bytesWritten,
             totalSize: this._size,
         })
@@ -165,6 +181,7 @@ export class SessionBatchRecorder {
         }
 
         const writer = this.storage.newBatch()
+
         const blockMetadata: SessionBlockMetadata[] = []
 
         let totalEvents = 0
@@ -194,7 +211,11 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    const { bytesWritten, url } = await writer.writeSession(buffer)
+                    const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
+                        buffer,
+                        teamId: sessionBlockRecorder.teamId,
+                        sessionId: sessionBlockRecorder.sessionId,
+                    })
 
                     blockMetadata.push({
                         sessionId: sessionBlockRecorder.sessionId,
@@ -219,6 +240,7 @@ export class SessionBatchRecorder {
                         snapshotLibrary,
                         batchId,
                         eventCount,
+                        retentionPeriodDays,
                     })
 
                     totalEvents += eventCount

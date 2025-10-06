@@ -1,7 +1,7 @@
 import datetime
 import itertools
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from typing import ClassVar, TypeVar, cast
 
 import dagster
@@ -9,29 +9,32 @@ import pydantic
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 
-from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
 
-K = TypeVar("K")
+from dags.common import JobOwners
+
+K1 = TypeVar("K1")
+K2 = TypeVar("K2")
 V = TypeVar("V")
 
 
-def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
-    """
-    Takes a mapping that contains values of sequences if identical lengths, returns an iterator of dictionaries for each
-    index in the sequence, with keys for each value taken from the input mapping.
-    """
-    keys, values = [], []
-    for key, value in mapping.items():
-        keys.append(key)
-        values.append(value)
+def join_mappings(mappings: Mapping[K1, Mapping[K2, V]]) -> Mapping[K2, Mapping[K1, V]]:
+    outer_keys = set()
+    for inner_mapping in mappings.values():
+        outer_keys.update(inner_mapping.keys())
 
-    if len({len(value) for value in values}) > 1:
-        raise ValueError("expected all value sequences to be of the same length")
+    result = {}
+    for outer_key in outer_keys:
+        result[outer_key] = {}
+        for inner_key, inner_mapping in mappings.items():
+            if outer_key in inner_mapping:
+                result[outer_key][inner_key] = inner_mapping[outer_key]
 
-    for chunk in zip(*values):
-        yield dict(zip(keys, chunk))
+    return result
+
+
+PartitionId = str
 
 
 class PartitionRange(dagster.Config):
@@ -47,7 +50,7 @@ class PartitionRange(dagster.Config):
         while (date := date_lower + relativedelta(months=next(seq))) <= date_upper:
             yield date
 
-    def iter_ids(self) -> Iterator[str]:
+    def iter_ids(self) -> Iterator[PartitionId]:
         for date in self.iter_dates():
             yield date.strftime(self.FORMAT)
 
@@ -73,56 +76,64 @@ class MaterializationConfig(dagster.Config):
     columns: list[str]
     indexes: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
+    force: bool = False  # Force re-materialization of all columns even if they already exist
 
-    def get_mutations_to_run(self, client: Client) -> Sequence[AlterTableMutationRunner]:
-        # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
-        # have the target column materialized by finding parts where the key column exists but the target column does
-        # not.
-        [[key_column]] = client.execute(
-            """
-            SELECT name
-            FROM system.columns
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND is_in_primary_key
-            ORDER BY position
-            LIMIT 1
-            """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
-        )
-
+    def get_mutations_to_run(self, client: Client) -> Mapping[PartitionId, AlterTableMutationRunner]:
         columns_remaining_by_partition = defaultdict(set)
-        for column in self.columns:
-            results = client.execute(
+
+        if self.force:
+            # When force is True, add all columns for all partitions in the range
+            for partition in self.partitions.iter_ids():
+                for column in self.columns:
+                    columns_remaining_by_partition[partition].add(column)
+        else:
+            # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
+            # have the target column materialized by finding parts where the key column exists but the target column does
+            # not.
+            [[key_column]] = client.execute(
                 """
-                SELECT partition
-                FROM system.parts_columns
+                SELECT name
+                FROM system.columns
                 WHERE
                     database = %(database)s
                     AND table = %(table)s
-                    AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
-                    AND active
-                    AND column IN (%(key_column)s, %(column)s)
-                    AND partition IN %(partitions)s
-                GROUP BY partition
-                HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
-                ORDER BY partition DESC
+                    AND is_in_primary_key
+                ORDER BY position
+                LIMIT 1
                 """,
-                {
-                    "database": settings.CLICKHOUSE_DATABASE,
-                    "table": self.table,
-                    "key_column": key_column,
-                    "column": column,
-                    "partitions": [*self.partitions.iter_ids()],
-                },
+                {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
             )
-            for [partition] in results:
-                columns_remaining_by_partition[partition].add(column)
 
-        mutations = []
+            for column in self.columns:
+                results = client.execute(
+                    """
+                    SELECT partition
+                    FROM system.parts_columns
+                    WHERE
+                        database = %(database)s
+                        AND table = %(table)s
+                        AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
+                        AND active
+                        AND column IN (%(key_column)s, %(column)s)
+                        AND partition IN %(partitions)s
+                    GROUP BY partition
+                    HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
+                    ORDER BY partition DESC
+                    """,
+                    {
+                        "database": settings.CLICKHOUSE_DATABASE,
+                        "table": self.table,
+                        "key_column": key_column,
+                        "column": column,
+                        "partitions": [*self.partitions.iter_ids()],
+                    },
+                )
+                for [partition] in results:
+                    columns_remaining_by_partition[partition].add(column)
 
-        for partition in reversed([*self.partitions.iter_ids()]):
+        mutations = {}
+
+        for partition in self.partitions.iter_ids():
             commands = set()
 
             for column in columns_remaining_by_partition[partition]:
@@ -134,7 +145,9 @@ class MaterializationConfig(dagster.Config):
                 commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
 
             if commands:
-                mutations.append(AlterTableMutationRunner(self.table, commands, parameters={"partition": partition}))
+                mutations[partition] = AlterTableMutationRunner(
+                    table=self.table, commands=commands, parameters={"partition": partition}, force=self.force
+                )
 
         return mutations
 
@@ -165,9 +178,12 @@ def run_materialize_mutations(
         cluster.map_one_host_per_shard(config.get_mutations_to_run).result()
     )
 
-    for mutations in zip_values(mutations_to_run_by_shard):
-        shard_waiters = _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(mutations).result())
+    shard_mutations_to_run_by_partition = join_mappings(mutations_to_run_by_shard)
+    for partition_id, shard_mutations in sorted(shard_mutations_to_run_by_partition.items(), reverse=True):
+        context.log.info("Starting %s materializations for partition %r...", len(shard_mutations), partition_id)
+        shard_waiters = _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(shard_mutations).result())
         cluster.map_all_hosts_in_shards(shard_waiters).result()
+        context.log.info("Completed materializations for partition %r!", partition_id)
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})

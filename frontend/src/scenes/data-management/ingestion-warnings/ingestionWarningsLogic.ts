@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { range } from 'lib/utils'
@@ -31,9 +32,9 @@ export interface IngestionWarning {
 export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
 
-    connect({
+    connect(() => ({
         values: [teamLogic, ['timezone'], projectLogic, ['currentProjectId']],
-    }),
+    })),
 
     actions({
         setSearchQuery: (search: string) => ({ search }),
@@ -70,11 +71,13 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                         key: Scene.DataManagement,
                         name: `Data management`,
                         path: urls.eventDefinitions(),
+                        iconType: 'event_definition',
                     },
                     {
                         key: DataManagementTab.IngestionWarnings,
                         name: 'Ingestion warnings',
                         path: urls.ingestionWarnings(),
+                        iconType: 'ingestion_warning',
                     },
                 ]
             },

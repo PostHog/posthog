@@ -2,25 +2,9 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional, Union
-from unittest.case import skip
-from unittest.mock import ANY
 
 import pytest
-from django.core.cache import cache
-from django.test import Client
 from freezegun import freeze_time
-
-from ee.api.test.base import LicensedTestMixin
-from posthog.api.test.test_cohort import create_cohort_ok
-from posthog.api.test.test_event_definition import (
-    create_organization,
-    create_team,
-    create_user,
-)
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.instance_setting import set_instance_setting
-from posthog.models.team import Team
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -28,7 +12,21 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
+from unittest.case import skip
+from unittest.mock import ANY
+
+from django.core.cache import cache
+from django.test import Client
+
+from posthog.api.test.test_cohort import create_cohort_ok
+from posthog.api.test.test_event_definition import create_organization, create_team, create_user
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import set_instance_setting
+from posthog.models.team import Team
 from posthog.test.test_journeys import journeys_for, update_or_create_person
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.api.test.base import LicensedTestMixin
 
 
 @pytest.mark.django_db
@@ -120,11 +118,12 @@ def test_includes_only_intervals_within_range(client: Client):
                     "action": ANY,
                     "breakdown_value": cohort["id"],
                     "label": "test cohort",
-                    "count": 3.0,
-                    "data": [1.0, 1.0, 1.0],
-                    "labels": ["5-Sep – 11-Sep", "12-Sep – 18-Sep", "19-Sep – 25-Sep"],
+                    "count": 2.0,
+                    "data": [0.0, 1.0, 1.0],
+                    "labels": ["6–11 Sep", "12–18 Sep", "19–21 Sep"],
                     "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -195,6 +194,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -236,6 +236,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -289,6 +290,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -361,6 +363,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -402,6 +405,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -880,10 +884,10 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
     CLASS_DATA_LEVEL_SETUP = False
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

@@ -1,11 +1,14 @@
-from ee.models.rbac.access_control import AccessControl
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-from posthog.models.feature_flag import FeatureFlag
-from ee.models.rbac.role import Role
 from django.db import transaction
+
 import structlog
-from sentry_sdk import capture_exception
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models.team import Team
+
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
@@ -28,14 +31,13 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
                     access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
                 )
                 if organization_resource_access.exists():
-                    # Add view only access to all feature flags for the organization
-                    for feature_flag in FeatureFlag.objects.filter(team__organization_id=organization_id):
+                    # Add view only access to the feature flag resources for each team in the organization
+                    for team in Team.objects.filter(organization_id=organization_id):
                         AccessControl.objects.create(
-                            # Note: no user or role so it's project wide
-                            team=feature_flag.team,
+                            # Note: no user or role or resource_id so it's project wide and applies to all flags
+                            team=team,
                             access_level="viewer",
                             resource="feature_flag",
-                            resource_id=feature_flag.id,
                         )
                     # Remove the organization resource access (so we know it's been migrated)
                     organization_resource_access.delete()
@@ -47,12 +49,11 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
                         feature_flags_access_level=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
                     )
                     for role in editor_roles:
-                        for feature_flag in FeatureFlag.objects.filter(team__organization_id=organization_id):
+                        for team in Team.objects.filter(organization_id=organization_id):
                             AccessControl.objects.create(
-                                team=feature_flag.team,
+                                team=team,
                                 access_level="editor",
                                 resource="feature_flag",
-                                resource_id=feature_flag.id,
                                 role=role,
                             )
 

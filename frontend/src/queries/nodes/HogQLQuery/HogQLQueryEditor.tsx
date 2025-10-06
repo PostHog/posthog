@@ -1,17 +1,20 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconMagicWand } from '@posthog/icons'
-import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { IDisposable, editor as importedEditor } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+
+import { IconMagicWand } from '@posthog/icons'
+import { LemonInput, Link } from '@posthog/lemon-ui'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { codeEditorLogic, CodeEditorLogicProps } from 'lib/monaco/codeEditorLogic'
-import type { editor as importedEditor, IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
+import { CodeEditorLogicProps, codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +27,7 @@ export interface HogQLQueryEditorProps {
     setQuery?: (query: HogQLQuery) => void
     onChange?: (query: string) => void
     embedded?: boolean
-    editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
+    editorFooter?: (hasErrors: boolean, errors: string | null) => JSX.Element
     queryResponse?: Record<string, any>
 }
 
@@ -36,11 +39,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
 
     const [key, setKey] = useState(() =>
-        router.values.location.pathname.includes(urls.dataWarehouse()) ? router.values.location.pathname : uniqueNode++
+        router.values.location.pathname.includes(urls.sqlEditor()) ? router.values.location.pathname : uniqueNode++
     )
 
     useEffect(() => {
-        if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+        if (router.values.location.pathname.includes(urls.sqlEditor())) {
             setKey(router.values.location.pathname)
         }
     }, [router.values.location.pathname])
@@ -72,7 +75,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         metadataFilters: props.query.filters,
     }
 
-    const { hasErrors, error, isValidView } = useValues(codeEditorLogic(codeEditorLogicProps))
+    const { hasErrors, error } = useValues(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(
         dataWarehouseSceneLogic({
@@ -82,11 +85,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     )
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
 
     return (
         <div className="flex items-start gap-2">
@@ -120,8 +123,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 !aiAvailable
                                     ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
                                     : !prompt
-                                    ? 'Provide a prompt first'
-                                    : null
+                                      ? 'Provide a prompt first'
+                                      : null
                             }
                             tooltipPlacement="left"
                             loading={promptLoading}
@@ -172,7 +175,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </div>
                 <div className="flex flex-row px-px">
                     {props.editorFooter ? (
-                        props.editorFooter(hasErrors, error, isValidView)
+                        props.editorFooter(hasErrors, error)
                     ) : (
                         <>
                             <div className="flex-1">
@@ -183,8 +186,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         !props.setQuery
                                             ? 'No permission to update'
                                             : hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : undefined
+                                              ? (error ?? 'Query has errors')
+                                              : undefined
                                     }
                                     center
                                     fullWidth
@@ -199,13 +202,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={onUpdateView}
                                     type="primary"
                                     center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
-                                    }
+                                    disabledReason={hasErrors ? (error ?? 'Query has errors') : ''}
                                     data-attr="hogql-query-editor-update-view"
                                 >
                                     Update view
@@ -216,13 +213,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={saveAsView}
                                     type="primary"
                                     center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
-                                    }
+                                    disabledReason={hasErrors ? (error ?? 'Query has errors') : ''}
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={
                                         <div>

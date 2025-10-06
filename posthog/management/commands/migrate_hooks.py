@@ -11,8 +11,8 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
         print("This command is only available in PostHog EE")  # noqa: T201
         return
 
-    from ee.models.hook import Hook
     from ee.api.hooks import create_zapier_hog_function
+    from ee.models.hook import Hook
 
     if hook_ids and team_ids:
         print("Please provide either hook_ids or team_ids, not both")  # noqa: T201
@@ -31,25 +31,38 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
 
     paginator = Paginator(query.all(), 100)
 
+    hook_ids_to_delete = []
+
     for page_number in paginator.page_range:
         page = paginator.page(page_number)
         hog_functions: list[HogFunction] = []
 
         for hook in page.object_list:
-            hog_function = create_zapier_hog_function(
-                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}, from_migration=True
-            )
-            hog_functions.append(hog_function)
+            try:
+                hog_function = create_zapier_hog_function(
+                    hook,
+                    {
+                        "user": hook.user,
+                        "get_team": lambda hook=hook: hook.team,
+                        "is_create": True,
+                    },
+                    from_migration=True,
+                )
+                hog_functions.append(hog_function)
+            except Exception as e:
+                print(f"Error migrating hook {hook.id}: {e}")  # noqa: T201
+                continue
 
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
+            hook_ids_to_delete.extend([hook.id for hook in page.object_list])
         else:
             print("Would have created the following HogFunctions:")  # noqa: T201
             for hog_function in hog_functions:
-                print(hog_function, hog_function.inputs, hog_function.filters)  # noqa: T201
+                print(hog_function)  # noqa: T201
 
     if not dry_run:
-        query.delete()
+        query.filter(id__in=hook_ids_to_delete).delete()
         reload_all_hog_functions_on_workers()
 
 

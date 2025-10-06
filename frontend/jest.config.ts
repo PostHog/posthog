@@ -1,5 +1,5 @@
-import type { Config } from 'jest'
 import fs from 'fs'
+import type { Config } from 'jest'
 
 process.env.TZ = process.env.TZ || 'UTC'
 
@@ -8,9 +8,19 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
+const esmModules = [
+    'query-selector-shadow-dom',
+    'react-syntax-highlighter',
+    '@react-hook',
+    '@medv',
+    'monaco-editor',
+    'mdast-util-find-and-replace',
+    'escape-string-regexp',
+    'unist-util-visit-parents',
+    'unist-util-is',
+]
 const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
-function rootDirectories() {
+function rootDirectories(): string[] {
     const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
     if (eeFolderExists) {
         rootDirectories.push('<rootDir>/../ee/frontend')
@@ -149,7 +159,7 @@ const config: Config = {
     // runner: "jest-runner",
 
     // The paths to modules that run some code to configure or set up the testing environment before each test
-    setupFiles: ['<rootDir>/jest.setup.ts'],
+    setupFiles: ['<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
     setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', 'givens/setup', '<rootDir>/src/mocks/jest.ts'],

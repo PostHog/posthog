@@ -1,12 +1,13 @@
-import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { IconInfo, IconRewindPlay } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import {
@@ -17,6 +18,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
+    FunnelExperimentVariant,
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
@@ -24,35 +26,39 @@ import {
 } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getViewRecordingFilters } from '../utils'
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+} from '../legacyExperimentCalculations'
+import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
     metric,
-    metricIndex = 0,
+    displayOrder = 0,
     isSecondary = false,
 }: {
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
-    metricIndex?: number
+    displayOrder?: number
     isSecondary?: boolean
 }): JSX.Element {
     const {
         experimentId,
         experiment,
-        metricResults,
-        secondaryMetricResults,
+        legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
         tabularExperimentResults,
         getInsightType,
-        exposureCountDataForVariant,
-        conversionRateForVariant,
         experimentMathAggregationForTrends,
-        countDataForVariant,
-        getHighestProbabilityVariant,
-        credibleIntervalForVariant,
-        featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
-    const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
+    const result = isSecondary
+        ? legacySecondaryMetricsResults?.[displayOrder]
+        : legacyPrimaryMetricsResults?.[displayOrder]
     if (!result) {
         return <></>
     }
@@ -149,28 +155,19 @@ export function SummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const controlVariant = (result.variants as TrendExperimentVariant[]).find(
-                    ({ key }) => key === 'control'
-                ) as TrendExperimentVariant
-
-                if (
-                    !variant.count ||
-                    !variant.absolute_exposure ||
-                    !controlVariant ||
-                    !controlVariant.count ||
-                    !controlVariant.absolute_exposure
-                ) {
+                const deltaResult = calculateDelta(result, variant.key, insightType)
+                if (!deltaResult) {
                     return <div className="font-semibold">—</div>
                 }
 
-                const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                const variantMean = variant.count / variant.absolute_exposure
-                const delta = ((variantMean - controlMean) / controlMean) * 100
-
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${
+                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                        }`}
+                    >
+                        {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
+                    </div>
                 )
             },
         })
@@ -206,6 +203,37 @@ export function SummaryTable({
     }
 
     if (insightType === InsightType.FUNNELS) {
+        // NOTE: For funnel metrics on the new engine, we show exposures and converted counts in the table,
+        // as we don't yet have the detailed view as we do for the legacy funnel metrics.
+        if (metric.kind === NodeKind.ExperimentMetric) {
+            columns.push({
+                key: 'exposures',
+                title: 'Exposures',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const exposures = variant.success_count + variant.failure_count
+                    if (!exposures) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(exposures)}</div>
+                },
+            })
+            columns.push({
+                key: 'converted',
+                title: 'Converted',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const converted = variant.success_count
+                    if (!converted) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(converted)}</div>
+                },
+            })
+        }
+
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -217,89 +245,65 @@ export function SummaryTable({
 
                 return <div className="font-semibold">{`${conversionRate.toFixed(2)}%`}</div>
             },
-        }),
-            columns.push({
-                key: 'delta',
-                title: (
-                    <div className="inline-flex items-center deprecated-space-x-1">
-                        <div className="">Delta %</div>
-                        <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
-                            <IconInfo className="text-secondary text-base" />
-                        </Tooltip>
-                    </div>
-                ),
-                render: function Key(_, item): JSX.Element {
-                    if (item.key === 'control') {
-                        return <em>Baseline</em>
-                    }
+        })
 
-                    const controlConversionRate = conversionRateForVariant(result, 'control')
-                    const variantConversionRate = conversionRateForVariant(result, item.key)
-
-                    if (!controlConversionRate || !variantConversionRate) {
-                        return <>—</>
-                    }
-
-                    const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
-
-                    return (
-                        <div
-                            className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}
-                        >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
-                    )
-                },
-            }),
-            columns.push({
-                key: 'credibleInterval',
-                title: (
-                    <div className="inline-flex items-center deprecated-space-x-1">
-                        <div className="">Credible interval (95%)</div>
-                        <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
-                            <IconInfo className="text-secondary text-base" />
-                        </Tooltip>
-                    </div>
-                ),
-                render: function Key(_, item): JSX.Element {
-                    if (item.key === 'control') {
-                        return <em>Baseline</em>
-                    }
-
-                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
-                    if (!credibleInterval) {
-                        return <>—</>
-                    }
-                    const [lowerBound, upperBound] = credibleInterval
-
-                    return (
-                        <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
-                            upperBound > 0 ? '+' : ''
-                        }${upperBound.toFixed(2)}%]`}</div>
-                    )
-                },
-            })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_P_VALUE]) {
         columns.push({
-            key: 'pValue',
-            title: 'P-value',
+            key: 'delta',
+            title: (
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div className="">Delta %</div>
+                    <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+            ),
             render: function Key(_, item): JSX.Element {
-                const variantKey = item.key
-                const pValue =
-                    result?.probability?.[variantKey] !== undefined ? 1 - result.probability[variantKey] : undefined
+                if (item.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const controlConversionRate = conversionRateForVariant(result, 'control')
+                const variantConversionRate = conversionRateForVariant(result, item.key)
+
+                if (!controlConversionRate || !variantConversionRate) {
+                    return <>—</>
+                }
+
+                const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
                 return (
-                    <>
-                        {pValue != undefined ? (
-                            <span className="inline-flex items-center w-52 deprecated-space-x-4">
-                                <span className="w-1/4 font-semibold">
-                                    {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
-                                </span>
-                            </span>
-                        ) : (
-                            '—'
-                        )}
-                    </>
+                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
+                        delta > 0 ? '+' : ''
+                    }${delta.toFixed(2)}%`}</div>
+                )
+            },
+        })
+
+        columns.push({
+            key: 'credibleInterval',
+            title: (
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div className="">Credible interval (95%)</div>
+                    <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, item): JSX.Element {
+                if (item.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
+                if (!credibleInterval) {
+                    return <>—</>
+                }
+                const [lowerBound, upperBound] = credibleInterval
+
+                return (
+                    <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
+                        upperBound > 0 ? '+' : ''
+                    }${upperBound.toFixed(2)}%]`}</div>
                 )
             },
         })
@@ -346,7 +350,10 @@ export function SummaryTable({
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
 
-            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
+            const filters = isLegacyExperimentQuery(metric)
+                ? getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
+                : getViewRecordingFilters(experiment, metric, variantKey)
+
             return (
                 <LemonButton
                     size="xsmall"
@@ -369,10 +376,10 @@ export function SummaryTable({
                             date_to: experiment?.end_date,
                             filter_test_accounts:
                                 metric.kind === NodeKind.ExperimentMetric
-                                    ? false
+                                    ? (experiment.exposure_criteria?.filterTestAccounts ?? false)
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
-                                    ? metric.count_query.filterTestAccounts
-                                    : metric.funnels_query.filterTestAccounts,
+                                      ? metric.count_query.filterTestAccounts
+                                      : metric.funnels_query.filterTestAccounts,
                         }
                         router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                         posthog.capture('viewed recordings from experiment', { variant: variantKey })
@@ -389,7 +396,7 @@ export function SummaryTable({
             <LemonTable
                 loading={false}
                 columns={columns}
-                dataSource={tabularExperimentResults(metricIndex, isSecondary)}
+                dataSource={tabularExperimentResults(displayOrder, isSecondary)}
             />
         </div>
     )

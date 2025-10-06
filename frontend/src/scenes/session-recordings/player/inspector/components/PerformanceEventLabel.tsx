@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export function PerformanceEventLabel({

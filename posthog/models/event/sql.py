@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     KAFKA_COLUMNS,
@@ -11,12 +12,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
 )
 from posthog.clickhouse.property_groups import property_groups
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplacingMergeTree,
-    ReplicationScheme,
-)
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 
@@ -49,6 +45,7 @@ DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CL
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
+KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", consumer_breadcrumbs Array(String)"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -137,7 +134,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         table_name=EVENTS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=EVENTS_DATA_TABLE_ENGINE(),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
         indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
@@ -209,7 +206,14 @@ group3_created_at,
 group4_created_at,
 person_mode,
 _timestamp,
-_offset
+_offset,
+arrayMap(
+    i -> _headers.value[i],
+    arrayFilter(
+        i -> _headers.name[i] = 'kafka-consumer-breadcrumbs',
+        arrayEnumerate(_headers.name)
+    )
+) as consumer_breadcrumbs
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
@@ -319,7 +323,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         table_name="writable_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-        extra_fields=KAFKA_COLUMNS,
+        extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns="",
         indexes="",
     )
@@ -333,7 +337,7 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
         table_name="events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
         indexes="",
     )

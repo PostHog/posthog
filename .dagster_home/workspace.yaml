@@ -1,0 +1,18 @@
+# Local dev only, see dags/README.md for more info
+
+load_from:
+    ## Most dags are not loaded in local dev, but you can add things if you believe they belong here.
+    ## Please be considerate, anything here will run on every developer's machine.
+    ## Something like a full backup or something that makes heavy network requests should not be included.
+    ## To test something like that locally, uncomment but do not commit.
+    #    - python_module: dags.locations.error_tracking
+    #    - python_module: dags.locations.growth
+    #    - python_module: dags.locations.revenue_analytics
+    #    - python_module: dags.locations.shared
+    #    - python_module: dags.locations.clickhouse
+
+    # These dags are loaded in local dev
+    - python_module: dags.locations.analytics_platform
+    - python_module: dags.locations.experiments
+    - python_module: dags.locations.max_ai
+    - python_module: dags.locations.web_analytics

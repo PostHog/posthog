@@ -2,25 +2,29 @@ import { useValues } from 'kea'
 
 import {
     CachedExperimentFunnelsQueryResponse,
-    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
 import { VariantTag } from './components'
 
 export function WinningVariantText({
     result,
     experimentId,
 }: {
-    result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
+    result:
+        | CachedLegacyExperimentQueryResponse
+        | CachedExperimentFunnelsQueryResponse
+        | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
-    const { getIndexForVariant, getHighestProbabilityVariant } = useValues(experimentLogic)
+    const { getInsightType, experiment } = useValues(experimentLogic)
 
     const highestProbabilityVariant = getHighestProbabilityVariant(result)
-    const index = getIndexForVariant(result, highestProbabilityVariant || '')
+    const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
 
@@ -40,12 +44,15 @@ export function WinningVariantText({
 }
 
 export function SignificanceText({
-    metricIndex,
+    metricUuid,
     isSecondary = false,
 }: {
-    metricIndex: number
+    metricUuid: string
     isSecondary?: boolean
 }): JSX.Element {
+    /**
+     * Remove this functions from the logic and make them pure so this component can be tested
+     */
     const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
 
     return (
@@ -53,9 +60,7 @@ export function SignificanceText({
             <span>Your results are&nbsp;</span>
             <span className="font-semibold">
                 {`${
-                    isSecondary
-                        ? isSecondaryMetricSignificant(metricIndex)
-                        : isPrimaryMetricSignificant(metricIndex)
+                    (isSecondary ? isSecondaryMetricSignificant(metricUuid) : isPrimaryMetricSignificant(metricUuid))
                         ? 'significant'
                         : 'not significant'
                 }`}
@@ -65,10 +70,12 @@ export function SignificanceText({
     )
 }
 
-export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { experimentId, metricResults } = useValues(experimentLogic)
+export function Overview({ metricUuid }: { metricUuid: string }): JSX.Element {
+    const { experimentId, legacyPrimaryMetricsResults, experiment } = useValues(experimentLogic)
 
-    const result = metricResults?.[metricIndex]
+    // Find metric index by UUID
+    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
+    const result = index >= 0 ? legacyPrimaryMetricsResults?.[index] : null
     if (!result) {
         return <></>
     }
@@ -77,7 +84,7 @@ export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Ele
         <div>
             <div className="items-center inline-flex flex-wrap">
                 <WinningVariantText result={result} experimentId={experimentId} />
-                <SignificanceText metricIndex={metricIndex} />
+                <SignificanceText metricUuid={metricUuid} />
             </div>
         </div>
     )

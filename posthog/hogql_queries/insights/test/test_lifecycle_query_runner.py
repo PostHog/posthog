@@ -1,22 +1,6 @@
 from datetime import datetime
+
 from freezegun import freeze_time
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.models.team import WeekStartDay
-from posthog.models.utils import UUIDT
-from posthog.schema import (
-    BreakdownFilter,
-    DashboardFilter,
-    DateRange,
-    IntervalType,
-    LifecycleQuery,
-    EventsNode,
-    EventPropertyFilter,
-    PropertyOperator,
-    PersonPropertyFilter,
-    ActionsNode,
-    CohortPropertyFilter,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -25,8 +9,31 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from posthog.schema import (
+    ActionsNode,
+    BreakdownFilter,
+    CohortPropertyFilter,
+    DashboardFilter,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    HogQLPropertyFilter,
+    IntervalType,
+    LifecycleQuery,
+    PersonPropertyFilter,
+    PropertyOperator,
+)
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models import Action, Cohort
+from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import WeekStartDay
+from posthog.models.utils import UUIDT
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def create_action(**kwargs):
@@ -74,6 +81,20 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         return self._create_query_runner(date_from, date_to, interval, aggregation_group_type_index).calculate()
 
     def test_lifecycle_query_group_0(self):
+        # Create group type mapping for group_0
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create the group on Jan 9th so that the first event on Jan 9th marks it as "new"
+        with freeze_time("2020-01-09T12:00:00Z"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"name": "org 5"},
+            )
+
         self._create_events(
             data=[
                 (
@@ -324,6 +345,29 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_lifecycle_query_group_1(self):
+        # Create group type mapping for group_1
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
+
+        # Create company:1 on Jan 9th so that the first event on Jan 9th marks it as "new"
+        with freeze_time("2020-01-09T12:00:00Z"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:1",
+                properties={"name": "company 1"},
+            )
+
+        # Create company:2 on Jan 12th so that the first event on Jan 12th marks it as "new"
+        with freeze_time("2020-01-12T12:00:00Z"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:2",
+                properties={"name": "company 2"},
+            )
+
         self._create_events(
             data=[
                 (
@@ -367,12 +411,12 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             [
                 {
-                    "count": 1.0,
+                    "count": 2.0,
                     "data": [
-                        1.0,  # 9th, c1
+                        1.0,  # 9th, company:1 created and has first event
                         0.0,
-                        0.0,  # 11th,
-                        0.0,  # 12th, c2
+                        0.0,  # 11th
+                        1.0,  # 12th, company:2 created and has first event
                         0.0,
                         0.0,
                         0.0,  # 15th
@@ -469,12 +513,12 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     },
                 },
                 {
-                    "count": 4.0,
+                    "count": 3.0,
                     "data": [
                         0.0,
                         0.0,
                         1.0,  # 11th, c1
-                        1.0,  # 12th
+                        0.0,  # 12th
                         0.0,
                         0.0,
                         1.0,  # 15th, c2
@@ -572,6 +616,86 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                 },
             ],
             response.results,
+        )
+
+    def test_lifecycle_query_group_with_different_created_at(self):
+        """Test that lifecycle query uses group's created_at, not person's created_at when aggregating by groups."""
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create groups with specific created_at times that are DIFFERENT from person's created_at
+        with freeze_time("2020-01-05T12:00:00Z"):  # Group created before the test period
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:early",
+                properties={"name": "early org"},
+            )
+
+        with freeze_time("2020-01-12T12:00:00Z"):  # Group created during the test period
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:new",
+                properties={"name": "new org"},
+            )
+
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        # Person p1 is created on Jan 11th (during test period)
+                        # but interacts with org:early (created Jan 5th, before test period)
+                        ("2020-01-11T12:00:00Z", {"$group_0": "org:early"}),
+                        ("2020-01-13T12:00:00Z", {"$group_0": "org:early"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        # Person p2 is created on Jan 10th (during test period)
+                        # but interacts with org:new (created Jan 12th, also during test period)
+                        ("2020-01-12T13:00:00Z", {"$group_0": "org:new"}),
+                        ("2020-01-14T12:00:00Z", {"$group_0": "org:new"}),
+                    ],
+                ),
+            ]
+        )
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self._run_lifecycle_query(date_from, date_to, IntervalType.DAY, 0)
+
+        # Find the "new" status result
+        new_result = next(res for res in response.results if res["status"] == "new")
+
+        self.assertIsNotNone(new_result, "Should have a 'new' result")
+
+        # The key test: org:early should NOT appear as "new" because it was created before the test period (Jan 5th)
+        # org:new should appear as "new" only on Jan 12th when the group was created
+        # This verifies that group.created_at is being used, not person.created_at
+
+        expected_data = [
+            0.0,  # 2020-01-09
+            0.0,  # 2020-01-10
+            0.0,  # 2020-01-11
+            1.0,  # 2020-01-12 - org:new becomes "new" on its creation date
+            0.0,  # 2020-01-13
+            0.0,  # 2020-01-14
+            0.0,  # 2020-01-15
+            0.0,  # 2020-01-16
+            0.0,  # 2020-01-17
+            0.0,  # 2020-01-18
+            0.0,  # 2020-01-19
+        ]
+
+        self.assertEqual(
+            new_result["data"],
+            expected_data,
+            f"Expected new groups to appear based on group.created_at, got: {new_result['data']}",
         )
 
 
@@ -1338,6 +1462,100 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
                 {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+            ],
+        )
+
+    def test_lifecycle_virtual_person_property_hogql_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                HogQLPropertyFilter(key="person.$virt_initial_channel_type = 'Organic Search'")
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_virtual_person_property_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="$virt_initial_channel_type",
+                                    value="Organic Search",
+                                    operator=PropertyOperator.EXACT,
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
             ],
         )
 

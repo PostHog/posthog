@@ -17,24 +17,26 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
-from typing import Literal, cast, get_args
 from collections.abc import Callable
+from typing import Literal, cast, get_args
+from urllib.parse import urljoin
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db import DEFAULT_DB_ALIAS
-from django.db import connections
+from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
+
+import requests
 from structlog import get_logger
 
 from posthog.celery import app
-from posthog.clickhouse.client import sync_execute
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide"]
+ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http", "kafka_connected"],
@@ -43,7 +45,8 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         # NOTE: we include Postgres because the way we use django means every request hits the DB
         # https://posthog.slack.com/archives/C02E3BKC78F/p1679669676438729
         "postgres",
-        "postgres_migrations_uptodate",
+        # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
+        # "postgres_migrations_uptodate",
         "cache",
         # NOTE: we do not include clickhouse for web, as even without clickhouse we
         # want to be able to display something to the user.
@@ -58,11 +61,14 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     "worker": [
         "http",
         "postgres",
-        "postgres_migrations_uptodate",
+        # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
+        # "postgres_migrations_uptodate",
         "clickhouse",
         "celery_broker",
     ],
     "decide": ["http"],
+    "query": ["http", "postgres", "cache"],
+    "report": ["http", "kafka_connected"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy
@@ -203,12 +209,14 @@ def are_postgres_migrations_uptodate() -> bool:
 
 def is_clickhouse_connected() -> bool:
     """
-    Check we can perform a super simple Clickhouse query.
+    Check we can ping the ClickHouse cluster.
 
     Returns `True` if so, `False` otherwise
     """
+    ping_url = urljoin(settings.CLICKHOUSE_HTTP_URL, "ping")
     try:
-        sync_execute("SELECT 1")
+        response = requests.get(ping_url, timeout=3, verify=False)
+        response.raise_for_status()
     except Exception:
         logger.debug("clickhouse_connection_failure", exc_info=True)
         return False

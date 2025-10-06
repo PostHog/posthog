@@ -1,0 +1,28 @@
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+
+name: Security
+
+permissions:
+    contents: read
+
+jobs:
+    ensure-pinned-actions:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            - name: Ensure SHA pinned actions
+              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@9e9574ef04ea69da568d6249bd69539ccc704e74 # v4.0.0
+              with:
+                  allowlist: |
+                      actions/
+                      aws-actions/
+                      docker/
+                      github/
+                      hashicorp/
+                      PostHog/
+                      tailscale/

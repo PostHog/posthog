@@ -2,22 +2,17 @@ import json
 import logging
 from uuid import UUID
 
-import structlog
 from django.core.management.base import BaseCommand
-from django.utils.timezone import now
+
+import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
-from posthog.models.person.person import Person, PersonOverride
-from posthog.models.person.util import (
-    _delete_ch_distinct_id,
-    create_person,
-    create_person_distinct_id,
-    create_person_override,
-)
+from posthog.models.person.person import Person
+from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -34,7 +29,6 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", default=None, type=int, help="Specify a team to fix data for.")
         parser.add_argument("--person", action="store_true", help="Sync persons")
         parser.add_argument("--person-distinct-id", action="store_true", help="Sync person distinct IDs")
-        parser.add_argument("--person-override", action="store_true", help="Sync person overrides")
         parser.add_argument("--group", action="store_true", help="Sync groups")
         parser.add_argument(
             "--deletes",
@@ -62,9 +56,6 @@ def run(options, sync: bool = False):  # sync used for unittests
 
     if options["person_distinct_id"]:
         run_distinct_id_sync(team_id, live_run, deletes, sync)
-
-    if options["person_override"]:
-        run_person_override_sync(team_id, live_run, deletes, sync)
 
     if options["group"]:
         run_group_sync(team_id, live_run, sync)
@@ -181,46 +172,6 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
                 logger.info(f"Deleting distinct ID {distinct_id}")
                 if live_run:
                     _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version, sync=sync)
-
-
-def run_person_override_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
-    logger.info("Running person override sync")
-    # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    pg_overrides = PersonOverride.objects.filter(team_id=team_id).select_related("old_person_id", "override_person_id")
-    rows = sync_execute(
-        """
-            SELECT old_person_id, max(version) FROM person_overrides WHERE team_id = %(team_id)s GROUP BY old_person_id
-        """,
-        {
-            "team_id": team_id,
-        },
-    )
-    ch_override_to_version = {row[0]: row[1] for row in rows}
-    total_pg = len(pg_overrides)
-    logger.info(f"Got ${total_pg} in PG and ${len(ch_override_to_version)} in CH")
-
-    for i, pg_override in enumerate(pg_overrides):
-        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
-            logger.info(f"Processed {i / total_pg * 100}%")
-        ch_version = ch_override_to_version.get(pg_override.old_person_id.uuid, None)
-        if ch_version is None or ch_version < pg_override.version:
-            logger.info(
-                f"Updating {pg_override.old_person_id.uuid} to version {pg_override.version} and map to {pg_override.override_person_id.uuid}"
-            )
-            if live_run:
-                # Update ClickHouse via Kafka message
-                create_person_override(
-                    team_id,
-                    str(pg_override.old_person_id.uuid),
-                    str(pg_override.override_person_id.uuid),
-                    pg_override.version,
-                    now(),
-                    pg_override.oldest_event,
-                    sync=sync,
-                )
-
-    if deletes:
-        logger.info("Override deletes aren't supported at this point")
 
 
 def run_group_sync(team_id: int, live_run: bool, sync: bool):

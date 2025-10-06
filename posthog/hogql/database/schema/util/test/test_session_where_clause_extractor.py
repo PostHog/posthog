@@ -1,16 +1,18 @@
-from typing import Union, Optional
+from typing import Optional, Union
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from inline_snapshot import snapshot
+
+from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
-from posthog.schema import SessionTableVersion
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -52,35 +54,35 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
         expected = f(
-            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
+            "raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3)) AND raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_eq_flipped(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE '2021-01-01' = $start_timestamp")))
         expected = f(
-            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
+            "raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3)) AND raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_gt(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_with_simple_gte(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_with_simple_lt(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp < '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_with_simple_lte(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp <= '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))")
         assert expected == actual
 
     def test_select_with_placeholder(self):
@@ -92,7 +94,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_unrelated_equals(self):
@@ -110,7 +112,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01') AND ((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-03')"
+            "(raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))) AND (raw_sessions.min_timestamp <= ('2021-01-03' + toIntervalDay(3)))"
         )
         assert expected == actual
 
@@ -121,7 +123,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')"
+            "(raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))) AND (raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3)))"
         )
         assert expected == actual
 
@@ -159,7 +161,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        assert actual == f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03'")
+        assert actual == f("raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3))")
 
     def test_join(self):
         actual = f(
@@ -169,7 +171,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3))")
         assert expected == actual
 
     def test_join_using_events_timestamp_filter(self):
@@ -180,29 +182,29 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3))")
         assert expected == actual
 
     def test_minus(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= today() - 2")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= (today() - 2))")
+        expected = f("raw_sessions.min_timestamp >= ((today() - 2) - toIntervalDay(3))")
         assert expected == actual
 
     def test_minus_function(self):
         actual = f(
             self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= minus(today() , 2)"))
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
+        expected = f("raw_sessions.min_timestamp >= (minus(today(), 2) - toIntervalDay(3))")
         assert expected == actual
 
     def test_less_function(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less($start_timestamp, today())")))
-        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= today())")
+        expected = f("raw_sessions.min_timestamp <= (today() + toIntervalDay(3))")
         assert expected == actual
 
     def test_less_function_second_arg(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less(today(), $start_timestamp)")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= today())")
+        expected = f("raw_sessions.min_timestamp >= (today() - toIntervalDay(3))")
         assert expected == actual
 
     def test_subquery_args(self):
@@ -211,7 +213,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 parse("SELECT * FROM sessions WHERE true = (select false) and less(today(), min_timestamp)")
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= today())")
+        expected = f("raw_sessions.min_timestamp >= (today() - toIntervalDay(3))")
         assert expected == actual
 
     def test_real_example(self):
@@ -223,7 +225,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "(toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') + toIntervalDay(3)) >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND (toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') - toIntervalDay(3)) <= toDateTime('2024-03-19 23:59:59', 'US/Pacific') "
+            "toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') >= (toDateTime('2024-03-12 00:00:00', 'US/Pacific') - toIntervalDay(3)) AND toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') <= (toDateTime('2024-03-19 23:59:59', 'US/Pacific') + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -235,7 +237,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
+        expected = f("raw_sessions.min_timestamp >= ('2024-03-12' - toIntervalDay(3))")
         assert expected == actual
 
     def test_select_query(self):
@@ -274,7 +276,7 @@ SELECT
             )
         )
         expected = f(
-            "((raw_sessions.min_timestamp + toIntervalDay(3)) >= toStartOfDay(assumeNotNull(toDateTime('2024-04-13 00:00:00'))) AND (raw_sessions.min_timestamp - toIntervalDay(3)) <= assumeNotNull(toDateTime('2024-04-20 23:59:59')))"
+            "raw_sessions.min_timestamp >= (toStartOfDay(assumeNotNull(toDateTime('2024-04-13 00:00:00'))) - toIntervalDay(3)) AND raw_sessions.min_timestamp <= (assumeNotNull(toDateTime('2024-04-20 23:59:59')) + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -310,7 +312,7 @@ SELECT
         )
         select = ast.SelectQuery(select=[], where=where)
         actual = f(self.inliner.get_inner_where(select))
-        expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
+        expected = f("raw_sessions.min_timestamp >= ('2024-03-12' - toIntervalDay(3))")
         assert expected == actual
 
 
@@ -344,7 +346,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), %(hogql_val_2)s))
+        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), minus(%(hogql_val_2)s, toIntervalDay(3))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS sessions
@@ -359,7 +361,7 @@ LIMIT 50000\
             """
 SELECT
     sessions.session_id,
-    uniq(uuid)
+    uniq(uuid) as uniq_uuid
 FROM events
 JOIN sessions
 ON events.$session_id = sessions.session_id
@@ -371,7 +373,7 @@ GROUP BY sessions.session_id
             """\
 SELECT
     sessions.session_id AS session_id,
-    uniq(events.uuid)
+    uniq(events.uuid) AS uniq_uuid
 FROM
     events
     JOIN (SELECT
@@ -379,7 +381,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s))
+        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), minus(%(hogql_val_1)s, toIntervalDay(3))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS sessions ON equals(events.`$session_id`, sessions.session_id)
@@ -417,7 +419,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), today()), 0))
+        and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), plus(today(), toIntervalDay(3))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
@@ -495,17 +497,17 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_4)s, %(hogql_val_5)s)))), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), toIntervalDay(3)), assumeNotNull(toDateTime(%(hogql_val_7)s, %(hogql_val_8)s))))
+        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_4)s, %(hogql_val_5)s))), toIntervalDay(3))), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), plus(assumeNotNull(toDateTime(%(hogql_val_7)s, %(hogql_val_8)s)), toIntervalDay(3))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
 WHERE
-    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime(%(hogql_val_25)s, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime(%(hogql_val_25)s, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople
                 WHERE
-                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0))))), 0)))
+                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))))))
 GROUP BY
     day_start,
     breakdown_value
@@ -537,12 +539,12 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), toIntervalDay(3)), %(hogql_val_3)s), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), toIntervalDay(3)), now64(6, %(hogql_val_5)s)))
+        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), minus(%(hogql_val_3)s, toIntervalDay(3))), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), plus(now64(6, %(hogql_val_5)s), toIntervalDay(3))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS s__session ON equals(s.session_id, s__session.session_id)
 WHERE
-    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_7)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), %(hogql_val_9)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_10)s), now64(6, %(hogql_val_11)s)), 0))
+    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_7)s), 0), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), %(hogql_val_9)s), less(toTimeZone(s.min_first_timestamp, %(hogql_val_10)s), now64(6, %(hogql_val_11)s)))
 GROUP BY
     s.session_id
 LIMIT 50000\

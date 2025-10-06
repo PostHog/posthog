@@ -1,17 +1,17 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
-    DateTimeDatabaseField,
     DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FloatDatabaseField,
     IntegerDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
-    StringArrayDatabaseField,
-    FloatDatabaseField,
-    DateDatabaseField,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
@@ -55,6 +55,65 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "settings": StringJSONDatabaseField(name="settings"),
         "tos_acceptance": StringJSONDatabaseField(name="tos_acceptance"),
         "type": StringDatabaseField(name="type"),
+    },
+    "stripe_creditnote": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "amount": IntegerDatabaseField(name="amount"),
+        "amount_shipping": IntegerDatabaseField(name="amount_shipping"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__created"])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "currency": StringDatabaseField(name="currency"),
+        "customer_id": StringDatabaseField(name="customer"),
+        "customer_balance_transaction": StringDatabaseField(name="customer_balance_transaction"),
+        "discount_amount": IntegerDatabaseField(name="discount_amount"),
+        "discount_amounts": StringJSONDatabaseField(name="discount_amounts"),
+        "invoice_id": StringDatabaseField(name="invoice"),
+        "lines": StringJSONDatabaseField(name="lines"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "memo": StringDatabaseField(name="memo"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "number": StringDatabaseField(name="number"),
+        "out_of_band_amount": IntegerDatabaseField(name="out_of_band_amount"),
+        "pdf": StringDatabaseField(name="pdf"),
+        "pre_payment_amount": IntegerDatabaseField(name="pre_payment_amount"),
+        "post_payment_amount": IntegerDatabaseField(name="post_payment_amount"),
+        "reason": StringDatabaseField(name="reason"),
+        "refunds": StringJSONDatabaseField(name="refunds"),
+        "shipping_cost": StringJSONDatabaseField(name="shipping_cost"),
+        "status": StringDatabaseField(name="status"),
+        "subtotal": IntegerDatabaseField(name="subtotal"),
+        "subtotal_excluding_tax": IntegerDatabaseField(name="subtotal_excluding_tax"),
+        "total": IntegerDatabaseField(name="total"),
+        "total_excluding_tax": IntegerDatabaseField(name="total_excluding_tax"),
+        "total_taxes": StringJSONDatabaseField(name="total_taxes"),
+        "type": StringDatabaseField(name="type"),
+        "__voided_at": IntegerDatabaseField(name="voided_at", hidden=True),
+        "voided_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__voided_at"])],
+                    )
+                ],
+            ),
+            name="voided_at",
+        ),
     },
     "stripe_customer": {
         "id": StringDatabaseField(name="id"),
@@ -411,6 +470,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "latest_invoice_id": StringDatabaseField(name="latest_invoice"),
         "trial_settings": StringJSONDatabaseField(name="trial_settings"),
         "invoice_settings": StringJSONDatabaseField(name="invoice_settings"),
+        "pause_collection": StringJSONDatabaseField(name="pause_collection"),
         "payment_settings": StringJSONDatabaseField(name="payment_settings"),
         "collection_method": StringDatabaseField(name="collection_method"),
         "default_tax_rates": StringJSONDatabaseField(name="default_tax_rates"),
@@ -529,6 +589,188 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             name="available_on",
         ),
         "reporting_category": StringDatabaseField(name="reporting_category"),
+    },
+    "stripe_dispute": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "amount": IntegerDatabaseField(name="amount"),
+        "charge_id": StringDatabaseField(name="charge"),
+        "currency": StringDatabaseField(name="currency"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__created"])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "evidence": StringJSONDatabaseField(name="evidence"),
+        "evidence_details": StringJSONDatabaseField(name="evidence_details"),
+        "is_charge_refundable": BooleanDatabaseField(name="is_charge_refundable"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "network_reason_code": StringDatabaseField(name="network_reason_code"),
+        "reason": StringDatabaseField(name="reason"),
+        "status": StringDatabaseField(name="status"),
+        "balance_transactions": StringJSONDatabaseField(name="balance_transactions"),
+        "payment_intent_id": StringDatabaseField(name="payment_intent"),
+    },
+    "stripe_invoiceitem": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "amount": IntegerDatabaseField(name="amount"),
+        "currency": StringDatabaseField(name="currency"),
+        "customer_id": StringDatabaseField(name="customer"),
+        "__date": IntegerDatabaseField(name="date", hidden=True),
+        "date": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__date"])],
+                    )
+                ],
+            ),
+            name="date",
+        ),
+        "description": StringDatabaseField(name="description"),
+        "discountable": BooleanDatabaseField(name="discountable"),
+        "discounts": StringJSONDatabaseField(name="discounts"),
+        "invoice_id": StringDatabaseField(name="invoice"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "period": StringJSONDatabaseField(name="period"),
+        "price": StringJSONDatabaseField(name="price"),
+        "proration": BooleanDatabaseField(name="proration"),
+        "quantity": IntegerDatabaseField(name="quantity"),
+        "subscription_id": StringDatabaseField(name="subscription"),
+        "tax_rates": StringJSONDatabaseField(name="tax_rates"),
+        "test_clock": StringDatabaseField(name="test_clock"),
+        "unit_amount": IntegerDatabaseField(name="unit_amount"),
+        "unit_amount_decimal": StringDatabaseField(name="unit_amount_decimal"),
+    },
+    "stripe_payout": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "amount": IntegerDatabaseField(name="amount"),
+        "__arrival_date": IntegerDatabaseField(name="arrival_date", hidden=True),
+        "arrival_date": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__arrival_date"])],
+                    )
+                ],
+            ),
+            name="arrival_date",
+        ),
+        "automatic": BooleanDatabaseField(name="automatic"),
+        "balance_transaction_id": StringDatabaseField(name="balance_transaction"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__created"])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "currency": StringDatabaseField(name="currency"),
+        "description": StringDatabaseField(name="description"),
+        "destination": StringDatabaseField(name="destination"),
+        "failure_balance_transaction": StringDatabaseField(name="failure_balance_transaction"),
+        "failure_code": StringDatabaseField(name="failure_code"),
+        "failure_message": StringDatabaseField(name="failure_message"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "method": StringDatabaseField(name="method"),
+        "original_payout": StringDatabaseField(name="original_payout"),
+        "reconciliation_status": StringDatabaseField(name="reconciliation_status"),
+        "reversed_by": StringDatabaseField(name="reversed_by"),
+        "source_type": StringDatabaseField(name="source_type"),
+        "statement_descriptor": StringDatabaseField(name="statement_descriptor"),
+        "status": StringDatabaseField(name="status"),
+        "type": StringDatabaseField(name="type"),
+    },
+    "stripe_refund": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "amount": IntegerDatabaseField(name="amount"),
+        "balance_transaction_id": StringDatabaseField(name="balance_transaction"),
+        "charge_id": StringDatabaseField(name="charge"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__created"])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "currency": StringDatabaseField(name="currency"),
+        "description": StringDatabaseField(name="description"),
+        "destination_details": StringJSONDatabaseField(name="destination_details"),
+        "failure_balance_transaction": StringDatabaseField(name="failure_balance_transaction"),
+        "failure_reason": StringDatabaseField(name="failure_reason"),
+        "instructions_email": StringDatabaseField(name="instructions_email"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "next_action": StringJSONDatabaseField(name="next_action"),
+        "payment_intent_id": StringDatabaseField(name="payment_intent"),
+        "reason": StringDatabaseField(name="reason"),
+        "receipt_number": StringDatabaseField(name="receipt_number"),
+        "source_transfer_reversal": StringDatabaseField(name="source_transfer_reversal"),
+        "status": StringDatabaseField(name="status"),
+        "transfer_reversal": StringDatabaseField(name="transfer_reversal"),
+    },
+    "stripe_customerbalancetransaction": {
+        "amount": IntegerDatabaseField(name="amount"),
+        "checkout_session_id": StringDatabaseField(name="checkout_session"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__created"])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "credit_note": StringDatabaseField(name="credit_note"),
+        "currency": StringDatabaseField(name="currency"),
+        "description": StringDatabaseField(name="description"),
+        "ending_balance": IntegerDatabaseField(name="ending_balance"),
+        "id": StringDatabaseField(name="id"),
+        "customer_id": StringDatabaseField(name="customer"),
+        "invoice_id": StringDatabaseField(name="invoice"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "object": StringDatabaseField(name="object"),
+        "type": StringDatabaseField(name="type"),
     },
     "zendesk_brands": {
         "id": IntegerDatabaseField(name="id"),

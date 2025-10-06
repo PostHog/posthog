@@ -1,22 +1,24 @@
 from typing import Optional
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+
+from posthog.schema import (
+    DateRange,
+    Filters,
+    HogQLQueryModifiers,
+    PropertyOperator,
+    SessionAttributionExplorerQuery,
+    SessionAttributionGroupBy,
+    SessionPropertyFilter,
+    SessionTableVersion,
+)
 
 from posthog.hogql.constants import LimitContext
+
 from posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner import (
     SessionAttributionExplorerQueryRunner,
 )
 from posthog.models.utils import uuid7
-from posthog.schema import (
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    SessionAttributionExplorerQuery,
-    Filters,
-    SessionAttributionGroupBy,
-    SessionPropertyFilter,
-    PropertyOperator,
-)
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 
 @snapshot_clickhouse_queries

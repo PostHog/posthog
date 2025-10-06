@@ -1,23 +1,25 @@
 import './Login.scss'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect, useRef } from 'react'
+
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { loginLogic } from './loginLogic'
-import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
+import { loginLogic } from './loginLogic'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -43,6 +45,13 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     ),
     jit_not_enabled:
         'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
+    saml_sso_enforced:
+        'Your organization requires SAML SSO authentication. Please enter your email address to access your account.',
+    google_sso_enforced: 'Your organization does not allow this authentication method. Please log in with Google.',
+    github_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitHub.',
+    gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
+    // our catch-all case, so the message is generic
+    sso_enforced: "Please log in with your organization's required SSO method.",
 }
 
 export const scene: SceneExport = {
@@ -52,21 +61,12 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError, signupUrl } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
-
-    useEffect(() => {
-        if (preflight?.cloud) {
-            try {
-                redirectIfLoggedInOtherInstance()
-            } catch (e) {
-                captureException(e)
-            }
-        }
-    }, [])
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -86,6 +86,7 @@ export function Login(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
+            {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
@@ -124,7 +125,10 @@ export function Login(): JSX.Element {
                             label={
                                 <div className="flex flex-1 items-center justify-between gap-2">
                                     <span>Password</span>
-                                    <Link to="/reset" data-attr="forgot-password">
+                                    <Link
+                                        to={[urls.passwordReset(), { email: login.email }]}
+                                        data-attr="forgot-password"
+                                    >
                                         Forgot your password?
                                     </Link>
                                 </div>
@@ -170,7 +174,7 @@ export function Login(): JSX.Element {
                 {preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
-                        <Link to="/signup" data-attr="signup" className="font-bold">
+                        <Link to={signupUrl} data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
                     </div>

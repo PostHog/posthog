@@ -1,7 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -10,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Braze",
     icon_url="/static/services/braze.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 let getPayload := () -> [{
   'attributes': inputs.attributes,
   'events': [inputs.event]
@@ -44,9 +44,12 @@ if (res.status >= 200 and res.status < 300) {
                 {"label": "US-04", "value": "https://rest.iad-04.braze.com"},
                 {"label": "US-05", "value": "https://rest.iad-05.braze.com"},
                 {"label": "US-06", "value": "https://rest.iad-06.braze.com"},
+                {"label": "US-07", "value": "https://rest.iad-07.braze.com"},
                 {"label": "US-08", "value": "https://rest.iad-08.braze.com"},
+                {"label": "US-10", "value": "https://rest.iad-10.braze.com"},
                 {"label": "EU-01", "value": "https://rest.fra-01.braze.eu"},
                 {"label": "EU-02", "value": "https://rest.fra-02.braze.eu"},
+                {"label": "AU-01", "value": "https://rest.au-01.braze.com"},
             ],
             "default": "",
             "secret": False,

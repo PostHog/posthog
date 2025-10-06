@@ -1,7 +1,9 @@
 from typing import Literal
+
 import posthoganalytics
-from posthog.models import Team
 from rest_framework.request import Request
+
+from posthog.models import Team
 
 
 def hogql_insights_replace_filters(team: Team) -> bool:
@@ -70,6 +72,30 @@ def insight_funnels_use_udf_time_to_convert(team: Team) -> bool:
 def insight_funnels_use_udf_trends(team: Team) -> bool:
     return posthoganalytics.feature_enabled(
         "insight-funnels-use-udf-trends",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def llm_analytics_traces_query_v2(team: Team) -> bool:
+    """
+    Use the v2 implementation of the traces query runner for LLM Analytics.
+    """
+    return posthoganalytics.feature_enabled(
+        "llma-traces-query-v2",
         str(team.uuid),
         groups={
             "organization": str(team.organization_id),

@@ -1,25 +1,32 @@
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LiveEvent } from '~/types'
+import { Breadcrumb, LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
 export interface LiveEventsTableProps {
-    showLiveStreamErrorToast: boolean
+    showLiveStreamErrorToast?: boolean
+    tabId?: string
 }
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
+    tabAwareScene(),
     props({} as LiveEventsTableProps),
-    connect({
-        values: [teamLogic, ['currentTeam']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+    })),
     actions(() => ({
         addEvents: (events) => ({ events }),
         clearEvents: true,
@@ -28,7 +35,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         pauseStream: true,
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
-        setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
+        setClientSideFilters: (clientSideFilters: Record<string, any>) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
         addEventHost: (eventHost) => ({ eventHost }),
@@ -54,7 +61,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         clientSideFilters: [
-            {},
+            {} as Record<string, any>,
             {
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
@@ -105,13 +112,23 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         eventCount: [() => [selectors.events], (events: any) => events.length],
         filteredEvents: [
             (s) => [s.events, s.clientSideFilters],
-            (events, clientSideFilters) => {
+            (events: LiveEvent[], clientSideFilters: Record<string, any>) => {
                 return events.filter((event) => {
                     return Object.entries(clientSideFilters).every(([key, value]) => {
-                        return event[key] === value
+                        return key in event && event[key] === value
                     })
                 })
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.LiveEvents,
+                    name: 'Live',
+                    iconType: 'dashboard',
+                },
+            ],
         ],
     })),
     listeners(({ actions, values, cache, props }) => ({

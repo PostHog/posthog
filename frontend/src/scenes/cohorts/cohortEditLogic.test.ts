@@ -1,10 +1,14 @@
+import { api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-import { api } from 'lib/api.mock'
+import { v4 as uuidv4 } from 'uuid'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,9 +26,23 @@ import {
     TimeUnitType,
 } from '~/types'
 
+jest.mock('uuid', () => ({
+    v4: jest.fn().mockReturnValue('mocked-uuid'),
+}))
+
+jest.mock('lib/forms/scrollToFormError', () => ({
+    scrollToFormError: jest.fn(),
+}))
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        error: jest.fn(),
+        success: jest.fn(),
+    },
+}))
+
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
-
     async function initCohortLogic(props: CohortLogicProps = { id: 'new' }): Promise<void> {
         await expectLogic(teamLogic).toFinishAllListeners()
         cohortsModel.mount()
@@ -600,8 +618,26 @@ describe('cohortEditLogic', () => {
                     id: 'new',
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+            }).toDispatchActions(['setCohort', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
+        })
+
+        it('calls scrollToFormError with fallback message on submitCohortFailure', async () => {
+            await initCohortLogic({ id: 1 })
+            const mockScrollToFormError = scrollToFormError as jest.Mock
+
+            const testError = new Error('Test cohort submission error')
+            const testErrors = { name: 'Invalid name' }
+
+            await expectLogic(logic, async () => {
+                logic.actions.submitCohortFailure(testError, testErrors)
+            }).toDispatchActions(['submitCohortFailure'])
+
+            expect(mockScrollToFormError).toHaveBeenCalledWith({
+                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                fallbackErrorMessage:
+                    'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+            })
         })
     })
 
@@ -617,6 +653,7 @@ describe('cohortEditLogic', () => {
                     {
                         ...(mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter).values[0],
                         explicit_datetime: '-30d',
+                        sort_key: uuidv4(),
                     },
                 ],
             }) // Backwards compatible processing adds explicit_datetime
@@ -670,6 +707,7 @@ describe('cohortEditLogic', () => {
                                                     mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter
                                                 ).values[0],
                                                 explicit_datetime: '-30d',
+                                                sort_key: uuidv4(),
                                             },
                                         ],
                                     }), // Backwards compatible processing adds explicit_datetime
@@ -749,7 +787,7 @@ describe('cohortEditLogic', () => {
                                                 (mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter)
                                                     .values[0]
                                             ),
-                                            NEW_CRITERIA,
+                                            { ...NEW_CRITERIA, sort_key: uuidv4() },
                                         ],
                                     }),
                                 ],

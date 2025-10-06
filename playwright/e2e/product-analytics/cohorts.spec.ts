@@ -4,10 +4,10 @@ import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Cohorts', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goToMenuItem('personsmanagement')
-        await page.click('[data-attr=persons-management-cohorts-tab]')
+        await page.goToMenuItem('people')
+        await page.goToMenuItem('cohorts')
 
-        await expect(page).toHaveTitle('Cohorts • People • PostHog')
+        await expect(page).toHaveTitle('Cohorts • PostHog')
         await expect(page.locator('[data-attr="create-cohort"]')).toBeVisible()
         await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toHaveText(/Learn more/)
     })
@@ -17,8 +17,8 @@ test.describe('Cohorts', () => {
 
         await new CohortPage(page).createCohort(name)
 
-        await page.goToMenuItem('personsmanagement')
-        await page.click('[data-attr=persons-management-cohorts-tab]')
+        await page.goToMenuItem('people')
+        await page.goToMenuItem('cohorts')
 
         await expect(page.locator('tbody')).toContainText(name)
     })
@@ -29,8 +29,8 @@ test.describe('Cohorts', () => {
 
         await new CohortPage(page).createCohort(name)
 
-        await page.goToMenuItem('personsmanagement')
-        await page.click('[data-attr=persons-management-cohorts-tab]')
+        await page.goToMenuItem('people')
+        await page.goToMenuItem('cohorts')
 
         // navigate to the page
         await page.click('tbody >> text=' + name)
@@ -47,8 +47,8 @@ test.describe('Cohorts', () => {
         await page.click('[data-attr="more-button"]')
         await page.click('.Popover__content >> text=Delete cohort')
 
-        await page.goToMenuItem('personsmanagement')
-        await page.click('[data-attr=persons-management-cohorts-tab]')
+        await page.goToMenuItem('people')
+        await page.goToMenuItem('cohorts')
 
         await expect(page.locator('tbody')).not.toContainText(name + ' (dynamic copy) (static copy)')
     })

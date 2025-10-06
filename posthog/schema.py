@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class SchemaRoot(RootModel[Any]):
     root: Any
+
+
+class AIEventType(StrEnum):
+    FIELD_AI_GENERATION = "$ai_generation"
+    FIELD_AI_EMBEDDING = "$ai_embedding"
+    FIELD_AI_SPAN = "$ai_span"
+    FIELD_AI_TRACE = "$ai_trace"
+    FIELD_AI_METRIC = "$ai_metric"
+    FIELD_AI_FEEDBACK = "$ai_feedback"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -26,6 +36,7 @@ class AggregationAxisFormat(StrEnum):
     DURATION_MS = "duration_ms"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
+    CURRENCY = "currency"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -60,6 +71,29 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantContextualTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    GENERATE_HOGQL_QUERY = "generate_hogql_query"
+    FIX_HOGQL_QUERY = "fix_hogql_query"
+    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
+    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
+    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
+    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
+    CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
+    NAVIGATE = "navigate"
+    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
+    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    CREATE_SURVEY = "create_survey"
+    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
+    SEARCH_DOCS = "search_docs"
+    SEARCH_INSIGHTS = "search_insights"
+    SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
+    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+
+
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -89,16 +123,20 @@ class AssistantDurationRange(BaseModel):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
+    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
+    REVENUE_ANALYTICS = "revenue_analytics"
 
 
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
     CONVERSATION = "conversation"
+    NOTEBOOK = "notebook"
 
 
 class AssistantFormOption(BaseModel):
@@ -114,6 +152,11 @@ class AssistantFunnelsBreakdownType(StrEnum):
     EVENT = "event"
     GROUP = "group"
     SESSION = "session"
+
+
+class FunnelAggregateByHogQL(Enum):
+    PROPERTIES__SESSION_ID = "properties.$session_id"
+    NONE_TYPE_NONE = None
 
 
 class AssistantFunnelsMath(StrEnum):
@@ -134,32 +177,11 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class AssistantGenericPropertyFilter2(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantArrayPropertyFilterOperator = Field(
-        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
-    )
-    type: str
-    value: list[str] = Field(
-        ...,
-        description=(
-            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
-            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
-        ),
-    )
-
-
-class AssistantGenericPropertyFilter3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantDateTimePropertyFilterOperator
-    type: str
-    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+class AssistantGenericPropertyFilterType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    FEATURE = "feature"
 
 
 class AssistantHogQLQuery(BaseModel):
@@ -179,7 +201,55 @@ class AssistantMessageType(StrEnum):
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
+    AI_MULTI_VIZ = "ai/multi_viz"
     AI_FAILURE = "ai/failure"
+    AI_NOTEBOOK = "ai/notebook"
+    AI_PLANNING = "ai/planning"
+    AI_TASK_EXECUTION = "ai/task_execution"
+
+
+class AssistantNavigateUrls(StrEnum):
+    ACTIONS = "actions"
+    ACTIVITY = "activity"
+    ALERTS = "alerts"
+    ANNOTATIONS = "annotations"
+    CREATE_ACTION = "createAction"
+    COHORTS = "cohorts"
+    DASHBOARDS = "dashboards"
+    DATABASE = "database"
+    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
+    EVENT_DEFINITIONS = "eventDefinitions"
+    ERROR_TRACKING = "errorTracking"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "featureFlags"
+    GAME368HEDGEHOGS = "game368hedgehogs"
+    HEATMAPS = "heatmaps"
+    INGESTION_WARNINGS = "ingestionWarnings"
+    INSIGHTS = "insights"
+    INSIGHT_NEW = "insightNew"
+    PIPELINE = "pipeline"
+    PROJECT_HOMEPAGE = "projectHomepage"
+    PROPERTY_DEFINITIONS = "propertyDefinitions"
+    MAX = "max"
+    NOTEBOOKS = "notebooks"
+    REPLAY = "replay"
+    REPLAY_SETTINGS = "replaySettings"
+    REVENUE_ANALYTICS = "revenueAnalytics"
+    SAVED_INSIGHTS = "savedInsights"
+    SETTINGS = "settings"
+    SQL_EDITOR = "sqlEditor"
+    SURVEYS = "surveys"
+    SURVEY_TEMPLATES = "surveyTemplates"
+    TOOLBAR_LAUNCH = "toolbarLaunch"
+    WEB_ANALYTICS = "webAnalytics"
+    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    PERSONS = "persons"
+
+
+class AssistantNumericValuePropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    LT = "lt"
 
 
 class MeanRetentionCalculation(StrEnum):
@@ -198,7 +268,7 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
-class AssistantSingleValuePropertyFilterOperator(StrEnum):
+class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -214,6 +284,9 @@ class AssistantToolCall(BaseModel):
     args: dict[str, Any]
     id: str
     name: str
+    type: Literal["tool_call"] = Field(
+        default="tool_call", description="`type` needed to conform to the OpenAI shape, which is expected by LangChain"
+    )
 
 
 class AssistantToolCallMessage(BaseModel):
@@ -224,6 +297,14 @@ class AssistantToolCallMessage(BaseModel):
     id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
+    visible: Optional[bool] = None
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -233,6 +314,7 @@ class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
 class Display(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
@@ -240,6 +322,7 @@ class Display(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
+    CALENDAR_HEATMAP = "CalendarHeatmap"
 
 
 class YAxisScaleType(StrEnum):
@@ -261,7 +344,8 @@ class AssistantTrendsFilter(BaseModel):
             " miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this"
             " option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to"
             " the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to"
-            " 0-100, e.g., `0.5` becomes `50%`."
+            " 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes"
+            " `$1,000`."
         ),
     )
     aggregationAxisPostfix: Optional[str] = Field(
@@ -291,15 +375,29 @@ class AssistantTrendsFilter(BaseModel):
             "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as"
             " it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area"
             " chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics."
-            " `BoldNumber` - total value single large number. You can't use this with breakdown or with multiple"
-            " series; use when user explicitly asks for a single output number. `ActionsBarValue` - total value (NOT"
-            " time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for"
-            " visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or"
-            " other entities. `WorldMap` - total value world map; use when breaking down by country name using property"
-            " `$geoip_country_name`, and only then."
+            " `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number."
+            " You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total"
+            " value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good"
+            " for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users"
+            " or other entities. `WorldMap` - total value world map; use when breaking down by country name using"
+            " property `$geoip_country_name`, and only then."
         ),
     )
-    formulas: Optional[list[str]] = Field(default=None, description="If the formula is provided, apply it here.")
+    formulas: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical"
+            " operations like calculating percentages or metrics. If you use a formula, you must use the following"
+            " syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and"
+            " formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to"
+            " solve the formula.\n- Carefully review the list of available events and actions to find appropriate"
+            " entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both"
+            " the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to"
+            " calculate the percentage of users who have completed onboarding, you need to find and use events or"
+            " actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is"
+            " `onboarding complete` (unique users) and `B` is `$identify` (unique users)."
+        ),
+    )
     showLegend: Optional[bool] = Field(
         default=False, description="Whether to show the legend describing series and breakdowns."
     )
@@ -360,6 +458,18 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BillingSpendResponseBreakdownType(StrEnum):
+    TYPE = "type"
+    TEAM = "team"
+    MULTIPLE = "multiple"
+
+
+class BillingUsageResponseBreakdownType(StrEnum):
+    TYPE = "type"
+    TEAM = "team"
+    MULTIPLE = "multiple"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -371,11 +481,13 @@ class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    REVENUE_ANALYTICS = "revenue_analytics"
 
 
 class CompareItem(BaseModel):
@@ -394,6 +506,18 @@ class StatusItem(BaseModel):
     value: str
 
 
+class CalendarHeatmapFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dummy: Optional[str] = None
+
+
+class CalendarHeatmapMathType(StrEnum):
+    TOTAL = "total"
+    DAU = "dau"
+
+
 class ChartDisplayCategory(StrEnum):
     TIME_SERIES = "TimeSeries"
     CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
@@ -403,6 +527,7 @@ class ChartDisplayCategory(StrEnum):
 class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -411,6 +536,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
+    CALENDAR_HEATMAP = "CalendarHeatmap"
 
 
 class DisplayType(StrEnum):
@@ -698,17 +824,9 @@ class DataColorToken(StrEnum):
     PRESET_15 = "preset-15"
 
 
-class Type(StrEnum):
+class DataTableNodeViewPropsContextType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     TEAM_COLUMNS = "team_columns"
-
-
-class Context(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    eventDefinitionId: Optional[str] = None
-    type: Type
 
 
 class DataWarehouseEventsModifier(BaseModel):
@@ -719,6 +837,22 @@ class DataWarehouseEventsModifier(BaseModel):
     id_field: str
     table_name: str
     timestamp_field: str
+
+
+class DataWarehouseViewLinkConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiments_optimized: Optional[bool] = None
+    experiments_timestamp_key: Optional[str] = None
+
+
+class DatabaseSchemaManagedViewTableKind(StrEnum):
+    REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
+    REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+    REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
+    REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
+    REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
 class DatabaseSchemaSchema(BaseModel):
@@ -744,17 +878,20 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type1(StrEnum):
+class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
+    SYSTEM = "system"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
     MATERIALIZED_VIEW = "materialized_view"
+    MANAGED_VIEW = "managed_view"
 
 
 class DatabaseSerializedFieldType(StrEnum):
     INTEGER = "integer"
     FLOAT = "float"
+    DECIMAL = "decimal"
     STRING = "string"
     DATETIME = "datetime"
     DATE = "date"
@@ -767,6 +904,7 @@ class DatabaseSerializedFieldType(StrEnum):
     EXPRESSION = "expression"
     VIEW = "view"
     MATERIALIZED_VIEW = "materialized_view"
+    UNKNOWN = "unknown"
 
 
 class DateRange(BaseModel):
@@ -784,8 +922,13 @@ class DateRange(BaseModel):
     )
 
 
-class DatetimeDay(RootModel[AwareDatetime]):
-    root: AwareDatetime
+class DatetimeDay(RootModel[datetime]):
+    root: datetime
+
+
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    REPORT = "report"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -851,6 +994,16 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class Population(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    both: float
+    exception_only: float
+    neither: float
+    success_only: float
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -859,21 +1012,46 @@ class Status(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class FirstEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    properties: str
+    timestamp: str
+    uuid: str
+
+
+class LastEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    properties: str
+    timestamp: str
+    uuid: str
+
+
+class VolumeBucket(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: float
+
+
 class ErrorTrackingIssueAggregations(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    customVolume: Optional[list[float]] = None
     occurrences: float
     sessions: float
     users: float
-    volumeDay: list[float]
-    volumeMonth: list[float]
+    volumeRange: Optional[list[float]] = None
+    volume_buckets: list[VolumeBucket]
 
 
-class Type2(StrEnum):
-    USER_GROUP = "user_group"
+class ErrorTrackingIssueAssigneeType(StrEnum):
     USER = "user"
+    ROLE = "role"
 
 
 class OrderBy(StrEnum):
@@ -889,7 +1067,7 @@ class OrderDirection(StrEnum):
     DESC = "DESC"
 
 
-class Status1(StrEnum):
+class Status2(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
@@ -898,20 +1076,19 @@ class Status1(StrEnum):
     ALL = "all"
 
 
-class Status2(StrEnum):
+class ErrorTrackingIssueImpactToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[str]
+
+
+class Status4(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
-
-
-class Interval(StrEnum):
-    MINUTE = "minute"
-    HOUR = "hour"
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
 
 
 class EventDefinition(BaseModel):
@@ -970,6 +1147,11 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class MultipleVariantHandling(StrEnum):
+    EXCLUDE = "exclude"
+    FIRST_SEEN = "first_seen"
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -979,14 +1161,43 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMetricGoal(StrEnum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+
+
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
+    UNIQUE_SESSION = "unique_session"
+    MIN = "min"
+    MAX = "max"
+    AVG = "avg"
+    DAU = "dau"
+    UNIQUE_GROUP = "unique_group"
+    HOGQL = "hogql"
+
+
+class ExperimentMetricOutlierHandling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ignore_zeros: Optional[bool] = None
+    lower_bound_percentile: Optional[float] = None
+    upper_bound_percentile: Optional[float] = None
+
+
+class Status5(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
 
 
 class ExperimentMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN = "mean"
+    RATIO = "ratio"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -995,6 +1206,12 @@ class ExperimentSignificanceCode(StrEnum):
     LOW_WIN_PROBABILITY = "low_win_probability"
     HIGH_LOSS = "high_loss"
     HIGH_P_VALUE = "high_p_value"
+
+
+class ExperimentStatsValidationFailure(StrEnum):
+    NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
+    BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
+    NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
 
 
 class ExperimentVariantFunnelsBaseStats(BaseModel):
@@ -1016,6 +1233,45 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
+class ExternalDataSourceType(StrEnum):
+    STRIPE = "Stripe"
+    HUBSPOT = "Hubspot"
+    POSTGRES = "Postgres"
+    MY_SQL = "MySQL"
+    MSSQL = "MSSQL"
+    ZENDESK = "Zendesk"
+    SNOWFLAKE = "Snowflake"
+    SALESFORCE = "Salesforce"
+    VITALLY = "Vitally"
+    BIG_QUERY = "BigQuery"
+    CHARGEBEE = "Chargebee"
+    REVENUE_CAT = "RevenueCat"
+    POLAR = "Polar"
+    GOOGLE_ADS = "GoogleAds"
+    META_ADS = "MetaAds"
+    KLAVIYO = "Klaviyo"
+    MAILCHIMP = "Mailchimp"
+    BRAZE = "Braze"
+    MAILJET = "Mailjet"
+    REDSHIFT = "Redshift"
+    GOOGLE_SHEETS = "GoogleSheets"
+    MONGO_DB = "MongoDB"
+    TEMPORAL_IO = "TemporalIO"
+    DO_IT = "DoIt"
+    LINKEDIN_ADS = "LinkedinAds"
+    REDDIT_ADS = "RedditAds"
+
+
+class ExternalQueryErrorCode(StrEnum):
+    PLATFORM_ACCESS_REQUIRED = "platform_access_required"
+    QUERY_EXECUTION_FAILED = "query_execution_failed"
+
+
+class ExternalQueryStatus(StrEnum):
+    SUCCESS = "success"
+    ERROR = "error"
+
+
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1025,56 +1281,131 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+
+
+class Tag(StrEnum):
+    ALPHA = "alpha"
+    BETA = "beta"
+
+
 class FileSystemEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     href: Optional[str] = Field(default=None, description="Object's URL")
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    id: str = Field(..., description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
-class NamedArgs(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ref: Optional[str] = None
-
-
-class Href(BaseModel):
-    namedArgs: Optional[NamedArgs] = None
+class FileSystemIconType(StrEnum):
+    DASHBOARD = "dashboard"
+    LLM_ANALYTICS = "llm_analytics"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
+    MARKETING_SETTINGS = "marketing_settings"
+    EMBEDDED_ANALYTICS = "embedded_analytics"
+    SQL_EDITOR = "sql_editor"
+    WEB_ANALYTICS = "web_analytics"
+    ERROR_TRACKING = "error_tracking"
+    HEATMAP = "heatmap"
+    SESSION_REPLAY = "session_replay"
+    SURVEY = "survey"
+    USER_INTERVIEW = "user_interview"
+    EARLY_ACCESS_FEATURE = "early_access_feature"
+    EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    DATA_PIPELINE = "data_pipeline"
+    DATA_PIPELINE_METADATA = "data_pipeline_metadata"
+    DATA_WAREHOUSE = "data_warehouse"
+    TASK = "task"
+    LINK = "link"
+    LOGS = "logs"
+    MESSAGING = "messaging"
+    NOTEBOOK = "notebook"
+    ACTION = "action"
+    COMMENT = "comment"
+    ANNOTATION = "annotation"
+    EVENT_DEFINITION = "event_definition"
+    PROPERTY_DEFINITION = "property_definition"
+    INGESTION_WARNING = "ingestion_warning"
+    PERSON = "person"
+    COHORT = "cohort"
+    GROUP = "group"
+    INSIGHT_FUNNELS = "insight/funnels"
+    INSIGHT_TRENDS = "insight/trends"
+    INSIGHT_RETENTION = "insight/retention"
+    INSIGHT_PATHS = "insight/paths"
+    INSIGHT_LIFECYCLE = "insight/lifecycle"
+    INSIGHT_STICKINESS = "insight/stickiness"
+    INSIGHT_HOG = "insight/hog"
+    TEAM_ACTIVITY = "team_activity"
+    HOME = "home"
 
 
 class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    )
+    category: Optional[str] = Field(default=None, description="Category label to place this under")
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     flag: Optional[str] = None
-    href: Href
-    icon: Optional[Any] = None
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
+    iconType: Optional[FileSystemIconType] = None
+    id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
+    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class FlagPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="The key should be the flag ID")
+    label: Optional[str] = None
+    operator: Literal["flag_evaluates_to"] = Field(
+        default="flag_evaluates_to", description="Only flag_evaluates_to operator is allowed for flag dependencies"
+    )
+    type: Literal["flag"] = Field(default="flag", description="Feature flag dependency")
+    value: Union[bool, str] = Field(..., description="The value can be true, false, or a variant name")
 
 
 class FunnelConversionWindowTimeUnit(StrEnum):
@@ -1102,6 +1433,7 @@ class FunnelExclusionLegacy(BaseModel):
     id: Optional[Union[str, float]] = None
     index: Optional[float] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     order: Optional[float] = None
     type: Optional[EntityType] = None
 
@@ -1128,12 +1460,24 @@ class FunnelStepReference(StrEnum):
     PREVIOUS = "previous"
 
 
+class FunnelStepsBreakdownResults(RootModel[list[list[dict[str, Any]]]]):
+    root: list[list[dict[str, Any]]]
+
+
+class FunnelStepsResults(RootModel[list[dict[str, Any]]]):
+    root: list[dict[str, Any]]
+
+
 class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     average_conversion_time: Optional[float] = None
     bins: list[list[int]]
+
+
+class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
+    root: list[dict[str, Any]]
 
 
 class FunnelVizType(StrEnum):
@@ -1147,9 +1491,23 @@ class GoalLine(BaseModel):
         extra="forbid",
     )
     borderColor: Optional[str] = None
+    displayIfCrossed: Optional[bool] = None
     displayLabel: Optional[bool] = None
     label: str
     value: float
+
+
+class HedgehogColorOptions(StrEnum):
+    GREEN = "green"
+    RED = "red"
+    BLUE = "blue"
+    PURPLE = "purple"
+    DARK = "dark"
+    LIGHT = "light"
+    SEPIA = "sepia"
+    INVERT = "invert"
+    INVERT_HUE = "invert-hue"
+    GREYSCALE = "greyscale"
 
 
 class HogCompileResponse(BaseModel):
@@ -1216,6 +1574,7 @@ class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
+    V3 = "v3"
 
 
 class SessionsV2JoinMode(StrEnum):
@@ -1243,13 +1602,9 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
-class HumanMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["human"] = "human"
+class InfinityValue(float, Enum):
+    NUMBER_999999 = 999999
+    NUMBER__999999 = -999999
 
 
 class Compare(StrEnum):
@@ -1263,6 +1618,7 @@ class InsightFilterProperty(StrEnum):
     RETENTION_FILTER = "retentionFilter"
     PATHS_FILTER = "pathsFilter"
     STICKINESS_FILTER = "stickinessFilter"
+    CALENDAR_HEATMAP_FILTER = "calendarHeatmapFilter"
     LIFECYCLE_FILTER = "lifecycleFilter"
 
 
@@ -1288,6 +1644,26 @@ class InsightsThresholdBounds(BaseModel):
     upper: Optional[float] = None
 
 
+class IntegrationKind(StrEnum):
+    SLACK = "slack"
+    SALESFORCE = "salesforce"
+    HUBSPOT = "hubspot"
+    GOOGLE_PUBSUB = "google-pubsub"
+    GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+    GOOGLE_ADS = "google-ads"
+    GOOGLE_SHEETS = "google-sheets"
+    LINKEDIN_ADS = "linkedin-ads"
+    SNAPCHAT = "snapchat"
+    INTERCOM = "intercom"
+    EMAIL = "email"
+    TWILIO = "twilio"
+    LINEAR = "linear"
+    GITHUB = "github"
+    META_ADS = "meta-ads"
+    CLICKUP = "clickup"
+    REDDIT_ADS = "reddit-ads"
+
+
 class IntervalType(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -1301,7 +1677,7 @@ class LLMTraceEvent(BaseModel):
         extra="forbid",
     )
     createdAt: str
-    event: str
+    event: Union[AIEventType, str]
     id: str
     properties: dict[str, Any]
 
@@ -1323,6 +1699,62 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LogSeverityLevel(StrEnum):
+    TRACE = "trace"
+    DEBUG = "debug"
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"
+    FATAL = "fatal"
+
+
+class OrderBy2(StrEnum):
+    LATEST = "latest"
+    EARLIEST = "earliest"
+
+
+class MarketingAnalyticsBaseColumns(StrEnum):
+    CAMPAIGN = "Campaign"
+    SOURCE = "Source"
+    COST = "Cost"
+    CLICKS = "Clicks"
+    IMPRESSIONS = "Impressions"
+    CPC = "CPC"
+    CTR = "CTR"
+    REPORTED_CONVERSION = "Reported Conversion"
+
+
+class MarketingAnalyticsColumnsSchemaNames(StrEnum):
+    CAMPAIGN = "campaign"
+    CLICKS = "clicks"
+    COST = "cost"
+    CURRENCY = "currency"
+    DATE = "date"
+    IMPRESSIONS = "impressions"
+    SOURCE = "source"
+    REPORTED_CONVERSION = "reported_conversion"
+
+
+class MarketingAnalyticsHelperForColumnNames(StrEnum):
+    GOAL = "Goal"
+    COST_PER = "Cost per"
+
+
+class MarketingAnalyticsOrderByEnum(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class MarketingAnalyticsSchemaFieldTypes(StrEnum):
+    STRING = "string"
+    INTEGER = "integer"
+    NUMBER = "number"
+    FLOAT = "float"
+    DATETIME = "datetime"
+    DATE = "date"
+    BOOLEAN = "boolean"
+
+
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1330,12 +1762,140 @@ class MatchedRecordingEvent(BaseModel):
     uuid: str
 
 
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: float
+    name: str
+    type: Literal["action"] = "action"
+
+
+class MaxAddonInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_usage: float
+    description: str
+    docs_url: Optional[str] = None
+    has_exceeded_limit: bool
+    is_used: bool
+    name: str
+    percentage_usage: Optional[float] = None
+    projected_amount_usd: Optional[str] = None
+    projected_amount_usd_with_limit: Optional[str] = None
+    type: str
+    usage_limit: Optional[float] = None
+
+
+class SpendHistoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_type: Optional[BillingSpendResponseBreakdownType] = None
+    breakdown_value: Optional[Union[str, list[str]]] = None
+    data: list[float]
+    dates: list[str]
+    id: float
+    label: str
+
+
+class UsageHistoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_type: Optional[BillingUsageResponseBreakdownType] = None
+    breakdown_value: Optional[Union[str, list[str]]] = None
+    data: list[float]
+    dates: list[str]
+    id: float
+    label: str
+
+
+class MaxBillingContextBillingPeriodInterval(StrEnum):
+    MONTH = "month"
+    YEAR = "year"
+
+
+class MaxBillingContextSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_destinations: float
+    autocapture_on: bool
+
+
+class MaxBillingContextSubscriptionLevel(StrEnum):
+    FREE = "free"
+    PAID = "paid"
+    CUSTOM = "custom"
+
+
+class MaxBillingContextTrial(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expires_at: Optional[str] = None
+    is_active: bool
+    target: Optional[str] = None
+
+
+class MaxEventContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: str
+    name: Optional[str] = None
+    type: Literal["event"] = "event"
+
+
+class MaxProductInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    addons: list[MaxAddonInfo]
+    current_usage: Optional[float] = None
+    custom_limit_usd: Optional[float] = None
+    description: str
+    docs_url: Optional[str] = None
+    has_exceeded_limit: bool
+    is_used: bool
+    name: str
+    next_period_custom_limit_usd: Optional[float] = None
+    percentage_usage: float
+    projected_amount_usd: Optional[str] = None
+    projected_amount_usd_with_limit: Optional[str] = None
+    type: str
+    usage_limit: Optional[float] = None
+
+
+class MinimalHedgehogConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accessories: list[str]
+    color: Optional[HedgehogColorOptions] = None
+    use_as_profile: bool
+
+
 class MultipleBreakdownType(StrEnum):
+    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
+    REVENUE_ANALYTICS = "revenue_analytics"
+
+
+class NamedQueryLastExecutionTimesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    names: list[str]
 
 
 class NodeKind(StrEnum):
@@ -1359,15 +1919,20 @@ class NodeKind(StrEnum):
     REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
     REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
+    ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
+    LOGS_QUERY = "LogsQuery"
+    SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
     INSIGHT_VIZ_NODE = "InsightVizNode"
     TRENDS_QUERY = "TrendsQuery"
+    CALENDAR_HEATMAP_QUERY = "CalendarHeatmapQuery"
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
     STICKINESS_QUERY = "StickinessQuery"
+    STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
@@ -1378,22 +1943,38 @@ class NodeKind(StrEnum):
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
+    WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
+    WEB_TRENDS_QUERY = "WebTrendsQuery"
+    WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
+    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
+    REVENUE_ANALYTICS_METRICS_QUERY = "RevenueAnalyticsMetricsQuery"
+    REVENUE_ANALYTICS_MRR_QUERY = "RevenueAnalyticsMRRQuery"
+    REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
+    REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
+    MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
-    EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
-    EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
-    EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
+    EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
+    TRACE_QUERY = "TraceQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
+
+
+class PageURL(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    url: str
 
 
 class PathCleaningFilter(BaseModel):
@@ -1401,6 +1982,7 @@ class PathCleaningFilter(BaseModel):
         extra="forbid",
     )
     alias: Optional[str] = None
+    order: Optional[float] = None
     regex: Optional[str] = None
 
 
@@ -1442,6 +2024,18 @@ class PathsLink(BaseModel):
     value: float
 
 
+class PersistedFolder(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    id: str
+    path: str
+    protocol: str
+    type: str
+    updated_at: str
+
+
 class PersonType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1455,9 +2049,36 @@ class PersonType(BaseModel):
     uuid: Optional[str] = None
 
 
+class PlanningStepStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
+class PlaywrightWorkspaceSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    personal_api_key: str
+    team_id: str
+    team_name: str
+    user_email: str
+    user_id: str
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
     FEATURE = "feature"
@@ -1469,6 +2090,10 @@ class PropertyFilterType(StrEnum):
     HOGQL = "hogql"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    FLAG = "flag"
+    LOG = "log"
 
 
 class PropertyMathType(StrEnum):
@@ -1506,6 +2131,20 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    FLAG_EVALUATES_TO = "flag_evaluates_to"
+
+
+class Mark(BaseModel):
+    attrs: Optional[dict[str, Any]] = None
+    type: str
+
+
+class ProsemirrorJSONContent(BaseModel):
+    attrs: Optional[dict[str, Any]] = None
+    content: Optional[list[ProsemirrorJSONContent]] = None
+    marks: Optional[list[Mark]] = None
+    text: Optional[str] = None
+    type: Optional[str] = None
 
 
 class QueryIndexUsage(StrEnum):
@@ -1513,6 +2152,26 @@ class QueryIndexUsage(StrEnum):
     NO = "no"
     PARTIAL = "partial"
     YES = "yes"
+
+
+class QueryLogTags(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    productKey: Optional[str] = Field(
+        default=None,
+        description=(
+            "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new"
+            " product *"
+        ),
+    )
+    scene: Optional[str] = Field(
+        default=None,
+        description=(
+            "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a"
+            " new Scene *"
+        ),
+    )
 
 
 class QueryResponseAlternative6(BaseModel):
@@ -1525,7 +2184,7 @@ class QueryResponseAlternative6(BaseModel):
     stdout: Optional[str] = None
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1535,7 +2194,7 @@ class QueryResponseAlternative17(BaseModel):
     total_exposures: dict[str, float]
 
 
-class QueryResponseAlternative47(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1560,6 +2219,17 @@ class ReasoningMessage(BaseModel):
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
+class RecordingDurationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: DurationType
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["recording"] = "recording"
+    value: float
+
+
 class RecordingOrder(StrEnum):
     DURATION = "duration"
     RECORDING_DURATION = "recording_duration"
@@ -1573,6 +2243,11 @@ class RecordingOrder(StrEnum):
     ACTIVITY_SCORE = "activity_score"
 
 
+class RecordingOrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1581,7 +2256,7 @@ class RecordingPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RefreshType(StrEnum):
@@ -1594,11 +2269,20 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
+class ResolvedDateRangeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: datetime
+    date_to: datetime
+
+
 class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class ResultCustomizationBy(StrEnum):
@@ -1611,7 +2295,8 @@ class ResultCustomizationByPosition(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["position"] = "position"
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -1619,7 +2304,8 @@ class ResultCustomizationByValue(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["value"] = "value"
-    color: DataColorToken
+    color: Optional[DataColorToken] = None
+    hidden: Optional[bool] = None
 
 
 class RetentionDashboardDisplayType(StrEnum):
@@ -1643,6 +2329,63 @@ class RetentionPeriod(StrEnum):
 class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
+    RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
+
+
+class RevenueAnalyticsBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str
+    type: Literal["revenue_analytics"] = "revenue_analytics"
+
+
+class MrrOrGross(StrEnum):
+    MRR = "mrr"
+    GROSS = "gross"
+
+
+class RevenueAnalyticsGoal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    due_date: str
+    goal: float
+    mrr_or_gross: Optional[MrrOrGross] = MrrOrGross.GROSS
+    name: str
+
+
+class RevenueAnalyticsMRRQueryResultItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    churn: Any
+    contraction: Any
+    expansion: Any
+    new: Any
+    total: Any
+
+
+class RevenueAnalyticsOverviewItemKey(StrEnum):
+    REVENUE = "revenue"
+    PAYING_CUSTOMER_COUNT = "paying_customer_count"
+    AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
+
+
+class RevenueAnalyticsPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["revenue_analytics"] = "revenue_analytics"
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
+    MONTH = "month"
+    ALL = "all"
 
 
 class RevenueCurrencyPropertyConfig(BaseModel):
@@ -1653,27 +2396,22 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: Optional[CurrencyCode] = None
 
 
-class RevenueTrackingDataWarehouseTable(BaseModel):
+class RootAssistantMessage1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    revenueColumn: str
-    revenueCurrencyColumn: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
     )
-    tableName: str
-    timestampColumn: str
-
-
-class RevenueTrackingEventItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    eventName: str
-    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
-    )
-    revenueProperty: str
+    visible: Optional[bool] = None
 
 
 class SamplingRate(BaseModel):
@@ -1682,19 +2420,6 @@ class SamplingRate(BaseModel):
     )
     denominator: Optional[float] = None
     numerator: float
-
-
-class Type3(StrEnum):
-    EVENT_DEFINITION = "event_definition"
-    TEAM_COLUMNS = "team_columns"
-
-
-class Context1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    eventDefinitionId: Optional[str] = None
-    type: Type3
 
 
 class SessionAttributionGroupBy(StrEnum):
@@ -1707,6 +2432,26 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
+class SessionData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_uuid: str
+    person_id: str
+    session_id: str
+
+
+class SessionEventsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[list] = Field(
+        ...,
+        description="List of events for this session, each event is a list of field values matching the query columns",
+    )
+    session_id: str = Field(..., description="Session ID these events belong to")
+
+
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1715,7 +2460,7 @@ class SessionPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class SnapshotSource(StrEnum):
@@ -1727,6 +2472,82 @@ class SnapshotSource(StrEnum):
 class Storage(StrEnum):
     OBJECT_STORAGE_LTS = "object_storage_lts"
     OBJECT_STORAGE = "object_storage"
+
+
+class SharingConfigurationSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detailed: Optional[bool] = None
+    hideExtraDetails: Optional[bool] = None
+    legend: Optional[bool] = None
+    noHeader: Optional[bool] = None
+    showInspector: Optional[bool] = None
+    whitelabel: Optional[bool] = None
+
+
+class SimpleIntervalType(StrEnum):
+    DAY = "day"
+    MONTH = "month"
+
+
+class SourceFieldFileUploadJsonFormatConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    format: Literal[".json"] = ".json"
+    keys: Union[str, list[str]]
+
+
+class SourceFieldInputConfigType(StrEnum):
+    TEXT = "text"
+    EMAIL = "email"
+    SEARCH = "search"
+    URL = "url"
+    PASSWORD = "password"
+    TIME = "time"
+    NUMBER = "number"
+    TEXTAREA = "textarea"
+
+
+class SourceFieldOauthConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: str
+    label: str
+    name: str
+    required: bool
+    type: Literal["oauth"] = "oauth"
+
+
+class SourceFieldSSHTunnelConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    type: Literal["ssh-tunnel"] = "ssh-tunnel"
+
+
+class SourceFieldSelectConfigConverter(StrEnum):
+    STR_TO_INT = "str_to_int"
+    STR_TO_BOOL = "str_to_bool"
+    STR_TO_OPTIONAL_INT = "str_to_optional_int"
+
+
+class SourceMap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaign: Optional[str] = None
+    clicks: Optional[str] = None
+    cost: Optional[str] = None
+    currency: Optional[str] = None
+    date: Optional[str] = None
+    impressions: Optional[str] = None
+    reported_conversion: Optional[str] = None
+    source: Optional[str] = None
 
 
 class StepOrderValue(StrEnum):
@@ -1759,11 +2580,117 @@ class StickinessOperator(StrEnum):
     EXACT = "exact"
 
 
+class SubscriptionDropoffMode(StrEnum):
+    LAST_EVENT = "last_event"
+    AFTER_DROPOFF_PERIOD = "after_dropoff_period"
+
+
 class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     questions: list[str]
+
+
+class SurveyAnalysisResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    isOpenEnded: Optional[bool] = Field(default=True, description="Whether this is an open-ended response")
+    responseText: Optional[str] = Field(default="", description="The response text content")
+    timestamp: Optional[str] = Field(default="", description="Response timestamp")
+
+
+class Value(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    name: str
+
+
+class Actions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    values: list[Value]
+
+
+class SurveyMatchType(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
+class SurveyPosition(StrEnum):
+    TOP_LEFT = "top_left"
+    TOP_CENTER = "top_center"
+    TOP_RIGHT = "top_right"
+    MIDDLE_LEFT = "middle_left"
+    MIDDLE_CENTER = "middle_center"
+    MIDDLE_RIGHT = "middle_right"
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+    NEXT_TO_TRIGGER = "next_to_trigger"
+
+
+class SurveyQuestionBranchingType(StrEnum):
+    NEXT_QUESTION = "next_question"
+    END = "end"
+    RESPONSE_BASED = "response_based"
+    SPECIFIC_QUESTION = "specific_question"
+
+
+class SurveyQuestionDescriptionContentType(StrEnum):
+    HTML = "html"
+    TEXT = "text"
+
+
+class Branching(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    index: Optional[float] = None
+    responseValues: Optional[dict[str, Union[str, float]]] = None
+    type: SurveyQuestionBranchingType
+
+
+class Display1(StrEnum):
+    NUMBER = "number"
+    EMOJI = "emoji"
+
+
+class SurveyQuestionType(StrEnum):
+    OPEN = "open"
+    MULTIPLE_CHOICE = "multiple_choice"
+    SINGLE_CHOICE = "single_choice"
+    RATING = "rating"
+    LINK = "link"
+
+
+class SurveyType(StrEnum):
+    POPOVER = "popover"
+    WIDGET = "widget"
+    FULL_SCREEN = "full_screen"
+    API = "api"
+    EXTERNAL_SURVEY = "external_survey"
+
+
+class SurveyWidgetType(StrEnum):
+    BUTTON = "button"
+    TAB = "tab"
+    SELECTOR = "selector"
+
+
+class TaskExecutionStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class TaxonomicFilterGroupType(StrEnum):
@@ -1778,6 +2705,7 @@ class TaxonomicFilterGroupType(StrEnum):
     EVENTS = "events"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
+    EVENT_METADATA = "event_metadata"
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
@@ -1796,7 +2724,31 @@ class TaxonomicFilterGroupType(StrEnum):
     HOGQL_EXPRESSION = "hogql_expression"
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
+    ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    LOG_ATTRIBUTES = "log_attributes"
     REPLAY = "replay"
+    REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
+    RESOURCES = "resources"
+    ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
+    MAX_AI_CONTEXT = "max_ai_context"
+
+
+class TestSetupRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Optional[dict[str, Any]] = None
+
+
+class TestSetupResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    available_tests: Optional[list[str]] = None
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    success: bool
+    test_name: str
 
 
 class TimelineEntry(BaseModel):
@@ -1806,6 +2758,12 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class DetailedResultsAggregationType(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    MEDIAN = "median"
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -1822,6 +2780,7 @@ class TrendsFilterLegacy(BaseModel):
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
+    min_decimal_places: Optional[float] = None
     show_alert_threshold_lines: Optional[bool] = None
     show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
@@ -1830,6 +2789,28 @@ class TrendsFilterLegacy(BaseModel):
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
     y_axis_scale_type: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
+
+
+class TrendsFormulaNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
+    formula: str
+
+
+class UserBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    email: str
+    first_name: str
+    hedgehog_config: Optional[MinimalHedgehogConfig] = None
+    id: float
+    is_email_verified: Optional[Any] = None
+    last_name: Optional[str] = None
+    uuid: str
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -1861,8 +2842,24 @@ class VizSpecificOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    ActionsPie: Optional[ActionsPie] = None
-    RETENTION: Optional[RETENTION] = None
+    ActionsPie_1: Optional[ActionsPie] = Field(default=None, alias="ActionsPie")
+    RETENTION_1: Optional[RETENTION] = Field(default=None, alias="RETENTION")
+
+
+class WebAnalyticsExternalSummaryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str
+    date_to: str
+    explicit_date: Optional[bool] = None
+
+
+class WebAnalyticsItemKind(StrEnum):
+    UNIT = "unit"
+    DURATION_S = "duration_s"
+    PERCENTAGE = "percentage"
+    CURRENCY = "currency"
 
 
 class WebAnalyticsOrderByDirection(StrEnum):
@@ -1881,9 +2878,12 @@ class WebAnalyticsOrderByFields(StrEnum):
     UNIQUE_CONVERSIONS = "UniqueConversions"
     CONVERSION_RATE = "ConversionRate"
     CONVERTING_USERS = "ConvertingUsers"
+    RAGE_CLICKS = "RageClicks"
+    DEAD_CLICKS = "DeadClicks"
+    ERRORS = "Errors"
 
 
-class Sampling(BaseModel):
+class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1891,11 +2891,17 @@ class Sampling(BaseModel):
     forceSamplingRate: Optional[SamplingRate] = None
 
 
-class WebOverviewItemKind(StrEnum):
-    UNIT = "unit"
-    DURATION_S = "duration_s"
-    PERCENTAGE = "percentage"
-    CURRENCY = "currency"
+class WebOverviewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[float] = None
+    usedPreAggregatedTables: Optional[bool] = None
+    value: Optional[float] = None
 
 
 class WebStatsBreakdown(StrEnum):
@@ -1903,6 +2909,7 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
     EXIT_CLICK = "ExitClick"
+    PREVIOUS_PAGE = "PreviousPage"
     SCREEN_NAME = "ScreenName"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
@@ -1921,6 +2928,36 @@ class WebStatsBreakdown(StrEnum):
     CITY = "City"
     TIMEZONE = "Timezone"
     LANGUAGE = "Language"
+    FRUSTRATION_METRICS = "FrustrationMetrics"
+
+
+class Metrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    Bounces: Optional[float] = None
+    PageViews: Optional[float] = None
+    SessionDuration: Optional[float] = None
+    Sessions: Optional[float] = None
+    TotalSessions: Optional[float] = None
+    UniqueUsers: Optional[float] = None
+
+
+class WebTrendsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket: str
+    metrics: Metrics
+
+
+class WebTrendsMetric(StrEnum):
+    UNIQUE_USERS = "UniqueUsers"
+    PAGE_VIEWS = "PageViews"
+    SESSIONS = "Sessions"
+    BOUNCES = "Bounces"
+    SESSION_DURATION = "SessionDuration"
+    TOTAL_SESSIONS = "TotalSessions"
 
 
 class WebVitalsMetric(StrEnum):
@@ -1960,6 +2997,8 @@ class YAxisSettings(BaseModel):
         extra="forbid",
     )
     scale: Optional[Scale] = None
+    showGridLines: Optional[bool] = None
+    showTicks: Optional[bool] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
@@ -2072,15 +3111,18 @@ class AssistantFunnelsFilter(BaseModel):
         default=[],
         description=(
             "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
-            " between specific steps. These events must not be included in the main sequence. You must include start"
-            " and end indexes for each exclusion where the minimum index is one and the maximum index is the number of"
-            " steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding,"
-            " purchase. If the user wants to exclude all conversions in which users left the page before finishing the"
-            " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
+            " between specific steps. These events must not be included in the main sequence. This doesn't exclude"
+            " users who have completed the event before or after the funnel sequence, but often this is what users"
+            " want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where"
+            " the minimum index is one and the maximum index is the number of steps in the funnel. For example, there"
+            " is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all"
+            " conversions in which users left the page before finishing the onboarding, the exclusion step would be the"
+            " event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're"
+            " planning the query, make sure to explicitly state this in the plan."
         ),
     )
-    funnelAggregateByHogQL: Literal["properties.$session_id"] = Field(
-        default="properties.$session_id",
+    funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
+        default=None,
         description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
     )
     funnelOrderType: Optional[StepOrderValue] = Field(
@@ -2112,7 +3154,8 @@ class AssistantFunnelsFilter(BaseModel):
         default=14,
         description=(
             "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the"
-            " user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+            " user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to"
+            " need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
         ),
     )
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = Field(
@@ -2140,25 +3183,63 @@ class AssistantGenericPropertyFilter1(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
             " matches the regex pattern. `not_regex` - does not match the regex pattern."
         ),
     )
-    type: str
+    type: AssistantGenericPropertyFilterType
     value: str = Field(
         ...,
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: AssistantGenericPropertyFilterType
+    value: float
+
+
+class AssistantGenericPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: AssistantGenericPropertyFilterType
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
         ),
     )
 
 
 class AssistantGenericPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: AssistantGenericPropertyFilterType
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class AssistantGenericPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2170,7 +3251,7 @@ class AssistantGenericPropertyFilter4(BaseModel):
             " collected."
         ),
     )
-    type: str
+    type: AssistantGenericPropertyFilterType
 
 
 class AssistantGroupMultipleBreakdownFilter(BaseModel):
@@ -2188,7 +3269,7 @@ class AssistantGroupPropertyFilter1(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2201,12 +3282,23 @@ class AssistantGroupPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
 
 class AssistantGroupPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: Literal["group"] = "group"
+    value: float
+
+
+class AssistantGroupPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2225,7 +3317,7 @@ class AssistantGroupPropertyFilter2(BaseModel):
     )
 
 
-class AssistantGroupPropertyFilter3(BaseModel):
+class AssistantGroupPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2236,7 +3328,7 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantGroupPropertyFilter4(BaseModel):
+class AssistantGroupPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2259,6 +3351,14 @@ class AssistantMessageMetadata(BaseModel):
     form: Optional[AssistantForm] = None
 
 
+class AssistantNumericValuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantNumericValuePropertyFilterOperator
+    value: float
+
+
 class AssistantRetentionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2273,12 +3373,14 @@ class AssistantRetentionActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -2302,12 +3404,14 @@ class AssistantRetentionEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -2328,11 +3432,11 @@ class AssistantSetPropertyFilter(BaseModel):
     )
 
 
-class AssistantSingleValuePropertyFilter(BaseModel):
+class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2344,7 +3448,7 @@ class AssistantSingleValuePropertyFilter(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
@@ -2394,7 +3498,7 @@ class Breakdown(BaseModel):
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None
-    property: str
+    property: Union[str, int]
     type: Optional[MultipleBreakdownType] = None
 
 
@@ -2453,6 +3557,10 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
     showLegend: Optional[bool] = None
+    showTotalRow: Optional[bool] = None
+    showXAxisBorder: Optional[bool] = None
+    showXAxisTicks: Optional[bool] = None
+    showYAxisBorder: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -2504,6 +3612,14 @@ class CustomChannelRule(BaseModel):
     items: list[CustomChannelCondition]
 
 
+class DataTableNodeViewPropsContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventDefinitionId: Optional[str] = None
+    type: DataTableNodeViewPropsContextType
+
+
 class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2512,7 +3628,7 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -2523,7 +3639,22 @@ class DataWarehousePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class DataWarehouseViewLink(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    configuration: Optional[DataWarehouseViewLinkConfiguration] = None
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    field_name: Optional[str] = None
+    id: str
+    joining_table_key: Optional[str] = None
+    joining_table_name: Optional[str] = None
+    source_table_key: Optional[str] = None
+    source_table_name: Optional[str] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -2547,7 +3678,19 @@ class DatabaseSchemaPostHogTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: Optional[float] = None
+    type: Literal["system"] = "system"
 
 
 class DatabaseSchemaTableCommon(BaseModel):
@@ -2557,11 +3700,22 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type1
+    row_count: Optional[float] = None
+    type: DatabaseSchemaTableType
 
 
 class Day(RootModel[int]):
     root: int
+
+
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
 
 
 class ElementPropertyFilter(BaseModel):
@@ -2572,7 +3726,16 @@ class ElementPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class ErrorTrackingExternalReferenceIntegration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display_name: str
+    id: float
+    kind: IntegrationKind
 
 
 class ErrorTrackingIssueAssignee(BaseModel):
@@ -2580,27 +3743,29 @@ class ErrorTrackingIssueAssignee(BaseModel):
         extra="forbid",
     )
     id: Union[str, int]
-    type: Type2
+    type: ErrorTrackingIssueAssigneeType
 
 
-class ErrorTrackingRelationalIssue(BaseModel):
+class ErrorTrackingIssueFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: Optional[ErrorTrackingIssueAssignee] = None
-    description: Optional[str] = None
-    first_seen: AwareDatetime
-    id: str
-    name: Optional[str] = None
-    status: Status2
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["error_tracking_issue"] = "error_tracking_issue"
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
-class ErrorTrackingSparklineConfig(BaseModel):
+class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    interval: Interval
-    value: int
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["event_metadata"] = "event_metadata"
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -2622,7 +3787,7 @@ class EventPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventTaxonomyItem(BaseModel):
@@ -2634,19 +3799,39 @@ class EventTaxonomyItem(BaseModel):
     sample_values: list[str]
 
 
-class ExperimentDataWarehouseMetricConfig(BaseModel):
+class EventsHeatMapColumnAggregationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    data_warehouse_join_key: str
-    events_join_key: str
-    kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
-    math: Optional[ExperimentMetricMathType] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    table_name: str
-    timestamp_field: str
+    column: int
+    value: int
+
+
+class EventsHeatMapDataResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: int
+    row: int
+    value: int
+
+
+class EventsHeatMapRowAggregationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    row: int
+    value: int
+
+
+class EventsHeatMapStructuredResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allAggregations: int
+    columnAggregations: list[EventsHeatMapColumnAggregationResult]
+    data: list[EventsHeatMapDataResult]
+    rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
 class ExperimentExposureQueryResponse(BaseModel):
@@ -2659,6 +3844,113 @@ class ExperimentExposureQueryResponse(BaseModel):
     total_exposures: dict[str, float]
 
 
+class ExperimentHoldoutType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    description: Optional[str] = None
+    filters: dict[str, Any]
+    id: Optional[float] = None
+    name: str
+    updated_at: Optional[str] = None
+
+
+class ExperimentMetricBaseProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
+    goal: Optional[ExperimentMetricGoal] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentStatsBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
+    sum: float
+    sum_squares: float
+
+
+class ExperimentStatsBaseValidated(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
+class ExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: Optional[float] = None
+    credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
+class ExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    p_value: Optional[float] = None
+    significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
+class ExternalQueryError(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: ExternalQueryErrorCode
+    detail: str
+
+
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2667,7 +3959,7 @@ class FeaturePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -2715,7 +4007,7 @@ class GroupPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["group"] = "group"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -2746,7 +4038,7 @@ class HogQLPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     type: Literal["hogql"] = "hogql"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLQueryModifiers(BaseModel):
@@ -2755,9 +4047,11 @@ class HogQLQueryModifiers(BaseModel):
     )
     bounceRateDurationSeconds: Optional[float] = None
     bounceRatePageViewMode: Optional[BounceRatePageViewMode] = None
+    convertToProjectTimezone: Optional[bool] = None
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
     debug: Optional[bool] = None
+    formatCsvAllowDoubleQuotes: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[bool] = None
@@ -2768,7 +4062,14 @@ class HogQLQueryModifiers(BaseModel):
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
+    timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
+    usePreaggregatedTableTransforms: Optional[bool] = Field(
+        default=None,
+        description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+    )
+    usePresortedEventsTable: Optional[bool] = None
+    useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 
 
 class HogQuery(BaseModel):
@@ -2781,6 +4082,8 @@ class HogQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[HogQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DayItem(BaseModel):
@@ -2788,7 +4091,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: Union[str, AwareDatetime, int]
+    value: Union[str, datetime, int]
 
 
 class InsightThreshold(BaseModel):
@@ -2824,6 +4127,7 @@ class LifecycleFilter(BaseModel):
     )
     showLegend: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = None
+    stacked: Optional[bool] = True
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 
 
@@ -2844,7 +4148,59 @@ class LogEntryPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log_entry"] = "log_entry"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attributes: dict[str, Any]
+    body: str
+    event_name: str
+    instrumentation_scope: str
+    level: LogSeverityLevel
+    observed_timestamp: datetime
+    resource: str
+    severity_number: float
+    severity_text: LogSeverityLevel
+    span_id: str
+    timestamp: datetime
+    trace_id: str
+    uuid: str
+
+
+class LogPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["log"] = "log"
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class MarketingAnalyticsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    hasComparison: Optional[bool] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[Union[float, str]] = None
+    value: Optional[Union[float, str]] = None
+
+
+class MarketingAnalyticsSchemaField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    isCurrency: bool
+    required: bool
+    type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
 class MatchedRecording(BaseModel):
@@ -2853,6 +4209,37 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: Optional[str] = None
+
+
+class MaxBillingContextBillingPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_period_end: str
+    current_period_start: str
+    interval: MaxBillingContextBillingPeriodInterval
+
+
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
+class NotebookUpdateMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
+    id: Optional[str] = None
+    notebook_id: str
+    notebook_type: Literal["deep_research"] = "deep_research"
+    tool_calls: Optional[list[AssistantToolCall]] = None
+    type: Literal["ai/notebook"] = "ai/notebook"
 
 
 class PathsFilter(BaseModel):
@@ -2884,7 +4271,15 @@ class PersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class PlanningStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    status: PlanningStepStatus
 
 
 class QueryResponseAlternative8(BaseModel):
@@ -2894,7 +4289,6 @@ class QueryResponseAlternative8(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -2912,6 +4306,15 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
+class QueryResponseAlternative25(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: dict[str, Any]
+    error: Optional[ExternalQueryError] = None
+    status: ExternalQueryStatus
+
+
 class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2924,7 +4327,7 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: Optional[int] = None
-    end_time: Optional[AwareDatetime] = Field(
+    end_time: Optional[datetime] = Field(
         default=None, description="When did the query execution task finish (whether successfully or not)."
     )
     error: Optional[bool] = Field(
@@ -2934,17 +4337,17 @@ class QueryStatus(BaseModel):
         ),
     )
     error_message: Optional[str] = None
-    expiration_time: Optional[AwareDatetime] = None
+    expiration_time: Optional[datetime] = None
     id: str
     insight_id: Optional[int] = None
     labels: Optional[list[str]] = None
-    pickup_time: Optional[AwareDatetime] = Field(
+    pickup_time: Optional[datetime] = Field(
         default=None, description="When was the query execution task picked up by a worker."
     )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
-    start_time: Optional[AwareDatetime] = Field(default=None, description="When was query execution task enqueued.")
+    start_time: Optional[datetime] = Field(default=None, description="When was query execution task enqueued.")
     task_id: Optional[str] = None
     team_id: int
 
@@ -2965,6 +4368,208 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
+    label: Optional[str] = None
+
+
+class RevenueAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: list[RevenueAnalyticsPropertyFilter]
+
+
+class RevenueAnalyticsEventItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    couponProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify whether the revenue event is connected to a coupon Useful when trying to break"
+            " revenue down by a specific coupon"
+        ),
+    )
+    currencyAwareDecimal: Optional[bool] = Field(
+        default=False,
+        description=(
+            "If true, the revenue will be divided by the smallest unit of the currency.\n\nFor example, in case this is"
+            " set to true, if the revenue is 1089 and the currency is USD, the revenue will be $10.89, but if the"
+            " currency is JPY, the revenue will be ¥1089."
+        ),
+    )
+    eventName: str
+    productProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify what product the revenue event refers to Useful when trying to break revenue"
+            " down by a specific product"
+        ),
+    )
+    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
+        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"}),
+        description=(
+            "TODO: In the future, this should probably be renamed to `currencyProperty` to follow the pattern above"
+        ),
+    )
+    revenueProperty: str
+    subscriptionDropoffDays: Optional[float] = Field(
+        default=45,
+        description=(
+            "The number of days we still consider a subscription to be active after the last event. This is useful to"
+            " avoid the current month's data to look as if most of the subscriptions have churned since we might not"
+            " have an event for the current month."
+        ),
+    )
+    subscriptionDropoffMode: Optional[SubscriptionDropoffMode] = Field(
+        default=SubscriptionDropoffMode.LAST_EVENT,
+        description=(
+            "After a subscription has dropped off, when should we consider it to have ended? It should either be at the"
+            " date of the last event (will alter past periods, the default), or at the date of the last event plus the"
+            " dropoff period."
+        ),
+    )
+    subscriptionProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify what subscription the revenue event refers to Useful when trying to detect"
+            " churn/LTV/ARPU/etc."
+        ),
+    )
+
+
+class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class RevenueAnalyticsMRRQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsMRRQueryResultItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class RevenueAnalyticsMetricsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class RevenueAnalyticsOverviewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: RevenueAnalyticsOverviewItemKey
+    value: float
+
+
+class RevenueAnalyticsOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsOverviewItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
@@ -2985,6 +4590,9 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
@@ -3012,20 +4620,14 @@ class RevenueExampleEventsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class RevenueTrackingConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
-    dataWarehouseTables: Optional[list[RevenueTrackingDataWarehouseTable]] = []
-    events: Optional[list[RevenueTrackingEventItem]] = []
 
 
 class SavedInsightNode(BaseModel):
@@ -3035,7 +4637,7 @@ class SavedInsightNode(BaseModel):
     allowSorting: Optional[bool] = Field(
         default=None, description="Can the user click on column headers to sort the table? (default: true)"
     )
-    context: Optional[Context1] = Field(
+    context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
@@ -3046,6 +4648,7 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
     hidePersonsModal: Optional[bool] = None
+    hideTooltipOnScroll: Optional[bool] = None
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
@@ -3077,12 +4680,16 @@ class SavedInsightNode(BaseModel):
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     suppressSessionAnalysisWarning: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
@@ -3113,11 +4720,49 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+
+
+class SessionBatchEventsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list]
+    session_events: Optional[list[SessionEventsItem]] = Field(
+        default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
+    )
+    sessions_with_no_events: Optional[list[str]] = Field(
+        default=None, description="List of session IDs that had no matching events"
+    )
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list[str]
 
 
 class SessionRecordingType(BaseModel):
@@ -3151,6 +4796,7 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: Optional[str] = None
@@ -3176,10 +4822,35 @@ class SessionsTimelineQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[TimelineEntry]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class SourceFieldFileUploadConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
+    label: str
+    name: str
+    required: bool
+    type: Literal["file-upload"] = "file-upload"
+
+
+class SourceFieldInputConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    placeholder: str
+    required: bool
+    type: SourceFieldInputConfigType
 
 
 class StickinessCriteria(BaseModel):
@@ -3197,6 +4868,13 @@ class StickinessFilter(BaseModel):
     computedAs: Optional[StickinessComputationMode] = None
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
+    resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
+        default=ResultCustomizationBy.VALUE,
+        description="Whether result datasets are associated by their values or by their order.",
+    )
+    resultCustomizations: Optional[
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
+    ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showLegend: Optional[bool] = None
     showMultipleYAxes: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
@@ -3218,6 +4896,9 @@ class StickinessQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -3233,6 +4914,85 @@ class SuggestedQuestionsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[SuggestedQuestionsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyAnalysisQuestionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questionId: Optional[str] = Field(default="unknown", description="Question identifier")
+    questionName: Optional[str] = Field(default="Unknown question", description="Question text")
+    responses: Optional[list[SurveyAnalysisResponseItem]] = Field(
+        default=[], description="List of responses for this question"
+    )
+
+
+class SurveyAppearanceSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    backgroundColor: Optional[str] = None
+    borderColor: Optional[str] = None
+    buttonColor: Optional[str] = None
+    buttonTextColor: Optional[str] = None
+    inputBackground: Optional[str] = None
+    maxWidth: Optional[str] = None
+    placeholder: Optional[str] = None
+    position: Optional[SurveyPosition] = None
+    ratingButtonActiveColor: Optional[str] = None
+    ratingButtonColor: Optional[str] = None
+    shuffleQuestions: Optional[bool] = None
+    surveyPopupDelaySeconds: Optional[float] = None
+    textColor: Optional[str] = None
+    textSubtleColor: Optional[str] = None
+    thankYouMessageCloseButtonText: Optional[str] = None
+    thankYouMessageDescription: Optional[str] = None
+    thankYouMessageDescriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
+    thankYouMessageHeader: Optional[str] = None
+    whiteLabel: Optional[bool] = None
+    widgetColor: Optional[str] = None
+    widgetLabel: Optional[str] = None
+    widgetSelector: Optional[str] = None
+    widgetType: Optional[SurveyWidgetType] = None
+    zIndex: Optional[str] = None
+
+
+class SurveyDisplayConditionsSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[Actions] = None
+    deviceTypes: Optional[list[str]] = None
+    deviceTypesMatchType: Optional[SurveyMatchType] = None
+    linkedFlagVariant: Optional[str] = None
+    seenSurveyWaitPeriodInDays: Optional[float] = None
+    selector: Optional[str] = None
+    url: Optional[str] = None
+    urlMatchType: Optional[SurveyMatchType] = None
+
+
+class SurveyQuestionSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    branching: Optional[Branching] = None
+    buttonText: Optional[str] = None
+    choices: Optional[list[str]] = None
+    description: Optional[str] = None
+    descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
+    display: Optional[Display1] = None
+    hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
+    link: Optional[str] = None
+    lowerBoundLabel: Optional[str] = None
+    optional: Optional[bool] = None
+    question: str
+    scale: Optional[float] = None
+    shuffleOptions: Optional[bool] = None
+    type: SurveyQuestionType
+    upperBoundLabel: Optional[str] = None
 
 
 class TableSettings(BaseModel):
@@ -3241,6 +5001,28 @@ class TableSettings(BaseModel):
     )
     columns: Optional[list[ChartAxis]] = None
     conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
+
+
+class TaskExecutionItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_ids: Optional[list[str]] = None
+    description: str
+    id: str
+    progress_text: Optional[str] = None
+    prompt: str
+    status: TaskExecutionStatus
+    task_type: str
+
+
+class TaskExecutionMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    tasks: list[TaskExecutionItem]
+    type: Literal["ai/task_execution"] = "ai/task_execution"
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -3266,6 +5048,9 @@ class TestBasicQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -3277,7 +5062,7 @@ class TestCachedBasicQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -3287,16 +5072,48 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class TraceQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3321,6 +5138,9 @@ class TracesQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -3344,15 +5164,22 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
+    confidenceLevel: Optional[float] = None
     decimalPlaces: Optional[float] = None
+    detailedResultsAggregationType: Optional[DetailedResultsAggregationType] = Field(
+        default=None, description="detailed results table"
+    )
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
-    formulas: Optional[list[str]] = Field(
+    formulaNodes: Optional[list[TrendsFormulaNode]] = Field(
         default=None,
-        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
+        description="List of formulas with optional custom names. Takes precedence over formula/formulas if set.",
     )
+    formulas: Optional[list[str]] = None
     goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
+    minDecimalPlaces: Optional[float] = None
+    movingAverageIntervals: Optional[float] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
         default=ResultCustomizationBy.VALUE,
         description="Wether result datasets are associated by their values or by their order.",
@@ -3361,10 +5188,13 @@ class TrendsFilter(BaseModel):
         Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
     ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showAlertThresholdLines: Optional[bool] = False
+    showConfidenceIntervals: Optional[bool] = None
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
+    showMovingAverage: Optional[bool] = None
     showMultipleYAxes: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
+    showTrendLines: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
     yAxisScaleType: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
@@ -3386,10 +5216,46 @@ class TrendsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: dict[str, Any]
+    error: Optional[ExternalQueryError] = None
+    status: ExternalQueryStatus
+
+
+class WebAnalyticsItemBaseNumberString(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[Union[float, str]] = None
+    value: Optional[Union[float, str]] = None
+
+
+class WebAnalyticsItemBaseNumber(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[float] = None
+    value: Optional[float] = None
 
 
 class WebExternalClicksTableQueryResponse(BaseModel):
@@ -3410,6 +5276,9 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -3438,24 +5307,15 @@ class WebGoalsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class WebOverviewItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    changeFromPreviousPct: Optional[float] = None
-    isIncreaseBad: Optional[bool] = None
-    key: str
-    kind: WebOverviewItemKind
-    previous: Optional[float] = None
-    value: Optional[float] = None
 
 
 class WebOverviewQueryResponse(BaseModel):
@@ -3475,8 +5335,38 @@ class WebOverviewQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class WebPageURLSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PageURL]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3501,12 +5391,16 @@ class WebStatsTableQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebVitalsItemAction(BaseModel):
@@ -3541,7 +5435,10 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: ActorsPropertyTaxonomyResponse
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Union[ActorsPropertyTaxonomyResponse, list[ActorsPropertyTaxonomyResponse]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3567,27 +5464,38 @@ class ActorsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
-class AssistantBasePropertyFilter(
-    RootModel[
-        Union[
-            AssistantDateTimePropertyFilter,
-            AssistantSetPropertyFilter,
-            Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
-        ]
-    ]
-):
-    root: Union[
-        AssistantDateTimePropertyFilter,
-        AssistantSetPropertyFilter,
-        Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
-    ]
+class AnalyticsQueryResponseBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class AssistantFunnelNodeShared(BaseModel):
@@ -3611,12 +5519,14 @@ class AssistantFunnelNodeShared(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -3647,16 +5557,19 @@ class AssistantFunnelsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantFunnelsEventsNode(BaseModel):
@@ -3685,16 +5598,19 @@ class AssistantFunnelsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantFunnelsQuery(BaseModel):
@@ -3704,12 +5620,23 @@ class AssistantFunnelsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(
         default=None,
         description=(
-            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
-            " provided."
+            "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT"
+            " users or sessions."
         ),
     )
     breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
-        default=None, description="Breakdown the chart by a property"
+        default=None,
+        description=(
+            "A breakdown is used to segment data by a single property value. They divide all defined funnel series into"
+            " multiple subseries based on the values of the property. Include a breakdown **only when it is essential"
+            " to directly answer the user’s question**. You must not add a breakdown if the question can be addressed"
+            " without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and"
+            " name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property"
+            " value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign"
+            " up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a"
+            " breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization:"
+            " you need to find a property such as `organization name` and set it as a breakdown."
+        ),
     )
     dateRange: Optional[Union[AssistantDateRange, AssistantDurationRange]] = Field(
         default=None, description="Date range for the query"
@@ -3732,12 +5659,14 @@ class AssistantFunnelsQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -3746,7 +5675,7 @@ class AssistantFunnelsQuery(BaseModel):
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
     series: list[Union[AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]] = Field(
-        ..., description="Events or actions to include"
+        ..., description="Events or actions to include. Prioritize the more popular and fresh events and actions."
     )
 
 
@@ -3768,12 +5697,14 @@ class AssistantInsightsQueryBase(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -3830,13 +5761,6 @@ class AssistantRetentionFilter(BaseModel):
     returningEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
         ..., description="Retention event (event marking the user coming back)."
     )
-    showMean: Optional[bool] = Field(
-        default=None,
-        description=(
-            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
-            " across cohorts."
-        ),
-    )
     targetEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
         ..., description="Activation event (event putting the actor into the initial cohort)."
     )
@@ -3868,12 +5792,14 @@ class AssistantRetentionQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -3898,15 +5824,17 @@ class AssistantTrendsActionsNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: str = Field(..., description="Action name from the plan.")
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -3915,16 +5843,19 @@ class AssistantTrendsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantTrendsEventsNode(BaseModel):
@@ -3941,15 +5872,17 @@ class AssistantTrendsEventsNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -3958,16 +5891,19 @@ class AssistantTrendsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantTrendsQuery(BaseModel):
@@ -3975,7 +5911,19 @@ class AssistantTrendsQuery(BaseModel):
         extra="forbid",
     )
     breakdownFilter: Optional[AssistantTrendsBreakdownFilter] = Field(
-        default=None, description="Breakdown of the series"
+        default=None,
+        description=(
+            "Breakdowns are used to segment data by property values of maximum three properties. They divide all"
+            " defined trends series to multiple subseries based on the values of the property. Include breakdowns"
+            " **only when they are essential to directly answer the user’s question**. You must not add breakdowns if"
+            " the question can be addressed without additional segmentation. Always use the minimum set of breakdowns"
+            " needed to answer the question. When using breakdowns, you must:\n- **Identify the property group** and"
+            " name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the"
+            " property value accurately reflects the intended criteria**. Examples of using breakdowns:\n- page views"
+            " trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n-"
+            " number of users who have completed onboarding by an organization: you need to find a property such as"
+            " `organization name` and set it as a breakdown."
+        ),
     )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[Union[AssistantDateRange, AssistantDurationRange]] = Field(
@@ -3997,12 +5945,14 @@ class AssistantTrendsQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4011,7 +5961,7 @@ class AssistantTrendsQuery(BaseModel):
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
     series: list[Union[AssistantTrendsEventsNode, AssistantTrendsActionsNode]] = Field(
-        ..., description="Events or actions to include"
+        ..., description="Events or actions to include. Prioritize the more popular and fresh events and actions."
     )
     trendsFilter: Optional[AssistantTrendsFilter] = Field(
         default=None, description="Properties specific to the trends insight"
@@ -4039,7 +5989,7 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4049,15 +5999,19 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: ActorsPropertyTaxonomyResponse
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Union[ActorsPropertyTaxonomyResponse, list[ActorsPropertyTaxonomyResponse]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4069,7 +6023,7 @@ class CachedActorsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4081,23 +6035,62 @@ class CachedActorsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: int
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
+
+
+class CachedCalendarHeatmapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: EventsHeatMapStructuredResult
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class CachedEventTaxonomyQueryResponse(BaseModel):
@@ -4105,7 +6098,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4115,13 +6108,17 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[EventTaxonomyItem]
     timezone: str
@@ -4135,7 +6132,7 @@ class CachedEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4147,15 +6144,19 @@ class CachedEventsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timezone: str
@@ -4170,15 +6171,16 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     date_range: DateRange
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4192,7 +6194,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4204,15 +6206,19 @@ class CachedFunnelCorrelationResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: FunnelCorrelationResult
     timezone: str
@@ -4227,7 +6233,7 @@ class CachedFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4238,15 +6244,19 @@ class CachedFunnelsQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     isUdf: Optional[bool] = None
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4258,7 +6268,7 @@ class CachedGroupsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4271,15 +6281,19 @@ class CachedGroupsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: int
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: int
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timezone: str
@@ -4294,7 +6308,7 @@ class CachedLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4304,13 +6318,17 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[dict[str, Any]]
     timezone: str
@@ -4319,42 +6337,50 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
 
 
-class CachedPathsQueryResponse(BaseModel):
+class CachedLogsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[PathsLink]
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
+class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4366,15 +6392,288 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list[MarketingAnalyticsItem]]
+    samplingRate: Optional[SamplingRate] = None
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
+class CachedPathsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PathsLink]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsMRRQueryResultItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsOverviewItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: Any
     timezone: str
@@ -4389,7 +6688,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4401,15 +6700,19 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: Any
     timezone: str
@@ -4424,7 +6727,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4436,15 +6739,19 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: Any
     timezone: str
@@ -4454,12 +6761,57 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
+class CachedSessionBatchEventsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: list
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list]
+    session_events: Optional[list[SessionEventsItem]] = Field(
+        default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
+    )
+    sessions_with_no_events: Optional[list[str]] = Field(
+        default=None, description="List of session IDs that had no matching events"
+    )
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list[str]
+
+
 class CachedSessionsTimelineQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4470,13 +6822,17 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[TimelineEntry]
     timezone: str
@@ -4490,7 +6846,7 @@ class CachedStickinessQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4500,13 +6856,17 @@ class CachedStickinessQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[dict[str, Any]]
     timezone: str
@@ -4520,13 +6880,14 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     is_cached: bool
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4539,7 +6900,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4549,13 +6910,17 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[TeamTaxonomyItem]
     timezone: str
@@ -4564,12 +6929,12 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
 
 
-class CachedTracesQueryResponse(BaseModel):
+class CachedTraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4581,15 +6946,57 @@ class CachedTracesQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedTracesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[LLMTrace]
     timezone: str
@@ -4603,7 +7010,7 @@ class CachedTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4614,13 +7021,17 @@ class CachedTrendsQueryResponse(BaseModel):
     hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[dict[str, Any]]
     timezone: str
@@ -4634,7 +7045,7 @@ class CachedVectorSearchQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4644,13 +7055,17 @@ class CachedVectorSearchQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[VectorSearchResponseItem]
     timezone: str
@@ -4664,7 +7079,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4676,15 +7091,19 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -4700,7 +7119,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4712,15 +7131,19 @@ class CachedWebGoalsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -4736,7 +7159,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4748,16 +7171,57 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class CachedWebPageURLSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PageURL]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4769,7 +7233,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4781,15 +7245,19 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -4798,6 +7266,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
@@ -4805,7 +7274,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -4815,19 +7284,310 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[WebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CalendarHeatmapResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: EventsHeatMapStructuredResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class ConversionGoalFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goal_id: str
+    conversion_goal_name: str
+    custom_name: Optional[str] = None
+    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["EventsNode"] = "EventsNode"
+    limit: Optional[int] = None
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
+    math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
+    name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
+    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    schema_map: dict[str, Union[str, Any]]
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ConversionGoalFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goal_id: str
+    conversion_goal_name: str
+    custom_name: Optional[str] = None
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
+    math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
+    name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    schema_map: dict[str, Union[str, Any]]
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ConversionGoalFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goal_id: str
+    conversion_goal_name: str
+    custom_name: Optional[str] = None
+    distinct_id_field: str
+    dw_source_type: Optional[str] = None
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    id: str
+    id_field: str
+    kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
+    math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
+    name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    schema_map: dict[str, Union[str, Any]]
+    table_name: str
+    timestamp_field: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DashboardFilter(BaseModel):
@@ -4843,16 +7603,21 @@ class DashboardFilter(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -4876,6 +7641,9 @@ class Response(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
@@ -4904,11 +7672,14 @@ class Response1(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class Response2(BaseModel):
@@ -4930,6 +7701,9 @@ class Response2(BaseModel):
     offset: int
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
@@ -4955,11 +7729,15 @@ class Response4(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class Response5(BaseModel):
@@ -4980,6 +7758,40 @@ class Response5(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class Response6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -5003,6 +7815,9 @@ class Response8(BaseModel):
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[WebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
     timings: Optional[list[QueryTiming]] = Field(
@@ -5029,6 +7844,9 @@ class Response9(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5036,7 +7854,190 @@ class Response9(BaseModel):
     types: Optional[list] = None
 
 
+class Response10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response12(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsMRRQueryResultItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response13(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsOverviewItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response14(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class Response15(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class Response17(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list[MarketingAnalyticsItem]]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class Response22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5055,6 +8056,9 @@ class Response15(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5067,22 +8071,28 @@ class DataWarehouseNode(BaseModel):
     )
     custom_name: Optional[str] = None
     distinct_id_field: str
+    dw_source_type: Optional[str] = None
     fixedProperties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -5099,38 +8109,47 @@ class DataWarehouseNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
     table_name: str
     timestamp_field: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DatabaseSchemaBatchExportTable(BaseModel):
@@ -5140,6 +8159,7 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["batch_export"] = "batch_export"
 
 
@@ -5151,6 +8171,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     format: str
     id: str
     name: str
+    row_count: Optional[float] = None
     schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
     source: Optional[DatabaseSchemaSource] = None
     type: Literal["data_warehouse"] = "data_warehouse"
@@ -5168,16 +8189,21 @@ class EntityNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -5192,36 +8218,54 @@ class EntityNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ErrorTrackingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: ErrorTrackingExternalReferenceIntegration
 
 
 class ErrorTrackingIssue(BaseModel):
@@ -5231,12 +8275,52 @@ class ErrorTrackingIssue(BaseModel):
     aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
-    earliest: Optional[str] = None
-    first_seen: AwareDatetime
+    external_issues: Optional[list[ErrorTrackingExternalReference]] = None
+    first_event: Optional[FirstEvent] = None
+    first_seen: datetime
     id: str
-    last_seen: Optional[AwareDatetime] = None
+    last_event: Optional[LastEvent] = None
+    last_seen: datetime
+    library: Optional[str] = None
     name: Optional[str] = None
     status: Status
+
+
+class ErrorTrackingIssueFilteringToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
+    newFilters: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    orderBy: Optional[OrderBy] = None
+    orderDirection: Optional[OrderDirection] = None
+    removedFilterIndexes: Optional[list[int]] = None
+    searchQuery: Optional[str] = None
+    status: Optional[Status2] = None
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -5258,10 +8342,26 @@ class ErrorTrackingQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ErrorTrackingRelationalIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
+    description: Optional[str] = None
+    external_issues: Optional[list[ErrorTrackingExternalReference]] = None
+    first_seen: datetime
+    id: str
+    name: Optional[str] = None
+    status: Status4
 
 
 class EventTaxonomyQueryResponse(BaseModel):
@@ -5278,6 +8378,9 @@ class EventTaxonomyQueryResponse(BaseModel):
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[EventTaxonomyItem]
     timings: Optional[list[QueryTiming]] = Field(
@@ -5297,16 +8400,21 @@ class EventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -5322,16 +8430,19 @@ class EventsNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -5339,20 +8450,26 @@ class EventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class EventsQueryResponse(BaseModel):
@@ -5374,6 +8491,9 @@ class EventsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5381,35 +8501,89 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class ExperimentActionMetricConfig(BaseModel):
+class ExperimentDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    action: float
-    kind: Literal["ExperimentActionMetricConfig"] = "ExperimentActionMetricConfig"
-    math: Optional[ExperimentMetricMathType] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    properties: Optional[
+    custom_name: Optional[str] = None
+    data_warehouse_join_key: str
+    events_join_key: str
+    fixedProperties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["ExperimentDataWarehouseNode"] = "ExperimentDataWarehouseNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
+    math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
+    name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    table_name: str
+    timestamp_field: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentEventExposureConfig(BaseModel):
@@ -5423,97 +8597,25 @@ class ExperimentEventExposureConfig(BaseModel):
             EventPropertyFilter,
             PersonPropertyFilter,
             ElementPropertyFilter,
+            EventMetadataPropertyFilter,
             SessionPropertyFilter,
             CohortPropertyFilter,
             RecordingPropertyFilter,
             LogEntryPropertyFilter,
             GroupPropertyFilter,
             FeaturePropertyFilter,
+            FlagPropertyFilter,
             HogQLPropertyFilter,
             EmptyPropertyFilter,
             DataWarehousePropertyFilter,
             DataWarehousePersonPropertyFilter,
+            ErrorTrackingIssueFilter,
+            LogPropertyFilter,
+            RevenueAnalyticsPropertyFilter,
         ]
     ]
-
-
-class ExperimentEventMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMathType] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-    name: Optional[str] = None
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = Field(default=None, description="Properties configurable in the interface")
-
-
-class ExperimentExposureCriteria(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    exposure_config: Optional[ExperimentEventExposureConfig] = None
-    filterTestAccounts: Optional[bool] = None
-
-
-class ExperimentExposureQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiment_id: Optional[int] = None
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentExposureQueryResponse] = None
-
-
-class ExperimentMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    inverse: Optional[bool] = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
-    metric_type: ExperimentMetricType
-    name: Optional[str] = None
-    time_window_hours: Optional[float] = None
-
-
-class ExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -5535,6 +8637,9 @@ class FunnelCorrelationResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: FunnelCorrelationResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5553,16 +8658,21 @@ class FunnelExclusionActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -5580,36 +8690,45 @@ class FunnelExclusionActionsNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelExclusionEventsNode(BaseModel):
@@ -5624,16 +8743,21 @@ class FunnelExclusionEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -5651,16 +8775,19 @@ class FunnelExclusionEventsNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -5668,20 +8795,26 @@ class FunnelExclusionEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelsQueryResponse(BaseModel):
@@ -5700,7 +8833,10 @@ class FunnelsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5708,13 +8844,14 @@ class FunnelsQueryResponse(BaseModel):
 
 class GenericCachedQueryResponse(BaseModel):
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     is_cached: bool
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5741,11 +8878,18 @@ class GroupsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class HeatMapQuerySource(RootModel[EventsNode]):
+    root: EventsNode
 
 
 class HogQLFilters(BaseModel):
@@ -5760,16 +8904,21 @@ class HogQLFilters(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -5782,7 +8931,6 @@ class HogQLMetadataResponse(BaseModel):
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
-    isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
@@ -5812,6 +8960,9 @@ class HogQLQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5829,6 +8980,8 @@ class InsightActorsQueryBase(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ActorsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class LifecycleQueryResponse(BaseModel):
@@ -5846,10 +8999,102 @@ class LifecycleQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class LogsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
+    sources_map: Optional[dict[str, SourceMap]] = None
+
+
+class MarketingAnalyticsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list[MarketingAnalyticsItem]]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class MaxBillingContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    billing_period: Optional[MaxBillingContextBillingPeriod] = None
+    billing_plan: Optional[str] = None
+    has_active_subscription: bool
+    is_deactivated: Optional[bool] = None
+    products: list[MaxProductInfo]
+    projected_total_amount_usd: Optional[str] = None
+    projected_total_amount_usd_after_discount: Optional[str] = None
+    projected_total_amount_usd_with_limit: Optional[str] = None
+    projected_total_amount_usd_with_limit_after_discount: Optional[str] = None
+    settings: MaxBillingContextSettings
+    spend_history: Optional[list[SpendHistoryItem]] = None
+    startup_program_label: Optional[str] = None
+    startup_program_label_previous: Optional[str] = None
+    subscription_level: MaxBillingContextSubscriptionLevel
+    total_current_amount_usd: Optional[str] = None
+    trial: Optional[MaxBillingContextTrial] = None
+    usage_history: Optional[list[UsageHistoryItem]] = None
 
 
 class MultipleBreakdownOptions(BaseModel):
@@ -5857,6 +9102,33 @@ class MultipleBreakdownOptions(BaseModel):
         extra="forbid",
     )
     values: list[BreakdownItem]
+
+
+class NamedQueryRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    filters_override: Optional[DashboardFilter] = None
+    query_override: Optional[dict[str, Any]] = None
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
+    variables_values: Optional[dict[str, Any]] = None
 
 
 class PathsQueryResponse(BaseModel):
@@ -5873,6 +9145,9 @@ class PathsQueryResponse(BaseModel):
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[PathsLink]
     timings: Optional[list[QueryTiming]] = Field(
@@ -5892,16 +9167,21 @@ class PersonsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -5920,21 +9200,37 @@ class PersonsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
     search: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class PlanningMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    steps: list[PlanningStep]
+    type: Literal["ai/planning"] = "ai/planning"
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -5949,16 +9245,21 @@ class PropertyGroupFilterValue(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ],
         ]
     ]
@@ -5982,6 +9283,9 @@ class QueryResponseAlternative1(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
@@ -6010,11 +9314,14 @@ class QueryResponseAlternative2(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative3(BaseModel):
@@ -6036,6 +9343,9 @@ class QueryResponseAlternative3(BaseModel):
     offset: int
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
@@ -6073,6 +9383,9 @@ class QueryResponseAlternative5(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[TimelineEntry]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6102,6 +9415,9 @@ class QueryResponseAlternative7(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6127,6 +9443,9 @@ class QueryResponseAlternative10(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
@@ -6154,29 +9473,16 @@ class QueryResponseAlternative13(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative16(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
-
-
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6193,14 +9499,18 @@ class QueryResponseAlternative18(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6219,6 +9529,40 @@ class QueryResponseAlternative19(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -6227,7 +9571,7 @@ class QueryResponseAlternative19(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6242,13 +9586,196 @@ class QueryResponseAlternative22(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative24(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PageURL]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative27(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative28(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsMRRQueryResultItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative29(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsOverviewItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative30(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative31(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list[MarketingAnalyticsItem]]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6267,6 +9794,9 @@ class QueryResponseAlternative23(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6274,7 +9804,7 @@ class QueryResponseAlternative23(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative24(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6294,14 +9824,17 @@ class QueryResponseAlternative24(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6321,6 +9854,9 @@ class QueryResponseAlternative25(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6328,7 +9864,7 @@ class QueryResponseAlternative25(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6351,6 +9887,9 @@ class QueryResponseAlternative26(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6358,7 +9897,7 @@ class QueryResponseAlternative26(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6375,14 +9914,18 @@ class QueryResponseAlternative27(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6400,6 +9943,40 @@ class QueryResponseAlternative28(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative38(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -6409,7 +9986,7 @@ class QueryResponseAlternative28(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6424,13 +10001,16 @@ class QueryResponseAlternative31(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6449,6 +10029,9 @@ class QueryResponseAlternative32(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6456,7 +10039,190 @@ class QueryResponseAlternative32(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative42(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative43(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative44(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsMRRQueryResultItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative45(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsOverviewItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative46(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative47(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class QueryResponseAlternative49(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list[MarketingAnalyticsItem]]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6474,6 +10240,9 @@ class QueryResponseAlternative35(BaseModel):
     offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
@@ -6481,7 +10250,7 @@ class QueryResponseAlternative35(BaseModel):
     )
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6500,13 +10269,16 @@ class QueryResponseAlternative38(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6522,13 +10294,16 @@ class QueryResponseAlternative39(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6544,13 +10319,16 @@ class QueryResponseAlternative40(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6564,6 +10342,9 @@ class QueryResponseAlternative42(BaseModel):
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[PathsLink]
     timings: Optional[list[QueryTiming]] = Field(
@@ -6571,7 +10352,7 @@ class QueryResponseAlternative42(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6586,13 +10367,16 @@ class QueryResponseAlternative43(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6611,6 +10395,9 @@ class QueryResponseAlternative45(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: FunnelCorrelationResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6618,70 +10405,7 @@ class QueryResponseAlternative45(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative48(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[TeamTaxonomyItem]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class QueryResponseAlternative49(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[EventTaxonomyItem]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class QueryResponseAlternative50(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: ActorsPropertyTaxonomyResponse
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6700,13 +10424,16 @@ class QueryResponseAlternative51(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LLMTrace]
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6720,6 +10447,109 @@ class QueryResponseAlternative52(BaseModel):
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[TeamTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative66(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EventTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative67(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Union[ActorsPropertyTaxonomyResponse, list[ActorsPropertyTaxonomyResponse]]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative68(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative70(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[VectorSearchResponseItem]
     timings: Optional[list[QueryTiming]] = Field(
@@ -6750,16 +10580,21 @@ class RetentionEntity(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="filters on the event")
@@ -6775,6 +10610,7 @@ class RetentionFilter(BaseModel):
     dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
     display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
     meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
+    minimumOccurrences: Optional[int] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -6782,7 +10618,7 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
-    showMean: Optional[bool] = None
+    showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
@@ -6812,9 +10648,175 @@ class RetentionResult(BaseModel):
     breakdown_value: Optional[Union[str, float]] = Field(
         default=None, description="Optional breakdown value for retention cohorts"
     )
-    date: AwareDatetime
+    date: datetime
     label: str
     values: list[RetentionValue]
+
+
+class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsBaseQueryRevenueAnalyticsMRRQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsMRRQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsBaseQueryRevenueAnalyticsMetricsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsMetricsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: Optional[list[RevenueAnalyticsEventItem]] = []
+    filter_test_accounts: Optional[bool] = False
+    goals: Optional[list[RevenueAnalyticsGoal]] = []
+
+
+class RevenueAnalyticsGrossRevenueQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    dateRange: Optional[DateRange] = None
+    interval: SimpleIntervalType
+    kind: Literal["RevenueAnalyticsGrossRevenueQuery"] = "RevenueAnalyticsGrossRevenueQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsMRRQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    dateRange: Optional[DateRange] = None
+    interval: SimpleIntervalType
+    kind: Literal["RevenueAnalyticsMRRQuery"] = "RevenueAnalyticsMRRQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsMRRQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsMetricsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    dateRange: Optional[DateRange] = None
+    interval: SimpleIntervalType
+    kind: Literal["RevenueAnalyticsMetricsQuery"] = "RevenueAnalyticsMetricsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsMetricsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: Literal["RevenueAnalyticsOverviewQuery"] = "RevenueAnalyticsOverviewQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsTopCustomersQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
+    kind: Literal["RevenueAnalyticsTopCustomersQuery"] = "RevenueAnalyticsTopCustomersQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):
@@ -6828,7 +10830,8 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueExampleEventsQuery(BaseModel):
@@ -6842,7 +10845,8 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class SessionAttributionExplorerQuery(BaseModel):
@@ -6858,6 +10862,8 @@ class SessionAttributionExplorerQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[SessionAttributionExplorerQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class SessionsTimelineQuery(BaseModel):
@@ -6876,6 +10882,29 @@ class SessionsTimelineQuery(BaseModel):
     )
     personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyCreationSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    appearance: Optional[SurveyAppearanceSchema] = None
+    archived: Optional[bool] = None
+    conditions: Optional[SurveyDisplayConditionsSchema] = None
+    description: str
+    enable_partial_responses: Optional[bool] = None
+    end_date: Optional[str] = None
+    iteration_count: Optional[float] = None
+    iteration_frequency_days: Optional[float] = None
+    linked_flag_id: Optional[float] = None
+    name: str
+    questions: list[SurveyQuestionSchema]
+    responses_limit: Optional[float] = None
+    should_launch: Optional[bool] = None
+    start_date: Optional[str] = None
+    type: SurveyType
 
 
 class TeamTaxonomyQueryResponse(BaseModel):
@@ -6893,10 +10922,85 @@ class TeamTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[TeamTaxonomyItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class TileFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_filter: Optional[BreakdownFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
+class TraceQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: Literal["TraceQuery"] = "TraceQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[TraceQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    traceId: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TracesQuery(BaseModel):
@@ -6911,28 +11015,35 @@ class TracesQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    personId: Optional[str] = Field(default=None, description="Person who performed the event")
     properties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
-    traceId: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class VectorSearchQueryResponse(BaseModel):
@@ -6950,24 +11061,24 @@ class VectorSearchQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[VectorSearchResponseItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
-class VisualizationMessage(BaseModel):
+class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[
-        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    ] = None
-    id: Optional[str] = None
-    initiator: Optional[str] = None
-    plan: Optional[str] = None
-    query: Optional[str] = ""
-    type: Literal["ai/viz"] = "ai/viz"
+    dateRange: DateRange
+    kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebAnalyticsExternalSummaryQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebExternalClicksTableQuery(BaseModel):
@@ -6988,9 +11099,11 @@ class WebExternalClicksTableQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     stripQueryParams: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebGoalsQuery(BaseModel):
@@ -7011,8 +11124,10 @@ class WebGoalsQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebOverviewQuery(BaseModel):
@@ -7032,8 +11147,36 @@ class WebOverviewQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebPageURLSearchQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebPageURLSearchQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    searchTerm: Optional[str] = None
+    stripQueryParams: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebStatsTableQuery(BaseModel):
@@ -7054,11 +11197,49 @@ class WebStatsTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[list] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    explain: Optional[list[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query: Optional[str] = Field(default=None, description="Input query string")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[WebTrendsItem]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = Field(default=None, description="Types of returned columns")
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebVitalsItem(BaseModel):
@@ -7085,6 +11266,9 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebVitalsPathBreakdownResult] = Field(..., max_length=1, min_length=1)
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7106,6 +11290,9 @@ class WebVitalsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[WebVitalsItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7123,16 +11310,21 @@ class ActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7148,50 +11340,61 @@ class ActionsNode(BaseModel):
             PropertyMathType,
             CountPerActorMathType,
             ExperimentMetricMathType,
+            CalendarHeatmapMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ActorsPropertyTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    group_type_index: Optional[int] = None
+    groupTypeIndex: Optional[int] = None
     kind: Literal["ActorsPropertyTaxonomyQuery"] = "ActorsPropertyTaxonomyQuery"
     maxPropertyValues: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    property: str
+    properties: list[str]
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AnyResponseType(
@@ -7205,6 +11408,7 @@ class AnyResponseType(
             Any,
             EventsQueryResponse,
             ErrorTrackingQueryResponse,
+            LogsQueryResponse,
         ]
     ]
 ):
@@ -7217,6 +11421,31 @@ class AnyResponseType(
         Any,
         EventsQueryResponse,
         ErrorTrackingQueryResponse,
+        LogsQueryResponse,
+    ]
+
+
+class AssistantBasePropertyFilter(
+    RootModel[
+        Union[
+            AssistantDateTimePropertyFilter,
+            AssistantSetPropertyFilter,
+            Union[
+                AssistantStringOrBooleanValuePropertyFilter,
+                AssistantNumericValuePropertyFilter,
+                AssistantArrayPropertyFilter,
+            ],
+        ]
+    ]
+):
+    root: Union[
+        AssistantDateTimePropertyFilter,
+        AssistantSetPropertyFilter,
+        Union[
+            AssistantStringOrBooleanValuePropertyFilter,
+            AssistantNumericValuePropertyFilter,
+            AssistantArrayPropertyFilter,
+        ],
     ]
 
 
@@ -7225,7 +11454,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7237,15 +11466,19 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[ErrorTrackingIssue]
     timezone: str
@@ -7254,40 +11487,12 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
-class CachedExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: AwareDatetime
-    metric: ExperimentMetric
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    timezone: str
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
-
-
 class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7301,17 +11506,21 @@ class CachedHogQLQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     limit: Optional[int] = None
     metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list
     timezone: str
@@ -7328,7 +11537,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     breakdown: Optional[list[BreakdownItem]] = None
     breakdowns: Optional[list[MultipleBreakdownOptions]] = None
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7336,8 +11545,9 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
     is_cached: bool
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7351,7 +11561,7 @@ class CachedRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7361,13 +11571,17 @@ class CachedRetentionQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[RetentionResult]
     timezone: str
@@ -7376,12 +11590,57 @@ class CachedRetentionQueryResponse(BaseModel):
     )
 
 
+class CachedWebTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[list] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    explain: Optional[list[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query: Optional[str] = Field(default=None, description="Input query string")
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[WebTrendsItem]
+    samplingRate: Optional[SamplingRate] = None
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = Field(default=None, description="Types of returned columns")
+    usedPreAggregatedTables: Optional[bool] = None
+
+
 class CachedWebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7391,13 +11650,17 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: AwareDatetime
+    last_refresh: datetime
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    next_allowed_client_refresh: AwareDatetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     results: list[WebVitalsItem]
     timezone: str
@@ -7429,6 +11692,9 @@ class Response3(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7436,7 +11702,7 @@ class Response3(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class Response12(BaseModel):
+class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7455,7 +11721,56 @@ class Response12(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[ErrorTrackingIssue]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class ErrorTrackingCorrelatedIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
+    description: Optional[str] = None
+    event: str
+    external_issues: Optional[list[ErrorTrackingExternalReference]] = None
+    first_seen: datetime
+    id: str
+    last_seen: datetime
+    library: Optional[str] = None
+    name: Optional[str] = None
+    odds_ratio: float
+    population: Population
+    status: Status
+
+
+class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingCorrelatedIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -7474,20 +11789,73 @@ class EventTaxonomyQuery(BaseModel):
     )
     properties: Optional[list[str]] = None
     response: Optional[EventTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentQuery(BaseModel):
+class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exposure_config: Optional[Union[ExperimentEventExposureConfig, ActionsNode]] = None
+    filterTestAccounts: Optional[bool] = None
+    multiple_variant_handling: Optional[MultipleVariantHandling] = None
+
+
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end_date: Optional[str] = None
     experiment_id: Optional[int] = None
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
+    experiment_name: str
+    exposure_criteria: Optional[ExperimentExposureCriteria] = None
+    feature_flag: dict[str, Any]
+    holdout: Optional[ExperimentHoldoutType] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    response: Optional[ExperimentExposureQueryResponse] = None
+    start_date: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentFunnelMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnel_order_type: Optional[StepOrderValue] = None
+    metric_type: Literal["funnel"] = "funnel"
+    series: list[Union[EventsNode, ActionsNode]]
+
+
+class ExperimentRatioMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    fingerprint: Optional[str] = None
+    goal: Optional[ExperimentMetricGoal] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["ratio"] = "ratio"
     name: Optional[str] = None
-    response: Optional[ExperimentQueryResponse] = None
+    numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    response: Optional[dict[str, Any]] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentRatioMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    metric_type: Literal["ratio"] = "ratio"
+    numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
 class FunnelsFilter(BaseModel):
@@ -7502,15 +11870,19 @@ class FunnelsFilter(BaseModel):
     funnelFromStep: Optional[int] = None
     funnelOrderType: Optional[StepOrderValue] = StepOrderValue.ORDERED
     funnelStepReference: Optional[FunnelStepReference] = FunnelStepReference.TOTAL
-    funnelToStep: Optional[int] = None
+    funnelToStep: Optional[int] = Field(
+        default=None, description="To select the range of steps for trends & time to convert funnels, 0-indexed"
+    )
     funnelVizType: Optional[FunnelVizType] = FunnelVizType.STEPS
     funnelWindowInterval: Optional[int] = 14
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
+    goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
         default=None, description="Customizations for the appearance of result datasets."
     )
+    showValuesOnSeries: Optional[bool] = False
     useUdf: Optional[bool] = None
 
 
@@ -7530,6 +11902,8 @@ class GroupsQuery(BaseModel):
     response: Optional[GroupsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HogQLASTQuery(BaseModel):
@@ -7545,12 +11919,14 @@ class HogQLASTQuery(BaseModel):
     name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: dict[str, Any]
     response: Optional[HogQLQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HogQLQuery(BaseModel):
@@ -7566,12 +11942,14 @@ class HogQLQuery(BaseModel):
     name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: str
     response: Optional[HogQLQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightActorsQueryOptionsResponse(BaseModel):
@@ -7588,9 +11966,100 @@ class InsightActorsQueryOptionsResponse(BaseModel):
 
 
 class InsightFilter(
-    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+    RootModel[
+        Union[
+            TrendsFilter,
+            FunnelsFilter,
+            RetentionFilter,
+            PathsFilter,
+            StickinessFilter,
+            LifecycleFilter,
+            CalendarHeatmapFilter,
+        ]
+    ]
 ):
-    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
+    root: Union[
+        TrendsFilter,
+        FunnelsFilter,
+        RetentionFilter,
+        PathsFilter,
+        StickinessFilter,
+        LifecycleFilter,
+        CalendarHeatmapFilter,
+    ]
+
+
+class MarketingAnalyticsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    draftConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
+        default=None, description="Draft conversion goal that can be set in the UI without saving"
+    )
+    filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
+    includeAllConversions: Optional[bool] = Field(
+        default=None, description="Include conversion goal rows even when they don't match campaign costs table"
+    )
+    includeRevenue: Optional[bool] = None
+    kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
+    limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
+    orderBy: Optional[list[list[Union[str, MarketingAnalyticsOrderByEnum]]]] = Field(
+        default=None, description="Columns to order by - similar to EventsQuery format"
+    )
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[MarketingAnalyticsTableQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    select: Optional[list[str]] = Field(
+        default=None, description="Return a limited set of data. Will use default columns if empty."
+    )
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class MaxInnerUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+
+
+class MaxOuterUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[MaxInnerUniversalFiltersGroup]
+
+
+class MaxRecordingUniversalFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    duration: list[RecordingDurationFilter]
+    filter_group: MaxOuterUniversalFiltersGroup
+    filter_test_accounts: Optional[bool] = None
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    order_direction: Optional[RecordingOrderDirection] = Field(
+        default=RecordingOrderDirection.DESC,
+        description=(
+            "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django"
+            " behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would"
+            " indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the"
+            " default or allow specification of an explicit order direction here"
+        ),
+    )
 
 
 class PropertyGroupFilter(BaseModel):
@@ -7601,7 +12070,35 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative14(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingCorrelatedIssue]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative57(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7616,6 +12113,9 @@ class QueryResponseAlternative41(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[RetentionResult]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7627,9 +12127,11 @@ class RecordingsQuery(BaseModel):
         extra="forbid",
     )
     actions: Optional[list[dict[str, Any]]] = None
+    comment_text: Optional[RecordingPropertyFilter] = None
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"
     date_to: Optional[str] = None
+    distinct_ids: Optional[list[str]] = None
     events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
     having_predicates: Optional[
@@ -7638,16 +12140,21 @@ class RecordingsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -7659,6 +12166,15 @@ class RecordingsQuery(BaseModel):
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    order_direction: Optional[RecordingOrderDirection] = Field(
+        default=RecordingOrderDirection.DESC,
+        description=(
+            "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django"
+            " behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would"
+            " indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the"
+            " default or allow specification of an explicit order direction here"
+        ),
+    )
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
@@ -7666,22 +12182,29 @@ class RecordingsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    tags: Optional[QueryLogTags] = None
     user_modified_filters: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RetentionQueryResponse(BaseModel):
@@ -7699,16 +12222,13 @@ class RetentionQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[RetentionResult]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
-):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class StickinessQuery(BaseModel):
@@ -7739,16 +12259,21 @@ class StickinessQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -7762,6 +12287,8 @@ class StickinessQuery(BaseModel):
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TeamTaxonomyQuery(BaseModel):
@@ -7773,6 +12300,8 @@ class TeamTaxonomyQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[TeamTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TrendsQuery(BaseModel):
@@ -7805,16 +12334,21 @@ class TrendsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -7825,7 +12359,9 @@ class TrendsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class VectorSearchQuery(BaseModel):
@@ -7833,11 +12369,41 @@ class VectorSearchQuery(BaseModel):
         extra="forbid",
     )
     embedding: list[float]
+    embeddingVersion: Optional[float] = None
     kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[VectorSearchQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebTrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    interval: IntervalType
+    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
+    limit: Optional[int] = None
+    metrics: list[WebTrendsMetric]
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebTrendsQueryResponse] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
@@ -7859,9 +12425,49 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
+    tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingCorrelatedIssue]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class CachedExperimentTrendsQueryResponse(BaseModel):
@@ -7869,7 +12475,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7879,10 +12485,11 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
     p_value: float
     probability: dict[str, float]
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7893,7 +12500,95 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class Response14(BaseModel):
+class CalendarHeatmapQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    calendarHeatmapFilter: Optional[CalendarHeatmapFilter] = Field(
+        default=None, description="Properties specific to the trends insight"
+    )
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = Field(
+        default=None, description="Whether we should be comparing against a specific conversion goal"
+    )
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    interval: Optional[IntervalType] = Field(
+        default=IntervalType.DAY,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+    )
+    kind: Literal["CalendarHeatmapQuery"] = "CalendarHeatmapQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    response: Optional[CalendarHeatmapResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class Response19(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingCorrelatedIssue]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7919,6 +12614,21 @@ class DataVisualizationNode(BaseModel):
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
     tableSettings: Optional[TableSettings] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class DatabaseSchemaManagedViewTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    kind: DatabaseSchemaManagedViewTableKind
+    name: str
+    query: HogQLQuery
+    row_count: Optional[float] = None
+    source_id: Optional[str] = None
+    type: Literal["managed_view"] = "managed_view"
 
 
 class DatabaseSchemaMaterializedViewTable(BaseModel):
@@ -7930,6 +12640,7 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     last_run_at: Optional[str] = None
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     status: Optional[str] = None
     type: Literal["materialized_view"] = "materialized_view"
 
@@ -7942,7 +12653,22 @@ class DatabaseSchemaViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["view"] = "view"
+
+
+class ErrorTrackingIssueCorrelationQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[str]
+    kind: Literal["ErrorTrackingIssueCorrelationQuery"] = "ErrorTrackingIssueCorrelationQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ErrorTrackingIssueCorrelationQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ErrorTrackingQuery(BaseModel):
@@ -7950,7 +12676,6 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
@@ -7965,7 +12690,92 @@ class ErrorTrackingQuery(BaseModel):
     orderDirection: Optional[OrderDirection] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
-    status: Optional[Status1] = None
+    status: Optional[Status2] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    volumeResolution: int
+    withAggregations: Optional[bool] = None
+    withFirstEvent: Optional[bool] = None
+    withLastEvent: Optional[bool] = None
+
+
+class ExperimentFunnelMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
+    funnel_order_type: Optional[StepOrderValue] = None
+    goal: Optional[ExperimentMetricGoal] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["funnel"] = "funnel"
+    name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
+    series: list[Union[EventsNode, ActionsNode]]
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentMeanMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
+    goal: Optional[ExperimentMetricGoal] = None
+    ignore_zeros: Optional[bool] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: Optional[float] = None
+    metric_type: Literal["mean"] = "mean"
+    name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    upper_bound_percentile: Optional[float] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentMeanMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ignore_zeros: Optional[bool] = None
+    lower_bound_percentile: Optional[float] = None
+    metric_type: Literal["mean"] = "mean"
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    upper_bound_percentile: Optional[float] = None
+
+
+class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]]):
+    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+
+
+class ExperimentMetricTypeProps(
+    RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]]
+):
+    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]
+
+
+class ExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: Optional[ExperimentStatsBaseValidated] = None
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
+    p_value: Optional[float] = None
+    probability: Optional[dict[str, float]] = None
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: Optional[bool] = None
+    stats_version: Optional[int] = None
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+    variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -8013,16 +12823,21 @@ class FunnelsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8033,6 +12848,55 @@ class FunnelsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    response: Optional[CalendarHeatmapResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
@@ -8056,16 +12920,21 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8073,6 +12942,8 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[FunnelsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
@@ -8096,16 +12967,21 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8113,6 +12989,8 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBasePathsQueryResponse(BaseModel):
@@ -8136,16 +13014,21 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8153,6 +13036,8 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseRetentionQueryResponse(BaseModel):
@@ -8176,16 +13061,21 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8193,6 +13083,8 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseTrendsQueryResponse(BaseModel):
@@ -8216,16 +13108,21 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8233,6 +13130,24 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class LegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class LifecycleQuery(BaseModel):
@@ -8263,16 +13178,21 @@ class LifecycleQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8283,9 +13203,32 @@ class LifecycleQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative14(BaseModel):
+class LogsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter
+    kind: Literal["LogsQuery"] = "LogsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    orderBy: Optional[OrderBy2] = None
+    response: Optional[LogsQueryResponse] = None
+    searchTerm: Optional[str] = None
+    serviceNames: list[str]
+    severityLevels: list[LogSeverityLevel]
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8301,7 +13244,7 @@ class QueryResponseAlternative14(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8318,7 +13261,27 @@ class QueryResponseAlternative15(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative17(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: Optional[ExperimentStatsBaseValidated] = None
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
+    p_value: Optional[float] = None
+    probability: Optional[dict[str, float]] = None
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: Optional[bool] = None
+    stats_version: Optional[int] = None
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+    variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
+
+
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8334,7 +13297,7 @@ class QueryResponseAlternative36(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8373,16 +13336,21 @@ class RetentionQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8391,6 +13359,46 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class StickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    operator: Optional[StickinessOperator] = None
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: StickinessQuery
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class NamedArgs(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+
+
+class IsExperimentFunnelMetric(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
+
+
+class IsExperimentMeanMetric(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
+
+
+class IsExperimentRatioMetric(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -8398,7 +13406,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
+    cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -8408,9 +13416,10 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     insight: list[list[dict[str, Any]]]
     is_cached: bool
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
     probability: dict[str, float]
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8421,7 +13430,69 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class Response13(BaseModel):
+class CachedExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: Optional[ExperimentStatsBaseValidated] = None
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: datetime
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
+    next_allowed_client_refresh: datetime
+    p_value: Optional[float] = None
+    probability: Optional[dict[str, float]] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: Optional[bool] = None
+    stats_version: Optional[int] = None
+    timezone: str
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+    variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
+
+
+class CachedLegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: datetime
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    next_allowed_client_refresh: datetime
+    p_value: float
+    probability: dict[str, float]
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    timezone: str
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
+class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8453,6 +13524,36 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
+class ExperimentMetricTimeseries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computed_at: Optional[str] = None
+    created_at: str
+    errors: Optional[dict[str, str]] = None
+    experiment_id: float
+    metric_uuid: str
+    status: Status5
+    timeseries: Optional[dict[str, ExperimentQueryResponse]] = None
+    updated_at: str
+
+
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: Optional[int] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExperimentTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8466,6 +13567,9 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelPathsFilter(BaseModel):
@@ -8513,6 +13617,8 @@ class FunnelsActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class PathsQuery(BaseModel):
@@ -8540,16 +13646,21 @@ class PathsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8557,18 +13668,23 @@ class PathsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    joins: list[DataWarehouseViewLink]
     tables: dict[
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
+            DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
         ],
@@ -8596,33 +13712,52 @@ class QueryResponseAlternative(
             QueryResponseAlternative17,
             QueryResponseAlternative18,
             QueryResponseAlternative19,
-            QueryResponseAlternative22,
-            Any,
+            QueryResponseAlternative20,
+            QueryResponseAlternative21,
             QueryResponseAlternative23,
             QueryResponseAlternative24,
             QueryResponseAlternative25,
             QueryResponseAlternative26,
             QueryResponseAlternative27,
             QueryResponseAlternative28,
+            QueryResponseAlternative29,
+            QueryResponseAlternative30,
             QueryResponseAlternative31,
+            Any,
             QueryResponseAlternative32,
+            QueryResponseAlternative33,
+            QueryResponseAlternative34,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
-            QueryResponseAlternative39,
             QueryResponseAlternative40,
             QueryResponseAlternative41,
             QueryResponseAlternative42,
             QueryResponseAlternative43,
+            QueryResponseAlternative44,
             QueryResponseAlternative45,
             QueryResponseAlternative46,
             QueryResponseAlternative47,
-            QueryResponseAlternative48,
             QueryResponseAlternative49,
             QueryResponseAlternative50,
-            QueryResponseAlternative51,
             QueryResponseAlternative52,
+            QueryResponseAlternative53,
+            QueryResponseAlternative54,
+            QueryResponseAlternative55,
+            QueryResponseAlternative56,
+            QueryResponseAlternative57,
+            QueryResponseAlternative58,
+            QueryResponseAlternative59,
+            QueryResponseAlternative61,
+            QueryResponseAlternative62,
+            QueryResponseAlternative63,
+            QueryResponseAlternative64,
+            QueryResponseAlternative65,
+            QueryResponseAlternative66,
+            QueryResponseAlternative67,
+            QueryResponseAlternative68,
+            QueryResponseAlternative70,
         ]
     ]
 ):
@@ -8645,46 +13780,115 @@ class QueryResponseAlternative(
         QueryResponseAlternative17,
         QueryResponseAlternative18,
         QueryResponseAlternative19,
-        QueryResponseAlternative22,
-        Any,
+        QueryResponseAlternative20,
+        QueryResponseAlternative21,
         QueryResponseAlternative23,
         QueryResponseAlternative24,
         QueryResponseAlternative25,
         QueryResponseAlternative26,
         QueryResponseAlternative27,
         QueryResponseAlternative28,
+        QueryResponseAlternative29,
+        QueryResponseAlternative30,
         QueryResponseAlternative31,
+        Any,
         QueryResponseAlternative32,
+        QueryResponseAlternative33,
+        QueryResponseAlternative34,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
-        QueryResponseAlternative39,
         QueryResponseAlternative40,
         QueryResponseAlternative41,
         QueryResponseAlternative42,
         QueryResponseAlternative43,
+        QueryResponseAlternative44,
         QueryResponseAlternative45,
         QueryResponseAlternative46,
         QueryResponseAlternative47,
-        QueryResponseAlternative48,
         QueryResponseAlternative49,
         QueryResponseAlternative50,
-        QueryResponseAlternative51,
         QueryResponseAlternative52,
+        QueryResponseAlternative53,
+        QueryResponseAlternative54,
+        QueryResponseAlternative55,
+        QueryResponseAlternative56,
+        QueryResponseAlternative57,
+        QueryResponseAlternative58,
+        QueryResponseAlternative59,
+        QueryResponseAlternative61,
+        QueryResponseAlternative62,
+        QueryResponseAlternative63,
+        QueryResponseAlternative64,
+        QueryResponseAlternative65,
+        QueryResponseAlternative66,
+        QueryResponseAlternative67,
+        QueryResponseAlternative68,
+        QueryResponseAlternative70,
     ]
+
+
+class VisualizationItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Union[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
+    ]
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Union[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
+    ]
+    id: Optional[str] = None
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+    short_id: Optional[str] = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    joins: list[DataWarehouseViewLink]
     tables: dict[
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
+            DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
         ],
@@ -8703,6 +13907,9 @@ class ExperimentFunnelsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelCorrelationQuery(BaseModel):
@@ -8718,6 +13925,7 @@ class FunnelCorrelationQuery(BaseModel):
     kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightVizNode(BaseModel):
@@ -8729,6 +13937,7 @@ class InsightVizNode(BaseModel):
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
     hidePersonsModal: Optional[bool] = None
+    hideTooltipOnScroll: Optional[bool] = None
     kind: Literal["InsightVizNode"] = "InsightVizNode"
     showCorrelationTable: Optional[bool] = None
     showFilters: Optional[bool] = None
@@ -8741,31 +13950,30 @@ class InsightVizNode(BaseModel):
         ..., discriminator="kind"
     )
     suppressSessionAnalysisWarning: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-class StickinessActorsQuery(BaseModel):
+class MultiVisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown: Optional[Union[str, list[str], int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
+    commentary: Optional[str] = None
+    id: Optional[str] = None
+    type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visualizations: list[VisualizationItem]
+
+
+class NamedQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    operator: Optional[StickinessOperator] = None
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
-    status: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+    ] = None
 
 
 class WebVitalsQuery(BaseModel):
@@ -8785,11 +13993,13 @@ class WebVitalsQuery(BaseModel):
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
-    sampling: Optional[Sampling] = None
+    sampling: Optional[WebAnalyticsSampling] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
         ..., discriminator="kind"
     )
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -8801,6 +14011,8 @@ class DatabaseSchemaQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[DatabaseSchemaQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -8815,16 +14027,21 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -8835,6 +14052,8 @@ class FunnelCorrelationActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightActorsQuery(BaseModel):
@@ -8858,6 +14077,8 @@ class InsightActorsQuery(BaseModel):
         ..., discriminator="kind"
     )
     status: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightActorsQueryOptions(BaseModel):
@@ -8867,6 +14088,93 @@ class InsightActorsQueryOptions(BaseModel):
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
     source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SessionBatchEventsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actionId: Optional[int] = Field(default=None, description="Show events matching a given action")
+    after: Optional[str] = Field(default=None, description="Only fetch events that happened after this timestamp")
+    before: Optional[str] = Field(default=None, description="Only fetch events that happened before this timestamp")
+    event: Optional[str] = Field(default=None, description="Limit to events matching this string")
+    filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
+    fixedProperties: Optional[
+        list[
+            Union[
+                PropertyGroupFilter,
+                PropertyGroupFilterValue,
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ],
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    group_by_session: Optional[bool] = Field(
+        default=None, description="Whether to group results by session_id in the response"
+    )
+    kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
+    limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
+    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
+    personId: Optional[str] = Field(default=None, description="Show events for a given person")
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[SessionBatchEventsQueryResponse] = None
+    select: list[str] = Field(..., description="Return a limited set of data. Required.")
+    session_ids: list[str] = Field(
+        ..., description="List of session IDs to fetch events for. Will be translated to $session_id IN filter."
+    )
+    source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
 class ActorsQuery(BaseModel):
@@ -8907,6 +14215,8 @@ class ActorsQuery(BaseModel):
     source: Optional[
         Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, HogQLQuery]
     ] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class EventsQuery(BaseModel):
@@ -8927,16 +14237,21 @@ class EventsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ],
             ]
         ]
@@ -8958,22 +14273,29 @@ class EventsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
@@ -8991,7 +14313,7 @@ class DataTableNode(BaseModel):
     columns: Optional[list[str]] = Field(
         default=None, description="Columns shown in the table, unless the `source` provides them."
     )
-    context: Optional[Context] = Field(
+    context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
@@ -9003,6 +14325,9 @@ class DataTableNode(BaseModel):
         default=None, description="Columns that aren't shown in the table, even if in columns or returned data"
     )
     kind: Literal["DataTableNode"] = "DataTableNode"
+    pinnedColumns: Optional[list[str]] = Field(
+        default=None, description="Columns that are sticky when scrolling horizontally"
+    )
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     response: Optional[
         Union[
@@ -9013,12 +14338,21 @@ class DataTableNode(BaseModel):
             Response3,
             Response4,
             Response5,
+            Response6,
             Response8,
             Response9,
+            Response10,
+            Response11,
             Response12,
             Response13,
             Response14,
             Response15,
+            Response17,
+            Response18,
+            Response19,
+            Response20,
+            Response21,
+            Response22,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -9043,6 +14377,9 @@ class DataTableNode(BaseModel):
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
@@ -9061,13 +14398,22 @@ class DataTableNode(BaseModel):
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
         SessionAttributionExplorerQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,
+        MarketingAnalyticsTableQuery,
         ErrorTrackingQuery,
+        ErrorTrackingIssueCorrelationQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         TracesQuery,
+        TraceQuery,
     ] = Field(..., description="Source of the events")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HogQLAutocomplete(BaseModel):
@@ -9099,24 +14445,39 @@ class HogQLAutocomplete(BaseModel):
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsOverviewQuery,
+            RevenueAnalyticsTopCustomersQuery,
+            MarketingAnalyticsTableQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
             WebGoalsQuery,
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
+            WebPageURLSearchQuery,
+            WebTrendsQuery,
+            WebAnalyticsExternalSummaryQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            ErrorTrackingIssueCorrelationQuery,
+            LogsQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            CalendarHeatmapQuery,
             RecordingsQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HogQLMetadata(BaseModel):
@@ -9150,40 +14511,76 @@ class HogQLMetadata(BaseModel):
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsOverviewQuery,
+            RevenueAnalyticsTopCustomersQuery,
+            MarketingAnalyticsTableQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
             WebGoalsQuery,
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
+            WebPageURLSearchQuery,
+            WebTrendsQuery,
+            WebAnalyticsExternalSummaryQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            ErrorTrackingIssueCorrelationQuery,
+            LogsQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            CalendarHeatmapQuery,
             RecordingsQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ] = Field(
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
     )
+    tags: Optional[QueryLogTags] = None
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be subsituted into the query"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryRequest(BaseModel):
+class HumanMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    async_: Optional[bool] = Field(default=None, alias="async")
-    client_query_id: Optional[str] = Field(
-        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    content: str
+    id: Optional[str] = None
+    type: Literal["human"] = "human"
+    ui_context: Optional[MaxUIContext] = None
+
+
+class MaxDashboardContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    filters_override: Optional[DashboardFilter] = None
+    description: Optional[str] = None
+    filters: DashboardFilter
+    id: float
+    insights: list[MaxInsightContext]
+    name: Optional[str] = None
+    type: Literal["dashboard"] = "dashboard"
+
+
+class MaxInsightContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    filtersOverride: Optional[DashboardFilter] = None
+    id: str
+    name: Optional[str] = None
     query: Union[
         EventsNode,
         ActionsNode,
@@ -9199,10 +14596,12 @@ class QueryRequest(BaseModel):
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        HogQLASTQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,
         ErrorTrackingQuery,
+        ErrorTrackingIssueCorrelationQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         ExperimentQuery,
@@ -9213,6 +14612,14 @@ class QueryRequest(BaseModel):
         WebGoalsQuery,
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -9225,11 +14632,102 @@ class QueryRequest(BaseModel):
         LifecycleQuery,
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
+        LogsQuery,
         SuggestedQuestionsQuery,
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+    type: Literal["insight"] = "insight"
+    variablesOverride: Optional[dict[str, HogQLVariable]] = None
+
+
+class MaxUIContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[list[MaxActionContext]] = None
+    dashboards: Optional[list[MaxDashboardContext]] = None
+    events: Optional[list[MaxEventContext]] = None
+    insights: Optional[list[MaxInsightContext]] = None
+
+
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    async_: Optional[bool] = Field(default=None, alias="async")
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    filters_override: Optional[DashboardFilter] = None
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
+        ),
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ErrorTrackingIssueCorrelationQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(
         ...,
@@ -9275,10 +14773,12 @@ class QuerySchemaRoot(
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
+            HogQLASTQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            ErrorTrackingIssueCorrelationQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             ExperimentQuery,
@@ -9289,6 +14789,14 @@ class QuerySchemaRoot(
             WebGoalsQuery,
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
+            WebPageURLSearchQuery,
+            WebAnalyticsExternalSummaryQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsOverviewQuery,
+            RevenueAnalyticsTopCustomersQuery,
+            MarketingAnalyticsTableQuery,
             DataVisualizationNode,
             DataTableNode,
             SavedInsightNode,
@@ -9301,11 +14809,13 @@ class QuerySchemaRoot(
             LifecycleQuery,
             FunnelCorrelationQuery,
             DatabaseSchemaQuery,
+            LogsQuery,
             SuggestedQuestionsQuery,
             TeamTaxonomyQuery,
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ]
@@ -9325,10 +14835,12 @@ class QuerySchemaRoot(
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        HogQLASTQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,
         ErrorTrackingQuery,
+        ErrorTrackingIssueCorrelationQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         ExperimentQuery,
@@ -9339,6 +14851,14 @@ class QuerySchemaRoot(
         WebGoalsQuery,
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -9351,14 +14871,263 @@ class QuerySchemaRoot(
         LifecycleQuery,
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
+        LogsQuery,
         SuggestedQuestionsQuery,
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
 
+class QueryUpgradeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ErrorTrackingIssueCorrelationQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        TraceQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class QueryUpgradeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ErrorTrackingIssueCorrelationQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        TraceQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class RootAssistantMessage(
+    RootModel[
+        Union[
+            VisualizationMessage,
+            MultiVisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            NotebookUpdateMessage,
+            PlanningMessage,
+            TaskExecutionMessage,
+            RootAssistantMessage1,
+        ]
+    ]
+):
+    root: Union[
+        VisualizationMessage,
+        MultiVisualizationMessage,
+        ReasoningMessage,
+        AssistantMessage,
+        HumanMessage,
+        FailureMessage,
+        NotebookUpdateMessage,
+        PlanningMessage,
+        TaskExecutionMessage,
+        RootAssistantMessage1,
+    ]
+
+
+class SourceConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    betaSource: Optional[bool] = None
+    caption: Optional[Union[str, Any]] = None
+    disabledReason: Optional[str] = None
+    docsUrl: Optional[str] = None
+    existingSource: Optional[bool] = None
+    featureFlag: Optional[str] = None
+    fields: list[
+        Union[
+            SourceFieldInputConfig,
+            SourceFieldSwitchGroupConfig,
+            SourceFieldSelectConfig,
+            SourceFieldOauthConfig,
+            SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
+        ]
+    ]
+    iconPath: str
+    label: Optional[str] = None
+    name: ExternalDataSourceType
+    unreleasedSource: Optional[bool] = None
+
+
+class Option(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: Optional[
+        list[
+            Union[
+                SourceFieldInputConfig,
+                SourceFieldSwitchGroupConfig,
+                SourceFieldSelectConfig,
+                SourceFieldOauthConfig,
+                SourceFieldFileUploadConfig,
+                SourceFieldSSHTunnelConfig,
+            ]
+        ]
+    ] = None
+    label: str
+    value: str
+
+
+class SourceFieldSelectConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    converter: Optional[SourceFieldSelectConfigConverter] = None
+    defaultValue: str
+    label: str
+    name: str
+    options: list[Option]
+    required: bool
+    type: Literal["select"] = "select"
+
+
+class SourceFieldSwitchGroupConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    caption: Optional[str] = None
+    default: Union[str, float, bool]
+    fields: list[
+        Union[
+            SourceFieldInputConfig,
+            SourceFieldSwitchGroupConfig,
+            SourceFieldSelectConfig,
+            SourceFieldOauthConfig,
+            SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
+        ]
+    ]
+    label: str
+    name: str
+    type: Literal["switch-group"] = "switch-group"
+
+
+ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
+HumanMessage.model_rebuild()
+MaxDashboardContext.model_rebuild()
+MaxInsightContext.model_rebuild()
 QueryRequest.model_rebuild()
+SourceConfig.model_rebuild()

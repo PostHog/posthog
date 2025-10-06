@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -13,7 +14,8 @@ export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
             'Normalize the format of urls in your application allowing you to more easily compare them in insights.',
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [],
     },
 }

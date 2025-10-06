@@ -1,10 +1,10 @@
+import re
 import math
 from itertools import accumulate
-import re
 from string import ascii_uppercase
 from typing import Any
 
-from sentry_sdk import push_scope
+import posthoganalytics
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
@@ -64,29 +64,34 @@ class TrendsFormula:
                 ]
             ),
             breakdown_value=breakdown_value if filter.breakdown else "",
-            max_length=""
-            if is_aggregate
-            else ", arrayMax([{}]) as max_length".format(
-                ", ".join(f"length(sub_{letter}.total)" for letter in letters)
+            max_length=(
+                ""
+                if is_aggregate
+                else ", arrayMax([{}]) as max_length".format(
+                    ", ".join(f"length(sub_{letter}.total)" for letter in letters)
+                )
             ),
             first_query=queries[0],
-            queries="".join(
-                [
-                    "FULL OUTER JOIN ({query}) as sub_{letter} ON sub_A.breakdown_value = sub_{letter}.breakdown_value ".format(
-                        query=query, letter=letters[i + 1]
-                    )
-                    for i, query in enumerate(queries[1:])
-                ]
-            )
-            if filter.breakdown
-            else "".join(
-                [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+            queries=(
+                "".join(
+                    [
+                        "FULL OUTER JOIN ({query}) as sub_{letter} ON sub_A.breakdown_value = sub_{letter}.breakdown_value ".format(
+                            query=query, letter=letters[i + 1]
+                        )
+                        for i, query in enumerate(queries[1:])
+                    ]
+                )
+                if filter.breakdown
+                else "".join(
+                    [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+                )
             ),
         )
-        with push_scope() as scope:
-            scope.set_context("filter", filter.to_dict())
-            scope.set_tag("team", team)
-            scope.set_context("query", {"sql": sql, "params": params})
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("filter", filter.to_dict())
+            posthoganalytics.tag("team_id", str(team.pk))
+            posthoganalytics.tag("query", {"sql": sql, "params": params})
+
             result = insight_sync_execute(
                 sql,
                 params,

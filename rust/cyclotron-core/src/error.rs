@@ -12,6 +12,8 @@ pub enum QueueError {
     JobError(#[from] JobError),
     #[error("vm_state compression error: {0}")]
     CompressionError(String),
+    #[error("writing in-mem CSV buffer at {0}: {1}")]
+    CsvError(&'static str, csv::Error),
 }
 
 #[derive(Debug, thiserror::Error)]

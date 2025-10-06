@@ -1,16 +1,21 @@
+from posthog.test.base import BaseTest
 from unittest import mock
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from posthog.models import Organization, OrganizationInvite, Plugin
 from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
-from posthog.test.base import BaseTest
 
 
 class TestOrganization(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
         self.assertEqual(self.organization.active_invites.count(), 0)
@@ -83,6 +88,22 @@ class TestOrganization(BaseTest):
                 {"key": "test2", "name": "test2"},
             ]
 
+    def test_session_age_caching(self):
+        # Test caching when session_cookie_age is set
+        self.organization.session_cookie_age = 3600
+        self.organization.save()
+        self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 3600)
+
+        # Test cache deletion when session_cookie_age is set to None
+        self.organization.session_cookie_age = None
+        self.organization.save()
+        self.assertIsNone(cache.get(f"org_session_age:{self.organization.id}"))
+
+        # Test cache update when session_cookie_age changes
+        self.organization.session_cookie_age = 7200
+        self.organization.save()
+        self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
+
 
 class TestOrganizationMembership(BaseTest):
     @patch("posthoganalytics.capture")
@@ -99,8 +120,8 @@ class TestOrganizationMembership(BaseTest):
         membership.save()
         # check that the event was sent
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "membership level changed",
+            event="membership level changed",
+            distinct_id=user.distinct_id,
             properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
             groups=mock.ANY,
         )

@@ -3,27 +3,7 @@
     "short_id": "iw14ZE4w",
     "name": "",
     "derived_name": "Pageview count by event's Country Code",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "WorldMap",
-        "insight": "TRENDS",
-        "interval": "day",
-        "breakdown": "$geoip_country_code",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "breakdown_type": "event",
-        "filter_test_accounts": false
-    },
+    "filters": {},
     "filters_hash": "cache_a2e54e38b1b584783d494e4311ebe466",
     "order": null,
     "deleted": false,
@@ -154,6 +134,44 @@
         "email": "michael@example.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "$geoip_country_code",
+                "breakdown_type": "event"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "WorldMap",
+                "resultCustomizationBy": "position",
+                "resultCustomizations": {
+                    "0": {
+                        "assignmentBy": "position",
+                        "hidden": true
+                    }
+                }
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

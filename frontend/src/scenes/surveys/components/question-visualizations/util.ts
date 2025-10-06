@@ -1,0 +1,16 @@
+export const CHART_INSIGHTS_COLORS = [
+    '#1D4BFF',
+    '#CD0F74',
+    '#43827E',
+    '#621DA6',
+    '#F04F58',
+    '#539B0A',
+    '#E3A605',
+    '#0476FB',
+    '#36416B',
+    '#41CBC3',
+    '#A46FFF',
+    '#FE729E',
+    '#CE1175',
+    '#B64B01',
+]

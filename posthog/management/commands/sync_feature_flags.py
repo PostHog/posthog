@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 from typing import cast
 
 from django.core.management.base import BaseCommand
@@ -12,8 +14,8 @@ from posthog.models import FeatureFlag, Project, User
 INACTIVE_FLAGS = [
     "session-reset-on-load",
     "posthog-3000-nav",
-    "tree-view",
     "insight-horizontal-controls",
+    "flagged-feature-indicator",
 ]
 
 
@@ -95,6 +97,7 @@ class Command(BaseCommand):
                             key=flag,
                             created_by=first_user,
                             active=is_enabled,
+                            filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}},
                         )
                     print(
                         f"Created feature flag '{flag} for project {project.id} {' - ' + project.name if project.name else ''}"

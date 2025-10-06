@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface LemonRadioOption<T extends React.Key> {

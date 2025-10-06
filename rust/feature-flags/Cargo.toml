@@ -8,18 +8,20 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+common-cookieless = { path = "../common/cookieless" }
+common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
+common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 limiters = { path = "../common/limiters" }
-time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 bytes = { workspace = true }
+url = "2.5"
 once_cell = "1.18.0"
 rand = { workspace = true }
 redis = { version = "0.23.3", features = [
@@ -29,32 +31,40 @@ redis = { version = "0.23.3", features = [
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+json5 = "0.4"
 thiserror = { workspace = true }
 sha1 = "0.10.6"
-regex = "1.10.4"
-maxminddb = "0.17"
-metrics = { workspace = true }
-sqlx = { workspace = true }
-uuid = { workspace = true }
+regex.workspace = true
 base64.workspace = true
-flate2.workspace = true
+sqlx = { workspace = true, features = ["rust_decimal"] }
+uuid = { workspace = true }
+common-compression = { path = "../common/compression" }
 common-alloc = { path = "../common/alloc" }
 strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
+common-geoip = { path = "../common/geoip" }
 tower = { workspace = true }
 tower-http = { workspace = true }
 petgraph = "0.6.5"
 moka = { workspace = true }
-serde_urlencoded = { workspace = true }
-urlencoding = "2.1.3"
 dateparser = "0.2.1"
+rust_decimal = "1.37.1"
+rayon = "1.10.0"
+percent-encoding = "2.3.1"
+md5 = "0.7.0"
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tokio-retry = "0.3"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+rstest = "0.25.0"
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
-rstest = "0.25.0"
+test-case = "3.3.1"

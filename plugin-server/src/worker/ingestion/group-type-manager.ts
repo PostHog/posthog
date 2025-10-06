@@ -1,9 +1,9 @@
 import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
-import { TeamManager } from './team-manager'
+import { TeamManager } from '../../utils/team-manager'
+import { GroupRepository } from './groups/repositories/group-repository.interface'
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
@@ -13,26 +13,30 @@ export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
 
-    constructor(private postgres: PostgresRouter, private teamManager: TeamManager) {
+    constructor(
+        private groupRepository: GroupRepository,
+        private teamManager: TeamManager
+    ) {
         this.loader = new LazyLoader({
             name: 'GroupTypeManager',
-            refreshAge: 30_000, // 30 seconds
-            refreshNullAge: 30_000, // 30 seconds
+            refreshAgeMs: 30_000, // 30 seconds
             refreshJitterMs: 0,
             loader: async (projectIds: string[]) => {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
-                    const { rows } = await this.postgres.query(
-                        PostgresUse.COMMON_READ,
-                        `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
-                        [Array.from(projectIds)],
-                        'fetchGroupTypes'
-                    )
-                    for (const row of rows) {
-                        const groupTypes = (response[row.project_id] = response[row.project_id] ?? {})
-                        groupTypes[row.group_type] = row.group_type_index
+                    const projectIdNumbers = projectIds.map((id) => parseInt(id) as ProjectId)
+                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(projectIdNumbers)
+
+                    for (const [projectIdStr, groupTypes] of Object.entries(groupTypesByProject)) {
+                        const groupTypeMapping: GroupTypeToColumnIndex = {}
+                        for (const groupType of groupTypes) {
+                            groupTypeMapping[groupType.group_type] = groupType.group_type_index
+                        }
+                        response[projectIdStr] = groupTypeMapping
                     }
+
+                    // Ensure all requested project IDs have an entry, even if empty
                     for (const projectId of projectIds) {
                         response[projectId] = response[projectId] ?? {}
                     }
@@ -58,7 +62,7 @@ export class GroupTypeManager {
             return groupTypes[groupType]
         }
 
-        const [groupTypeIndex, isInsert] = await this.insertGroupType(
+        const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
             groupType,
@@ -84,44 +88,8 @@ export class GroupTypeManager {
         )
     }
 
-    public async insertGroupType(
-        teamId: TeamId,
-        projectId: ProjectId,
-        groupType: string,
-        index: number
-    ): Promise<[GroupTypeIndex | null, boolean]> {
-        if (index >= MAX_GROUP_TYPES_PER_TEAM) {
-            return [null, false]
-        }
-
-        const insertGroupTypeResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `
-            WITH insert_result AS (
-                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT DO NOTHING
-                RETURNING group_type_index
-            )
-            SELECT group_type_index, 1 AS is_insert FROM insert_result
-            UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
-            `,
-            [teamId, projectId, groupType, index],
-            'insertGroupType'
-        )
-
-        if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, projectId, groupType, index + 1)
-        }
-
-        const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
-
-        return [group_type_index, is_insert === 1]
-    }
-
     private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
-        const team: Team | null = await this.teamManager.fetchTeam(teamId)
+        const team: Team | null = await this.teamManager.getTeam(teamId)
 
         if (!team) {
             return

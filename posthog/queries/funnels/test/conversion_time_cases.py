@@ -1,8 +1,9 @@
 from datetime import datetime
 
+from posthog.test.base import APIBaseTest
+
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
-from posthog.test.base import APIBaseTest
 from posthog.test.test_journeys import journeys_for
 
 

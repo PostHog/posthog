@@ -1,13 +1,16 @@
-from inline_snapshot import snapshot
 import pytest
-from common.hogvm.python.utils import UncaughtHogVMException
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
+from posthog.test.base import BaseTest
+
+from inline_snapshot import snapshot
+
 from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,
     template as template_customerio,
 )
+from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.models.plugin import PluginConfig
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 def create_inputs(**kwargs):
@@ -53,6 +56,39 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
                         "name": None,
                         "identifiers": {"email": "example@posthog.com"},
                         "attributes": {"name": "example"},
+                        "timestamp": 1704067200,
+                    },
+                },
+            )
+        )
+
+    def test_will_truncate_long_values(self):
+        self.run_function(
+            inputs=create_inputs(include_all_properties=True),
+            globals={
+                "event": {"event": "$pageview", "properties": {"url": "https://example.com/" + "12345" * 200}},
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://track.customer.io/api/v2/entity",
+                {
+                    "method": "POST",
+                    "headers": {
+                        "User-Agent": "PostHog Customer.io App",
+                        "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
+                        "Content-Type": "application/json",
+                    },
+                    "body": {
+                        "type": "person",
+                        "action": "page",
+                        "name": None,
+                        "identifiers": {"email": "example@posthog.com"},
+                        "attributes": {
+                            "url": "https://example.com/12345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345",
+                            "name": "example",
+                        },
                         "timestamp": 1704067200,
                     },
                 },

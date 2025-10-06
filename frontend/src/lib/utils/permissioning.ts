@@ -1,11 +1,11 @@
-import { EitherMemberType, ExplicitTeamMemberType, OrganizationMemberType, UserType } from '../../types'
+import { OrganizationBasicType, OrganizationMemberType, UserType } from '../../types'
 import { EitherMembershipLevel, OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
 
 /** If access level change is disallowed given the circumstances, returns a reason why so. Otherwise returns null. */
 export function getReasonForAccessLevelChangeProhibition(
     currentMembershipLevel: OrganizationMembershipLevel | null,
     currentUser: UserType,
-    memberToBeUpdated: EitherMemberType,
+    memberToBeUpdated: OrganizationMemberType,
     newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[]
 ): null | string {
     if (memberToBeUpdated.user.uuid === currentUser.uuid) {
@@ -14,13 +14,7 @@ export function getReasonForAccessLevelChangeProhibition(
     if (!currentMembershipLevel) {
         return 'Your membership level is unknown.'
     }
-    let effectiveLevelToBeUpdated: OrganizationMembershipLevel
-    if ('effectiveLevel' in (memberToBeUpdated as ExplicitTeamMemberType)) {
-        // In EitherMemberType only ExplicitTeamMemberType has effectiveLevel
-        effectiveLevelToBeUpdated = (memberToBeUpdated as ExplicitTeamMemberType).effective_level
-    } else {
-        effectiveLevelToBeUpdated = (memberToBeUpdated as OrganizationMemberType).level
-    }
+    const effectiveLevelToBeUpdated = memberToBeUpdated.level
     if (Array.isArray(newLevelOrAllowedLevels)) {
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
             return null
@@ -53,6 +47,15 @@ export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
     [OrganizationMembershipLevel.Admin, 'admin'],
     [OrganizationMembershipLevel.Owner, 'owner'],
 ])
+
+export function hasMembershipLevelOrHigher(org: OrganizationBasicType, role: OrganizationMembershipLevel): boolean {
+    return org.membership_level !== null && org.membership_level >= role
+}
+
+export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBasicType): boolean {
+    // undefined means the value is missing from the API response, so we treat it as true as a fallback
+    return [true, undefined].includes(org.members_can_use_personal_api_keys)
+}
 
 export const organizationMembershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'

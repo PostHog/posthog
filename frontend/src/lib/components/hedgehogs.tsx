@@ -1,9 +1,14 @@
 // Loads custom icons (some icons may come from a third-party library)
+import { ImgHTMLAttributes } from 'react'
+
+import bigLeaguesHog from 'public/hedgehog/big-leagues.png'
 import blushingHog from 'public/hedgehog/blushing-hog.png'
 import builderHog1 from 'public/hedgehog/builder-hog-01.png'
 import builderHog2 from 'public/hedgehog/builder-hog-02.png'
 import builderHog3 from 'public/hedgehog/builder-hog-03.png'
 import burningMoneyHog from 'public/hedgehog/burning-money-hog.png'
+import climberHog1 from 'public/hedgehog/climber-hog-01.png'
+import climberHog2 from 'public/hedgehog/climber-hog-02.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
 import experimentsHog from 'public/hedgehog/experiments-hog.png'
 import explorerHog from 'public/hedgehog/explorer-hog.png'
@@ -11,6 +16,7 @@ import featureFlagHog from 'public/hedgehog/feature-flag-hog.png'
 import filmCameraHog from 'public/hedgehog/filmcamera.png'
 import heartHog from 'public/hedgehog/heart-hog.png'
 import hospitalHog from 'public/hedgehog/hospital-hog.png'
+import judgeHog from 'public/hedgehog/judge-hog.png'
 import laptopHog1 from 'public/hedgehog/laptop-hog-01.png'
 import laptopHog2 from 'public/hedgehog/laptop-hog-02.png'
 import laptopHog3 from 'public/hedgehog/laptop-hog-03.png'
@@ -35,7 +41,7 @@ import warningHog from 'public/hedgehog/warning-hog.png'
 import wavingHog from 'public/hedgehog/waving-hog.png'
 import xRayHog from 'public/hedgehog/x-ray-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
-import { ImgHTMLAttributes } from 'react'
+import ycHog from 'public/hedgehog/yc-hog.png'
 
 type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
 
@@ -153,7 +159,21 @@ export const BurningMoneyHog = (props: HedgehogProps): JSX.Element => {
 export const FilmCameraHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={filmCameraHog} {...props} />
 }
-
 export const SupermanHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={supermanHog} {...props} />
+}
+export const JudgeHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={judgeHog} {...props} />
+}
+export const ClimberHog1 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={climberHog1} width={378} height={417} {...props} />
+}
+export const ClimberHog2 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={climberHog2} width={518} height={1586} {...props} />
+}
+export const YCHog = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={ycHog} width={1134} height={651} {...props} />
+}
+export const BigLeaguesHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={bigLeaguesHog} {...props} />
 }

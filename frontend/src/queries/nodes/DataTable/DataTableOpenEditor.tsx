@@ -1,10 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconTableChart } from 'lib/lemon-ui/icons'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -16,21 +18,13 @@ interface DataTableOpenEditorProps {
 export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.Element | null {
     const { response } = useValues(dataTableLogic)
 
-    const tableInsightQuery: DataTableNode | null = response?.hogql
-        ? {
-              kind: NodeKind.DataTableNode,
-              full: true,
-              source: { kind: NodeKind.HogQLQuery, query: response.hogql },
-          }
-        : null
-
     return (
         <LemonButton
             type="secondary"
             icon={<IconTableChart />}
             to={urls.insightNew({ query })}
             sideAction={
-                response?.hogql
+                response && 'hogql' in response && response.hogql
                     ? {
                           dropdown: {
                               overlay: (
@@ -38,7 +32,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                       items={[
                                           {
                                               label: 'Open as direct SQL insight',
-                                              to: urls.insightNew({ query: tableInsightQuery! }),
+                                              to: urls.sqlEditor(response.hogql),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}

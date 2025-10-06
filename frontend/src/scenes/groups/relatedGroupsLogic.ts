@@ -1,5 +1,6 @@
-import { actions, connect, events, kea, key, path, props } from 'kea'
+import { actions, connect, events, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,11 +14,12 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
         {} as {
             groupTypeIndex: number | null
             id: string
+            type?: 'person' | 'group'
         }
     ),
     key((props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`),
     path(['scenes', 'groups', 'relatedGroupsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions(() => ({
         loadRelatedActors: true,
     })),
@@ -34,6 +36,12 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
                 },
                 setGroup: () => [],
             },
+        ],
+    })),
+    selectors(({ selectors }) => ({
+        relatedPeople: [
+            () => [selectors.relatedActors],
+            (relatedActors: ActorType[]) => relatedActors.filter((actor) => actor.type === 'person'),
         ],
     })),
     events(({ actions }) => ({

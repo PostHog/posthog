@@ -1,36 +1,37 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { actions, beforeUnmount, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
-import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
+import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
-import {
-    buildTimestampCommentContent,
-    NotebookNodeReplayTimestampAttrs,
-} from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
+
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+// NOTE: Annoyingly, if we import this then kea logic type-gen generates
+// two imports and fails so, we reimport it from the types file
 import {
-    ActivityScope,
-    CommentType,
+    NotebookEditor,
     NotebookNodeType,
     NotebookSyncStatus,
     NotebookTarget,
     NotebookType,
-    SidePanelTab,
-} from '~/types'
-
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
+    TableOfContentData,
+} from '../types'
+import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
 import type { notebookLogicType } from './notebookLogicType'
-// NOTE: Annoyingly, if we import this then kea logic type-gen generates
-// two imports and fails so, we reimport it from a utils file
-import { EditorRange, JSONContent, NotebookEditor } from './utils'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
@@ -76,6 +77,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookSettingsLogic,
+            ['showTableOfContents'],
         ],
         actions: [
             notebooksModel,
@@ -94,7 +97,11 @@ export const notebookLogic = kea<notebookLogicType>([
         editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
-        setLocalContent: (jsonContent: JSONContent, updateEditor = false) => ({ jsonContent, updateEditor }),
+        setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
+            jsonContent,
+            updateEditor,
+            skipCapture,
+        }),
         clearLocalContent: true,
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
@@ -122,13 +129,8 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
-        insertReplayCommentByTimestamp: (options: {
-            timestamp: number
-            sessionRecordingId: string
-            knownStartingPosition?: number
-            nodeId?: string
-        }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
@@ -219,6 +221,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
+        tableOfContents: [
+            [] as TableOfContentData,
+            {
+                setTableOfContents: (_, { tableOfContents }) => tableOfContents,
+            },
+        ],
         containerSize: [
             'small' as 'small' | 'medium',
             {
@@ -243,7 +251,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: null,
                             text_content: null,
                             version: 0,
-                            user_access_level: 'editor',
+                            user_access_level: AccessControlLevel.Editor,
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =
@@ -269,7 +277,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    const notebook = migrate(response)
+                    const notebook = await migrate(response)
 
                     if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
@@ -296,7 +304,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()
                         }
-
+                        refreshTreeItem('notebook', String(values.notebook.short_id))
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
@@ -311,6 +319,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
                     const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    refreshTreeItem('notebook', String(values.notebook.short_id))
                     return response
                 },
             },
@@ -339,8 +348,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         values.mode === 'canvas'
                             ? 'Canvas'
                             : values.notebook?.short_id === 'scratchpad'
-                            ? 'Scratchpad'
-                            : 'Template'
+                              ? 'Scratchpad'
+                              : 'Template'
                     lemonToast.success(`Notebook created from ${source}!`)
 
                     if (values.notebook?.short_id === 'scratchpad') {
@@ -356,7 +365,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
-        shortId: [() => [(_, props) => props], (props): string => props.shortId],
+        shortId: [(_, p) => [p.shortId], (shortId) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
@@ -440,7 +449,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         nodeLogicsWithChildren: [
             (s) => [s.nodeLogics, s.content],
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics, _content) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
                 return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
@@ -448,16 +457,20 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
-            (editingNodeId, showHistory, containerSize) => {
-                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
+            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
+                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
             },
         ],
 
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' || (shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor'),
+                mode === 'canvas' ||
+                (shouldBeEditable &&
+                    !previewContent &&
+                    !!notebook?.user_access_level &&
+                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -500,38 +513,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition, nodeId }) => {
-            await runWhenEditorIsReady(
-                () => !!values.editor,
-                () => {
-                    let insertionPosition =
-                        knownStartingPosition || values.editor?.findNodePositionByAttrs({ id: sessionRecordingId })
-                    let nextNode = values.editor?.nextNode(insertionPosition)
-                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
-                        const candidateTimestampAttributes = nextNode.node.content.firstChild
-                            ?.attrs as NotebookNodeReplayTimestampAttrs
-                        const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
-                        if (nextNodePlaybackTime <= timestamp) {
-                            insertionPosition = nextNode.position
-                            nextNode = values.editor?.nextNode(insertionPosition)
-                        } else {
-                            nextNode = null
-                        }
-                    }
-
-                    values.editor?.insertContentAfterNode(
-                        insertionPosition,
-                        buildTimestampCommentContent({
-                            playbackTime: timestamp,
-                            sessionRecordingId,
-                            sourceNodeId: nodeId,
-                        })
-                    )
-                }
-            )
-        },
-        setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.mode !== 'canvas' && values.notebook?.user_access_level !== 'editor') {
+        setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
+            if (
+                values.mode !== 'canvas' &&
+                !!values.notebook?.user_access_level &&
+                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+            ) {
                 actions.clearLocalContent()
                 return
             }
@@ -559,9 +546,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 )
             }
 
-            posthog.capture('notebook content changed', {
-                short_id: values.notebook?.short_id,
-            })
+            if (!skipCapture) {
+                posthog.capture('notebook content changed', {
+                    short_id: values.notebook?.short_id,
+                })
+            }
 
             if (!values.isLocalOnly && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
@@ -590,7 +579,14 @@ export const notebookLogic = kea<notebookLogicType>([
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
-            actions.onUpdateEditor()
+            // Throttle onUpdateEditor to avoid performance issues with many notebook nodes
+            if (cache.throttledOnUpdateEditorTimeout) {
+                clearTimeout(cache.throttledOnUpdateEditorTimeout)
+            }
+            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                actions.onUpdateEditor()
+                cache.throttledOnUpdateEditorTimeout = null
+            }, 16) // ~60fps throttling
         },
         setEditor: () => {
             values.editor?.setContent(values.content)
@@ -614,7 +610,14 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorSelectionUpdate: () => {
             if (values.editor) {
-                actions.onUpdateEditor()
+                // Throttle this too to avoid excessive calls
+                if (cache.throttledOnUpdateEditorTimeout) {
+                    clearTimeout(cache.throttledOnUpdateEditorTimeout)
+                }
+                cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                    actions.onUpdateEditor()
+                    cache.throttledOnUpdateEditorTimeout = null
+                }, 16) // ~60fps throttling
             }
         },
         scrollToSelection: () => {

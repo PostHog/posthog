@@ -1,9 +1,11 @@
-import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
+import { Fragment, useState } from 'react'
+
+import { IconCollapse, IconExpand } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { inStorybook, inStorybookTestRunner, slugify } from 'lib/utils'
-import { Fragment, useState } from 'react'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'

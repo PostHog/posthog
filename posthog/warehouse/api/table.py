@@ -1,19 +1,26 @@
+import re
 from typing import Any
 
-from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
-from posthog.api.utils import action
+from django.conf import settings
+
+import boto3
+import posthoganalytics
+from rest_framework import filters, parsers, request, response, serializers, status, viewsets
+
+from posthog.schema import DatabaseSerializedFieldType
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
-from posthog.schema import DatabaseSerializedFieldType
+from posthog.api.utils import action
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
-from posthog.warehouse.models import (
-    DataWarehouseCredential,
-    DataWarehouseTable,
-)
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 
 
@@ -68,7 +75,7 @@ class TableSerializer(serializers.ModelSerializer):
         serializes_fields = serialize_fields(
             fields,
             HogQLContext(database=database, team_id=self.context["team_id"]),
-            table.name,
+            table.name_chain,
             table.columns,
             table_type="external",
         )
@@ -94,14 +101,6 @@ class TableSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         team_id = self.context["team_id"]
 
-        table_name_exists = (
-            DataWarehouseTable.objects.exclude(deleted=True)
-            .filter(team_id=team_id, name=validated_data["name"])
-            .exists()
-        )
-        if table_name_exists:
-            raise exceptions.ValidationError("Table name already exists.")
-
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
         if validated_data.get("credential"):
@@ -120,6 +119,14 @@ class TableSerializer(serializers.ModelSerializer):
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
+
+    def validate_name(self, name):
+        if not self.instance or self.instance.name != name:
+            name_exists_in_hogql_database = self.context["database"].has_table(name)
+            if name_exists_in_hogql_database:
+                raise serializers.ValidationError("A table with this name already exists.")
+
+        return name
 
 
 class SimpleTableSerializer(serializers.ModelSerializer):
@@ -140,7 +147,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         fields = serialize_fields(
             table.hogql_definition().fields,
             HogQLContext(database=database, team_id=team_id),
-            table.name,
+            table.name_chain,
             table_type="external",
         )
         return [
@@ -162,7 +169,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_table"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
     filter_backends = [filters.SearchFilter]
@@ -267,3 +274,123 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser],
+    )
+    def file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = Team.objects.get(id=self.team_id)
+        is_warehouse_api_enabled = posthoganalytics.feature_enabled(
+            "warehouse-api",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
+
+        if not is_warehouse_api_enabled:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Warehouse API is not enabled for this organization"},
+            )
+
+        if "file" not in request.FILES:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        file = request.FILES["file"]
+        table_name = request.data.get("name", file.name)
+        file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate table name format
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
+                },
+            )
+
+        # Validate table name
+        team_id = self.team_id
+        table = None
+        table_query = DataWarehouseTable.objects.exclude(deleted=True).filter(team_id=team_id, name=table_name)
+        if table_query.exists():
+            table = table_query.first()
+
+        if file.size > 52428800:  # 50MB in bytes
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"File size exceeds maximum allowed size of 50MB"},
+            )
+
+        # Create the table record
+        try:
+            # Create credential if object storage is available
+            credential = None
+            if hasattr(settings, "AIRBYTE_BUCKET_KEY") and hasattr(settings, "AIRBYTE_BUCKET_SECRET"):
+                credential = get_or_create_datawarehouse_credential(
+                    team_id=team_id,
+                    access_key=settings.AIRBYTE_BUCKET_KEY,
+                    access_secret=settings.AIRBYTE_BUCKET_SECRET,
+                )
+            else:
+                capture_exception(
+                    Exception("Object storage keys not found: AIRBYTE_BUCKET_KEY or AIRBYTE_BUCKET_SECRET")
+                )
+                return response.Response(
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    data={"message": "An unexpected error occurred. Please try again later."},
+                )
+
+            # Create the table if it doesn't exist, otherwise use existing one
+            if table is None:
+                table = DataWarehouseTable.objects.create(
+                    team_id=team_id,
+                    name=table_name,
+                    format=file_format,
+                    created_by=request.user,
+                    credential=credential,  # type: ignore
+                )
+
+            # Generate URL pattern and store file in object storage
+            if credential and settings.DATAWAREHOUSE_BUCKET:
+                s3 = boto3.client(
+                    "s3",
+                    aws_access_key_id=credential.access_key,
+                    aws_secret_access_key=credential.access_secret,
+                    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                )
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
+
+                # Set the URL pattern for the table
+                table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
+                table.format = file_format
+
+                if table.credential is None:
+                    table.credential = credential
+
+                # Try to determine columns from the file
+                table.columns = table.get_columns()
+                table.save()
+
+                # Validate columns in background
+                from posthog.tasks.warehouse import validate_data_warehouse_table_columns
+
+                validate_data_warehouse_table_columns.delay(team_id, str(table.id))
+
+                return response.Response(
+                    status=status.HTTP_201_CREATED,
+                    data=TableSerializer(table, context=self.get_serializer_context()).data,
+                )
+            else:
+                if table is not None and table.credential is None:
+                    table.delete()
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Object storage must be available to upload files."},
+                )
+        except Exception as e:
+            capture_exception(e)
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})

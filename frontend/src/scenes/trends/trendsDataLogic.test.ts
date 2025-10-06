@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

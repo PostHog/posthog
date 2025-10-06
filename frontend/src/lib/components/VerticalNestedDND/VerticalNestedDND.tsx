@@ -1,38 +1,41 @@
 import {
-    closestCenter,
     CollisionDetection,
-    defaultDropAnimationSideEffects,
     DndContext,
-    DraggableSyntheticListeners,
     DragOverlay,
+    DraggableSyntheticListeners,
     DropAnimation,
-    getFirstCollision,
     MeasuringStrategy,
     MouseSensor,
+    TouchSensor,
+    closestCenter,
+    defaultDropAnimationSideEffects,
+    getFirstCollision,
     pointerWithin,
     rectIntersection,
-    TouchSensor,
     useSensor,
     useSensors,
 } from '@dnd-kit/core'
 import type { UniqueIdentifier } from '@dnd-kit/core/dist/types'
 import {
     AnimateLayoutChanges,
+    SortableContext,
     arrayMove,
     defaultAnimateLayoutChanges,
-    SortableContext,
     useSortable,
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
-import { IconTrash } from '@posthog/icons'
-import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal, unstable_batchedUpdates } from 'react-dom'
+import { createPortal } from 'react-dom'
+
+import { IconTrash } from '@posthog/icons'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 const NOOP = (): void => {}
 export interface VDNDChildItem {
@@ -486,13 +489,11 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     function handleAddContainerItem(): void {
         const newItem: Item = createNewContainerItem()
 
-        unstable_batchedUpdates(() => {
-            setContainers((containers) => [...containers, newItem.id])
-            setItems((items) => ({
-                ...items,
-                [newItem.id]: newItem,
-            }))
-        })
+        setContainers((containers) => [...containers, newItem.id])
+        setItems((items) => ({
+            ...items,
+            [newItem.id]: newItem,
+        }))
     }
 
     function handleAddChildItem(containerId: UniqueIdentifier): void {
@@ -604,11 +605,11 @@ function SortableItem<Item extends VDNDChildItem>({
 function useMountStatus(): boolean {
     const [isMounted, setIsMounted] = useState(false)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const timeout = setTimeout(() => setIsMounted(true), 500)
 
         return () => clearTimeout(timeout)
-    }, [])
+    })
 
     return isMounted
 }
@@ -789,7 +790,7 @@ export const ChildItem = React.memo(
             ...props
         },
         ref
-    ) {
+    ): JSX.Element {
         const handle = true
         useEffect(() => {
             if (!dragOverlay) {
@@ -811,7 +812,6 @@ export const ChildItem = React.memo(
                 }`}
             >
                 <div
-                    data-cypress="draggable-item"
                     {...(!handle ? listeners : undefined)}
                     {...props}
                     tabIndex={!handle ? 0 : undefined}

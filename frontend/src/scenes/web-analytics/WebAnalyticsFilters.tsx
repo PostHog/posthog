@@ -1,12 +1,13 @@
-import { IconFilter, IconGear, IconGlobe } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconGear, IconGlobe } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
+import { FilterBar } from 'lib/components/FilterBar'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { useState } from 'react'
+import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -15,75 +16,49 @@ import { AvailableFeature, PropertyMathType } from '~/types'
 
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
-import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
+import { ProductTab } from './common'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-export const WebAnalyticsFilters = (): JSX.Element => {
-    const [expanded, setExpanded] = useState(false)
-
-    return (
-        <div className="flex flex-col md:flex-row md:justify-between gap-2">
-            <div className="flex items-start shrink-0">
-                <div className="flex flex-1 flex-row gap-2 items-center">
-                    <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
-                        <ReloadAll iconOnly />
-
-                        <WebAnalyticsDomainSelector />
-                        <WebAnalyticsDeviceToggle />
-                    </div>
-
-                    <div className="hidden md:flex items-center gap-2">
-                        <span className="text-muted-alt">|</span>
-                        <WebAnalyticsLiveUserCount />
-                    </div>
-
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        className="sm:hidden"
-                        onClick={() => setExpanded((expanded) => !expanded)}
-                        icon={<IconFilter />}
-                    />
-                </div>
-            </div>
-
-            {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
-            <div className="hidden sm:flex gap-2">
-                <FoldableFilters />
-            </div>
-
-            <div
-                className={clsx(
-                    'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
-                    expanded ? 'max-h-[500px]' : 'max-h-0'
-                )}
-            >
-                <FoldableFilters />
-            </div>
-        </div>
-    )
-}
-
-const FoldableFilters = (): JSX.Element => {
+export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
+        preAggregatedEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
     return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
-            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-            <WebAnalyticsCompareFilter />
+        <FilterBar
+            top={tabs}
+            left={
+                <>
+                    <ReloadAll iconOnly />
 
-            <WebConversionGoal />
-            <TableSortingIndicator />
+                    <WebAnalyticsDomainSelector />
+                    <WebAnalyticsDeviceToggle />
 
-            <WebVitalsPercentileToggle />
-            <PathCleaningToggle />
+                    <div className="hidden ml-2 md:flex items-center gap-2">
+                        <span className="text-muted-alt">|</span>
+                        <WebAnalyticsLiveUserCount />
+                    </div>
+                </>
+            }
+            right={
+                <>
+                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    <WebAnalyticsCompareFilter />
 
-            <WebPropertyFilters />
-        </div>
+                    {!preAggregatedEnabled && <WebConversionGoal />}
+                    <TableSortingIndicator />
+
+                    <WebVitalsPercentileToggle />
+                    <PathCleaningToggle />
+
+                    <WebPropertyFilters />
+                </>
+            }
+        />
     )
 }
 
@@ -149,7 +124,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={hasHostFilter ? 'host' : domainFilter ?? 'all'}
+            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
             icon={<IconGlobe />}
             onChange={(value) => setDomainFilter(value)}
             disabledReason={
@@ -240,11 +215,11 @@ const WebVitalsPercentileToggle = (): JSX.Element | null => {
     )
 }
 
-const WebAnalyticsCompareFilter = (): JSX.Element | null => {
+export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
     const { compareFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
-    if (productTab !== ProductTab.ANALYTICS) {
+    if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
         return null
     }
 

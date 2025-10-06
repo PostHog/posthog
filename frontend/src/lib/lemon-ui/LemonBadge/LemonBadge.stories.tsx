@@ -1,5 +1,8 @@
-import { IconPlusSmall } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import React from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonBadge, LemonBadgeProps } from './LemonBadge'
@@ -65,10 +68,10 @@ export const Status: StoryFn<typeof LemonBadge> = () => {
     return (
         <div className="flex deprecated-space-x-2 items-center">
             {statuses.map((status) => (
-                <>
+                <React.Fragment key={status}>
                     <span>{status}</span>
                     <LemonBadge content={<IconPlusSmall />} status={status as LemonBadgeProps['status']} />
-                </>
+                </React.Fragment>
             ))}
         </div>
     )

@@ -4,7 +4,7 @@ import {
     NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
@@ -28,13 +28,13 @@ import {
     EntityTypes,
     FilterType,
     FunnelExclusionLegacy,
-    FunnelsFilterType,
     FunnelVizType,
+    FunnelsFilterType,
     InsightType,
     IntervalType,
     LifecycleFilterType,
-    PathsFilterType,
     PathType,
+    PathsFilterType,
     RetentionFilterType,
     RetentionPeriod,
     StickinessFilterType,
@@ -82,7 +82,7 @@ export const getClampedStepRangeFilter = ({
     }
 
     return {
-        ...(stepRange || {}),
+        ...stepRange,
         funnel_from_step,
         funnel_to_step,
     }
@@ -98,12 +98,11 @@ export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): Funn
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
-            ...{ funnel_from_step },
-            ...{
-                funnel_to_step: event.funnel_to_step
-                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
-                    : lastIndex,
-            },
+            funnel_from_step,
+
+            funnel_to_step: event.funnel_to_step
+                ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                : lastIndex,
         }
     })
     return exclusions.length > 0 ? exclusions : undefined
@@ -147,7 +146,7 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
         cleanedParams['breakdown'] = '$geoip_country_code'
         // this isn't a react hook
-        // eslint-disable-next-line react-hooks/rules-of-hooks
+        // oxlint-disable-next-line react-hooks/rules-of-hooks
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }
@@ -304,14 +303,17 @@ export function cleanFilters(
             returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
             date_to: filters.date_to,
             period: filters.period || RetentionPeriod.Day,
-            retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
+            retention_type:
+                filters.retention_type ||
+                (filters as any)['retentionType'] ||
+                RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             show_mean: filters.show_mean,
             ...(filters.mean_retention_calculation && filters.mean_retention_calculation !== RETENTION_MEAN_NONE
                 ? { mean_retention_calculation: filters.mean_retention_calculation }
-                : {}),
+                : { mean_retention_calculation: 'simple' }),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
@@ -422,8 +424,8 @@ export function cleanFilters(
             insight: isLifecycleFilter(filters)
                 ? InsightType.LIFECYCLE
                 : isStickinessFilter(filters)
-                ? InsightType.STICKINESS
-                : InsightType.TRENDS,
+                  ? InsightType.STICKINESS
+                  : InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
             ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
@@ -478,8 +480,8 @@ export function cleanFilters(
         trendLikeFilter['shown_as'] = isStickinessFilter(filters)
             ? ShownAsValue.STICKINESS
             : isLifecycleFilter(filters)
-            ? ShownAsValue.LIFECYCLE
-            : undefined
+              ? ShownAsValue.LIFECYCLE
+              : undefined
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false

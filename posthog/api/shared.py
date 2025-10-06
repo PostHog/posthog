@@ -6,13 +6,13 @@ import copy
 from typing import Any, Optional
 
 from rest_framework import serializers
+from rest_framework.fields import SkipField
+from rest_framework.relations import PKOnlyObject
+from rest_framework.utils import model_meta
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
-from rest_framework.fields import SkipField
-from rest_framework.relations import PKOnlyObject
-from rest_framework.utils import model_meta
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -214,7 +214,7 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "slug", "logo_media_id", "membership_level"]
+        fields = ["id", "name", "slug", "logo_media_id", "membership_level", "members_can_use_personal_api_keys"]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(

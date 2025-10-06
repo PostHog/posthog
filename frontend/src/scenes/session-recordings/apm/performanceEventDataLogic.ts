@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import {
     getPerformanceEvents,
     initiatorToAssetTypeMapping,
@@ -6,16 +7,16 @@ import {
 } from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
-    sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { FilterableInspectorListItemTypes, PerformanceEvent, RecordingEventType } from '~/types'
+import { PerformanceEvent, RecordingEventType } from '~/types'
 
 import type { performanceEventDataLogicType } from './performanceEventDataLogicType'
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: FilterableInspectorListItemTypes.NETWORK
+    type: 'network'
     data: PerformanceEvent
 }
 
@@ -73,7 +74,7 @@ function matchWebVitalsEvents(
     for (const event of sortPerformanceEvents(performanceEvents)) {
         if (event.entry_type === 'navigation') {
             lastNavigationEvent = event
-            nextTimestamp = navigationTimestamps.find((t) => t > event.timestamp) ?? null
+            nextTimestamp = navigationTimestamps.find((t) => t > (event.timestamp as number)) ?? null
         } else {
             if (!lastNavigationEvent) {
                 continue
@@ -85,7 +86,7 @@ function matchWebVitalsEvents(
                 }
 
                 const webVitalUnixTimestamp = new Date(webVital.timestamp).valueOf()
-                const isAfterLastNavigation = webVitalUnixTimestamp > lastNavigationEvent.timestamp
+                const isAfterLastNavigation = webVitalUnixTimestamp > (lastNavigationEvent.timestamp as number)
                 const isBeforeNextNavigation = webVitalUnixTimestamp < (nextTimestamp ?? Infinity)
                 if (isAfterLastNavigation && isBeforeNextNavigation) {
                     lastNavigationEvent.web_vitals = lastNavigationEvent.web_vitals || new Set()

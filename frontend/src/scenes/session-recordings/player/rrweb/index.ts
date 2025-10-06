@@ -1,6 +1,7 @@
-import { playerConfig, ReplayPlugin } from '@posthog/rrweb'
-import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import Hls from 'hls.js'
+
+import { ReplayPlugin, playerConfig } from '@posthog/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
     'url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");'
@@ -100,7 +101,6 @@ export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void)
     }
 
     return {
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises
         handler: async (e: eventWithTime, isSync) => {
             if ('windowId' in e && e.windowId && isSync) {
                 const windowId = e.windowId as string
@@ -166,6 +166,77 @@ const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_
 // fix tracked in https://github.com/rrweb-io/rrweb/pull/1322
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
+
+export type LogType = 'log' | 'warning'
+export type LoggingTimers = Record<LogType, NodeJS.Timeout | null>
+export type BuiltLogging = {
+    logger: playerConfig['logger']
+    timers: LoggingTimers
+}
+
+export const makeNoOpLogger = (): BuiltLogging => {
+    return {
+        logger: {
+            log: () => {},
+            warn: () => {},
+        },
+        timers: { log: null, warning: null },
+    }
+}
+
+export const makeLogger = (onIncrement: (count: number) => void): BuiltLogging => {
+    const counters = {
+        log: 0,
+        warning: 0,
+    }
+
+    ;(window as any)[`__posthog_player_logs`] = (window as any)[`__posthog_player_logs`] || []
+    ;(window as any)[`__posthog_player_warnings`] = (window as any)[`__posthog_player_warnings`] || []
+
+    const logStores: Record<LogType, any[]> = {
+        log: (window as any)[`__posthog_player_logs`],
+        warning: (window as any)[`__posthog_player_warnings`],
+    }
+
+    const timers: LoggingTimers = {
+        log: null,
+        warning: null,
+    }
+
+    const logger = (type: LogType): ((message?: any, ...optionalParams: any[]) => void) => {
+        // NOTE: RRWeb can log _alot_ of warnings,
+        // so we debounce the count otherwise we just end up making the performance worse
+        // We also don't log the messages directly.
+        // Sometimes the sheer size of messages and warnings can cause the browser to crash deserializing it all
+
+        return (...args: any[]): void => {
+            logStores[type].push(args)
+            counters[type] += 1
+
+            if (!timers[type]) {
+                timers[type] = setTimeout(() => {
+                    timers[type] = null
+                    if (type === 'warning') {
+                        onIncrement(logStores[type].length)
+                    }
+
+                    console.warn(
+                        `[PostHog Replayer] ${counters[type]} ${type}s (window.__posthog_player_${type}s to safely log them)`
+                    )
+                    counters[type] = 0
+                }, 5000)
+            }
+        }
+    }
+
+    return {
+        logger: {
+            log: logger('log'),
+            warn: logger('warning'),
+        },
+        timers,
+    }
+}
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,

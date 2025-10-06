@@ -1,7 +1,8 @@
 import re
 import uuid
-from unittest.mock import patch
-from unittest.mock import MagicMock
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from boto3 import resource
 from botocore.client import Config
@@ -13,15 +14,15 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.storage.object_storage import (
+    ObjectStorage,
+    copy_objects,
+    get_presigned_post,
+    get_presigned_url,
     health_check,
+    list_objects,
     read,
     write,
-    get_presigned_url,
-    list_objects,
-    copy_objects,
-    ObjectStorage,
 )
-from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket"
 
@@ -88,6 +89,18 @@ class TestStorage(APIBaseTest):
             assert re.match(
                 r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
                 presigned_url,
+            )
+
+    def test_can_generate_presigned_post_url(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_upload_url/{uuid.uuid4()}"
+
+            presigned_url = get_presigned_post(file_name, conditions=[])
+            assert presigned_url is not None
+            assert "fields" in presigned_url
+            assert re.match(
+                r"^http://localhost:\d+/posthog",
+                presigned_url["url"],
             )
 
     def test_can_list_objects_with_prefix(self) -> None:

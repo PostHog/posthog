@@ -1,21 +1,23 @@
 /*
 Scene to request a password reset email.
 */
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { passwordResetLogic } from './passwordResetLogic'
 import { SupportModalButton } from './SupportModalButton'
+import { passwordResetLogic } from './passwordResetLogic'
 
 export const scene: SceneExport = {
     component: PasswordReset,

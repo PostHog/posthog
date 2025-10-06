@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
 
 def build_inputs(multiProductEvent=False):
@@ -17,7 +17,7 @@ def build_inputs(multiProductEvent=False):
                 else "{[{ 'content_id': event.properties.product_id, 'price': event.properties.price, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand, 'quantity': event.properties.quantity }]}",
                 "currency": "{event.properties.currency ?? 'USD'}",
                 "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
-                "num_items": "{length(event.properties.products ?? [])}"
+                "num_items": "{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}"
                 if multiProductEvent
                 else "{event.properties.quantity}",
                 "search_string": "{event.properties.query}",
@@ -51,16 +51,17 @@ def build_inputs(multiProductEvent=False):
     ]
 
 
-template_tiktok_pixel: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template_tiktok_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="alpha",
     free=False,
     type="site_destination",
     id="template-tiktok-pixel",
     name="TikTok Pixel",
-    description="Track how many TikTok users interact with your website.",
+    description="Track how many TikTok users interact with your website. Note that this destination will set third-party cookies.",
     icon_url="/static/services/tiktok.png",
     category=["Advertisement"],
-    hog="""
+    code_language="javascript",
+    code="""
 // Adds window.snaptr and lazily loads the TikTok Pixel script
 function initSnippet() {
     !function (w, d, t) {
@@ -76,7 +77,7 @@ export function onLoad({ inputs }) {
 
     let userProperties = {};
     for (const [key, value] of Object.entries(inputs.userProperties)) {
-        if (value) {
+        if (value || value === '') {
             userProperties[key] = value;
         }
     };
@@ -120,9 +121,18 @@ export function onEvent({ inputs }) {
             "description": "Map of TikTok user parameters and their values. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1739585700402178#item-link-Identity%20information%20supported",
             "label": "User parameters",
             "default": {
-                "email": "{sha256Hex(lower(person.properties.email))}",
-                "phone_number": "{sha256Hex(lower(person.properties.phone))}",
-                "external_id": "{sha256Hex(person.id)}",
+                "email": "{not empty(person.properties.email) ? sha256Hex(lower(person.properties.email)) : ''}",
+                "first_name": "{not empty(person.properties.first_name) ? sha256Hex(lower(person.properties.first_name)) : ''}",
+                "last_name": "{not empty(person.properties.last_name) ? sha256Hex(lower(person.properties.last_name)) : ''}",
+                "phone": "{not empty(person.properties.phone) ? sha256Hex(person.properties.phone) : ''}",
+                "external_id": "{not empty(person.id) ? sha256Hex(person.id) : ''}",
+                "city": "{not empty(person.properties.$geoip_city_name) ? replaceAll(lower(person.properties.$geoip_city_name), ' ', '') : null}",
+                "state": "{lower(person.properties.$geoip_subdivision_1_code)}",
+                "country": "{lower(person.properties.$geoip_country_code)}",
+                "zip_code": "{not empty (person.properties.$geoip_postal_code) ? sha256Hex(replaceAll(lower(person.properties.$geoip_postal_code), ' ', '')) : null}",
+                "ttclid": "{person.properties.ttclid ?? person.properties.$initial_ttclid}",
+                "ip": "{event.properties.$ip}",
+                "user_agent": "{event.properties.$raw_user_agent}",
             },
             "secret": False,
             "required": False,
@@ -274,9 +284,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Place an Order",
+            name="Order Placed",
             include_by_default=True,
-            filters={"events": [{"id": "Place an Order", "type": "events"}]},
+            filters={"events": [{"id": "Order Placed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",

@@ -3,26 +3,7 @@
     "short_id": "jEAIVJnG",
     "name": "",
     "derived_name": "Retention of users based on doing Pageview for the first time and returning with the same event",
-    "filters": {
-        "period": "Day",
-        "display": "ActionsTable",
-        "insight": "RETENTION",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "target_entity": {
-            "id": "signed up",
-            "name": "signed up",
-            "type": "events"
-        },
-        "retention_type": "retention_first_time",
-        "returning_entity": {
-            "id": "$pageview",
-            "name": "$pageview",
-            "type": "events"
-        }
-    },
+    "filters": {},
     "filters_hash": "cache_4f4306af941fa3a1e14ec30da0ac8339",
     "order": null,
     "deleted": false,
@@ -387,6 +368,36 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "RetentionQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "retentionFilter": {
+                "meanRetentionCalculation": "simple",
+                "period": "Day",
+                "retentionType": "retention_first_time",
+                "returningEntity": {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events"
+                },
+                "targetEntity": {
+                    "id": "signed up",
+                    "name": "signed up",
+                    "type": "events"
+                }
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

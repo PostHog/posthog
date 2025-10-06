@@ -1,18 +1,20 @@
 import re
+from typing import TYPE_CHECKING, Union
+
+from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    UnknownDatabaseField,
 )
-
-from django.db.models import Q
-from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
@@ -21,9 +23,18 @@ if TYPE_CHECKING:
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
     from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 
+    table_names = [name]
+    if "." in name:
+        chain = name.split(".")
+        if len(chain) == 2:
+            table_names = [f"{chain[0]}_{chain[1]}"]
+        elif len(chain) == 3:
+            # Support both `_` suffixed source prefix and without - e.g. postgres_table_name and postgrestable_name
+            table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
+
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
         DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-        .filter(team=team, name=name)
+        .filter(team=team, name__in=table_names)
         .first()
     )
     if table is None:
@@ -36,15 +47,43 @@ def remove_named_tuples(type):
     from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
     tokenified_type = re.split(r"(\W)", type)
-    filtered_tokens = [
-        token
-        for token in tokenified_type
-        if token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
-    ]
+    filtered_tokens = []
+    i = 0
+    while i < len(tokenified_type):
+        token = tokenified_type[i]
+        # handle tokenization of DateTime types that need to be parsed in a specific way ie) DateTime64(3, 'UTC')
+        if token == "DateTime64" or token == "DateTime32":
+            filtered_tokens.append(token)
+            i += 1
+            if i < len(tokenified_type) and tokenified_type[i] == "(":
+                filtered_tokens.append(tokenified_type[i])
+                i += 1
+                while i < len(tokenified_type) and tokenified_type[i] != ")":
+                    if tokenified_type[i] == "'":
+                        filtered_tokens.append(tokenified_type[i])
+                        i += 1
+                        while i < len(tokenified_type) and tokenified_type[i] != "'":
+                            filtered_tokens.append(tokenified_type[i])
+                            i += 1
+                        if i < len(tokenified_type):
+                            filtered_tokens.append(tokenified_type[i])
+                    else:
+                        filtered_tokens.append(tokenified_type[i])
+                    i += 1
+                if i < len(tokenified_type):
+                    filtered_tokens.append(tokenified_type[i])
+        elif (
+            token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
+        ):
+            filtered_tokens.append(token)
+        i += 1
     return "".join(filtered_tokens)
 
 
 def clean_type(column_type: str) -> str:
+    # Replace newline characters followed by empty space
+    column_type = re.sub(r"\n\s+", "", column_type)
+
     if column_type.startswith("Nullable("):
         column_type = column_type.replace("Nullable(", "")[:-1]
 
@@ -59,6 +98,7 @@ def clean_type(column_type: str) -> str:
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
+    "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
     "DateTime": DateTimeDatabaseField,
@@ -80,7 +120,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
-    "Decimal": FloatDatabaseField,
+    "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
 }
 
@@ -89,8 +129,10 @@ STR_TO_HOGQL_MAPPING = {
     "DateDatabaseField": DateDatabaseField,
     "DateTimeDatabaseField": DateTimeDatabaseField,
     "IntegerDatabaseField": IntegerDatabaseField,
+    "DecimalDatabaseField": DecimalDatabaseField,
     "FloatDatabaseField": FloatDatabaseField,
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UnknownDatabaseField": UnknownDatabaseField,
 }

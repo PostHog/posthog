@@ -1,15 +1,15 @@
 from abc import ABC
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.models.team.team import Team
-from posthog.schema import (
-    HogQLQueryModifiers,
-)
 
+from posthog.models.team.team import Team
 from posthog.types import InsightQueryNode
 
 

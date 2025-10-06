@@ -27,21 +27,26 @@ pub fn captured_parse_fn(
         // Grab the events timestamp, or make one up
         let timestamp = get_timestamp(&raw);
 
-        let inner = CapturedEvent {
-            uuid,
-            distinct_id,
-            ip: "127.0.0.1".to_string(),
-            data: serde_json::to_string(&raw)?,
-            now: timestamp,
-            sent_at: None, // We don't know when it was sent at, since it's a historical import
-            token: context.token.clone(),
-            is_cookieless_mode: false,
-        };
+        // Only return the event if import_events is enabled
+        if context.import_events {
+            let inner = CapturedEvent {
+                uuid,
+                distinct_id,
+                ip: "127.0.0.1".to_string(),
+                data: serde_json::to_string(&raw)?,
+                now: timestamp,
+                sent_at: None, // We don't know when it was sent at, since it's a historical import
+                token: context.token.clone(),
+                is_cookieless_mode: false,
+            };
 
-        Ok(Some(InternallyCapturedEvent {
-            team_id: context.team_id,
-            inner,
-        }))
+            Ok(Some(InternallyCapturedEvent {
+                team_id: context.team_id,
+                inner,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 

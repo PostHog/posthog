@@ -75,7 +75,7 @@ test('does not show the json tab usually', async ({ page }) => {
     const navigation = new Navigation(page)
     await navigation.openHome()
 
-    await navigation.openMenuItem('savedinsights')
+    await navigation.openMenuItem('product-analytics')
 
     await expect(page.getByTestId('insight-json-tab')).toHaveCount(0)
 })

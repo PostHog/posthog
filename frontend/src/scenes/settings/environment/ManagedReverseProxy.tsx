@@ -1,3 +1,7 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import { IconEllipsis, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,9 +15,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
@@ -24,7 +26,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { AvailableFeature } from '~/types'
 
-import { proxyLogic, ProxyRecord } from './proxyLogic'
+import { ProxyRecord, proxyLogic } from './proxyLogic'
 
 const statusText = {
     valid: 'live',
@@ -66,8 +68,8 @@ export function ManagedReverseProxy(): JSX.Element {
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
-                                ? 'text-danger'
-                                : 'text-warning-dark'
+                                  ? 'text-danger'
+                                  : 'text-warning-dark'
                         )}
                     >
                         {status === 'issuing' && <Spinner />}

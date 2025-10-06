@@ -1,10 +1,11 @@
 import uuid
 
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
 from posthog.models.event.util import create_event
 from posthog.models.utils import uuid7
-from posthog.test.base import APIBaseTest
 
 
 class TestSessionsAPI(APIBaseTest):

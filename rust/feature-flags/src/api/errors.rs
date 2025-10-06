@@ -1,8 +1,11 @@
-use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use common_cookieless::CookielessManagerError;
+use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
 use common_redis::CustomRedisError;
 use thiserror::Error;
+
+use crate::utils::graph_utils::DependencyType;
 
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
@@ -28,8 +31,6 @@ pub enum FlagError {
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
-    #[error("Empty distinct_id in request")]
-    EmptyDistinctId,
     #[error("No distinct_id in request")]
     MissingDistinctId,
     #[error("No api_key in request")]
@@ -49,19 +50,61 @@ pub enum FlagError {
     #[error("database unavailable")]
     DatabaseUnavailable,
     #[error("Database error: {0}")]
-    DatabaseError(String),
+    DatabaseError(sqlx::Error, Option<String>),
     #[error("Timed out while fetching data")]
-    TimeoutError,
+    TimeoutError(Option<String>),
     #[error("No group type mappings")]
     NoGroupTypeMappings,
-    #[error("Cohort not found")]
-    CohortNotFound(String),
+    #[error("Dependency of type {0} with id {1} not found")]
+    DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
-    #[error("Cohort dependency cycle")]
-    CohortDependencyCycle(String),
+    #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
+    DependencyCycle(DependencyType, i64),
     #[error("Person not found")]
     PersonNotFound,
+    #[error("Person properties not found")]
+    PropertiesNotInCache,
+    #[error("Static cohort matches not cached")]
+    StaticCohortMatchesNotCached,
+    #[error(transparent)]
+    CookielessError(#[from] CookielessManagerError),
+}
+
+impl FlagError {
+    pub fn is_5xx(&self) -> bool {
+        let status = match self {
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
+            FlagError::Internal(_)
+            | FlagError::CacheUpdateError
+            | FlagError::DeserializeFiltersError
+            | FlagError::DatabaseError(_, _)
+            | FlagError::NoGroupTypeMappings
+            | FlagError::RowNotFound
+            | FlagError::DependencyNotFound(_, _)
+            | FlagError::CohortFiltersParsingError
+            | FlagError::DependencyCycle(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            FlagError::RedisDataParsingError
+            | FlagError::RedisUnavailable
+            | FlagError::DatabaseUnavailable
+            | FlagError::TimeoutError(_) => StatusCode::SERVICE_UNAVAILABLE,
+
+            FlagError::CookielessError(
+                CookielessManagerError::HashError(_)
+                | CookielessManagerError::ChronoError(_)
+                | CookielessManagerError::RedisError(_, _)
+                | CookielessManagerError::SaltCacheError(_)
+                | CookielessManagerError::InvalidIdentifyCount(_),
+            ) => StatusCode::INTERNAL_SERVER_ERROR,
+            FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
+            _ => return false,                             // Everything else is 4XX
+        };
+        status.is_server_error()
+    }
 }
 
 impl IntoResponse for FlagError {
@@ -82,13 +125,10 @@ impl IntoResponse for FlagError {
                 )
             }
             FlagError::RequestDecodingError(msg) => {
-                (StatusCode::BAD_REQUEST, format!("Failed to decode request: {}. Please check your request format and try again.", msg))
+                (StatusCode::BAD_REQUEST, format!("Failed to decode request: {msg}. Please check your request format and try again."))
             }
             FlagError::RequestParsingError(err) => {
-                (StatusCode::BAD_REQUEST, format!("Failed to parse request: {}. Please ensure your request is properly formatted and all required fields are present.", err))
-            }
-            FlagError::EmptyDistinctId => {
-                (StatusCode::BAD_REQUEST, "The distinct_id field cannot be empty. Please provide a valid identifier.".to_string())
+                (StatusCode::BAD_REQUEST, format!("Failed to parse request: {err}. Please ensure your request is properly formatted and all required fields are present."))
             }
             FlagError::MissingDistinctId => {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
@@ -134,15 +174,20 @@ impl IntoResponse for FlagError {
                     "Our database service is currently unavailable. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
-            FlagError::DatabaseError(msg) => {
-                tracing::error!("Database error: {}", msg);
+            FlagError::DatabaseError(sqlx_error, context) => {
+                if let Some(ctx) = context {
+                    tracing::error!("Database error with context '{}': {}", ctx, sqlx_error);
+                } else {
+                    tracing::error!("Database error: {}", sqlx_error);
+                }
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "A database error occurred. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::TimeoutError => {
-                tracing::error!("Timeout error: {:?}", self);
+            FlagError::TimeoutError(ref timeout_type) => {
+                let timeout_desc = timeout_type.as_deref().unwrap_or("unknown type");
+                tracing::error!("Timeout error ({}): {:?}", timeout_desc, self);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
@@ -162,20 +207,53 @@ impl IntoResponse for FlagError {
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::CohortNotFound(msg) => {
-                tracing::error!("Cohort not found: {}", msg);
-                (StatusCode::NOT_FOUND, msg)
+            FlagError::DependencyNotFound(dependency_type, dependency_id) => {
+                tracing::error!("Dependency of type {dependency_type} with id {dependency_id} not found");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency of type {dependency_type} with id {dependency_id} not found"))
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
-                (StatusCode::BAD_REQUEST, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
-            FlagError::CohortDependencyCycle(msg) => {
-                tracing::error!("Cohort dependency cycle: {}", msg);
-                (StatusCode::BAD_REQUEST, msg)
+            FlagError::DependencyCycle(dependency_type, cycle_start_id) => {
+                tracing::error!("{} dependency cycle: {:?}", dependency_type, cycle_start_id);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency cycle detected: {dependency_type} id {cycle_start_id} starts the cycle"))
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::PropertiesNotInCache => {
+                (StatusCode::BAD_REQUEST, "Person properties not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::StaticCohortMatchesNotCached => {
+                (StatusCode::BAD_REQUEST, "Static cohort matches not cached. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::CookielessError(err) => {
+                match err {
+                    // 400 Bad Request errors - client-side issues
+                    CookielessManagerError::MissingProperty(prop) => {
+                        tracing::warn!("Cookieless missing property: {}", prop);
+                        (StatusCode::BAD_REQUEST, format!("Missing required property: {prop}"))
+                    },
+                    CookielessManagerError::UrlParseError(e) => {
+                        tracing::warn!("Cookieless URL parse error: {}", e);
+                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {e}"))
+                    },
+                    CookielessManagerError::InvalidTimestamp(msg) => {
+                        tracing::warn!("Cookieless invalid timestamp: {}", msg);
+                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}"))
+                    },
+
+                    // 500 Internal Server Error - server-side issues
+                    err @ (CookielessManagerError::HashError(_) |
+                          CookielessManagerError::ChronoError(_) |
+                          CookielessManagerError::RedisError(_, _) |
+                          CookielessManagerError::SaltCacheError(_) |
+                          CookielessManagerError::InvalidIdentifyCount(_)) => {
+                        tracing::error!("Internal cookieless error: {}", err);
+                        (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred while processing your request.".to_string())
+                    }
+                }
             }
         }
         .into_response()
@@ -186,15 +264,9 @@ impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
-            CustomRedisError::PickleError(e) => {
-                tracing::error!("failed to fetch data from redis: {}", e);
-                FlagError::RedisDataParsingError
-            }
-            CustomRedisError::Timeout => FlagError::TimeoutError,
-            CustomRedisError::Other(e) => {
-                tracing::error!("Unknown redis error: {}", e);
-                FlagError::RedisUnavailable
-            }
+            CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
+            CustomRedisError::Timeout => FlagError::TimeoutError(Some("redis_timeout".to_string())),
+            CustomRedisError::Other(_) => FlagError::RedisUnavailable,
         }
     }
 }
@@ -202,23 +274,129 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Other(_) => {
-                tracing::error!("failed to get connection: {}", e);
-                FlagError::DatabaseUnavailable
+            CustomDatabaseError::Timeout(_) => {
+                FlagError::TimeoutError(Some("client_timeout".to_string()))
             }
-            CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
+            CustomDatabaseError::Other(sqlx_error) => {
+                // Check if it's a timeout-related SQL error
+                if is_timeout_error(&sqlx_error) {
+                    FlagError::TimeoutError(
+                        extract_timeout_type(&sqlx_error).map(|s| s.to_string()),
+                    )
+                } else {
+                    FlagError::DatabaseUnavailable
+                }
+            }
         }
     }
 }
 
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
-        // TODO: Be more precise with error handling here
-        tracing::error!("sqlx error: {}", e);
-        println!("sqlx error: {}", e);
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
-            _ => FlagError::DatabaseError(e.to_string()),
+            _ => {
+                // Check if it's a timeout-related SQL error
+                if is_timeout_error(&e) {
+                    FlagError::TimeoutError(extract_timeout_type(&e).map(|s| s.to_string()))
+                } else {
+                    FlagError::DatabaseError(e, None)
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::time::{timeout, Duration};
+
+    #[test]
+    fn test_is_5xx() {
+        // Test 5XX errors
+        assert!(FlagError::Internal("test".to_string()).is_5xx());
+        assert!(FlagError::CacheUpdateError.is_5xx());
+        assert!(FlagError::DatabaseUnavailable.is_5xx());
+        assert!(FlagError::RedisUnavailable.is_5xx());
+        assert!(FlagError::TimeoutError(None).is_5xx());
+        assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
+
+        // Test 4XX errors
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())).is_5xx()
+        );
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())).is_5xx()
+        );
+        assert!(!FlagError::ClientFacing(ClientFacingError::RateLimited).is_5xx());
+        assert!(!FlagError::ClientFacing(ClientFacingError::BillingLimit).is_5xx());
+        assert!(!FlagError::MissingDistinctId.is_5xx());
+        assert!(!FlagError::NoTokenError.is_5xx());
+        assert!(!FlagError::TokenValidationError.is_5xx());
+        assert!(!FlagError::PersonNotFound.is_5xx());
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_timeout() {
+        // Test that CustomDatabaseError::Timeout converts to FlagError::TimeoutError with client_timeout
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let elapsed_error = rt.block_on(async {
+            timeout(
+                Duration::from_nanos(1),
+                tokio::time::sleep(Duration::from_secs(1)),
+            )
+            .await
+            .unwrap_err()
+        });
+
+        let timeout_error = CustomDatabaseError::Timeout(elapsed_error);
+        let flag_error: FlagError = timeout_error.into();
+        assert!(
+            matches!(flag_error, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "client_timeout")
+        );
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_timeout() {
+        // Test that sqlx timeout errors convert to FlagError::TimeoutError with pool_timeout
+        let sqlx_timeout = CustomDatabaseError::Other(sqlx::Error::PoolTimedOut);
+        let flag_error: FlagError = sqlx_timeout.into();
+        assert!(
+            matches!(flag_error, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "pool_timeout")
+        );
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_non_timeout() {
+        // Test that non-timeout sqlx errors convert to FlagError::DatabaseUnavailable
+        let sqlx_error = CustomDatabaseError::Other(sqlx::Error::RowNotFound);
+        let flag_error: FlagError = sqlx_error.into();
+        assert!(matches!(flag_error, FlagError::DatabaseUnavailable));
+    }
+
+    #[test]
+    fn test_direct_sqlx_timeout_conversion() {
+        // Test that direct sqlx timeout errors convert to FlagError::TimeoutError with type
+        let sqlx_timeout: FlagError = sqlx::Error::PoolTimedOut.into();
+        assert!(
+            matches!(sqlx_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "pool_timeout")
+        );
+    }
+
+    #[test]
+    fn test_direct_sqlx_non_timeout_conversion() {
+        // Test that direct non-timeout sqlx errors are handled correctly
+        let sqlx_error: FlagError = sqlx::Error::RowNotFound.into();
+        assert!(matches!(sqlx_error, FlagError::RowNotFound));
+    }
+
+    #[test]
+    fn test_redis_timeout_conversion() {
+        // Test that Redis timeout errors include timeout type
+        let redis_timeout: FlagError = CustomRedisError::Timeout.into();
+        assert!(
+            matches!(redis_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "redis_timeout")
+        );
     }
 }

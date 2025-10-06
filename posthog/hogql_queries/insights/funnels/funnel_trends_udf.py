@@ -1,15 +1,17 @@
-from typing import cast, Optional
+from typing import Optional, cast
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import BreakdownAttributionType, BreakdownType
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
+
 from posthog.hogql_queries.insights.funnels import FunnelTrends
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS
 from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDFMixin
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
-from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -48,15 +50,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                 """
         return ""
 
-    def udf_event_array_filter(self):
-        return self._udf_event_array_filter(1, 4, 5)
-
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
-        # If they're asking for a "to_step" just truncate the funnel
         funnelsFilter = self.context.funnelsFilter
-        max_steps = self.context.max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
+        max_steps = self.context.max_steps
         self.context.max_steps_override = max_steps
 
         if self.context.funnelsFilter.funnelOrderType == "strict":
@@ -77,22 +75,34 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
         if getattr(self.context.funnelsFilter, "exclusions", None):
             exclusions = "".join([f",-{i + 1} * exclusion_{i}" for i in range(1, self.context.max_steps)])
 
-        # Todo: Make this work for breakdowns
         if self.context.breakdownType == BreakdownType.COHORT:
             fn = "aggregate_funnel_cohort_trends"
-            breakdown_prop = ", prop"
         elif self._query_has_array_breakdown():
             fn = "aggregate_funnel_array_trends"
-            breakdown_prop = ""
         else:
             fn = "aggregate_funnel_trends"
-            breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
+        if not self.context.breakdown:
+            prop_selector = self._default_breakdown_selector()
+        elif self._query_has_array_breakdown():
+            prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
+        else:
+            prop_selector = "ifNull(prop_basic, '')"
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        from_step = funnelsFilter.funnelFromStep or 0
+        from_step = (funnelsFilter.funnelFromStep or 0) + 1
+        to_step = max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
+
+        prop_vals = self._prop_vals()
+
+        prop_arg = "prop"
+        if self._query_has_array_breakdown() and self.context.breakdownAttributionType in (
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ):
+            assert isinstance(self.context.breakdown, list)
+            prop_arg = f"""[empty(prop) ? [{",".join(["''"] * len(self.context.breakdown))}] : prop]"""
 
         inner_select = cast(
             ast.SelectQuery,
@@ -106,14 +116,16 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
                 ))) as events_array,
+                {prop_vals} as prop,
                 arrayJoin({fn}(
                     {from_step},
+                    {to_step},
                     {max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
-                    {self._prop_vals()},
-                    {self.udf_event_array_filter()}
+                    {prop_arg},
+                    events_array
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
@@ -121,7 +133,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                 {self.matched_event_select()}
                 aggregation_target as aggregation_target
             FROM {{inner_event_query}}
-            GROUP BY aggregation_target{breakdown_prop}
+            GROUP BY aggregation_target
         """,
                 {"inner_event_query": inner_event_query},
             ),

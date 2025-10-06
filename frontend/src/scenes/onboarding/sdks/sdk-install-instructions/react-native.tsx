@@ -1,29 +1,36 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonDivider, Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
+
 export interface RNSetupProps {
+    hideWizard?: boolean
     includeReplay?: boolean
+    includeSurveys?: boolean
 }
 
-function RNInstallSnippet({ includeReplay }: RNSetupProps): JSX.Element {
+function RNInstallSnippet({ includeReplay, includeSurveys }: RNSetupProps): JSX.Element {
     return (
         <CodeSnippet language={Language.Bash}>
             {`# Expo apps
 npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization${
                 includeReplay ? ` posthog-react-native-session-replay` : ''
-            } 
+            }${includeSurveys ? ` react-native-safe-area-context react-native-svg` : ''}
 
 # Standard React Native apps
-yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info${
+yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize${
                 includeReplay ? ` posthog-react-native-session-replay` : ''
-            } 
+            }${includeSurveys ? ` react-native-safe-area-context react-native-svg` : ''}
 # or
-npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info${
+npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize${
                 includeReplay ? ` posthog-react-native-session-replay` : ''
-            } 
+            }${includeSurveys ? ` react-native-safe-area-context react-native-svg` : ''}
 
 # for iOS
 cd ios
@@ -76,10 +83,10 @@ export function MyApp() {
                 // No data is captured from the request or response body.
                 // iOS only
                 captureNetworkTelemetry: true,
-                // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 500ms
-                androidDebouncerDelayMs: 500,
-                // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 1000ms
-                iOSdebouncerDelayMs: 1000,
+                // Throttling delay used to reduce the number of snapshots captured and reduce performance impact
+                // The lower the number more snapshots will be captured but higher the performance impact
+                // Default is 1000ms
+                throttleDelayMs: 1000,
             },`
                     : ''
             }
@@ -93,13 +100,56 @@ export function MyApp() {
     )
 }
 
-export function SDKInstallRNInstructions(props: RNSetupProps): JSX.Element {
+function RNSetupSurveysProvider(): JSX.Element {
     return (
         <>
+            <p>
+                Add PostHogSurveyProvider to your app anywhere inside PostHogProvider. This component fetches surveys.
+                It also acts as the root for where popover surveys are rendered.
+            </p>
+            <CodeSnippet language={Language.JSX}>
+                {`<PostHogProvider>
+    <PostHogSurveyProvider>{children}</PostHogSurveyProvider>
+</PostHogProvider>`}
+            </CodeSnippet>
+            <p>
+                If you're not using the PostHogProvider, add PostHogSurveyProvider to your app anywhere inside your app
+                root component.
+            </p>
+            <CodeSnippet language={Language.JSX}>
+                {`<YourAppRoot>
+  <PostHogSurveyProvider>{children}</PostHogSurveyProvider>
+</YourAppRoot>`}
+            </CodeSnippet>
+            <p>You can also pass your client instance to the PostHogSurveyProvider.</p>
+            <CodeSnippet language={Language.JSX}>{`<PostHogSurveyProvider client={posthog}>`}</CodeSnippet>
+        </>
+    )
+}
+
+export function SDKInstallRNInstructions(props: RNSetupProps): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = !props.hideWizard && isCloudOrDev
+    return (
+        <>
+            {showSetupWizard && (
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="React Native" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
+            )}
             <h3>Install</h3>
-            <RNInstallSnippet {...props} />
+            <RNInstallSnippet includeReplay={props.includeReplay} includeSurveys={props.includeSurveys} />
             <h3>Configure</h3>
-            <RNSetupSnippet {...props} />
+            <RNSetupSnippet includeReplay={props.includeReplay} />
+            {props.includeSurveys && (
+                <>
+                    <h3>Setup SurveysProvider</h3>
+                    <RNSetupSurveysProvider />
+                </>
+            )}
         </>
     )
 }

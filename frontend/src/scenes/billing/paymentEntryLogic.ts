@@ -1,34 +1,39 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { BillingProductV2Type } from '~/types'
+
+import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
     connect: {
-        actions: [
-            userLogic,
-            ['loadUser'],
-            organizationLogic,
-            ['loadCurrentOrganization'],
-            billingLogic,
-            ['loadBilling'],
-        ],
+        actions: [userLogic, ['loadUser'], organizationLogic, ['loadCurrentOrganization']],
     },
 
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),
-        setError: (error) => ({ error }),
+        setStripeError: (error) => ({ error }),
+        setApiError: (error) => ({ error }),
+        clearErrors: true,
         initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
-        showPaymentEntryModal: (redirectPath?: string | null) => ({ redirectPath }),
+        startPaymentEntryFlow: (product?: BillingProductV2Type | null, redirectPath?: string | null) => ({
+            product,
+            redirectPath,
+        }),
+        showPaymentEntryModal: true,
         hidePaymentEntryModal: true,
         setRedirectPath: (redirectPath: string | null) => ({ redirectPath }),
     },
@@ -46,10 +51,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                 setLoading: (_, { loading }) => loading,
             },
         ],
-        error: [
+        stripeError: [
             null,
             {
-                setError: (_, { error }) => error,
+                setStripeError: (_, { error }) => error,
+                clearErrors: () => null,
+            },
+        ],
+        apiError: [
+            null,
+            {
+                setApiError: (_, { error }) => error,
+                clearErrors: () => null,
             },
         ],
         authorizationStatus: [
@@ -69,21 +82,46 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             null as string | null,
             {
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
-                showPaymentEntryModal: (state, { redirectPath }) => redirectPath ?? state,
             },
         ],
     },
 
     listeners: ({ actions, values }) => ({
+        startPaymentEntryFlow: ({ product, redirectPath }) => {
+            const { billing } = billingLogic.values
+
+            // TODO(@zach): we should also check that they have a valid default payment method
+            if (billing?.customer_id) {
+                // If customer_id exists, redirect to the upgrade product link
+                // because they already have an active stripe customer
+                if (product) {
+                    const { setBillingProductLoading } = billingProductLogic({ product }).actions
+                    setBillingProductLoading(product.type)
+                }
+                window.location.href = getUpgradeProductLink({
+                    product: product || undefined,
+                    redirectPath: redirectPath || undefined,
+                })
+                return
+            }
+
+            // Otherwise, proceed with showing the modal
+            actions.setRedirectPath(redirectPath || null)
+            actions.showPaymentEntryModal()
+        },
         initiateAuthorization: async () => {
             actions.setLoading(true)
-            actions.setError(null)
+            actions.clearErrors()
             try {
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
                 actions.setLoading(false)
             } catch (error) {
-                actions.setError('Failed to initialize payment')
+                posthog.captureException(
+                    new Error('payment entry api error - initiate authorization error', { cause: error })
+                )
+                actions.setApiError('Failed to initialize payment')
+                actions.setLoading(false)
             }
         },
 
@@ -100,26 +138,32 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         payment_intent_id: paymentIntentId || searchPaymentIntentId,
                     })
                     const status = response.status
+                    const errorMessage = response.error || 'Payment failed. Please try again.'
 
                     actions.setAuthorizationStatus(status)
 
                     if (status === 'success') {
+                        // Load before doing anything to reload in entitlements on the organization
+                        await billingLogic.asyncActions.loadBilling()
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
-                            // Push success to the url
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 success: true,
                             })
-                            actions.loadBilling()
                             actions.loadCurrentOrganization()
                             actions.loadUser()
                             actions.hidePaymentEntryModal()
                         }
                         return
                     } else if (status === 'failed') {
-                        actions.setError('Payment failed')
+                        actions.setApiError(errorMessage)
+                        posthog.captureException(
+                            new Error('payment entry api error - authorization status failed', {
+                                cause: new Error(errorMessage),
+                            })
+                        )
                         return
                     }
 
@@ -127,20 +171,30 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     if (attempts < maxAttempts) {
                         setTimeout(() => void poll(), pollInterval)
                     } else {
-                        actions.setError('Payment status check timed out')
+                        actions.setApiError('Payment status check timed out')
+                        posthog.captureException(
+                            new Error('payment entry api error - authorization status timed out', {
+                                cause: new Error(errorMessage),
+                            })
+                        )
                     }
                 } catch (error) {
-                    actions.setError('Failed to check payment status')
+                    actions.setStripeError('Failed to complete. Please refresh the page and try again.')
+                    posthog.captureException(new Error('payment entry api error', { cause: error }))
                 } finally {
-                    // Reset the state
                     actions.setLoading(false)
-                    actions.setAuthorizationStatus(null)
                     actions.setClientSecret(null)
                     actions.setRedirectPath(null)
                 }
             }
 
             await poll()
+        },
+
+        hidePaymentEntryModal: () => {
+            // Clear client secret when modal is closed to ensure a fresh one is used next time
+            actions.setClientSecret(null)
+            actions.clearErrors()
         },
     }),
 })

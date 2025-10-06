@@ -1,5 +1,6 @@
-import { IconArrowDown, IconArrowUp, IconSort } from 'lib/lemon-ui/icons'
 import { forwardRef } from 'react'
+
+import { IconArrowDown, IconArrowUp, IconSort } from 'lib/lemon-ui/icons'
 
 /** Sorting state. */
 export interface Sorting {
@@ -21,9 +22,8 @@ export function getNextSorting(
         return { columnKey: selectedColumnKey, order: 1 }
     } else if (currentSorting.order === 1) {
         return { columnKey: selectedColumnKey, order: -1 }
-    } else {
-        return null
     }
+    return null
 }
 
 export const SortingIndicator: React.FunctionComponent<

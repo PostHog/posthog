@@ -1,0 +1,42 @@
+let b := x -> x * 2
+print(b)
+print(b(2))
+print(b(8))
+
+print('--------')
+
+let func := x -> x * 2
+let arr := [func]
+
+print(func(2))
+print(arr[1](2))
+print((x -> x * 2)(2))
+
+print('--------')
+
+let withArg := x -> {
+    print(x)
+    print('moo')
+    print('cow')
+}
+withArg(2)
+
+print('--------')
+
+let noArg := () -> {
+    print('moo')
+    print('cow')
+}
+noArg()
+
+print('-------- lambdas do not survive json --------')
+
+print(b)
+print(jsonStringify(b)) // just a json string "<lambda:0>"
+let c := jsonParse(jsonStringify(b))
+print(c) // prints a string, can't be called
+
+print('--------')
+
+let arrayMapObjects := arrayMap(a -> ({'a': a}), [1, 2, 3])
+print(arrayMapObjects)

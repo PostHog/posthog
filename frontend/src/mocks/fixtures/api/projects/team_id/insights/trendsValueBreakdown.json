@@ -3,27 +3,7 @@
     "short_id": "jEAIVJnL",
     "name": "",
     "derived_name": "Pageview count by event's Browser Version",
-    "filters": {
-        "insight": "TRENDS",
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "ActionsBarValue",
-        "interval": "day",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "filter_test_accounts": false,
-        "breakdown": "$browser_version",
-        "breakdown_type": "event"
-    },
+    "filters": {},
     "filters_hash": "cache_309b0892c580a61346adfcd3e5957f66",
     "order": null,
     "deleted": false,
@@ -200,6 +180,44 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "$browser_version",
+                "breakdown_type": "event"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsBarValue",
+                "resultCustomizationBy": "position",
+                "resultCustomizations": {
+                    "2": {
+                        "assignmentBy": "position",
+                        "hidden": true
+                    }
+                }
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

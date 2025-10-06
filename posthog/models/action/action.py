@@ -1,14 +1,23 @@
 from dataclasses import asdict, dataclass
-from typing import Literal, Optional, Union, get_args
+from typing import TYPE_CHECKING, Literal, Optional, Union, get_args
 
 from django.db import models
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
+from posthog.models.utils import RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
 ACTION_STEP_MATCHING_OPTIONS: tuple[ActionStepMatching, ...] = get_args(ActionStepMatching)
@@ -28,10 +37,11 @@ class ActionStepJSON:
     properties: Optional[list[dict]] = None
 
 
-class Action(models.Model):
+class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     description = models.TextField(blank=True, default="")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
@@ -67,6 +77,25 @@ class Action(models.Model):
     def save(self, *args, **kwargs):
         self.refresh_bytecode()
         super().save(*args, **kwargs)
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Action"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="action", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Actions"),
+            type="action",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/data-management/actions/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
     def get_analytics_metadata(self):
         return {
@@ -108,7 +137,7 @@ class Action(models.Model):
                 self.bytecode_error = None
         except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail. Instead of spamming
-            # Sentry with errors, ignore those cases for now.
+            # with errors, ignore those cases for now.
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)

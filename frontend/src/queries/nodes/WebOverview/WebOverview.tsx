@@ -1,21 +1,27 @@
-import { IconGear, IconTrending } from '@posthog/icons'
+import clsx from 'clsx'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { getColorVar } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
-import { useState } from 'react'
-import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
+    WebAnalyticsItemKind,
     WebOverviewItem,
-    WebOverviewItemKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -29,13 +35,17 @@ const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
+
 export function WebOverview(props: {
     query: WebOverviewQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
+    uniqueKey?: string | number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const [_key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const key = props.uniqueKey ? String(props.uniqueKey) : _key
     const logic = dataNodeLogic({
         query: props.query,
         key,
@@ -45,15 +55,20 @@ export function WebOverview(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
     const { response, responseLoading } = useValues(logic)
+    useAttachedLogic(logic, props.attachTo)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    let numSkeletons = props.query.conversionGoal ? 4 : 5
-    if (useFeatureFlag('WEB_REVENUE_TRACKING')) {
-        numSkeletons += 1
-    }
+    const numSkeletons = props.query.conversionGoal ? 4 : 5
+
+    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const usedWebAnalyticsPreAggregatedTables =
+        canUseWebAnalyticsPreAggregatedTables &&
+        response &&
+        'usedPreAggregatedTables' in response &&
+        response.usedPreAggregatedTables
 
     return (
         <>
@@ -63,15 +78,21 @@ export function WebOverview(props: {
             >
                 {responseLoading
                     ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
-                    : webOverviewQueryResponse?.results?.map((item) => (
-                          <WebOverviewItemCell key={item.key} item={item} />
-                      )) || []}
+                    : webOverviewQueryResponse?.results
+                          ?.filter(filterEmptyRevenue)
+                          .map((item) => (
+                              <WebOverviewItemCell
+                                  key={item.key}
+                                  item={item}
+                                  usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
+                              />
+                          )) || []}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
                     These results are using a sampling factor of {samplingRate.numerator}
-                    {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
-                    in beta.
+                    <span>{(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}</span>. Sampling
+                    is currently in beta.
                 </LemonBanner>
             ) : null}
         </>
@@ -88,8 +109,14 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
     )
 }
 
-const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+const WebOverviewItemCell = ({
+    item,
+    usedPreAggregatedTables,
+}: {
+    item: WebOverviewItem
+    usedPreAggregatedTables: boolean
+}): JSX.Element => {
+    const { baseCurrency } = useValues(teamLogic)
 
     const label = labelFromKey(item.key)
     const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
@@ -98,17 +125,18 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
             : item.changeFromPreviousPct > 0
-            ? {
-                  Icon: IconTrending,
-                  color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
-              }
-            : {
-                  Icon: IconTrendingDown,
-                  color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
-              }
+              ? {
+                    Icon: IconTrending,
+                    color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
+                }
+              : {
+                    Icon: IconTrendingDown,
+                    color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
+                }
         : undefined
 
     const docsUrl = settingsLinkFromKey(item.key)
+    const dashboardUrl = dashboardLinkFromKey(item.key)
 
     // If current === previous, say "increased by 0%"
     const tooltip =
@@ -122,20 +150,33 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
                   { precise: true, currency: baseCurrency }
               )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
-            : 'No data'
+              ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
+              : 'No data'
 
     return (
         <Tooltip title={tooltip}>
-            <div className={OVERVIEW_ITEM_CELL_CLASSES}>
+            <div
+                className={clsx(OVERVIEW_ITEM_CELL_CLASSES, {
+                    'border border-dotted border-success': usedPreAggregatedTables,
+                })}
+            >
                 <div className="flex flex-row w-full">
                     <div className="flex flex-row items-start justify-start flex-1">
-                        {/* NOTE: If ever removing the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
+                        {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
                         {isBeta && <LemonTag type="warning">BETA</LemonTag>}
                     </div>
                     <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
                     <div className="flex flex-1 flex-row justify-end items-start">
-                        {docsUrl && <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />}
+                        {dashboardUrl && (
+                            <Tooltip title={`Access dedicated ${item.key} dashboard`}>
+                                <LemonButton to={dashboardUrl} icon={<IconDashboard />} size="xsmall" targetBlank />
+                            </Tooltip>
+                        )}
+                        {docsUrl && (
+                            <Tooltip title={`Access ${item.key} settings`}>
+                                <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />
+                            </Tooltip>
+                        )}
                     </div>
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
@@ -144,7 +185,8 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ color: trend.color }}>
-                        <trend.Icon color={trend.color} /> {formatPercentage(item.changeFromPreviousPct)}
+                        <trend.Icon color={trend.color} />
+                        {formatPercentage(item.changeFromPreviousPct)}
                     </div>
                 ) : (
                     <div />
@@ -170,22 +212,9 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
-    const formatter = new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: currency,
-    })
-    const parts = formatter.formatToParts(0)
-    const symbol = parts.find((part) => part.type === 'currency')?.value
-
-    const isPrefix = symbol ? parts[0].type === 'currency' : true
-
-    return { symbol: symbol ?? currency, isPrefix }
-}
-
 const formatItem = (
     value: number | undefined,
-    kind: WebOverviewItemKind,
+    kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }
 ): string => {
     if (value == null) {
@@ -195,7 +224,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? 'USD')
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? DEFAULT_CURRENCY)
         return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
             isPrefix ? '' : ' ' + symbol
         }`
@@ -223,6 +252,10 @@ const labelFromKey = (key: string): string => {
             return 'Total conversions'
         case 'unique conversions':
             return 'Unique conversions'
+        case 'revenue':
+            return 'Revenue'
+        case 'conversion revenue':
+            return 'Conversion revenue'
         default:
             return key
                 .split(' ')
@@ -235,8 +268,22 @@ const settingsLinkFromKey = (key: string): string | null => {
     switch (key) {
         case 'revenue':
         case 'conversion revenue':
-            return urls.revenue()
+            return urls.revenueSettings()
         default:
             return null
     }
+}
+
+const dashboardLinkFromKey = (key: string): string | null => {
+    switch (key) {
+        case 'revenue':
+        case 'conversion revenue':
+            return urls.revenueAnalytics()
+        default:
+            return null
+    }
+}
+
+const filterEmptyRevenue = (item: WebOverviewItem): boolean => {
+    return !(['revenue', 'conversion revenue'].includes(item.key) && item.value == null && item.previous == null)
 }

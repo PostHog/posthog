@@ -1,8 +1,7 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.mailchimp.template_mailchimp import (
-    template as template_mailchimp,
-)
+from posthog.cdp.templates.mailchimp.template_mailchimp import template as template_mailchimp
 
 
 def create_inputs(**kwargs):
@@ -90,3 +89,19 @@ class TestTemplateMailchimp(BaseHogFunctionTemplateTest):
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+
+    def test_email_case_normalization(self):
+        # Test with lowercase email
+        self.run_function(
+            inputs=create_inputs(email="max@posthog.com"),
+        )
+        lowercase_url = self.get_mock_fetch_calls()[0][0]
+
+        # Test with mixed case email
+        self.run_function(
+            inputs=create_inputs(email="Max@Posthog.com"),
+        )
+        mixed_case_url = self.get_mock_fetch_calls()[0][0]
+
+        # Verify both URLs are identical since email is normalized to lowercase
+        assert lowercase_url == mixed_case_url

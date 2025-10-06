@@ -1,10 +1,10 @@
 from posthog.hogql.database.models import (
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    IntegerDatabaseField,
-    Table,
-    FieldOrTable,
     BooleanDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    Table,
 )
 
 

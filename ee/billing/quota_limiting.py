@@ -2,26 +2,33 @@ import copy
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional, TypedDict, cast, Any
+from typing import Any, Optional, TypedDict, cast
+
+from django.db.models import Q
+from django.utils import timezone
 
 import dateutil.parser
 import posthoganalytics
-from django.db.models import Q
-from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
 
 from posthog.cache_utils import cache_for
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_organization_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_teams_with_ai_event_count_in_period,
+    get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
-    get_teams_with_recording_count_in_period,
-    get_teams_with_rows_synced_in_period,
+    get_teams_with_cdp_billable_invocations_in_period,
+    get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
+    get_teams_with_recording_count_in_period,
+    get_teams_with_rows_exported_in_period,
+    get_teams_with_rows_synced_in_period,
+    get_teams_with_survey_responses_count_in_period,
 )
 from posthog.utils import get_current_day
 
@@ -29,12 +36,17 @@ QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
 QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
+QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
+
+# Feature flags always get a 2-day grace period regardless of trust score
+FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
     3: 0,
     7: QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS,
     10: QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS,
+    15: QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS,
 }
 
 
@@ -43,11 +55,18 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
+# These quota resource identifiers match billing default_plans_config.yml usage_key
 class QuotaResource(Enum):
     EVENTS = "events"
+    EXCEPTIONS = "exceptions"
     RECORDINGS = "recordings"
     ROWS_SYNCED = "rows_synced"
     FEATURE_FLAG_REQUESTS = "feature_flag_requests"
+    API_QUERIES = "api_queries_read_bytes"
+    SURVEY_RESPONSES = "survey_responses"
+    LLM_EVENTS = "llm_events"
+    CDP_TRIGGER_EVENTS = "cdp_trigger_events"
+    ROWS_EXPORTED = "rows_exported"
 
 
 class QuotaLimitingCaches(Enum):
@@ -57,24 +76,43 @@ class QuotaLimitingCaches(Enum):
 
 OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
+    QuotaResource.EXCEPTIONS: 0,
     QuotaResource.RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
+    QuotaResource.API_QUERIES: 0,
+    QuotaResource.SURVEY_RESPONSES: 0,
+    QuotaResource.LLM_EVENTS: 0,
+    QuotaResource.CDP_TRIGGER_EVENTS: 0,
+    QuotaResource.ROWS_EXPORTED: 0,
 }
 
+# These trust score keys match billing default_plans_config.yml product keys (top level key)
 TRUST_SCORE_KEYS = {
     QuotaResource.EVENTS: "events",
+    QuotaResource.EXCEPTIONS: "exceptions",
     QuotaResource.RECORDINGS: "recordings",
     QuotaResource.ROWS_SYNCED: "rows_synced",
     QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
+    QuotaResource.API_QUERIES: "api_queries",
+    QuotaResource.SURVEY_RESPONSES: "surveys",
+    QuotaResource.LLM_EVENTS: "llm_events",
+    QuotaResource.CDP_TRIGGER_EVENTS: "realtime_destinations",
+    QuotaResource.ROWS_EXPORTED: "rows_exported",
 }
 
 
 class UsageCounters(TypedDict):
     events: int
+    exceptions: int
     recordings: int
     rows_synced: int
     feature_flags: int
+    api_queries_read_bytes: int
+    survey_responses: int
+    llm_events: int
+    cdp_trigger_events: int
+    rows_exported: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -152,6 +190,7 @@ def org_quota_limited_until(
     is_over_limit = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+    quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
     # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
     # should be removed once all existing customers have this field set.
@@ -162,7 +201,7 @@ def org_quota_limited_until(
     # Flow for checking quota limits:
     # 1. ignore the limits
     #       a. not over limit
-    #       b. 'never_drop_data' set or a high trust score (15)
+    #       b. 'never_drop_data' set
     #       c. feature flag to retain data past quota limit
     # 2. limit the org
     #       a. already being limited
@@ -173,9 +212,8 @@ def org_quota_limited_until(
 
     # 1a. not over limit
     if not is_over_limit:
-        if quota_limiting_suspended_until:
+        if quota_limiting_suspended_until or quota_limited_until:
             # If they are not over limit, we want to remove the suspension if it exists
-            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
             report_organization_action(
                 organization,
                 "org_quota_limited_until",
@@ -186,10 +224,13 @@ def org_quota_limited_until(
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
                 },
             )
+            update_organization_usage_fields(
+                organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            )
         return None
 
-    # 1b. never drop or high trust
-    if organization.never_drop_data or trust_score == 15:
+    # 1b. never drop
+    if organization.never_drop_data:
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -201,13 +242,16 @@ def org_quota_limited_until(
                 "trust_score": trust_score,
             },
         )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+        )
         return None
 
     team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
     # 2a. already being limited
-    if team_being_limited:
+    if team_being_limited or quota_limited_until:
         # They are already being limited, do not update their status.
         report_organization_action(
             organization,
@@ -216,7 +260,12 @@ def org_quota_limited_until(
                 "event": "already limited",
                 "current_usage": usage + todays_usage,
                 "resource": resource.value,
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
             },
+        )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -242,20 +291,29 @@ def org_quota_limited_until(
                 "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
             },
         )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+        )
         return None
 
     _, today_end = get_current_day()
+
+    # Set minimum grace period for specific resources
+    minimum_grace_period = 0
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
+        minimum_grace_period = FEATURE_FLAGS_GRACE_PERIOD_DAYS
 
     # Now we check the trust score
     # These trust score levels are defined in billing::customer::TrustScores.
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if not trust_score:
+    if not trust_score and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
             organization.save(update_fields=["customer_trust_scores"])
+
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -266,13 +324,16 @@ def org_quota_limited_until(
                 "trust_score": trust_score,
             },
         )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
 
     # 2c. low trust
-    elif trust_score == 3:
+    elif trust_score == 3 and minimum_grace_period == 0:
         # Low trust, immediately limit
         report_organization_action(
             organization,
@@ -284,15 +345,18 @@ def org_quota_limited_until(
                 "trust_score": trust_score,
             },
         )
-        update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
 
-    # 3. medium / medium high trust
-    elif trust_score in [7, 10]:
-        grace_period_days = GRACE_PERIOD_DAYS[trust_score]
+    # 3. medium / medium high / high trust
+    elif trust_score in [7, 10, 15] or minimum_grace_period > 0:
+        trust_score_grace_period = GRACE_PERIOD_DAYS.get(trust_score, 0)
+        grace_period_days = max(trust_score_grace_period, minimum_grace_period)
 
         # If the suspension is expired or never set, we want to suspend the limit for a grace period
         if not quota_limiting_suspended_until or (
@@ -307,6 +371,9 @@ def org_quota_limited_until(
                     "current_usage": usage + todays_usage,
                     "resource": resource.value,
                     "grace_period_days": grace_period_days,
+                    "trust_score": trust_score,
+                    "trust_score_grace_period": trust_score_grace_period,
+                    "minimum_grace_period": minimum_grace_period,
                     "usage": organization.usage,
                     "summary": summary,
                     "organization_id": organization.id,
@@ -325,10 +392,12 @@ def org_quota_limited_until(
                         else "no quota_limiting_suspended_until"
                     ),
                     "if_check_2": (
-                        datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
-                    ).timestamp()
-                    if quota_limiting_suspended_until
-                    else "no quota_limiting_suspended_until",
+                        (
+                            datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                        ).timestamp()
+                        if quota_limiting_suspended_until
+                        else "no quota_limiting_suspended_until"
+                    ),
                     "if_check_3": (
                         (
                             (
@@ -342,8 +411,10 @@ def org_quota_limited_until(
                 },
             )
             quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
-            update_organization_usage_field(
-                organization, resource, "quota_limiting_suspended_until", quota_limiting_suspended_until
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
             )
             return {
                 "quota_limited_until": None,
@@ -362,6 +433,11 @@ def org_quota_limited_until(
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
                 },
             )
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
+            )
             return {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -377,21 +453,19 @@ def org_quota_limited_until(
                     "resource": resource.value,
                 },
             )
-            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None},
+            )
             return {
                 "quota_limited_until": billing_period_end,
                 "quota_limiting_suspended_until": None,
             }
     else:
         # Should never reach here - return the default behavior just to be safe
-        report_quota_limiting_event(
-            "org_quota_limited_until",
-            {
-                "event": "unexpected trust score",
-                "current_usage": usage + todays_usage,
-                "resource": resource.value,
-                "trust_score": trust_score,
-            },
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -408,16 +482,7 @@ def update_org_billing_quotas(organization: Organization):
     if not organization.usage:
         return None
 
-    report_quota_limiting_event(
-        "update_org_billing_quotas started", {"today_end": today_end, "organization_id": organization.id}
-    )
-
-    for resource in [
-        QuotaResource.EVENTS,
-        QuotaResource.RECORDINGS,
-        QuotaResource.ROWS_SYNCED,
-        QuotaResource.FEATURE_FLAG_REQUESTS,
-    ]:
+    for resource in QuotaResource:
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
@@ -451,8 +516,6 @@ def update_org_billing_quotas(organization: Organization):
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
 
-    report_quota_limiting_event("update_org_billing_quotas finished", {"organization_id": organization.id})
-
 
 def set_org_usage_summary(
     organization: Organization,
@@ -472,7 +535,8 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    for field in ["events", "recordings", "rows_synced", "feature_flag_requests"]:
+    for resource in QuotaResource:
+        field = resource.value
         original_field_usage = original_usage.get(field, {}) if original_usage else {}
         resource_usage = cast(dict, new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0}))
 
@@ -522,19 +586,16 @@ def update_all_orgs_billing_quotas(
     """
     period = get_current_day()
     period_start, period_end = period
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "started",
-            "period_start": period_start,
-            "period_end": period_end,
-        },
-    )
+
+    api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_billable_event_count_in_period(period_start, period_end)
+        ),
+        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_exceptions_captured_in_period(period_start, period_end)
         ),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_recording_count_in_period(period_start, period_end)
@@ -550,6 +611,19 @@ def update_all_orgs_billing_quotas(
                 period_start, period_end, FlagRequestType.LOCAL_EVALUATION
             )
         ),
+        "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
+        "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
+            get_teams_with_cdp_billable_invocations_in_period(period_start, period_end)
+        ),
+        "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_rows_exported_in_period(period_start, period_end)
+        ),
+        "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_survey_responses_count_in_period(period_start, period_end)
+        ),
+        "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_ai_event_count_in_period(period_start, period_end)
+        ),
     }
 
     teams: Sequence[Team] = list(
@@ -564,13 +638,6 @@ def update_all_orgs_billing_quotas(
             "organization__never_drop_data",
         )
     )
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "teams fetched",
-            "team_count": len(teams),
-        },
-    )
 
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
@@ -582,9 +649,15 @@ def update_all_orgs_billing_quotas(
 
         team_report = UsageCounters(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
+            exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
             feature_flags=decide_requests + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
+            api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
+            survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
+            llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+            cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
+            rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -599,16 +672,7 @@ def update_all_orgs_billing_quotas(
 
     # Now we have the usage for all orgs for the current day
     # orgs_by_id is a dict of orgs by id (e.g. {"018e9acf-b488-0000-259c-534bcef40359": <Organization: 018e9acf-b488-0000-259c-534bcef40359>})
-    # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "recordings": 100, "rows_synced": 100, "feature_flag_requests": 100}})
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "team reports built",
-            "orgs_by_id_count": len(orgs_by_id),
-            "todays_usage_report_count": len(todays_usage_report),
-        },
-    )
-
+    # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "exceptions": 100, "recordings": 100, "rows_synced": 100, "feature_flag_requests": 100, "api_queries_read_bytes": 100, "survey_responses": 100}})
     quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
 
@@ -617,54 +681,42 @@ def update_all_orgs_billing_quotas(
     previously_quota_limited_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
 
     # All teams that are currently under quota limits
-    for field in quota_limited_orgs:
-        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(
-            QuotaResource(field), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    for resource in QuotaResource:
+        previously_quota_limited_team_tokens[resource.value] = list_limited_team_attributes(
+            resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
     # We have the teams that are currently under quota limits
-    # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"]})
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "previously quota limited teams fetched",
-            "events_count": len(previously_quota_limited_team_tokens["events"]),
-            "recordings_count": len(previously_quota_limited_team_tokens["recordings"]),
-            "rows_synced_count": len(previously_quota_limited_team_tokens["rows_synced"]),
-            "feature_flags_count": len(previously_quota_limited_team_tokens["feature_flag_requests"]),
-        },
-    )
+    # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
 
     # Find all orgs that should be rate limited
+    report_index = 1
     for org_id, todays_report in todays_usage_report.items():
-        org = orgs_by_id[org_id]
+        try:
+            org = orgs_by_id[org_id]
 
-        # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
-        if org.usage and org.usage.get("period"):
-            if set_org_usage_summary(org, todays_usage=todays_report):
-                org.save(update_fields=["usage"])
+            if org.usage and org.usage.get("period"):
+                if set_org_usage_summary(org, todays_usage=todays_report):
+                    org.save(update_fields=["usage"])
 
-            for field in ["events", "recordings", "rows_synced", "feature_flag_requests"]:
-                # for each organization, we check if the current usage + today's unreported usage is over the limit
-                result = org_quota_limited_until(org, QuotaResource(field), previously_quota_limited_team_tokens[field])
-                if result:
-                    quota_limited_until = result.get("quota_limited_until")
-                    limiting_suspended_until = result.get("quota_limiting_suspended_until")
-                    if limiting_suspended_until:
-                        quota_limiting_suspended_orgs[field][org_id] = limiting_suspended_until
-                    elif quota_limited_until:
-                        quota_limited_orgs[field][org_id] = quota_limited_until
+                for resource in QuotaResource:
+                    field = resource.value
+                    # for each organization, we check if the current usage + today's unreported usage is over the limit
+                    result = org_quota_limited_until(org, resource, previously_quota_limited_team_tokens[field])
+                    if result:
+                        quota_limited_until = result.get("quota_limited_until")
+                        limiting_suspended_until = result.get("quota_limiting_suspended_until")
+                        if limiting_suspended_until:
+                            quota_limiting_suspended_orgs[field][org_id] = limiting_suspended_until
+                        elif quota_limited_until:
+                            quota_limited_orgs[field][org_id] = quota_limited_until
+
+            report_index += 1
+        except Exception as e:
+            capture_exception(e, {"organization_id": org_id})
 
     # Now we have the teams that are currently under quota limits
-    # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
-    # quota_limiting_suspended_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "orgs summaries built",
-            "quota_limited_orgs_count": len(quota_limited_orgs),
-            "quota_limiting_suspended_orgs_count": len(quota_limiting_suspended_orgs),
-        },
-    )
+    # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
+    # quota_limiting_suspended_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
 
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
@@ -687,24 +739,21 @@ def update_all_orgs_billing_quotas(
                     orgs_with_changes.add(org_id)
 
     # Now we have the teams that are currently under quota limits
-    # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}})
-    # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}})
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "teams summaries built",
-            "quota_limited_teams_count": len(quota_limited_teams),
-            "quota_limiting_suspended_teams_count": len(quota_limiting_suspended_teams),
-            "orgs_with_changes_count": len(orgs_with_changes),
-        },
-    )
+    # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "survey_responses": {"phc_123": 1737867600}})
+    # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "survey_responses": {"phc_123": 1737867600}})
 
     for org_id in orgs_with_changes:
         properties = {
             "quota_limited_events": quota_limited_orgs["events"].get(org_id, None),
+            "quota_limited_exceptions": quota_limited_orgs["exceptions"].get(org_id, None),
             "quota_limited_recordings": quota_limited_orgs["recordings"].get(org_id, None),
             "quota_limited_rows_synced": quota_limited_orgs["rows_synced"].get(org_id, None),
             "quota_limited_feature_flags": quota_limited_orgs["feature_flag_requests"].get(org_id, None),
+            "quota_limited_api_queries": quota_limited_orgs["api_queries_read_bytes"].get(org_id, None),
+            "quota_limited_survey_responses": quota_limited_orgs["survey_responses"].get(org_id, None),
+            "quota_limited_llm_events": quota_limited_orgs["llm_events"].get(org_id, None),
+            "quota_limited_cdp_trigger_events": quota_limited_orgs["cdp_trigger_events"].get(org_id, None),
+            "quota_limited_rows_exported": quota_limited_orgs["rows_exported"].get(org_id, None),
         }
 
         report_organization_action(
@@ -725,12 +774,6 @@ def update_all_orgs_billing_quotas(
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )
-    report_quota_limiting_event(
-        "update_all_orgs_billing_quotas",
-        {
-            "event": "finished",
-        },
-    )
 
     return quota_limited_orgs, quota_limiting_suspended_orgs
 
@@ -744,36 +787,50 @@ def get_team_attribute_by_quota_resource(organization: Organization) -> list[str
     team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
     if not team_tokens:
-        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        capture_exception(
+            Exception(f"quota_limiting: No team tokens found for organization"), {"organization_id": organization.id}
+        )
 
     return team_tokens
-
-
-def report_quota_limiting_event(event_type: str, properties: dict) -> None:
-    posthoganalytics.capture("internal_billing_events", event_type, properties=properties)
-    posthoganalytics.flush()  # Ensure the event is sent
 
 
 def update_organization_usage_field(organization: Organization, resource: QuotaResource, key: str, value: Any) -> None:
     """
     Helper function to safely update a field within organization.usage[resource][key]
     If value is None, the key will be deleted.
+
+    Note: For updating multiple fields at once, use update_organization_usage_fields instead
+    to reduce database calls.
+    """
+    update_organization_usage_fields(organization, resource, {key: value})
+
+
+def update_organization_usage_fields(
+    organization: Organization, resource: QuotaResource, fields: dict[str, Any]
+) -> None:
+    """
+    Helper function to safely update multiple fields within organization.usage[resource]
+    If a value is None, the key will be deleted.
+    This is more efficient than calling update_organization_usage_field multiple times
+    as it only makes one database call.
     """
     if not organization.usage:
-        capture_exception(Exception(f"quota_limiting: No usage found for organization: {organization.id}"))
+        capture_exception(
+            Exception(f"quota_limiting: No usage found for organization"), {"organization_id": organization.id}
+        )
         return
     if resource.value not in organization.usage:
         capture_exception(
-            Exception(
-                f"quota_limiting: No usage found for resource: {resource.value} for organization: {organization.id}"
-            )
+            Exception(f"quota_limiting: No usage found for resource for organization"),
+            {"organization_id": organization.id, "resource": resource.value},
         )
         return
 
-    if value is None:
-        if key in organization.usage[resource.value]:
-            del organization.usage[resource.value][key]
-    else:
-        organization.usage[resource.value][key] = value
+    for key, value in fields.items():
+        if value is None:
+            if key in organization.usage[resource.value]:
+                del organization.usage[resource.value][key]
+        else:
+            organization.usage[resource.value][key] = value
 
     organization.save(update_fields=["usage"])

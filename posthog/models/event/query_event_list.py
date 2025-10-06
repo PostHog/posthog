@@ -1,21 +1,23 @@
-from datetime import timedelta, datetime, time
+from datetime import datetime, time, timedelta
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
-from dateutil.parser import isoparse
 from django.utils.timezone import now
+
+from dateutil.parser import isoparse
+
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+from posthog.hogql.context import HogQLContext
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
-from posthog.hogql.context import HogQLContext
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns
 from posthog.utils import relative_date_parse
@@ -44,7 +46,7 @@ def parse_request_params(
             params.update({"before": v})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s) """
-            person = get_pk_or_uuid(Person.objects.filter(team=team), v).first()
+            person = get_pk_or_uuid(Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=team), v).first()
             params.update({"distinct_ids": get_distinct_ids_for_subquery(person, team)})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s "

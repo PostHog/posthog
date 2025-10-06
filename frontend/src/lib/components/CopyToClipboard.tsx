@@ -1,14 +1,17 @@
-import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
+import React from 'react'
+
+import { IconCopy } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import React from 'react'
 
 interface InlinePropsBase {
     description?: string
     /** Makes text selectable instead of copying on click anywhere */
     selectable?: boolean
+    /** adds ph-no-capture class to the element **/
     isValueSensitive?: boolean
     tooltipMessage?: React.ReactNode | null
     iconStyle?: Record<string, string | number>

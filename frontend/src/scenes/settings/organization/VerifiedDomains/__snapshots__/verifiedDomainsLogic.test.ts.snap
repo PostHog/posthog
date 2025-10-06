@@ -5,6 +5,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "addModalShown": false,
   "configureSAMLModalId": null,
   "currentOrganization": {
+    "allow_publicly_shared_resources": true,
     "available_product_features": [
       {
         "key": "sso_enforcement",
@@ -17,11 +18,13 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     ],
     "created_at": "2020-09-24T15:05:01.254111Z",
     "customer_id": null,
+    "default_experiment_stats_method": "bayesian",
     "enforce_2fa": false,
     "id": "ABCD",
     "is_member_join_email_enabled": true,
     "logo_media_id": null,
     "member_count": 2,
+    "members_can_use_personal_api_keys": true,
     "membership_level": 8,
     "metadata": {},
     "name": "MockHog",
@@ -37,18 +40,18 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "slug": "mockhog-fstn",
     "teams": [
       {
-        "access_control": true,
-        "access_control_version": "v1",
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [
           "https://posthog.com/",
           "https://app.posthog.com",
+          "https://example.com",
         ],
         "autocapture_exceptions_errors_to_ignore": [],
         "autocapture_exceptions_opt_in": false,
         "autocapture_opt_out": true,
         "autocapture_web_vitals_opt_in": false,
+        "base_currency": "USD",
         "capture_console_log_opt_in": true,
         "capture_dead_clicks": false,
         "capture_performance_opt_in": true,
@@ -73,7 +76,29 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "feature_flag_confirmation_enabled": false,
+        "feature_flag_confirmation_message": "",
         "flags_persistence_default": false,
+        "group_types": [
+          {
+            "group_type": "organization",
+            "group_type_index": 0,
+            "name_plural": "organizations",
+            "name_singular": null,
+          },
+          {
+            "group_type": "instance",
+            "group_type_index": 1,
+            "name_plural": "instances",
+            "name_singular": null,
+          },
+          {
+            "group_type": "project",
+            "group_type_index": 2,
+            "name_plural": "projects",
+            "name_singular": null,
+          },
+        ],
         "has_completed_onboarding_for": {
           "product_analytics": true,
         },
@@ -85,6 +110,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "is_demo": false,
         "live_events_columns": null,
         "live_events_token": "123",
+        "marketing_analytics_config": {
+          "sources_map": {},
+        },
         "name": "MockHog App + Marketing",
         "onboarding_tasks": {
           "ingest_first_event": "completed",
@@ -103,28 +131,59 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
-        "revenue_tracking_config": {
-          "baseCurrency": "USD",
-          "dataWarehouseTables": [
-            {
-              "revenueColumn": "revenue",
-              "revenueCurrencyColumn": {
-                "static": "SCR",
-              },
-              "tableName": "mock_table",
-              "timestampColumn": "timestamp",
-            },
-          ],
+        "revenue_analytics_config": {
           "events": [
             {
+              "currencyAwareDecimal": false,
               "eventName": "purchase",
               "revenueCurrencyProperty": {
                 "static": "ZAR",
               },
               "revenueProperty": "value",
+              "subscriptionDropoffDays": 45,
+              "subscriptionDropoffMode": "last_event",
+            },
+            {
+              "currencyAwareDecimal": true,
+              "eventName": "subscription_created",
+              "revenueCurrencyProperty": {
+                "property": "currency",
+              },
+              "revenueProperty": "subscription_value",
+              "subscriptionDropoffDays": 45,
+              "subscriptionDropoffMode": "after_dropoff_period",
+            },
+          ],
+          "filter_test_accounts": false,
+          "goals": [
+            {
+              "due_date": "2020-12-31",
+              "goal": 1000000,
+              "mrr_or_gross": "gross",
+              "name": "2020 Q4",
+            },
+            {
+              "due_date": "2035-12-31",
+              "goal": 1500000,
+              "mrr_or_gross": "gross",
+              "name": "2035 Q4",
+            },
+            {
+              "due_date": "2035-12-31",
+              "goal": 1200000,
+              "mrr_or_gross": "mrr",
+              "name": "2035 Q4 MRR",
+            },
+            {
+              "due_date": "2040-12-31",
+              "goal": 1800000,
+              "mrr_or_gross": "gross",
+              "name": "2040 Q4",
             },
           ],
         },
+        "secret_api_token": "phs_default-team-secret-api-token",
+        "secret_api_token_backup": "phs_default-team-secret-api-token-backup",
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {
           "maskAllInputs": true,
@@ -135,6 +194,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "recordHeaders": true,
         },
         "session_recording_opt_in": true,
+        "session_recording_retention_period": "30d",
         "session_recording_sample_rate": "1.0",
         "session_replay_config": null,
         "slack_incoming_webhook": "",

@@ -1,9 +1,11 @@
-import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
-import { objectsEqual, toParams } from 'lib/utils'
+
+import { PaginationManual } from '@posthog/lemon-ui'
+
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,11 +29,7 @@ export enum FeatureFlagsTab {
     SCHEDULE = 'schedule',
 }
 
-export interface FeatureFlagsResult {
-    results: FeatureFlagType[]
-    count: number
-    next?: string | null
-    previous?: string | null
+export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null
 }
@@ -43,6 +41,8 @@ export interface FeatureFlagsFilters {
     search?: string
     order?: string
     page?: number
+    evaluation_runtime?: string
+    tags?: string[]
 }
 
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
@@ -52,6 +52,8 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     search: undefined,
     order: undefined,
     page: 1,
+    evaluation_runtime: undefined,
+    tags: undefined,
 }
 
 export interface FlagLogicProps {
@@ -61,9 +63,9 @@ export interface FlagLogicProps {
 export const featureFlagsLogic = kea<featureFlagsLogicType>([
     props({} as FlagLogicProps),
     path(['scenes', 'feature-flags', 'featureFlagsLogic']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
@@ -153,6 +155,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     key: Scene.FeatureFlags,
                     name: 'Feature flags',
                     path: urls.featureFlags(),
+                    iconType: 'feature_flag',
                 },
             ],
         ],
@@ -200,10 +203,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | string[]> = {
                 ...values.filters,
             }
 
@@ -234,12 +237,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(tabInURL)
             }
 
-            const { page, created_by_id, active, type, search, order } = searchParams
+            const { page, created_by_id, active, type, search, order, evaluation_runtime, tags } = searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id,
                 type,
                 search,
                 order,
+                evaluation_runtime,
+                tags: parseTagsFilter(tags),
             }
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined

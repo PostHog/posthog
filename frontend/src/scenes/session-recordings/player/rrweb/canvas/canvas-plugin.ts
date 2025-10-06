@@ -1,14 +1,16 @@
-import { canvasMutation, Replayer } from '@posthog/rrweb'
+import posthog from 'posthog-js'
+
+import { Replayer, canvasMutation } from '@posthog/rrweb'
 import { ReplayPlugin } from '@posthog/rrweb'
 import {
     CanvasArg,
+    EventType,
+    IncrementalSource,
     canvasMutationData,
     canvasMutationParam,
-    EventType,
     eventWithTime,
-    IncrementalSource,
 } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
+
 import { debounce } from 'lib/utils'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
@@ -167,18 +169,108 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         })
 
         const img = containers.get(data.id)
-        if (img) {
+        const originalCanvas = canvases.get(data.id)
+
+        if (img && originalCanvas) {
             target.toBlob(
                 (blob) => {
-                    if (blob) {
-                        img.style.width = 'initial'
-                        img.style.height = 'initial'
-
-                        const url = URL.createObjectURL(blob)
-                        // no longer need to read the blob so it's revoked
-                        img.onload = () => URL.revokeObjectURL(url)
-                        img.src = url
+                    if (!blob) {
+                        return
                     }
+
+                    // Step 1: Get the canvas dimensions while it's still in the DOM
+                    const canvasRect = originalCanvas.getBoundingClientRect()
+                    const computedStyle = window.getComputedStyle(originalCanvas)
+
+                    // Check if canvas uses percentage-based sizing
+                    const usesPercentageWidth = computedStyle.width.includes('%')
+                    const usesPercentageHeight = computedStyle.height.includes('%')
+
+                    let finalWidthStyle: string
+                    let finalHeightStyle: string
+
+                    if (usesPercentageWidth) {
+                        // Keep percentage width
+                        finalWidthStyle = computedStyle.width
+                    } else {
+                        // Use measured or fallback pixel width
+                        const measuredWidth =
+                            canvasRect.width || originalCanvas.offsetWidth || originalCanvas.clientWidth
+                        finalWidthStyle =
+                            measuredWidth && measuredWidth >= 10
+                                ? measuredWidth + 'px'
+                                : (originalCanvas.width || 300) + 'px'
+                    }
+
+                    if (usesPercentageHeight) {
+                        // Keep percentage height
+                        finalHeightStyle = computedStyle.height
+                    } else {
+                        // Use measured or fallback pixel height
+                        const measuredHeight =
+                            canvasRect.height || originalCanvas.offsetHeight || originalCanvas.clientHeight
+                        finalHeightStyle =
+                            measuredHeight && measuredHeight >= 10
+                                ? measuredHeight + 'px'
+                                : (originalCanvas.height || 150) + 'px'
+                    }
+
+                    const url = URL.createObjectURL(blob)
+
+                    /**
+                     * Tracks all active ObjectURLs per rrweb node id (canvas/image container).
+                     * Rationale:
+                     * - URL.createObjectURL allocates; relying only on img.onload to revoke leaks if src is replaced before load fires.
+                     * Strategy:
+                     * - When generating a new frame, track its URL, set img.src to it, then revoke all other URLs for that id.
+                     * - On load/error of the current frame, revoke that URL and remove it from the set.
+                     * - When a set becomes empty, remove the id entry.
+                     * Effect: prevents ObjectURL leaks and keeps memory bounded during fast updates/skip-inactivity bursts.
+                     */
+                    trackUrl(data.id, url)
+
+                    img.onload = () => {
+                        // Step 2: Apply the chosen dimensions and replace canvas
+
+                        // Apply the chosen dimensions to the image
+                        img.style.width = finalWidthStyle
+                        img.style.height = finalHeightStyle
+                        img.style.display = computedStyle.display || 'block'
+                        img.style.objectFit = 'fill'
+
+                        // Copy other layout-related styles from canvas
+                        const layoutStyles = [
+                            'margin',
+                            'padding',
+                            'border',
+                            'boxSizing',
+                            'position',
+                            'top',
+                            'left',
+                            'right',
+                            'bottom',
+                        ]
+                        layoutStyles.forEach((prop) => {
+                            const value = computedStyle.getPropertyValue(prop)
+                            if (value && value !== 'auto' && value !== 'normal') {
+                                img.style.setProperty(prop, value)
+                            }
+                        })
+
+                        // Replace the canvas with the properly sized image
+                        const parent = originalCanvas.parentNode
+                        if (parent) {
+                            parent.replaceChild(img, originalCanvas)
+                        }
+
+                        finalizeUrl(data.id, url)
+                    }
+                    img.onerror = () => finalizeUrl(data.id, url)
+
+                    img.src = url
+
+                    // Now that the new src is applied, revoke everything else
+                    revokeAllForIdExcept(data.id, url)
                 },
                 // ensures transparency is possible
                 'image/webp',
@@ -191,8 +283,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
-            : 0
+              ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+              : 0
 
         const eventsToPreload = canvasMutationEvents
             .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)
@@ -215,13 +307,23 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
                 const el = containers.get(id) || document.createElement('img')
-                ;(node as HTMLCanvasElement).appendChild(el)
+                const canvasElement = node as HTMLCanvasElement
+
+                // Copy attributes (including width/height for now)
+                for (let i = 0; i < canvasElement.attributes.length; i++) {
+                    const attr = canvasElement.attributes[i]
+                    el.setAttribute(attr.name, attr.value)
+                }
+
+                // Store the image but don't replace the canvas yet
                 containers.set(id, el)
+
+                // Store reference to the original canvas for dimension calculation
+                canvases.set(id, canvasElement)
             }
         },
 
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
+        handler: (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
             const isCanvas = isCanvasMutation(e)
 
             // scrubbing / fast forwarding
@@ -244,5 +346,45 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 }
 
 const handleMutationError = (error: unknown): void => {
-    captureException(error)
+    posthog.captureException(error)
+}
+
+const objectUrlsById = new Map<number, Set<string>>()
+
+const trackUrl = (id: number, url: string): void => {
+    let set = objectUrlsById.get(id)
+    if (!set) {
+        set = new Set()
+        objectUrlsById.set(id, set)
+    }
+    set.add(url)
+}
+
+const revokeAllForIdExcept = (id: number, keep?: string): void => {
+    const set = objectUrlsById.get(id)
+    if (!set) {
+        return
+    }
+    for (const u of set) {
+        if (keep && u === keep) {
+            continue
+        }
+        URL.revokeObjectURL(u)
+        set.delete(u)
+    }
+    if (set.size === 0) {
+        objectUrlsById.delete(id)
+    }
+}
+
+const finalizeUrl = (id: number, url: string): void => {
+    // This runs on load/error. Revoke the url we just used and drop it from the set.
+    URL.revokeObjectURL(url)
+    const set = objectUrlsById.get(id)
+    if (set) {
+        set.delete(url)
+        if (set.size === 0) {
+            objectUrlsById.delete(id)
+        }
+    }
 }

@@ -1,13 +1,17 @@
-import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
+import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
+
 import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
-export const TableDisplay = (): JSX.Element => {
+interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'disabledReason'> {}
+
+export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { visualizationType } = useValues(dataVisualizationLogic)
 
@@ -56,6 +60,7 @@ export const TableDisplay = (): JSX.Element => {
 
     return (
         <LemonSelect
+            disabledReason={disabledReason}
             value={visualizationType}
             onChange={(value) => {
                 setVisualizationType(value)

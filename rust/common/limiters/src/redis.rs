@@ -1,13 +1,12 @@
+use chrono::Utc;
 use common_redis::{Client, CustomRedisError};
 use metrics::gauge;
-use std::time::Duration as StdDuration;
+use std::time::Duration;
 use std::{collections::HashSet, sync::Arc};
 use strum::Display;
-use time::{Duration, OffsetDateTime};
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::interval;
-use tracing::instrument;
 
 /// Limit resources by checking if a value is present in Redis
 ///
@@ -32,43 +31,52 @@ use tracing::instrument;
 ///
 /// Some small delay between an account being limited and the limit taking effect is acceptable.
 /// However, ideally we should not allow requests from some pods but 429 from others.
-
 // todo: fetch from env
 // due to historical reasons we use different suffixes for quota limits and overflow
 // hopefully we can unify these in the future
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuotaResource {
     Events,
+    Exceptions,
     Recordings,
     Replay,
     FeatureFlags,
+    Surveys,
+    LLMEvents,
 }
 
 impl QuotaResource {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Events => "events",
+            Self::Exceptions => "exceptions",
             Self::Recordings => "recordings",
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
+            Self::Surveys => "survey_responses",
+            Self::LLMEvents => "llm_events",
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 pub enum ServiceName {
+    SessionReplay,
     FeatureFlags,
     Capture,
+    Cymbal,
 }
 
 impl ServiceName {
     pub fn as_string(&self) -> String {
         match self {
+            ServiceName::SessionReplay => "session_replay".to_string(),
             ServiceName::FeatureFlags => "feature_flags".to_string(),
             ServiceName::Capture => "capture".to_string(),
+            ServiceName::Cymbal => "cymbal".to_string(),
         }
     }
 }
@@ -119,7 +127,7 @@ impl RedisLimiter {
     fn spawn_background_update(&self) {
         let limited = Arc::clone(&self.limited);
         let redis = Arc::clone(&self.redis);
-        let interval_duration = StdDuration::from_nanos(self.interval.whole_nanoseconds() as u64);
+        let interval_duration = self.interval;
         let key = self.key.clone();
         let service_name = self.service_name.as_string();
 
@@ -140,7 +148,7 @@ impl RedisLimiter {
                         *limited_lock = set;
                     }
                     Err(e) => {
-                        tracing::error!("Failed to update cache from Redis: {:?}", e);
+                        tracing::warn!("Failed to update cache from Redis: {:?}", e);
                     }
                 }
 
@@ -149,18 +157,16 @@ impl RedisLimiter {
         });
     }
 
-    #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
     ) -> anyhow::Result<Vec<String>, CustomRedisError> {
-        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let now = Utc::now().timestamp();
         client
             .zrangebyscore(key.to_string(), now.to_string(), String::from("+Inf"))
             .await
     }
 
-    #[instrument(skip_all, fields(value = value))]
     pub async fn is_limited(&self, value: &str) -> bool {
         let limited = self.limited.read().await;
         limited.contains(value)
@@ -172,8 +178,7 @@ mod tests {
     use super::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
     use crate::redis::{QuotaResource, RedisLimiter, ServiceName};
     use common_redis::MockRedisClient;
-    use std::sync::Arc;
-    use time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
     async fn test_dynamic_limited() {
@@ -184,7 +189,7 @@ mod tests {
         let client = Arc::new(client);
 
         let limiter = RedisLimiter::new(
-            Duration::seconds(1),
+            Duration::from_secs(1),
             client,
             OVERFLOW_LIMITER_CACHE_KEY.to_string(),
             None,
@@ -208,7 +213,7 @@ mod tests {
 
         // Default lookup without prefix fails
         let limiter = RedisLimiter::new(
-            Duration::seconds(1),
+            Duration::from_secs(1),
             client.clone(),
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
@@ -221,7 +226,7 @@ mod tests {
 
         // Limiter using the correct prefix
         let prefixed_limiter = RedisLimiter::new(
-            Duration::microseconds(1),
+            Duration::from_micros(1),
             client,
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             Some("prefix//".to_string()),
@@ -244,7 +249,7 @@ mod tests {
         let client = Arc::new(client);
 
         let limiter = RedisLimiter::new(
-            Duration::seconds(1),
+            Duration::from_secs(1),
             client,
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,

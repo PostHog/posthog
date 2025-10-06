@@ -1,8 +1,7 @@
+import { useActions, useValues } from 'kea'
+
 import { IconGear, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { NewVariableModal } from './NewVariableModal'
@@ -10,18 +9,19 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const AddVariableButton = ({
+    title = 'Query variable',
     buttonProps,
 }: {
+    title?: string
     buttonProps?: Pick<LemonButtonProps, 'type' | 'size' | 'sideIcon'>
 }): JSX.Element => {
     const { showEditingUI } = useValues(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openNewVariableModal, openExistingVariableModal } = useActions(variableModalLogic)
 
     const { variables, variablesLoading } = useValues(variablesLogic)
     const { addVariable } = useActions(variablesLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !showEditingUI) {
+    if (!showEditingUI) {
         return <></>
     }
 
@@ -85,7 +85,7 @@ export const AddVariableButton = ({
                 ]}
             >
                 <LemonButton type="secondary" icon={<IconPlus />} sideIcon={null} {...buttonProps}>
-                    Query variable
+                    {title}
                 </LemonButton>
             </LemonMenu>
             <NewVariableModal />

@@ -1,19 +1,22 @@
+import uuid
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Optional
-from unittest.mock import MagicMock, patch
 from uuid import UUID
-import uuid
+
+import pytest
+from unittest.mock import MagicMock, patch
 
 import boto3
-from clickhouse_driver import Client
 import dagster
-import pytest
-from dags.backups import Backup, BackupConfig, get_latest_backup, non_sharded_backup, sharded_backup
+from clickhouse_driver import Client
+from dagster_aws.s3 import S3Resource
+
 from posthog import settings
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dagster_aws.s3 import S3Resource
+from dags.backups import Backup, BackupConfig, get_latest_backup, non_sharded_backup, prepare_run_config, sharded_backup
 
 
 @pytest.mark.parametrize("table", ["", "test"])
@@ -116,12 +119,7 @@ def run_backup_test(
 
         # Execute the job
         job.execute_in_process(
-            run_config=dagster.RunConfig(
-                {
-                    "get_latest_backup": {"config": job_config.model_dump()},
-                    "run_backup": {"config": job_config.model_dump()},
-                }
-            ),
+            run_config=prepare_run_config(job_config),
             resources={
                 "cluster": cluster,
                 "s3": S3Resource(
@@ -149,6 +147,7 @@ def test_full_non_sharded_backup(cluster: ClickhouseCluster):
         date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=False,
+        workload=Workload.ONLINE,
     )
 
     run_backup_test(
@@ -165,6 +164,7 @@ def test_full_sharded_backup(cluster: ClickhouseCluster):
         date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=False,
+        workload=Workload.ONLINE,
     )
 
     run_backup_test(
@@ -181,6 +181,7 @@ def test_incremental_non_sharded_backup(cluster: ClickhouseCluster):
         date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=True,
+        workload=Workload.ONLINE,
     )
 
     run_backup_test(
@@ -197,6 +198,7 @@ def test_incremental_sharded_backup(cluster: ClickhouseCluster):
         date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=True,
+        workload=Workload.ONLINE,
     )
 
     run_backup_test(

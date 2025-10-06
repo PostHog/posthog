@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta
 from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.http import HttpResponse
+from django.utils.timezone import now
 
 import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
-from django.http import HttpResponse
-from django.utils.timezone import now
-from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
@@ -19,6 +23,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.settings import (
+    HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
@@ -26,7 +31,6 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.tasks.exports.image_exporter import export_image
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -86,6 +90,7 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "exception": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
@@ -98,7 +103,7 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
@@ -117,6 +122,7 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "exception": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
@@ -125,7 +131,7 @@ class TestExports(APIBaseTest):
             "expires_after": one_week_from_now.isoformat() + "Z",
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
@@ -148,7 +154,7 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
@@ -170,6 +176,7 @@ class TestExports(APIBaseTest):
                 "filename": "export-example-insight.png",
                 "has_content": False,
                 "dashboard": None,
+                "exception": None,
                 "export_context": None,
                 "expires_after": (now() + timedelta(weeks=26))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
@@ -209,7 +216,7 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
@@ -267,15 +274,15 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/jpeg", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "attr": "export_format",
-                "code": "invalid_input",
-                "detail": "Export format application/pdf is not supported.",
+                "code": "invalid_choice",
+                "detail": '"image/jpeg" is not a valid choice.',
                 "type": "validation_error",
             },
         )
@@ -487,6 +494,144 @@ class TestExports(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
+        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+            # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
+            stuck_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                content=None,
+                content_location=None,
+                exception=None,
+            )
+
+            # Create an export that already has content - should not be marked as failed
+            completed_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=b"some content",
+                exception=None,
+            )
+
+            # Create an export that has an exception - should not be overridden
+            errored_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=None,
+                exception="exception",
+            )
+
+        # Create a recent export that should not be marked as failed
+        recent_export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="image/png",
+            created_by=self.user,
+            content=None,
+            content_location=None,
+            exception=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        results_by_id = {result["id"]: result for result in results}
+
+        stuck_result = results_by_id[stuck_export.id]
+        self.assertIsNotNone(stuck_result["exception"])
+        self.assertIn(f"Export failed without throwing an exception", stuck_result["exception"])
+
+        recent_result = results_by_id[recent_export.id]
+        self.assertIsNone(recent_result["exception"])
+
+        completed_result = results_by_id[completed_export.id]
+        self.assertIsNone(completed_result["exception"])
+
+        completed_result = results_by_id[errored_export.id]
+        self.assertEqual("exception", completed_result["exception"])
+
+        # Verify that the database wasn't actually modified
+        stuck_export.refresh_from_db()
+        recent_export.refresh_from_db()
+        completed_export.refresh_from_db()
+        self.assertIsNone(stuck_export.exception)
+        self.assertIsNone(recent_export.exception)
+        self.assertIsNone(completed_export.exception)
+
+    def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
+        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+            # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
+            stuck_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=None,
+                content_location=None,
+                exception=None,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{stuck_export.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        result = response.json()
+
+        # Check that the stuck export appears to have an exception in the response
+        self.assertIsNotNone(result["exception"])
+        self.assertIn(f"Export failed without throwing an exception", result["exception"])
+
+        # Verify that the database wasn't actually modified
+        stuck_export.refresh_from_db()
+        self.assertIsNone(stuck_export.exception)
+
+    @parameterized.expand(
+        [
+            ("image/png", 2, "png_export"),  # PNG format with 2 expected results
+            ("text/csv", 1, "csv_export"),  # CSV format with 1 expected result
+            ("image/jpeg", 3, None),  # Unsupported format returns all (3)
+            (None, 3, None),  # No filter returns all (3)
+        ]
+    )
+    def test_can_filter_exports_by_format(self, export_format, expected_count, expected_export_var):
+        png_export = ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
+        )
+        csv_export = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="text/csv", created_by=self.user
+        )
+
+        url = f"/api/projects/{self.team.id}/exports"
+        if export_format:
+            url += f"?export_format={export_format}"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        assert len(results) == expected_count
+
+        if expected_export_var == "png_export":
+            # Should return PNG exports only (including the one from setUpTestData)
+            png_export_ids = {png_export.id, self.exported_asset.id}
+            returned_ids = {result["id"] for result in results}
+            assert returned_ids == png_export_ids
+            for result in results:
+                assert result["export_format"] == "image/png"
+        elif expected_export_var == "csv_export":
+            # Should return CSV export only
+            assert results[0]["id"] == csv_export.id
+            assert results[0]["export_format"] == "text/csv"
 
 
 class TestExportMixin(APIBaseTest):

@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const taxonomyPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -12,7 +13,8 @@ export const taxonomyPlugin: LegacyTransformationPlugin = {
         description: 'Standardize your event names into a single pattern.',
         icon_url: 'https://raw.githubusercontent.com/posthog/taxonomy-plugin/main/logo.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'defaultNamingConvention',

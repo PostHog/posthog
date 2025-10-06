@@ -2,10 +2,49 @@
 
 set -e
 
+export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
 export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
+export API_QUERIES_PER_TEAM='{"1": 100}'
+
+# Dagster
+export DAGSTER_HOME=$REPOSITORY_ROOT/.dagster_home
+export DAGSTER_UI_HOST=${DAGSTER_UI_HOST:-localhost}
+export DAGSTER_UI_PORT=${DAGSTER_UI_PORT:-3030}
+export DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=${DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN:-3000}
+
+# OpenTelemetry Environment Variables
+export OTEL_SERVICE_NAME="posthog-local-dev"
+export OTEL_PYTHON_LOG_LEVEL="debug"
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" # Collector's OTLP gRPC port is mapped to host
+export OTEL_TRACES_EXPORTER="otlp"
+export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
+export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
+export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
+export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
+
+# Check for minimal mode - disable OpenTelemetry for minimal mode
+if [[ "$*" == *"--minimal"* ]]; then
+    export OTEL_SDK_DISABLED="true"
+else
+    export OTEL_SDK_DISABLED="false"
+    export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
+    export OTEL_TRACES_SAMPLER_ARG="1"
+    echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI"
+fi
+
+if [[ "$*" == *"--skip-typegen"* ]]; then
+    export SKIP_TYPEGEN="exit 0"
+fi
+
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
+fi
 
 ./bin/download-mmdb
 
@@ -19,4 +58,35 @@ if ! command -v mprocs &>/dev/null; then
     fi
 fi
 
-exec mprocs --config bin/mprocs.yaml
+# Check for conflicting flags
+if [[ "$*" == *"--custom"* ]] && ([[ "$*" == *"--minimal"* ]] || [[ "$*" == *"--vite"* ]]); then
+    echo "Error: Cannot use --custom with --minimal or --vite"
+    exit 1
+fi
+
+# Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
+# Ensure to provide config path after --custom flag
+if [[ "$*" == *"--custom"* ]]; then
+    # Extract the path after --custom
+    config_path=""
+    found_custom=false
+    for i in "$@"; do
+        if [[ $found_custom == true ]]; then
+            config_path="$i"
+            break
+        fi
+        if [[ "$i" == "--custom" ]]; then
+            found_custom=true
+        fi
+    done
+    if [[ -z "$config_path" ]]; then
+        echo "Error: --custom requires a config path"
+        exit 1
+    fi
+    exec mprocs --config "$config_path"
+# Use minimal config
+elif [[ "$*" == *"--minimal"* ]]; then
+    exec mprocs --config bin/mprocs-minimal.yaml
+else
+    exec mprocs --config bin/mprocs.yaml
+fi

@@ -7,12 +7,14 @@ export enum TabGroup {
     All = 'all',
     EventData = 'event_data',
     PostHog = 'posthog',
+    Products = 'products',
 }
 
 export const groupToName: Record<TabGroup, string | null> = {
     [TabGroup.All]: 'All',
     [TabGroup.EventData]: 'Event data',
     [TabGroup.PostHog]: 'PostHog',
+    [TabGroup.Products]: 'Products',
 }
 
 export enum Tab {
@@ -32,6 +34,7 @@ export enum Tab {
     Group3 = 'group_3',
     Group4 = 'group_4',
     Survey = 'survey',
+    Products = 'products',
 }
 
 export const clickhouseTabs = [Tab.Person, Tab.Group0, Tab.Group1, Tab.Group2, Tab.Group3, Tab.Group4]
@@ -53,4 +56,5 @@ export const tabToName: Record<Tab, string | null> = {
     [Tab.Group3]: null,
     [Tab.Group4]: null,
     [Tab.Survey]: 'Surveys',
+    [Tab.Products]: 'Products',
 }

@@ -1,5 +1,9 @@
 import './PersonsModal.scss'
 
+import { useActions, useValues } from 'kea'
+import React, { useCallback, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
@@ -13,34 +17,32 @@ import {
     LemonSkeleton,
     Link,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import React, { useCallback, useState } from 'react'
-import { createRoot } from 'react-dom/client'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { ActorType, ExporterFormat, PropertiesTimelineFilterType, PropertyDefinitionType } from '~/types'
 
+import { SaveCohortModal } from './SaveCohortModal'
 import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
-import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
@@ -110,6 +112,8 @@ export function PersonsModal({
         return title
     }, [title, actorLabel.plural])
 
+    const hasGroups = actors.some((actor) => isGroupType(actor))
+
     return (
         <>
             <LemonModal
@@ -126,12 +130,14 @@ export function PersonsModal({
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
-                    {actorsResponse && !!missingActorsCount && (
+                    {actorsResponse && !!missingActorsCount && !hasGroups && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
                     <LemonInput
                         type="search"
-                        placeholder="Search for persons by email, name, or ID"
+                        placeholder={
+                            hasGroups ? 'Search for groups by name or ID' : 'Search for persons by email, name, or ID'
+                        }
                         fullWidth
                         value={searchTerm}
                         onChange={setSearchTerm}
@@ -289,7 +295,7 @@ export function PersonsModal({
                         <div className="flex gap-2">
                             {insightEventsQueryUrl && (
                                 <LemonButton
-                                    type="primary"
+                                    type="secondary"
                                     to={insightEventsQueryUrl}
                                     data-attr="person-modal-view-events"
                                     onClick={() => {
@@ -310,7 +316,7 @@ export function PersonsModal({
                                         closeModal()
                                     }}
                                 >
-                                    Explore
+                                    Open as new insight
                                 </LemonButton>
                             )}
                         </div>
@@ -375,7 +381,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
                                     explicitValue={actor.distinct_ids[0]}
-                                    iconStyle={{ color: 'var(--accent-primary)' }}
+                                    iconStyle={{ color: 'var(--color-accent)' }}
                                     iconPosition="end"
                                     className="text-xs text-secondary"
                                 >

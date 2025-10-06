@@ -64,7 +64,7 @@ export interface AssistantSetPropertyFilter {
     operator: AssistantSetPropertyFilterOperator
 }
 
-export type AssistantSingleValuePropertyFilterOperator =
+export type AssistantStringOrBooleanValuePropertyFilterOperator =
     | PropertyOperator.Exact
     | PropertyOperator.IsNot
     | PropertyOperator.IContains
@@ -72,23 +72,35 @@ export type AssistantSingleValuePropertyFilterOperator =
     | PropertyOperator.Regex
     | PropertyOperator.NotRegex
 
-export interface AssistantSingleValuePropertyFilter {
+export interface AssistantStringOrBooleanValuePropertyFilter {
     /**
      * `icontains` - case insensitive contains.
      * `not_icontains` - case insensitive does not contain.
      * `regex` - matches the regex pattern.
      * `not_regex` - does not match the regex pattern.
      */
-    operator: AssistantSingleValuePropertyFilterOperator
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator
     /**
      * Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against.
      * Otherwise, the value must be a substring that will be matched against the property value.
+     * Use the string values `true` or `false` for boolean properties.
      */
-    value: string
+    value: string | 'true' | 'false'
+}
+
+export type AssistantNumericValuePropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.LessThan
+
+export interface AssistantNumericValuePropertyFilter {
+    operator: AssistantNumericValuePropertyFilterOperator
+    value: number
 }
 
 export type AssistantStringNumberOrBooleanPropertyFilter =
-    | AssistantSingleValuePropertyFilter
+    | AssistantStringOrBooleanValuePropertyFilter
+    | AssistantNumericValuePropertyFilter
     | AssistantArrayPropertyFilter
 
 export type AssistantDateTimePropertyFilterOperator =
@@ -109,8 +121,16 @@ export type AssistantBasePropertyFilter =
     | AssistantDateTimePropertyFilter
     | AssistantSetPropertyFilter
 
+// TRICKY: Keep this property as enum to avoid converting to a string.
+export enum AssistantGenericPropertyFilterType {
+    event = PropertyFilterType.Event,
+    person = PropertyFilterType.Person,
+    session = PropertyFilterType.Session,
+    feature = PropertyFilterType.Feature,
+}
+
 export type AssistantGenericPropertyFilter = AssistantBasePropertyFilter & {
-    type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session | PropertyFilterType.Feature
+    type: AssistantGenericPropertyFilterType
     /**
      * Use one of the properties the user has provided in the plan.
      */
@@ -163,7 +183,14 @@ export interface AssistantInsightsQueryBase {
 export interface AssistantTrendsEventsNode
     extends Omit<
         EventsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+        | 'fixedProperties'
+        | 'properties'
+        | 'math_hogql'
+        | 'limit'
+        | 'groupBy'
+        | 'orderBy'
+        | 'response'
+        | 'math_property_revenue_currency'
     > {
     properties?: AssistantPropertyFilter[]
 }
@@ -174,7 +201,15 @@ export interface AssistantTrendsEventsNode
 export interface AssistantTrendsActionsNode
     extends Omit<
         ActionsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response' | 'name'
+        | 'fixedProperties'
+        | 'properties'
+        | 'math_hogql'
+        | 'limit'
+        | 'groupBy'
+        | 'orderBy'
+        | 'response'
+        | 'name'
+        | 'math_property_revenue_currency'
     > {
     properties?: AssistantPropertyFilter[]
     /**
@@ -229,7 +264,13 @@ export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 
 
 export interface AssistantTrendsFilter {
     /**
-     * If the formula is provided, apply it here.
+     * If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
+     * When using a formula, you must:
+     * - Identify and specify **all** events and actions needed to solve the formula.
+     * - Carefully review the list of available events and actions to find appropriate entities for each part of the formula.
+     * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
+     * Examples of using math formulas:
+     * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
      */
     formulas?: string[]
 
@@ -239,7 +280,7 @@ export interface AssistantTrendsFilter {
      * `ActionsBar` - time-series bar chart.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
-     * `BoldNumber` - total value single large number. You can't use this with breakdown or with multiple series; use when user explicitly asks for a single output number.
+     * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -261,6 +302,7 @@ export interface AssistantTrendsFilter {
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
      * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
      * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
@@ -310,7 +352,7 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events or actions to include
+     * Events or actions to include. Prioritize the more popular and fresh events and actions.
      */
     series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
 
@@ -320,7 +362,14 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     trendsFilter?: AssistantTrendsFilter
 
     /**
-     * Breakdown of the series
+     * Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question.
+     * When using breakdowns, you must:
+     * - **Identify the property group** and name for each breakdown.
+     * - **Provide the property name** for each breakdown.
+     * - **Validate that the property value accurately reflects the intended criteria**.
+     * Examples of using breakdowns:
+     * - page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.
+     * - number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.
      */
     breakdownFilter?: AssistantTrendsBreakdownFilter
 
@@ -395,8 +444,10 @@ export interface AssistantFunnelsFilter {
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
     /**
      * Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence.
+     * This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.)
      * You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
      * For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3.
+     * When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.
      * @default []
      */
     exclusions?: AssistantFunnelsExclusionEventsNode[]
@@ -411,12 +462,15 @@ export interface AssistantFunnelsFilter {
      */
     binCount?: FunnelsFilterLegacy['bin_count']
     /**
-     * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.
+     * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query.
+     * If needed, this can be practically unlimited by setting a large value, though it's rare to need that.
+     * Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.
      * @default 14
      */
     funnelWindowInterval?: integer
     /**
-     * Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.
+     * Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query.
+     * Use in combination with `funnelWindowInterval`. The default value is 14 days.
      * @default day
      */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
@@ -427,8 +481,9 @@ export interface AssistantFunnelsFilter {
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     /**
      * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
+     * @default null
      */
-    funnelAggregateByHogQL?: 'properties.$session_id'
+    funnelAggregateByHogQL?: 'properties.$session_id' | null
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
@@ -456,7 +511,7 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     interval?: IntervalType
     /**
-     * Events or actions to include
+     * Events or actions to include. Prioritize the more popular and fresh events and actions.
      */
     series: AssistantFunnelsNode[]
     /**
@@ -464,11 +519,18 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     funnelsFilter?: AssistantFunnelsFilter
     /**
-     * Breakdown the chart by a property
+     * A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation.
+     * When using breakdowns, you must:
+     * - **Identify the property group** and name for a breakdown.
+     * - **Provide the property name** for a breakdown.
+     * - **Validate that the property value accurately reflects the intended criteria**.
+     * Examples of using a breakdown:
+     * - page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.
+     * - conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.
      */
     breakdownFilter?: AssistantFunnelsBreakdownFilter
     /**
-     * Use this field to define the aggregation by a specific group from the group mapping that the user has provided.
+     * Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.
      */
     aggregation_group_type_index?: integer
 }
@@ -529,8 +591,6 @@ export interface AssistantRetentionFilter {
      * @default Day
      */
     period?: RetentionFilterLegacy['period']
-    /** DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
-    showMean?: RetentionFilterLegacy['show_mean']
     /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /**

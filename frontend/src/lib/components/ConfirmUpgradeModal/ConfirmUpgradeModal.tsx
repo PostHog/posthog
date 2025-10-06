@@ -1,7 +1,9 @@
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
+
 import { getProration } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 

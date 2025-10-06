@@ -1,15 +1,15 @@
 #!/usr/bin/env node
+import * as path from 'path'
+import { fileURLToPath } from 'url'
+
 import {
     buildInParallel,
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
-    gatherProductManifests,
     isDev,
     startDevServer,
 } from '@posthog/esbuilder'
-import * as path from 'path'
-import { fileURLToPath } from 'url'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -17,7 +17,7 @@ startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
-gatherProductManifests(__dirname)
+await import('./build-products.mjs')
 
 const common = {
     absWorkingDir: __dirname,
@@ -55,36 +55,81 @@ await buildInParallel(
             // This isn't great, but we load some static assets at runtime for the toolbar, and we can't sub in
             // a variable at runtime it seems...
             publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
-            alias: {
-                'posthog-js': 'posthog-js-lite',
-            },
             writeMetaFile: true,
             extraPlugins: [
                 {
-                    name: 'no-side-effects',
+                    /**
+                     * The toolbar includes many parts of the main posthog app,
+                     * but we don't want to include everything in the toolbar bundle.
+                     * Partly because it would be too big, and partly because some things
+                     * in the main app cause problems for people using CSPs on their sites.
+                     *
+                     * It wasn't possible to tree-shake the dependencies out of the bundle,
+                     * and we don't want to change the app code significantly just for the toolbar
+                     *
+                     * So instead we replace some imports in the toolbar with a fake empty module
+                     *
+                     * This is ever so slightly hacky, but it gets customers up and running
+                     *
+                     * */
+                    name: 'denylist-imports',
                     setup(build) {
-                        // sideEffects in package.json lists files that _have_ side effects,
-                        // but we only want to mark lemon-ui as having no side effects,
-                        // so we'd have to list every other file and keep that up to date
-                        // no thanks!
-                        // a glob that negates the path doesn't seem to work
-                        // so based off a comment from the esbuild author here
-                        // https://github.com/evanw/esbuild/issues/1895#issuecomment-1003404929
-                        // we can add a plugin just for the toolbar build to mark lemon-ui as having no side effects
-                        // that will allow tree-shaking and reduce the toolbar bundle size
-                        // by over 40% at implementation time
-                        build.onResolve({ filter: /^(lib|@posthog)\/lemon-ui/ }, async (args) => {
-                            if (args.pluginData) {
-                                return
-                            } // Ignore this if we called ourselves
+                        // Explicit denylist of paths we don't want in the toolbar bundle
+                        const deniedPaths = [
+                            '~/lib/hooks/useUploadFiles',
+                            '~/queries/nodes/InsightViz/InsightViz',
+                            'lib/hog',
+                            'scenes/activity/explore/EventDetails',
+                            'scenes/web-analytics/WebAnalyticsDashboard',
+                        ]
 
-                            const { path, ...rest } = args
-                            rest.pluginData = true // Avoid infinite recursion
-                            const result = await build.resolve(path, rest)
+                        // Patterns to match for denying imports
+                        const deniedPatterns = [
+                            /monaco/,
+                            /scenes\/insights\/filters\/ActionFilter/,
+                            /lib\/components\/CodeSnippet/,
+                            /scenes\/session-recordings\/player/,
+                            /queries\/schema-guard/,
+                            /queries\/schema.json/,
+                            /queries\/QueryEditor\/QueryEditor/,
+                            /scenes\/billing/,
+                            /scenes\/data-warehouse/,
+                            /LineGraph/,
+                        ]
 
-                            result.sideEffects = false
+                        build.onResolve({ filter: /.*/ }, (args) => {
+                            const shouldDeny =
+                                deniedPaths.includes(args.path) ||
+                                deniedPatterns.some((pattern) => pattern.test(args.path))
 
-                            return result
+                            if (shouldDeny) {
+                                return {
+                                    path: args.path,
+                                    namespace: 'empty-module',
+                                    sideEffects: false,
+                                }
+                            }
+                        })
+
+                        build.onLoad({ filter: /.*/, namespace: 'empty-module' }, (args) => {
+                            return {
+                                contents: `
+                                module.exports = new Proxy({}, {
+                                    get: function() {
+                                        const shouldLog = window?.posthog?.config?.debug
+                                        if (shouldLog) {
+                                            console.warn('[TOOLBAR] Attempted to use denied module:', ${JSON.stringify(
+                                                args.path
+                                            )});
+                                        }
+                                        return function() { 
+                                            return {} 
+                                        }
+                                    }
+                                });
+                            `,
+                                loader: 'js',
+                            }
                         })
                     },
                 },

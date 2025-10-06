@@ -3,81 +3,7 @@
     "short_id": "jEAIVJnN",
     "name": "",
     "derived_name": "Pageview count",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "math": "total",
-                "type": "events",
-                "order": 0,
-                "properties": [
-                    {
-                        "key": "from_invite",
-                        "type": "event",
-                        "value": ["false"],
-                        "operator": "exact"
-                    },
-                    {
-                        "key": "$referrer",
-                        "type": "event",
-                        "value": "is_not_set",
-                        "operator": "is_not_set"
-                    }
-                ],
-                "custom_name": "Pageviews"
-            }
-        ],
-        "display": "ActionsLineGraph",
-        "insight": "TRENDS",
-        "interval": "week",
-        "date_from": "-8w",
-        "properties": {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$current_url",
-                            "type": "event",
-                            "value": ["https://hedgebox.net/signup/"],
-                            "operator": "exact"
-                        },
-                        {
-                            "key": "$geoip_country_code",
-                            "type": "event",
-                            "value": ["PY"],
-                            "operator": "exact"
-                        }
-                    ]
-                },
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "$browser",
-                            "type": "event",
-                            "value": "XX",
-                            "operator": "icontains"
-                        },
-                        {
-                            "key": "$session_duration",
-                            "type": "session",
-                            "value": 3,
-                            "operator": "exact"
-                        },
-                        {
-                            "key": "selector",
-                            "type": "element",
-                            "value": ["href"],
-                            "operator": "exact"
-                        }
-                    ]
-                }
-            ]
-        },
-        "entity_type": "events"
-    },
+    "filters": {},
     "filters_hash": "cache_42127776c1709f7c4209cea8925faefd",
     "order": null,
     "deleted": false,
@@ -246,6 +172,88 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "-8w"
+            },
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$current_url",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["https://hedgebox.net/signup/"]
+                            },
+                            {
+                                "key": "$geoip_country_code",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["PY"]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$browser",
+                                "operator": "icontains",
+                                "type": "event",
+                                "value": "XX"
+                            },
+                            {
+                                "key": "$session_duration",
+                                "operator": "exact",
+                                "type": "session",
+                                "value": 3.0
+                            },
+                            {
+                                "key": "selector",
+                                "operator": "exact",
+                                "type": "element",
+                                "value": ["href"]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "custom_name": "Pageviews",
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$pageview",
+                    "properties": [
+                        {
+                            "key": "from_invite",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": ["false"]
+                        },
+                        {
+                            "key": "$referrer",
+                            "operator": "is_not_set",
+                            "type": "event",
+                            "value": "is_not_set"
+                        }
+                    ]
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

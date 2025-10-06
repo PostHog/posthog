@@ -1,13 +1,5 @@
 import json
-from unittest.mock import patch
 
-from django.core.cache import cache
-from rest_framework import status
-
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import get_instance_setting
-from posthog.models.person import Person
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -15,6 +7,16 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
+
+from django.core.cache import cache
+
+from rest_framework import status
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import get_instance_setting
+from posthog.models.person import Person
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):

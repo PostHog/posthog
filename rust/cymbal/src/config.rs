@@ -1,6 +1,10 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
+use common_types::error_tracking::EmbeddingModelList;
 use envconfig::Envconfig;
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
@@ -31,6 +35,17 @@ pub struct Config {
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
     pub issue_overrides_topic: String,
 
+    #[envconfig(default = "clickhouse_ingestion_warnings")]
+    pub ingestion_warnings_topic: String,
+
+    #[envconfig(default = "error_tracking_new_fingerprints")]
+    pub new_fingerprints_topic: String,
+
+    pub embedding_enabled_team_id: Option<i32>,
+
+    #[envconfig(default = "text-embedding-3-large")]
+    pub embedding_models: EmbeddingModelList,
+
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
@@ -47,6 +62,9 @@ pub struct Config {
 
     #[envconfig(default = "30")]
     pub sourcemap_timeout_seconds: u64,
+
+    #[envconfig(default = "5")]
+    pub sourcemap_connect_timeout_seconds: u64,
 
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
@@ -65,6 +83,9 @@ pub struct Config {
 
     #[envconfig(default = "object_storage_root_password")]
     pub object_storage_secret_access_key: String,
+
+    #[envconfig(default = "false")] // Enable for MinIO compatibility
+    pub object_storage_force_path_style: bool,
 
     #[envconfig(default = "symbolsets")]
     pub ss_prefix: String,
@@ -92,16 +113,55 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
+
+    #[envconfig(default = "300")]
+    pub team_cache_ttl_secs: u64,
+
+    #[envconfig(default = "10000")]
+    pub max_team_cache_size: u64,
+
+    #[envconfig(default = "300")]
+    pub assignment_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_assignment_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
+    pub grouping_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_grouping_rule_cache_size: u64,
+
+    #[envconfig(from = "MAXMIND_DB_PATH")]
+    pub maxmind_db_path: PathBuf,
+
+    #[envconfig(default = "redis://localhost:6379/")]
+    pub redis_url: String,
+
+    #[envconfig(default = "")]
+    pub filtered_teams: String, // Comma seperated list of teams to either filter in (process) or filter out (ignore)
+
+    #[envconfig(default = "out")]
+    pub filter_mode: String, // in/out - in means drop all teams not in the list, out means drop all teams in the list
+
+    #[envconfig(default = "false")]
+    pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         // Our consumer is used in a transaction, so we disable offset commits.
-        ConsumerConfig::set_defaults(
-            "error-tracking-rs",
-            "exception_symbolification_events",
-            false,
-        );
+        ConsumerConfig::set_defaults("error-tracking-rs", "exceptions_ingestion", false);
+
+        if std::env::var("MAXMIND_DB_PATH").is_err() {
+            std::env::set_var(
+                "MAXMIND_DB_PATH",
+                default_maxmind_db_path().to_string_lossy().to_string(),
+            );
+        }
+
         let res = Self::init_from_env()?;
         init_global_state(&res);
         Ok(res)
@@ -110,4 +170,14 @@ impl Config {
 
 pub fn init_global_state(config: &Config) {
     FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
+}
+
+fn default_maxmind_db_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("share")
+        .join("GeoLite2-City.mmdb")
 }

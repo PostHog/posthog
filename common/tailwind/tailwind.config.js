@@ -2,23 +2,21 @@
 const plugin = require('tailwindcss/plugin')
 
 const commonColors = {
-    'inherit': 'inherit',
-    'current': 'currentColor',
-    'transparent': 'transparent',
-    'accent-primary': 'var(--accent-primary)',
-    'accent-primary-hover': 'var(--accent-primary-hover)',
-    'accent-primary-active': 'var(--accent-primary-active)',
-    'accent-primary-highlight': 'var(--accent-primary-highlight)',
-    'accent-secondary': 'var(--accent-secondary)',
-    'accent-secondary-hover': 'var(--accent-secondary-hover)',
-    'accent-secondary-active': 'var(--accent-secondary-active)',
-    'accent-secondary-highlight': 'var(--accent-secondary-highlight)',
+    inherit: 'inherit',
+    current: 'currentColor',
+    transparent: 'transparent',
+    accent: 'var(--color-accent)',
+    'accent-inverted': 'var(--color-accent-inverted)',
+    'accent-hover': 'var(--color-accent-hover)',
+    'accent-active': 'var(--color-accent-active)',
+    'accent-highlight-primary': 'var(--color-accent-highlight-primary)',
+    'accent-highlight-secondary': 'var(--color-accent-highlight-secondary)',
 }
 
 const deprecatedColors = {
     'primary-highlight-light': 'var(--primary-highlight-light)',
     'text-3000-light': 'var(--text-3000-light)',
-    'text-secondary-3000-light': 'var(--text-secondary-3000-light)',
+    'text-secondary-3000-light': 'var(--color-text-secondary-3000-light)',
     'muted-3000-light': 'var(--muted-3000-light)',
     'trace-3000-light': 'var(--trace-3000-light)',
     'primary-3000-light': 'var(--primary-3000-light)',
@@ -26,8 +24,8 @@ const deprecatedColors = {
     'primary-3000-active-light': 'var(--primary-3000-active-light)',
     'secondary-3000-light': 'var(--secondary-3000-light)',
     'secondary-3000-hover-light': 'var(--secondary-3000-hover-light)',
-    'accent-3000-light': 'var(--accent-3000-light)',
-    'bg-3000-light': 'var(--bg-3000-light)',
+    'accent-3000-light': 'var(--color-accent-3000-light)',
+    'bg-3000-light': 'var(--color-bg-3000-light)',
     'border-3000-light': 'var(--border-3000-light)',
     'border-bold-3000-light': 'var(--border-bold-3000-light)',
     'glass-bg-3000-light': 'var(--glass-bg-3000-light)',
@@ -47,7 +45,7 @@ const deprecatedColors = {
 
     // PostHog 3000 - Dark mode
     'text-3000-dark': 'var(--text-3000-dark)',
-    'text-secondary-3000-dark': 'var(--text-secondary-3000-dark)',
+    'text-secondary-3000-dark': 'var(--color-text-secondary-3000-dark)',
     'muted-3000-dark': 'var(--muted-3000-dark)',
     'trace-3000-dark': 'var(--trace-3000-dark)',
     'primary-3000-dark': 'var(--primary-3000-dark)',
@@ -58,8 +56,8 @@ const deprecatedColors = {
     'primary-alt-highlight-light': 'var(--primary-alt-highlight-light)',
     'secondary-3000-dark': 'var(--secondary-3000-dark)',
     'secondary-3000-hover-dark': 'var(--secondary-3000-hover-dark)',
-    'accent-3000-dark': 'var(--accent-3000-dark)',
-    'bg-3000-dark': 'var(--bg-3000-dark)',
+    'accent-3000-dark': 'var(--color-accent-3000-dark)',
+    'bg-3000-dark': 'var(--color-bg-3000-dark)',
     'border-3000-dark': 'var(--border-3000-dark)',
     'border-bold-3000-dark': 'var(--border-bold-3000-dark)',
     'glass-bg-3000-dark': 'var(--glass-bg-3000-dark)',
@@ -86,29 +84,29 @@ const deprecatedColors = {
     // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
     // --color-default: var(--default);
     // --color-text-3000: var(--text-3000);
-    // --color-text-secondary-3000: var(--text-secondary-3000);
+    // --color-text-secondary-3000: var(--color-text-secondary-3000);
     // --color-muted-3000: var(--muted-3000);
     // --color-primary-3000: var(--primary-3000);
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
-    // --color-accent-3000: var(--bg-surface-primary);
-    // --color-bg-3000: var(--bg-primary);
+    // --color-accent-3000: var(--color-bg-surface-primary);
+    // --color-bg-3000: var(--color-bg-primary);
     // --color-primary-highlight: var(--primary-highlight);
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
     // --color-primary-alt: var(--primary-alt);
 
     // 'primary': 'var(--primary-3000)',
-    'muted': 'var(--muted-3000)',
-    'default': 'var(--text-3000)',
+    muted: 'var(--muted-3000)',
+    default: 'var(--text-3000)',
     'muted-alt': 'var(--muted-3000)',
     'primary-alt': 'var(--text-3000)',
 
-    // --color-border: var(--border-primary);
+    // --color-border: var(--color-border-primary);
     // --color-border-bold: var(--border-bold-3000);
     // --color-data-color-1: var(--data-color-1);
     // --color-data-color-10: var(--data-color-10);
 
-    'bg-bridge': 'var(--bg-bridge)',
+    'bg-bridge': 'var(--color-bg-bridge)',
 
     // Non-color vars
     'modal-shadow-elevation': 'var(--modal-shadow-elevation)',
@@ -120,10 +118,10 @@ const deprecatedColors = {
     'font-mono': 'var(--font-mono)',
 
     // Dashboard item colors
-    'blue': 'var(--blue)',
-    'purple': 'var(--purple)',
-    'green': 'var(--green)',
-    'black': 'var(--black)',
+    blue: 'var(--blue)',
+    purple: 'var(--purple)',
+    green: 'var(--green)',
+    black: 'var(--black)',
 
     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     'data-color-1': 'var(--data-color-1)',
@@ -144,14 +142,24 @@ const deprecatedColors = {
     'data-color-15': 'var(--data-color-15)',
 
     // Lifecycle series (compiled)
-    'lifecycle-new': 'var(--lifecycle-new)',
-    'lifecycle-returning': 'var(--lifecycle-returning)',
-    'lifecycle-resurrecting': 'var(--lifecycle-resurrecting)',
-    'lifecycle-dormant': 'var(--lifecycle-dormant)',
-    'lifecycle-new-hover': 'var(--lifecycle-new-hover)',
-    'lifecycle-returning-hover': 'var(--lifecycle-returning-hover)',
-    'lifecycle-resurrecting-hover': 'var(--lifecycle-resurrecting-hover)',
-    'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
+    'color-lifecycle-new': 'var(--color-lifecycle-new)',
+    'color-lifecycle-returning': 'var(--color-lifecycle-returning)',
+    'color-lifecycle-resurrecting': 'var(--color-lifecycle-resurrecting)',
+    'color-lifecycle-dormant': 'var(--color-lifecycle-dormant)',
+    'color-lifecycle-new-hover': 'var(--color-lifecycle-new-hover)',
+    'color-lifecycle-returning-hover': 'var(--color-lifecycle-returning-hover)',
+    'color-lifecycle-resurrecting-hover': 'var(--color-lifecycle-resurrecting-hover)',
+    'color-lifecycle-dormant-hover': 'var(--color-lifecycle-dormant-hover)',
+
+    // Revenue analytics MRR series (compiled)
+    'color-revenue-analytics-new': 'var(--color-revenue-analytics-new)',
+    'color-revenue-analytics-expansion': 'var(--color-revenue-analytics-expansion)',
+    'color-revenue-analytics-contraction': 'var(--color-revenue-analytics-contraction)',
+    'color-revenue-analytics-churn': 'var(--color-revenue-analytics-churn)',
+    'color-revenue-analytics-new-hover': 'var(--color-revenue-analytics-new-hover)',
+    'color-revenue-analytics-expansion-hover': 'var(--color-revenue-analytics-expansion-hover)',
+    'color-revenue-analytics-contraction-hover': 'var(--color-revenue-analytics-contraction-hover)',
+    'color-revenue-analytics-churn-hover': 'var(--color-revenue-analytics-churn-hover)',
 
     // Z-indexes
     'z-top': 'var(--z-top)',
@@ -235,59 +243,59 @@ const deprecatedColors = {
     'notebook-column-right-width': 'var(--notebook-column-right-width)',
 
     // Light mode
-    'danger': 'var(--danger)',
+    danger: 'var(--danger)',
     'danger-light': 'var(--danger-light)',
     'danger-lighter': 'var(--danger-lighter)',
     'danger-dark': 'var(--danger-dark)',
     'danger-highlight': 'var(--danger-highlight)',
-    'warning': 'var(--warning)',
+    warning: 'var(--warning)',
     'warning-highlight': 'var(--warning-highlight)',
     'warning-dark': 'var(--warning-dark)',
-    'highlight': 'var(--highlight)',
-    'success': 'var(--success)',
+    highlight: 'var(--highlight)',
+    success: 'var(--success)',
     'success-light': 'var(--success-light)',
     'success-lighter': 'var(--success-lighter)',
     'success-dark': 'var(--success-dark)',
     'success-highlight': 'var(--success-highlight)',
 
-    // --color-muted: var(--text-secondary);
-    // --color-muted-alt: var(--text-secondary);
+    // --color-muted: var(--color-text-secondary);
+    // --color-muted-alt: var(--color-text-secondary);
     // --color-primary-alt: var(--primary-alt);
-    'mark': 'var(--mark)',
-    'white': 'var(--white)',
+    mark: 'var(--mark)',
+    white: 'var(--white)',
 
-    // --color-bg-light: var(--bg-surface-primary);
-    'side': 'var(--side)',
-    'mid': 'var(--mid)',
-    'border': 'var(--border)',
+    // --color-bg-light: var(--color-bg-surface-primary);
+    side: 'var(--side)',
+    mid: 'var(--mid)',
+    border: 'var(--border)',
     'border-light': 'var(--border-light)',
     'border-bold': 'var(--border-bold)',
-    'transparent': 'var(--transparent)',
-    'link': 'var(--link)',
+    transparent: 'var(--transparent)',
+    link: 'var(--link)',
     'brand-blue': 'var(--brand-blue)',
     'brand-red': 'var(--brand-red)',
     'brand-yellow': 'var(--brand-yellow)',
     'brand-key': 'var(--brand-key)',
-    'accent': 'var(--accent)',
+    accent: 'var(--color-accent)',
     'text-3000': 'var(--text-3000)',
-    'text-secondary-3000': 'var(--text-secondary-3000)',
+    'text-secondary-3000': 'var(--color-text-secondary-3000)',
     'muted-3000': 'var(--muted-3000)',
     'trace-3000': 'var(--trace-3000)',
-    'primary-3000': 'var(--accent-primary)',
+    'primary-3000': 'var(--color-accent)',
 
-    'primary-3000-hover': 'var(--accent-primary-hover)',
-    'primary-3000-active': 'var(--accent-primary-active)',
+    'primary-3000-hover': 'var(--color-accent-hover)',
+    'primary-3000-active': 'var(--color-accent-active)',
     'secondary-3000': 'var(--secondary-3000)',
     'secondary-3000-hover': 'var(--secondary-3000-hover)',
-    'accent-3000': 'var(--bg-surface-primary)',
-    'bg-3000': 'var(--bg-primary)',
-    'border-3000': 'var(--border-primary)',
+    'accent-3000': 'var(--color-bg-surface-primary)',
+    'bg-3000': 'var(--color-bg-primary)',
+    'border-3000': 'var(--color-border-primary)',
     'border-light-opaque': 'var(--border-light-opaque)',
     'border-bold-3000': 'var(--border-bold-3000)',
     'glass-bg-3000': 'var(--glass-bg-3000)',
-    'glass-border-3000': 'var(--border-primary)',
-    'bg-light': 'var(--bg-surface-primary)',
-    'bg-table': 'var(--bg-table)',
+    'glass-border-3000': 'var(--color-border-primary)',
+    'bg-light': 'var(--color-bg-surface-primary)',
+    'bg-table': 'var(--color-bg-table)',
 
     // --color-link: var(--link);
     // TODO: --color-shadow-elevation-3000: var(--shadow-elevation-3000);
@@ -308,13 +316,11 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '../.." to share this between frontend/, cypress/, playwright/ and common/storybook/
+        // Starting all paths with '../.." to share this between frontend/, playwright/ and common/storybook/
         '../../frontend/src/**/*.{ts,tsx}',
         '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
-        '../../common/**/src/**/*.{ts,tsx}',
-        '../../common/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
@@ -609,7 +615,6 @@ const config = {
             },
             black: 'var(--color-black)',
             white: 'var(--color-white)',
-
         },
         extend: {
             colors: {
@@ -623,72 +628,86 @@ const config = {
             },
             backgroundColor: {
                 ...commonColors,
-                'primary': 'var(--bg-primary)',
+                primary: 'var(--color-bg-primary)',
 
-                'surface-primary': 'var(--bg-surface-primary)',
-                'surface-secondary': 'var(--bg-surface-secondary)',
-                'surface-tertiary': 'var(--bg-surface-tertiary)',
-                'surface-tooltip': 'var(--bg-surface-tooltip)',
-                'surface-tooltip-inverse': 'var(--bg-surface-tooltip-inverse)',
-                'surface-popover': 'var(--bg-surface-popover)',
-                'surface-popover-inverse': 'var(--bg-surface-popover-inverse)',
-                'fill-primary': 'var(--bg-fill-primary)',
-                'fill-secondary': 'var(--bg-fill-secondary)',
-                'fill-tertiary': 'var(--bg-fill-tertiary)',
-                'fill-highlight-50': 'var(--bg-fill-highlight-50)',
-                'fill-highlight-inverse-50': 'var(--bg-fill-highlight-inverse-50)',
-                'fill-highlight-100': 'var(--bg-fill-highlight-100)',
-                'fill-highlight-inverse-100': 'var(--bg-fill-highlight-inverse-100)',
-                'fill-highlight-150': 'var(--bg-fill-highlight-150)',
-                'fill-highlight-inverse-150': 'var(--bg-fill-highlight-inverse-150)',
-                'fill-highlight-200': 'var(--bg-fill-highlight-200)',
-                'fill-highlight-inverse-200': 'var(--bg-fill-highlight-inverse-200)',
-                'fill-primary-highlight': 'var(--bg-fill-primary-highlight)',
-                'fill-info-secondary': 'var(--bg-fill-info-secondary)',
-                'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
-                'fill-info-highlight': 'var(--bg-fill-info-highlight)',
-                'fill-warning-secondary': 'var(--bg-fill-warning-secondary)',
-                'fill-warning-tertiary': 'var(--bg-fill-warning-tertiary)',
-                'fill-warning-highlight': 'var(--bg-fill-warning-highlight)',
-                'fill-error-secondary': 'var(--bg-fill-error-secondary)',
-                'fill-error-tertiary': 'var(--bg-fill-error-tertiary)',
-                'fill-error-highlight': 'var(--bg-fill-error-highlight)',
-                'fill-success-secondary': 'var(--bg-fill-success-secondary)',
-                'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
-                'fill-success-highlight': 'var(--bg-fill-success-highlight)',
-                'fill-input': 'var(--bg-fill-input)',
-                'fill-switch': 'var(--bg-fill-switch)',
-                'fill-slider-rail': 'var(--bg-fill-slider-rail)',
+                'surface-primary': 'var(--color-bg-surface-primary)',
+                'surface-secondary': 'var(--color-bg-surface-secondary)',
+                'surface-tertiary': 'var(--color-bg-surface-tertiary)',
+                'surface-tooltip': 'var(--color-bg-surface-tooltip)',
+                'surface-tooltip-inverse': 'var(--color-bg-surface-tooltip-inverse)',
+                'surface-popover': 'var(--color-bg-surface-popover)',
+                'surface-popover-inverse': 'var(--color-bg-surface-popover-inverse)',
+                'fill-primary': 'var(--color-bg-fill-primary)',
+                'fill-secondary': 'var(--color-bg-fill-secondary)',
+                'fill-tertiary': 'var(--color-bg-fill-tertiary)',
+                'fill-highlight-50': 'var(--color-bg-fill-highlight-50)',
+                'fill-highlight-inverse-50': 'var(--color-bg-fill-highlight-inverse-50)',
+                'fill-highlight-100': 'var(--color-bg-fill-highlight-100)',
+                'fill-highlight-inverse-100': 'var(--color-bg-fill-highlight-inverse-100)',
+                'fill-highlight-150': 'var(--color-bg-fill-highlight-150)',
+                'fill-highlight-inverse-150': 'var(--color-bg-fill-highlight-inverse-150)',
+                'fill-highlight-200': 'var(--color-bg-fill-highlight-200)',
+                'fill-highlight-inverse-200': 'var(--color-bg-fill-highlight-inverse-200)',
+                'fill-primary-highlight': 'var(--color-bg-fill-primary-highlight)',
+                'fill-info-secondary': 'var(--color-bg-fill-info-secondary)',
+                'fill-info-tertiary': 'var(--color-bg-fill-info-tertiary)',
+                'fill-info-highlight': 'var(--color-bg-fill-info-highlight)',
+                'fill-warning-secondary': 'var(--color-bg-fill-warning-secondary)',
+                'fill-warning-tertiary': 'var(--color-bg-fill-warning-tertiary)',
+                'fill-warning-highlight': 'var(--color-bg-fill-warning-highlight)',
+                'fill-error-secondary': 'var(--color-bg-fill-error-secondary)',
+                'fill-error-tertiary': 'var(--color-bg-fill-error-tertiary)',
+                'fill-error-highlight': 'var(--color-bg-fill-error-highlight)',
+                'fill-success-secondary': 'var(--color-bg-fill-success-secondary)',
+                'fill-success-tertiary': 'var(--color-bg-fill-success-tertiary)',
+                'fill-success-highlight': 'var(--color-bg-fill-success-highlight)',
+                'fill-button-group-tertiary-hover': 'var(--color-bg-fill-button-group-tertiary-hover)',
+                'fill-button-tertiary-hover': 'var(--color-bg-fill-button-tertiary-hover)',
+                'fill-button-tertiary-hover-inverse': 'var(--color-bg-fill-button-tertiary-hover-inverse)',
+                'fill-button-tertiary-active': 'var(--color-bg-fill-button-tertiary-active)',
+                'fill-button-tertiary-active-inverse': 'var(--color-bg-fill-button-tertiary-active-inverse)',
+                'fill-input': 'var(--color-bg-fill-input)',
+                'fill-switch': 'var(--color-bg-fill-switch)',
+                'fill-slider-rail': 'var(--color-bg-fill-slider-rail)',
+                'fill-scroll-thumb': 'var(--color-bg-fill-scroll-thumb)',
+                'border-primary': 'var(--color-bg-border-primary)',
+                'border-secondary': 'var(--color-bg-border-secondary)',
             },
             textColor: {
                 ...commonColors,
 
-                'primary': 'var(--text-primary)',
-                'primary-inverse': 'var(--text-primary-inverse)',
-                'secondary': 'var(--text-secondary)',
-                'tertiary': 'var(--text-tertiary)',
-                'success': 'var(--text-success)',
-                'warning': 'var(--text-warning)',
-                'error': 'var(--text-error)',
-                'info-on-fill': 'var(--text-info-on-fill)',
-                'warning-on-fill': 'var(--text-warning-on-fill)',
-                'error-on-fill': 'var(--text-error-on-fill)',
-                'success-on-fill': 'var(--text-success-on-fill)',
+                primary: 'var(--color-text-primary)',
+                'primary-inverse': 'var(--color-text-primary-inverse)',
+                'secondary-inverse': 'var(--color-text-secondary-inverse)',
+                secondary: 'var(--color-text-secondary)',
+                tertiary: 'var(--color-text-tertiary)',
+                success: 'var(--color-text-success)',
+                warning: 'var(--color-text-warning)',
+                error: 'var(--color-text-error)',
             },
             borderColor: {
                 ...commonColors,
 
-                'primary': 'var(--border-primary)',
-                'info': 'var(--border-info)',
-                'warning': 'var(--border-warning)',
-                'error': 'var(--border-error)',
-                'success': 'var(--border-success)',
+                primary: 'var(--color-border-primary)',
+                secondary: 'var(--color-border-secondary)',
+                info: 'var(--color-border-info)',
+                warning: 'var(--color-border-warning)',
+                error: 'var(--color-border-error)',
+                success: 'var(--color-border-success)',
             },
             ringColor: {
                 ...commonColors,
+
+                primary: 'var(--color-border-primary)',
+                secondary: 'var(--color-border-secondary)',
+                info: 'var(--color-border-info)',
+                warning: 'var(--color-border-warning)',
+                error: 'var(--color-border-error)',
+                success: 'var(--color-border-success)',
             },
             fontFamily: {
                 sans: [
+                    'Emoji Flags Polyfill',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
@@ -703,6 +722,7 @@ const config = {
                     'Segoe UI Symbol',
                 ],
                 title: [
+                    'Emoji Flags Polyfill',
                     'MatterSQ',
                     '-apple-system',
                     'BlinkMacSystemFont',
@@ -717,7 +737,16 @@ const config = {
                     'Segoe UI Emoji',
                     'Segoe UI Symbol',
                 ],
-                mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
+                mono: [
+                    'Emoji Flags Polyfill',
+                    'ui-monospace',
+                    'SFMono-Regular',
+                    'SF Mono',
+                    'Menlo',
+                    'Consolas',
+                    'Liberation Mono',
+                    'monospace',
+                ],
             },
             screens: {
                 // Sync with vars.scss
@@ -774,16 +803,15 @@ const config = {
                 3: '3 3 0%',
             },
             zIndex: {
-                'top': 'var(--z-top)',
+                top: 'var(--z-top)',
             },
         },
     },
     plugins: [
         require('@tailwindcss/container-queries'),
         plugin(({ addUtilities, theme }) => {
-            const spacing = theme("spacing");
-            const newUtilities = {};
-            
+            const spacing = theme('spacing')
+            const newUtilities = {}
 
             // Standard spacing utilities for backwards compatibility
             for (const [key, value] of Object.entries(spacing)) {
@@ -792,16 +820,16 @@ const config = {
                         '--tw-space-y-reverse': '0',
                         'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
                         'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
-                    };
+                    }
                     newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
                         '--tw-space-x-reverse': '0',
                         'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
                         'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
-                    };
+                    }
                 }
             }
 
-            addUtilities(newUtilities);
+            addUtilities(newUtilities)
         }),
     ],
 }

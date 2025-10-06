@@ -1,5 +1,12 @@
-from django.db import models
+from datetime import datetime
 from typing import Optional
+
+from django.db import models
+from django.db.models import Q
+from django.db.models.expressions import F
+from django.utils import timezone
+
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -17,24 +24,24 @@ class FileSystem(models.Model):
     type = models.CharField(max_length=100, blank=True)
     ref = models.CharField(max_length=100, null=True, blank=True)
     href = models.TextField(null=True, blank=True)
+    shortcut = models.BooleanField(null=True, blank=True)
     meta = models.JSONField(default=dict, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    # DEPRECATED/UNUSED. It's all based on just the team_id.
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team"]),
+            models.Index(F("team_id"), F("path"), name="posthog_fs_team_path"),
+            models.Index(F("team_id"), F("depth"), name="posthog_fs_team_depth"),
+            models.Index(F("team_id"), F("type"), F("ref"), name="posthog_fs_team_typeref"),
+        ]
 
     def __str__(self):
         return self.path
-
-
-def generate_unique_path(team: Team, base_folder: str, name: str) -> str:
-    desired = f"{base_folder}/{escape_path(name)}"
-    path = desired
-    index = 1
-
-    # TODO: speed this up by making just one query, and zero on first insert
-    while FileSystem.objects.filter(team=team, path=path).exists():
-        path = f"{desired} ({index})"
-        index += 1
-    return path
 
 
 def create_or_update_file(
@@ -46,32 +53,40 @@ def create_or_update_file(
     ref: str,
     href: str,
     meta: dict,
-    created_by: Optional[User] = None,
-) -> FileSystem:
-    existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).first()
-    if existing:
-        # Optionally rename the path to match the new name
+    created_at: Optional[datetime] = None,
+    created_by_id: Optional[int] = None,
+):
+    has_existing = False
+    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).filter(~Q(shortcut=True)).all()
+    for existing in all_existing:
+        has_existing = True
         segments = split_path(existing.path)
-        if len(segments) <= 2:
-            new_path = generate_unique_path(team, base_folder, name)
-        else:
-            # Replace last segment
-            segments[-1] = escape_path(name)
-            new_path = join_path(segments)
-
-        # Ensure uniqueness
-        if FileSystem.objects.filter(team=team, path=new_path).exclude(id=existing.id).exists():
-            new_path = generate_unique_path(team, base_folder, name)
-
+        segments[-1] = escape_path(name)
+        new_path = join_path(segments)
         existing.path = new_path
-        existing.depth = len(split_path(new_path))
+        existing.depth = len(segments)
         existing.href = href
         existing.meta = meta
+        if created_at:
+            existing.created_at = created_at
+        if created_by_id and existing.created_by_id != created_by_id:
+            existing.created_by_id = created_by_id
         existing.save()
-        return existing
+
+    if has_existing:
+        path = escape_path(name)
+        shortcuts = (
+            FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref)
+            .filter(~(Q(path=path) & Q(href=href)))
+            .all()
+        )
+        for shortcut in shortcuts:
+            shortcut.path = path
+            shortcut.href = href
+            shortcut.save()
     else:
-        full_path = generate_unique_path(team, base_folder, name)
-        new_fs = FileSystem.objects.create(
+        full_path = f"{base_folder}/{escape_path(name)}"
+        FileSystem.objects.create(
             team=team,
             path=full_path,
             depth=len(split_path(full_path)),
@@ -79,13 +94,16 @@ def create_or_update_file(
             ref=ref,
             href=href,
             meta=meta,
-            created_by=created_by,
+            shortcut=False,
+            created_by_id=created_by_id,
+            created_at=created_at or timezone.now(),
         )
-        return new_fs
 
 
 def delete_file(*, team: Team, file_type: str, ref: str):
-    FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+    count, _ = FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+    if count > 0:
+        FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref).delete()
 
 
 def split_path(path: str) -> list[str]:

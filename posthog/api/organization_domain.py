@@ -1,18 +1,18 @@
 import re
 from typing import Any, cast
-import posthoganalytics
 
+import posthoganalytics
 from rest_framework import exceptions, request, response, serializers
-from posthog.api.utils import action
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+from posthog.event_usage import groups
 from posthog.models import OrganizationDomain
 from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions
-from posthog.event_usage import groups
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
@@ -28,8 +28,8 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
     )
 
     posthoganalytics.capture(
-        request.user.distinct_id,
-        f"organization domain {event_type}",
+        event=f"organization domain {event_type}",
+        distinct_id=str(request.user.distinct_id),
         properties=properties,
         groups=groups(domain.organization),
     )

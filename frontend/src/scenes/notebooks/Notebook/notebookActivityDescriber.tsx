@@ -1,13 +1,13 @@
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 

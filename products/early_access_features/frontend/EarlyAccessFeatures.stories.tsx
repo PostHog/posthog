@@ -1,6 +1,5 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -107,11 +106,13 @@ const EARLY_ACCESS_FEATURE_RESULT = [
 ]
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Features',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        pageUrl: urls.earlyAccessFeatures(),
     },
     decorators: [
         mswDecorator({
@@ -135,23 +136,18 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function FeaturesList(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.earlyAccessFeatures())
-    }, [])
-    return <App />
+
+type Story = StoryObj<typeof meta>
+export const FeaturesList: Story = {}
+
+export const NewFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.earlyAccessFeature('new'),
+    },
 }
 
-export function NewFeatureFlag(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.earlyAccessFeature('new'))
-    }, [])
-    return <App />
-}
-
-export function NotFoundEarlyAccess(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.earlyAccessFeature('not-found'))
-    }, [])
-    return <App />
+export const NotFoundEarlyAccess: Story = {
+    parameters: {
+        pageUrl: urls.earlyAccessFeature('not-found'),
+    },
 }

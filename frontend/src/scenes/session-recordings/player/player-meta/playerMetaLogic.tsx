@@ -1,41 +1,42 @@
-import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
-import { eventWithTime } from '@posthog/rrweb-types'
+import { aiSummaryMock } from './ai-summary.mock'
+
+import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+import React from 'react'
+
+import { IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
+
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
 import {
     capitalizeFirstLetter,
     ceilMsToClosestSecond,
-    findLastIndex,
     humanFriendlyDuration,
-    objectsEqual,
+    isEmptyObject,
     percentage,
 } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
-import posthog from 'posthog-js'
-import React from 'react'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
 import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { calculateTTL } from '../utils/ttlUtils'
 import type { playerMetaLogicType } from './playerMetaLogicType'
-const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
+import { SessionSummaryContent } from './types'
 
-export interface SessionSummaryResponse {
-    content: string
-}
+const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 const ALLOW_LISTED_PERSON_PROPERTIES = [
     '$os_name',
@@ -87,30 +88,24 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            [
-                'urls',
-                'sessionPlayerData',
-                'sessionEventsData',
-                'sessionPlayerMetaData',
-                'sessionPlayerMetaDataLoading',
-                'snapshotsLoading',
-                'windowIds',
-                'trackedWindow',
-            ],
+            ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
-            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
+            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById', 'recordingPropertiesLoading'],
+            ['recordingPropertiesById'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
-            ['maybeLoadPropertiesForSessions'],
+            ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
         ],
     })),
     actions({
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
+        setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
+        summarizeSession: () => ({}),
+        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -119,63 +114,34 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 sessionSummaryFeedback: () => true,
             },
         ],
-    })),
-    loaders(({ props }) => ({
-        sessionSummary: {
-            summarizeSession: async (): Promise<SessionSummaryResponse | null> => {
-                const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
-                if (!id) {
-                    return null
-                }
-                const response = await api.recordings.summarize(id)
-                if (!response.content) {
-                    lemonToast.warning('Unable to load session summary')
-                }
-                return { content: response.content }
+        sessionSummary: [
+            null as SessionSummaryContent | null,
+            {
+                setSessionSummaryContent: (_, { content }) => content,
             },
-        },
+        ],
+        sessionSummaryLoading: [
+            false,
+            {
+                summarizeSession: () => true,
+                setSessionSummaryContent: () => false,
+                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, snapshotsLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading,
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (sessionPlayerMetaData, recordingPropertiesById) => {
+                const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
+                const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
+                return !hasSessionPlayerMetadata || !hasRecordingProperties
+            },
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
             (playerData): PersonType | null => {
                 return playerData?.person ?? null
-            },
-        ],
-        resolution: [
-            (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
-            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
-                // Find snapshot to pull resolution from
-                if (!currentTimestamp) {
-                    return null
-                }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
-
-                const currIndex = findLastIndex(
-                    snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
-                )
-
-                if (currIndex === -1) {
-                    return null
-                }
-                const snapshot = snapshots[currIndex]
-                return {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
-                }
-            },
-            {
-                resultEqualityCheck: (prev, next) => {
-                    // Only update if the resolution values have changed (not the object reference)
-                    // stops PlayerMeta from re-rendering on every player position
-                    return objectsEqual(prev, next)
-                },
             },
         ],
         resolutionDisplay: [
@@ -213,22 +179,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return index === -1 ? 1 : index + 1
             },
         ],
-        lastUrl: [
-            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
-            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
-                if (!urls.length || !currentTimestamp) {
-                    return sessionPlayerMetaData?.start_url ?? undefined
-                }
-
-                // Go through the events in reverse to find the latest pageview
-                for (let i = urls.length - 1; i >= 0; i--) {
-                    const urlTimestamp = urls[i]
-                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
-                        return urlTimestamp.url
-                    }
-                }
-            },
-        ],
         lastPageviewEvent: [
             (s) => [s.sessionEventsData, s.currentPlayerTime],
             (sessionEventsData, currentPlayerTime) => {
@@ -250,9 +200,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
+        sessionTTLDays: [
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData) => {
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
+                    return calculateTTL(sessionPlayerMetaData.start_time, sessionPlayerMetaData.retention_period_days)
+                }
+
+                return null
+            },
+        ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.sessionTTLDays],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById, sessionTTLDays) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
@@ -273,6 +233,23 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         label: 'Duration',
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
+                    })
+                }
+                if (sessionPlayerMetaData?.retention_period_days) {
+                    items.push({
+                        label: 'Retention Period',
+                        value: `${sessionPlayerMetaData.retention_period_days}d`,
+                        type: 'text',
+                        keyTooltip: 'The total number of days this recording will be retained',
+                    })
+                }
+                if (sessionTTLDays !== null) {
+                    items.push({
+                        icon: <IconHourglass />,
+                        label: 'TTL',
+                        value: `${sessionTTLDays}d`,
+                        type: 'text',
+                        keyTooltip: 'The number of days left before this recording expires',
                     })
                 }
 
@@ -325,16 +302,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         typeof value === 'string'
                             ? value
                             : typeof value === 'number'
-                            ? value.toString()
-                            : JSON.stringify(value, null, 2)
+                              ? value.toString()
+                              : JSON.stringify(value, null, 2)
 
                     const calculatedPropertyType: PropertyFilterType | undefined = shouldUsePersonProperties
                         ? PropertyFilterType.Person
                         : propertyType === TaxonomicFilterGroupType.EventProperties
-                        ? PropertyFilterType.Event
-                        : TaxonomicFilterGroupType.SessionProperties
-                        ? PropertyFilterType.Session
-                        : PropertyFilterType.Person
+                          ? PropertyFilterType.Event
+                          : TaxonomicFilterGroupType.SessionProperties
+                            ? PropertyFilterType.Session
+                            : PropertyFilterType.Person
                     items.push({
                         icon: <PropertyFilterIcon type={calculatedPropertyType} />,
                         label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
@@ -346,9 +323,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
                                 : // we don't want to pass arbitrary objects to the overview grid's tooltip here, so we stringify them
-                                canRenderDirectly(value)
-                                ? value
-                                : JSON.stringify(value),
+                                  canRenderDirectly(value)
+                                  ? value
+                                  : JSON.stringify(value),
                         type: 'property',
                         property,
                     })
@@ -370,6 +347,61 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 session_summary: values.sessionSummary,
                 summarized_session_id: props.sessionRecordingId,
             })
+        },
+        // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
+        summarizeSession: async () => {
+            // TODO: Remove after testing
+            const local = false
+            if (local) {
+                actions.setSessionSummaryContent(aiSummaryMock)
+                return
+            }
+            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
+            const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
+            if (!id) {
+                return
+            }
+            try {
+                const response = await api.recordings.summarizeStream(id)
+                const reader = response.body?.getReader()
+                if (!reader) {
+                    throw new Error('No reader available')
+                }
+                const decoder = new TextDecoder()
+                const parser = createParser({
+                    onEvent: ({ event, data }) => {
+                        try {
+                            // Stop loading and show error if encountered an error event
+                            if (event === 'session-summary-error') {
+                                lemonToast.error(data)
+                                actions.setSessionSummaryLoading(false)
+                                return
+                            }
+                            const parsedData = JSON.parse(data)
+                            if (parsedData) {
+                                actions.setSessionSummaryContent(parsedData)
+                            }
+                        } catch {
+                            // Don't handle errors as we can afford to fail some chunks silently.
+                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
+                        }
+                    },
+                })
+                // Consume stream until exhausted
+                while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) {
+                        break
+                    }
+                    const decodedValue = decoder.decode(value)
+                    parser.feed(decodedValue)
+                }
+            } catch (err) {
+                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
+                throw err
+            } finally {
+                actions.setSessionSummaryLoading(false)
+            }
         },
     })),
 ])

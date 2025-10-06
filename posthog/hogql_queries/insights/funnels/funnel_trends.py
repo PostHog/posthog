@@ -1,18 +1,20 @@
 from datetime import datetime
 from itertools import groupby
 from typing import Any, Optional
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.cohort.cohort import Cohort
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelTrends(FunnelBase):
@@ -117,7 +119,7 @@ class FunnelTrends(FunnelBase):
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if interval.value == "hour" else ""
             days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
-            labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            labels.append(format_label_date(timestamp, self._date_range(), self.context.team.week_start_day))
         return {"count": count, "data": data, "days": days, "labels": labels}
 
     def _date_range(self):

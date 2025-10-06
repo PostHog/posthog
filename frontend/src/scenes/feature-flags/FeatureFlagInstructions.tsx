@@ -1,12 +1,14 @@
 import './FeatureFlagInstructions.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
@@ -15,18 +17,18 @@ import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
     InstructionOption,
-    LibraryType,
-    LOCAL_EVAL_ANCHOR,
     LOCAL_EVALUATION_LIBRARIES,
+    LOCAL_EVAL_ANCHOR,
+    LibraryType,
     OPTIONS,
-    PAYLOAD_LIBRARIES,
     PAYLOADS_ANCHOR,
+    PAYLOAD_LIBRARIES,
     REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
-        <div className="mt-4">
+        <div>
             Need more information?{' '}
             <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
                 Check the docs
@@ -149,7 +151,7 @@ export function CodeInstructions({
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
-    }, [selectedLanguage, featureFlag])
+    }, [selectedLanguage, featureFlag]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const groups = featureFlag?.filters?.groups || []
     // return first non-instant property in group
@@ -212,7 +214,7 @@ export function CodeInstructions({
     const supportedLibraries = remoteConfiguration ? remoteConfigurationLibraries : allFlagLibraries
 
     return (
-        <div>
+        <div className="flex flex-col gap-4">
             {showAdvancedOptions && (
                 <div className="flex items-center gap-6">
                     <div>
@@ -250,7 +252,7 @@ export function CodeInstructions({
                     <>
                         <Tooltip
                             title="Bootstrapping is only available client side in our JavaScript and React Native
-                                libraries."
+                                libraries and only works for flags that don't persist across authentication steps"
                         >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
@@ -269,10 +271,7 @@ export function CodeInstructions({
                                 <IconInfo className="text-xl text-secondary shrink-0" />
                             </div>
                         </Tooltip>
-                        <Tooltip
-                            title="Local evaluation is only available in server side libraries and without flag
-                                persistence."
-                        >
+                        <Tooltip title="Local evaluation is only available in server side libraries and only works for flags that don't persist across authentication steps">
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
                                     label="Show local evaluation option"
@@ -294,46 +293,44 @@ export function CodeInstructions({
                     </>
                 </div>
             )}
-            <div className="mt-4 mb">
-                {showLocalEvalCode && (
-                    <>
-                        <h4 className="l4">Local evaluation</h4>
-                    </>
-                )}
-                {showFlagValueCode && (
+            {showLocalEvalCode && (
+                <>
+                    <h4 className="l4">Local evaluation</h4>
+                </>
+            )}
+            {showFlagValueCode && (
+                <selectedOption.Snippet
+                    data-attr="feature-flag-instructions-snippet"
+                    flagKey={featureFlagKey}
+                    multivariant={multivariantFlag}
+                    groupType={groupType}
+                    localEvaluation={showLocalEvalCode}
+                    instantlyAvailableProperties={!firstNonInstantProperty}
+                    samplePropertyName={firstNonInstantProperty || randomProperty}
+                />
+            )}
+            {showPayloadCode && (
+                <>
+                    <h4 className="l4">Payload</h4>
                     <selectedOption.Snippet
-                        data-attr="feature-flag-instructions-snippet"
+                        data-attr="feature-flag-instructions-payload-snippet"
                         flagKey={featureFlagKey}
                         multivariant={multivariantFlag}
                         groupType={groupType}
                         localEvaluation={showLocalEvalCode}
-                        instantlyAvailableProperties={!firstNonInstantProperty}
-                        samplePropertyName={firstNonInstantProperty || randomProperty}
+                        payload={true}
+                        remoteConfiguration={remoteConfiguration}
+                        encryptedPayload={encryptedPayload}
                     />
-                )}
-                {showPayloadCode && (
-                    <>
-                        <h4 className="l4">Payload</h4>
-                        <selectedOption.Snippet
-                            data-attr="feature-flag-instructions-payload-snippet"
-                            flagKey={featureFlagKey}
-                            multivariant={multivariantFlag}
-                            groupType={groupType}
-                            localEvaluation={showLocalEvalCode}
-                            payload={true}
-                            remoteConfiguration={remoteConfiguration}
-                            encryptedPayload={encryptedPayload}
-                        />
-                    </>
-                )}
-                {showBootstrapCode && (
-                    <>
-                        <h4 className="l4">Bootstrap</h4>
-                        <bootstrapOption.Snippet flagKey={featureFlagKey} />
-                    </>
-                )}
-                {showFooter && <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />}
-            </div>
+                </>
+            )}
+            {showBootstrapCode && (
+                <>
+                    <h4 className="l4">Bootstrap</h4>
+                    <bootstrapOption.Snippet flagKey={featureFlagKey} />
+                </>
+            )}
+            {showFooter && <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />}
             <div />
         </div>
     )

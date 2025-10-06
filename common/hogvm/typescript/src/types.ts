@@ -73,7 +73,7 @@ export type Telemetry = [
     /** Opcode */
     string,
     /** Debug */
-    string
+    string,
 ]
 
 export interface ExecResult {
@@ -152,6 +152,10 @@ export interface HogInterval {
 
 export interface STLFunction {
     fn: (args: any[], name: string, options?: ExecOptions) => any
+    // Describes what the function does
+    description: string
+    // Example of how to use the function with placeholder values like $1, $2, etc.
+    example: string
     minArgs?: number
     maxArgs?: number
 }

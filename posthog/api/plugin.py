@@ -1,19 +1,19 @@
-import json
 import re
+import json
 from typing import Any, Optional, cast
 
-from django.conf import settings
-from posthoganalytics import capture_exception
-import requests
-from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
 from django.utils.timezone import now
+
+import requests
+from dateutil.relativedelta import relativedelta
 from loginas.utils import is_impersonated_session
+from posthoganalytics import capture_exception
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -30,7 +30,6 @@ from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
     Detail,
-    Trigger,
     dict_changes_between,
     load_activity,
     load_all_activity,
@@ -39,20 +38,14 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
-from posthog.models.plugin import (
-    PluginSourceFile,
-    update_validated_data_from_url,
-    validate_plugin_job_payload,
-    transpile,
-)
-from posthog.models.utils import UUIDT, generate_random_token
+from posthog.models.plugin import PluginSourceFile, transpile, update_validated_data_from_url
+from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
 from posthog.utils import format_query_params_absolute_url
-
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -690,48 +683,43 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         validated_data["web_token"] = generate_random_token()
 
-        if settings.CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG:
-            # Try and create a hog function if possible, otherwise create plugin
-            from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
+        # Try and create a hog function if possible, otherwise create plugin
+        from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
+        from posthog.event_usage import report_team_action
 
-            try:
-                hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
-
-                if hog_function_serializer:
-                    hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
-                    # A bit hacky - we return the non saved plugin config
-
-                    report_user_action(
-                        self.context["request"].user,
-                        "hog function created from plugin config api",
-                        {
-                            "hog_function_id": hog_function.id,
-                            "plugin_id": validated_data["plugin"].id,
-                            "team_id": self.context["team_id"],
-                        },
-                    )
-                    # Return plugin config without saving if hog function was created successfully
-                    return PluginConfig(**validated_data)
-
-            except Exception as e:
-                # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
-                capture_exception(e)
-
-        plugin_config = super().create(validated_data)
-        log_enabled_change_activity(
-            new_plugin_config=plugin_config,
-            old_enabled=False,
-            changes=get_plugin_config_changes(
-                old_config={},
-                new_config=plugin_config.config,
-                secret_fields=_get_secret_fields_for_plugin(plugin_config.plugin),
-            ),
-            user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+        report_team_action(
+            self.context["get_team"](),
+            "plugin config create called",
+            {
+                "plugin_id": validated_data["plugin"].id,
+                "team_id": self.context["team_id"],
+            },
         )
 
-        _update_plugin_attachments(self.context["request"], plugin_config)
-        return plugin_config
+        try:
+            hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
+
+            hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
+            # A bit hacky - we return the non saved plugin config
+
+            report_user_action(
+                self.context["request"].user,
+                "hog function created from plugin config api",
+                {
+                    "hog_function_id": hog_function.id,
+                    "plugin_id": validated_data["plugin"].id,
+                    "team_id": self.context["team_id"],
+                },
+            )
+            # Return plugin config without saving if hog function was created successfully
+            return PluginConfig(**validated_data)
+
+        except Exception as e:
+            # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
+            capture_exception(e)
+            raise ValidationError(
+                "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
+            )
 
     def update(  # type: ignore
         self,
@@ -840,64 +828,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
-
-    @action(methods=["POST"], detail=True)
-    def job(self, request: request.Request, **kwargs):
-        if not can_configure_plugins(self.team.organization_id):
-            raise ValidationError("Plugin configuration is not available for the current organization!")
-
-        plugin_config = self.get_object()
-        plugin_config_id = plugin_config.id
-        job = request.data.get("job", {})
-
-        if "type" not in job:
-            raise ValidationError("The job type must be specified!")
-
-        # job_type = job name
-        job_type = job.get("type")
-        job_payload = job.get("payload", {})
-        job_op = job.get("operation", "start")
-        job_id = str(UUIDT())
-
-        validate_plugin_job_payload(
-            plugin_config.plugin,
-            job_type,
-            job_payload,
-            is_staff=request.user.is_staff or is_impersonated_session(request),
-        )
-
-        payload_json = json.dumps(
-            {
-                "type": job_type,
-                "payload": {**job_payload, **{"$operation": job_op, "$job_id": job_id}},
-                "pluginConfigId": plugin_config_id,
-                "pluginConfigTeam": self.team.pk,
-            }
-        )
-        sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
-        params = [payload_json]
-        try:
-            connection = connections["graphile"] if "graphile" in connections else connections["default"]
-            with connection.cursor() as cursor:
-                cursor.execute(sql, params)
-        except Exception as e:
-            raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
-
-        log_activity(
-            organization_id=self.team.organization.id,
-            # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=self.team.pk,
-            user=request.user,  # type: ignore
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=plugin_config_id,
-            scope="PluginConfig",  # use the type plugin so we can also provide unified history
-            activity="job_triggered",
-            detail=Detail(
-                name=self.get_object().plugin.name,
-                trigger=Trigger(job_type=job_type, job_id=job_id, payload=job_payload),
-            ),
-        )
-        return Response(status=200)
 
     @action(methods=["GET"], detail=True)
     @renderer_classes((PlainRenderer,))

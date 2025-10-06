@@ -1,13 +1,14 @@
 import asyncio
+from collections.abc import Callable
 from datetime import datetime
 from typing import Optional
-from collections.abc import Callable
 
-import posthoganalytics
-import structlog
 from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
+
+import structlog
+import posthoganalytics
 
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
@@ -16,11 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import make_ch_pool
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.email import is_email_available
-from posthog.models.async_migration import (
-    AsyncMigration,
-    AsyncMigrationError,
-    MigrationStatus,
-)
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
 from posthog.settings import (
@@ -43,7 +40,7 @@ def send_analytics_to_posthog(event, data):
     if user and user.current_organization:
         data["organization_name"] = user.current_organization.name
         groups["organization"] = str(user.current_organization.id)
-    posthoganalytics.capture(get_machine_id(), event, data, groups=groups)
+    posthoganalytics.capture(distinct_id=get_machine_id(), event=event, properties=data, groups=groups)
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):

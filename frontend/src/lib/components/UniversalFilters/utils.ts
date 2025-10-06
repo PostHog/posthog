@@ -6,9 +6,9 @@ import {
     LogEntryPropertyFilter,
     PropertyFilterType,
     RecordingPropertyFilter,
+    UniversalFilterValue,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
-    UniversalFilterValue,
 } from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'
@@ -39,4 +39,11 @@ export function isLogEntryPropertyFilter(filter: UniversalFilterValue): filter i
 }
 export function isEditableFilter(filter: UniversalFilterValue): boolean {
     return isEntityFilter(filter) ? false : !isCohortPropertyFilter(filter)
+}
+export function isCommentTextFilter(filter: UniversalFiltersGroupValue): boolean {
+    return (
+        !isUniversalGroupFilterLike(filter) &&
+        filter.type === PropertyFilterType.Recording &&
+        filter.key === 'comment_text'
+    )
 }

@@ -1,4 +1,7 @@
 from typing import Literal
+
+from posthog.test.base import BaseTest
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.test.tables import (
@@ -10,14 +13,13 @@ from posthog.hogql.database.test.tables import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.test.base import BaseTest
 
 
 class TestView(BaseTest):
     maxDiff = None
 
     def _init_database(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(team=self.team)
         self.database.add_views(
             aapl_stock_view=create_aapl_stock_table_view(), aapl_stock_nested_view=create_nested_aapl_stock_view()
         )

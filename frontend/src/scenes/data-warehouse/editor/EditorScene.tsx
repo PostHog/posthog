@@ -2,30 +2,34 @@ import './EditorScene.scss'
 
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useRef, useState } from 'react'
+
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
-    variablesLogic,
     VariablesLogicProps,
+    variablesLogic,
 } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataVisualizationLogicProps } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { ItemMode } from '~/types'
 
 import { ViewLinkModal } from '../ViewLinkModal'
+import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { dataNodeKey } from './multitabEditorLogic'
-import { QueryWindow } from './QueryWindow'
-import { EditorSidebar } from './sidebar/EditorSidebar'
+import { outputPaneLogic } from './outputPaneLogic'
 
-export function EditorScene(): JSX.Element {
+export const scene: SceneExport = {
+    logic: multitabEditorLogic,
+    component: EditorScene,
+}
+
+export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
@@ -56,39 +60,47 @@ export function EditorScene(): JSX.Element {
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
     const logic = multitabEditorLogic({
-        key: codeEditorKey,
+        tabId: tabId || '',
         monaco,
         editor,
     })
 
-    const { activeModelUri, queryInput, sourceQuery } = useValues(logic)
+    const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
 
-    const logicKey = activeModelUri?.uri.path ?? dataNodeKey
-
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
-        key: logicKey,
+        key: dataLogicKey,
         query: sourceQuery,
         dashboardId: undefined,
-        dataNodeCollectionId: logicKey,
-        insightMode: ItemMode.Edit,
+        dataNodeCollectionId: dataLogicKey,
+        editMode: true,
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: setSourceQuery,
+        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: sourceQuery.source,
-        key: logicKey,
+        key: dataLogicKey,
         cachedResults: undefined,
         loadPriority: undefined,
-        dataNodeCollectionId: logicKey,
+        dataNodeCollectionId: dataLogicKey,
         variablesOverride: undefined,
         autoLoad: false,
+        onError: (error) => {
+            const mountedLogic = multitabEditorLogic.findMounted({
+                tabId: tabId || '',
+                monaco,
+                editor,
+            })
+
+            if (mountedLogic) {
+                mountedLogic.actions.setDataError(error)
+            }
+        },
     }
 
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
@@ -96,7 +108,7 @@ export function EditorScene(): JSX.Element {
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
-        queryInput,
+        queryInput: queryInput ?? '',
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
@@ -111,16 +123,22 @@ export function EditorScene(): JSX.Element {
                     <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={multitabEditorLogic} props={{ key: codeEditorKey, monaco, editor }}>
-                                    <div className="EditorScene w-full h-full flex flex-row overflow-hidden" ref={ref}>
-                                        <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
-                                        <QueryWindow
-                                            onSetMonacoAndEditor={(monaco, editor) =>
-                                                setMonacoAndEditor([monaco, editor])
-                                            }
-                                        />
-                                    </div>
-                                    <ViewLinkModal />
+                                <BindLogic logic={outputPaneLogic} props={{ tabId }}>
+                                    <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
+                                        <div
+                                            data-attr="editor-scene"
+                                            className="EditorScene w-full h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] flex flex-row overflow-hidden"
+                                            ref={ref}
+                                        >
+                                            <QueryWindow
+                                                tabId={tabId || ''}
+                                                onSetMonacoAndEditor={(monaco, editor) =>
+                                                    setMonacoAndEditor([monaco, editor])
+                                                }
+                                            />
+                                        </div>
+                                        <ViewLinkModal />
+                                    </BindLogic>
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>

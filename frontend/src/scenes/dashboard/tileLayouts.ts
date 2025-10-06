@@ -1,5 +1,6 @@
 import { Layout } from 'react-grid-layout'
-import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardLogic'
+
+import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
@@ -10,10 +11,10 @@ export const sortTilesByLayout = (
     col: DashboardLayoutSize
 ): Array<DashboardTile<QueryBasedInsightModel>> => {
     return [...tiles].sort((a: DashboardTile<QueryBasedInsightModel>, b: DashboardTile<QueryBasedInsightModel>) => {
-        const ax = a.layouts[col]?.x ?? 0
-        const ay = a.layouts[col]?.y ?? 0
-        const bx = b.layouts[col]?.x ?? 0
-        const by = b.layouts[col]?.y ?? 0
+        const ax = a.layouts?.[col]?.x ?? 0
+        const ay = a.layouts?.[col]?.y ?? 0
+        const bx = b.layouts?.[col]?.x ?? 0
+        const by = b.layouts?.[col]?.y ?? 0
 
         if (ay < by || (ay == by && ax < bx)) {
             return -1
@@ -78,8 +79,8 @@ export const calculateLayouts = (
 
             return {
                 i: tile.id?.toString(),
-                x: Number.isInteger(x) && x + realW - 1 < columnCount ? x : 0,
-                y: Number.isInteger(y) ? y : Infinity,
+                x: x != null && Number.isInteger(x) && x + realW - 1 < columnCount ? x : 0,
+                y: y != null && Number.isInteger(y) ? y : Infinity,
                 w: realW,
                 h: realH,
                 minW: 1,

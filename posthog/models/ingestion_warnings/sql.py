@@ -1,17 +1,13 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    MergeTreeEngine,
-    ReplicationScheme,
-)
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 
 
-INGESTION_WARNINGS_TABLE_BASE_SQL = (
-    lambda: """
+def INGESTION_WARNINGS_TABLE_BASE_SQL():
+    return """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
@@ -22,7 +18,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     {extra_fields}
 ) ENGINE = {engine}
 """
-)
 
 
 def INGESTION_WARNINGS_DATA_TABLE_ENGINE():
@@ -53,9 +48,9 @@ def KAFKA_INGESTION_WARNINGS_TABLE_SQL(on_cluster=True):
     )
 
 
-INGESTION_WARNINGS_MV_TABLE_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER '{cluster}'
+def INGESTION_WARNINGS_MV_TABLE_SQL(on_cluster=True):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv {on_cluster_clause}
 TO {database}.{target_table}
 AS SELECT
 team_id,
@@ -69,10 +64,10 @@ _partition
 FROM {database}.kafka_ingestion_warnings
 """.format(
         target_table="ingestion_warnings",
-        cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
-)
+
 
 # This table is responsible for writing to sharded_ingestion_warnings based on a sharding key.
 

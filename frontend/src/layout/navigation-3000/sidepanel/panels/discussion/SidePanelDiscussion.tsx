@@ -1,13 +1,15 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconChat } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { useEffect } from 'react'
 import { CommentComposer } from 'scenes/comments/CommentComposer'
 import { CommentsList } from 'scenes/comments/CommentsList'
-import { commentsLogic, CommentsLogicProps } from 'scenes/comments/commentsLogic'
+import { CommentsLogicProps, commentsLogic } from 'scenes/comments/commentsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
@@ -31,7 +33,7 @@ const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): 
         if (selectedTabOptions) {
             setReplyingComment(selectedTabOptions)
         }
-    }, [selectedTabOptions])
+    }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -71,7 +73,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                 }
             />
 
-            {commentsLogicProps ? (
+            {commentsLogicProps && !commentsLogicProps.disabled ? (
                 <DiscussionContent logicProps={commentsLogicProps} />
             ) : (
                 <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">

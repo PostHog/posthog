@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, encodeParams } from 'kea-router'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'

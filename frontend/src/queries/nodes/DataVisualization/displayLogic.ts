@@ -15,10 +15,10 @@ export const displayLogic = kea<displayLogicType>([
     key((props) => props.key),
     path(['queries', 'nodes', 'DataVisualization', 'displayLogic']),
     props({ key: '' } as DisplayLogicProps),
-    connect({
+    connect(() => ({
         values: [dataVisualizationLogic, ['yData', 'query', 'chartSettings']],
         actions: [dataVisualizationLogic, ['setQuery', 'updateChartSettings']],
-    }),
+    })),
     actions(({ values }) => ({
         addGoalLine: () => ({ yData: values.yData }),
         updateGoalLine: (goalLineIndex: number, key: string, value: string | number | boolean) => ({
@@ -80,17 +80,17 @@ export const displayLogic = kea<displayLogicType>([
             actions.setGoalLines(chartSettings.goalLines)
         }
     }),
-    subscriptions(({ values, actions }) => ({
+    subscriptions(({ actions }) => ({
         goalLines: (value: GoalLine[]) => {
             const goalLines = value.length > 0 ? value : undefined
 
-            actions.setQuery({
-                ...values.query,
+            actions.setQuery((query) => ({
+                ...query,
                 chartSettings: {
-                    ...values.query.chartSettings,
+                    ...query.chartSettings,
                     goalLines,
                 },
-            })
+            }))
         },
     })),
 ])

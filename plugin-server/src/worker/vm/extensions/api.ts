@@ -1,6 +1,5 @@
-import fetch, { Headers, Response } from 'node-fetch'
-
 import { Hub, PluginConfig } from '../../../types'
+import { Response, legacyFetch } from '../../../utils/request'
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 
@@ -53,7 +52,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         if (options.projectApiKey) {
             tokenParam.token = options.projectApiKey
         } else {
-            const team = await server.teamManager.fetchTeam(pluginConfig.team_id)
+            const team = await server.teamManager.getTeam(pluginConfig.team_id)
             if (!team) {
                 throw new Error('Unable to determine project')
             }
@@ -75,17 +74,13 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
             Authorization: `Bearer ${apiKey}`,
             ...(method === ApiMethod.Post || method === ApiMethod.Patch ? { 'Content-Type': 'application/json' } : {}),
             ...options.headers,
-        }
+        } as any
 
         if (method === ApiMethod.Delete || method === ApiMethod.Get) {
-            return await fetch(url, { headers, method })
+            return await legacyFetch(url, { headers, method })
         }
 
-        return await fetch(url, {
-            headers,
-            method,
-            body: JSON.stringify(options.data || {}),
-        })
+        return await legacyFetch(url, { headers, method, body: JSON.stringify(options.data || {}) })
     }
 
     return {

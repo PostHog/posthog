@@ -1,6 +1,7 @@
-import { eventWithTime } from '@posthog/rrweb-types'
-import { captureException, captureMessage } from '@sentry/react'
 import Ajv, { ErrorObject } from 'ajv'
+import posthog from 'posthog-js'
+
+import { eventWithTime } from '@posthog/rrweb-types'
 
 import { mobileEventWithTime } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'
@@ -52,11 +53,9 @@ export function transformEventToWeb(event: unknown, validateTransformation?: boo
                 }
                 result = transformed
             }
-        } else {
-            captureMessage(`No type in event`, { extra: { event } })
         }
     } catch (e) {
-        captureException(e, { extra: { event } })
+        posthog.captureException(e, { event })
     }
     return result
 }
@@ -70,13 +69,5 @@ export function transformToWeb(mobileData: (eventWithTime | mobileEventWithTime)
 }
 
 export function validateAgainstWebSchema(data: unknown): boolean {
-    const validationResult = webSchemaValidator(data)
-    if (!validationResult) {
-        // we are passing all data through this validation now and don't know how safe the schema is
-        captureMessage('transformation did not match schema', {
-            extra: { data, errors: webSchemaValidator.errors },
-        })
-    }
-
-    return validationResult
+    return webSchemaValidator(data)
 }

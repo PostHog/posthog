@@ -1,12 +1,18 @@
 from typing import Optional
 
+from django.core.management import call_command
+from django.utils import timezone
+
 from celery import shared_task
+from structlog import get_logger
 
 from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.action.action import Action
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
+from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
-from django.utils import timezone
+
+logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -59,3 +65,34 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
     )
 
     return updates
+
+
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=5,
+    default_retry_delay=30,  # retry every 30 seconds
+)
+def sync_hog_function_templates_task() -> None:
+    try:
+        logger.info("Running sync_hog_function_templates command (celery task)...")
+        call_command("sync_hog_function_templates")
+    except Exception as e:
+        logger.exception(f"Celery task sync_hog_function_templates failed: {e}")
+        raise  # Needed for Celery to trigger a retry
+
+
+def queue_sync_hog_function_templates() -> None:
+    """Queue the sync_hog_function_templates_task with Redis lock to ensure it only runs once."""
+    try:
+        r = get_client()
+        lock_key = "posthog_sync_hog_function_templates_task_lock"
+        # setnx returns True if the key was set, False if it already exists
+        if r.setnx(lock_key, 1):
+            r.expire(lock_key, 60 * 60)  # expire after 1 hour
+            logger.info("Queuing sync_hog_function_templates celery task (redis lock)...")
+            sync_hog_function_templates_task.delay()
+        else:
+            logger.info("Not queuing sync_hog_function_templates task: lock already set")
+    except Exception as e:
+        logger.exception(f"Failed to queue sync_hog_function_templates celery task: {e}")

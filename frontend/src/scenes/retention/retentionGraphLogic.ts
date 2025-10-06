@@ -1,15 +1,18 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
-import { dayjs, QUnitType } from 'lib/dayjs'
+
+import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { DateRange, RetentionQuery } from '~/queries/schema/schema-general'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { dateOptionToTimeIntervalMap } from './constants'
 import type { retentionGraphLogicType } from './retentionGraphLogicType'
-import { retentionLogic } from './retentionLogic'
+import { MeanRetentionValue, retentionLogic } from './retentionLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -22,7 +25,9 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
-            ['hasValidBreakdown', 'results', 'selectedBreakdownValue'],
+            ['hasValidBreakdown', 'results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
+            teamLogic,
+            ['timezone'],
         ],
     })),
     selectors({
@@ -35,13 +40,13 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     return {
                         ...cohortRetention,
                         id: datasetIndex,
-                        days: cohortRetention.values.map((_, index) => `${period} ${index}`),
+                        days: cohortRetention.values.map((value) => value.cellDate.toISOString()),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
                         label: cohortRetention.date
                             ? period === 'Hour'
-                                ? dayjs.utc(cohortRetention.date).format('MMM D, h A')
-                                : dayjs.utc(cohortRetention.date).format('MMM D')
+                                ? cohortRetention.date.format('MMM D, h A')
+                                : cohortRetention.date.format('MMM D')
                             : cohortRetention.label,
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
@@ -50,9 +55,16 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             },
         ],
 
+        showTrendLines: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (querySource as RetentionQuery)?.retentionFilter?.showTrendLines ?? false
+            },
+        ],
+
         incompletenessOffsetFromEnd: [
-            (s) => [s.dateRange, s.retentionFilter, s.trendSeries],
-            (dateRange, retentionFilter, trendSeries) => {
+            (s) => [s.dateRange, s.retentionFilter, s.trendSeries, s.timezone],
+            (dateRange: DateRange | null | undefined, retentionFilter, trendSeries, timezone) => {
                 const { date_to } = dateRange || {}
                 const { period } = retentionFilter || {}
 
@@ -64,9 +76,12 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 }
                 const numUnits = trendSeries[0].days.length
                 const interval = dateOptionToTimeIntervalMap?.[period ?? RetentionPeriod.Day]
-                const startDate = dayjs.utc().startOf(interval)
+                const startDate = dayjs().tz(timezone).startOf(interval)
                 const startIndex = trendSeries[0].days.findIndex(
-                    (_, i) => dayjs.utc(date_to).add(i - numUnits, interval as QUnitType) >= startDate
+                    (_, i) =>
+                        dayjs(date_to)
+                            .tz(timezone)
+                            .add(i - numUnits, interval as QUnitType) >= startDate
                 )
 
                 if (startIndex !== undefined && startIndex !== -1) {
@@ -87,17 +102,73 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             },
         ],
 
+        shouldShowMeanPerBreakdown: [
+            (s) => [s.hasValidBreakdown, s.selectedBreakdownValue],
+            (hasValidBreakdown: boolean, selectedBreakdownValue: string | number | boolean | null): boolean => {
+                return hasValidBreakdown && selectedBreakdownValue === null
+            },
+        ],
+
         filteredTrendSeries: [
-            (s) => [s.hasValidBreakdown, s.trendSeries, s.selectedBreakdownValue],
-            (hasValidBreakdown, trendSeries, selectedBreakdownValue) => {
-                if (selectedBreakdownValue === null) {
-                    if (hasValidBreakdown) {
-                        // don't show line graph when breakdowns present but not selected
-                        // as it will be very noisy
+            (s) => [
+                s.hasValidBreakdown,
+                s.trendSeries,
+                s.selectedBreakdownValue,
+                s.retentionMeans,
+                s.retentionFilter,
+                s.shouldShowMeanPerBreakdown,
+                s.breakdownDisplayNames,
+            ],
+            (
+                hasValidBreakdown: boolean,
+                trendSeries: RetentionTrendPayload[],
+                selectedBreakdownValue: string | number | boolean | null,
+                retentionMeans: Record<string, MeanRetentionValue>,
+                retentionFilter: any,
+                shouldShowMeanPerBreakdown: boolean,
+                breakdownDisplayNames: Record<string, string>
+            ): RetentionTrendPayload[] => {
+                if (shouldShowMeanPerBreakdown) {
+                    // Generate series from the mean retention data for each breakdown
+                    if (!retentionMeans || Object.keys(retentionMeans).length === 0) {
                         return []
                     }
 
-                    return trendSeries
+                    const { period } = retentionFilter || {}
+                    const meanSeries: RetentionTrendPayload[] = []
+                    let seriesId = 0
+
+                    for (const breakdownKey in retentionMeans) {
+                        const meanData = retentionMeans[breakdownKey]
+                        // Skip overall mean in this view as we only want the means per breakdown
+                        if (meanData.isOverall) {
+                            continue
+                        }
+
+                        const numIntervals = meanData.meanPercentages.length
+                        const days = Array.from({ length: numIntervals }, (_, i) => `${period} ${i}`)
+
+                        // Use centralized breakdown display names
+                        const displayLabel = breakdownDisplayNames[String(meanData.label ?? '')] || meanData.label
+
+                        meanSeries.push({
+                            breakdown_value: displayLabel,
+                            data: meanData.meanPercentages,
+                            days: days,
+                            labels: days,
+                            count: meanData.totalCohortSize,
+                            index: seriesId++,
+                        })
+                    }
+                    return meanSeries
+                }
+
+                // Original logic for non-average view
+                if (selectedBreakdownValue === null) {
+                    // No specific breakdown selected:
+                    // - If it's a valid breakdown query but no selection, return empty array (handled by the component)
+                    // - If not a breakdown query at all, show all retention series
+                    return hasValidBreakdown ? [] : trendSeries
                 }
                 // Return series with matching breakdown value
                 return trendSeries.filter((series) => series.breakdown_value === selectedBreakdownValue)

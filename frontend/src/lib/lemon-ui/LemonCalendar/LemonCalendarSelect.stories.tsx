@@ -1,10 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { formatDate } from 'lib/utils'
-import { useState } from 'react'
 
 type Story = StoryObj<typeof LemonCalendarSelect>
 const meta: Meta<typeof LemonCalendarSelect> = {
@@ -57,8 +58,14 @@ Default.args = { granularity: 'day' }
 export const Upcoming: Story = BasicTemplate.bind({})
 Upcoming.args = { selectionPeriod: 'upcoming' }
 
+export const UpcomingWithLimit: Story = BasicTemplate.bind({})
+UpcomingWithLimit.args = { selectionPeriod: 'upcoming', selectionPeriodLimit: dayjs().add(1, 'day') }
+
 export const Past: Story = BasicTemplate.bind({})
 Past.args = { selectionPeriod: 'past' }
+
+export const PastWithLimit: Story = BasicTemplate.bind({})
+PastWithLimit.args = { selectionPeriod: 'past', selectionPeriodLimit: dayjs().subtract(1, 'day') }
 
 export const Hour: Story = BasicTemplate.bind({})
 Hour.args = { granularity: 'hour' }

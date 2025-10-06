@@ -1,14 +1,15 @@
-import json
 import re
-from datetime import timedelta, datetime, UTC
+import json
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
-from rest_framework.response import Response
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
@@ -59,6 +60,7 @@ class DebugCHQueries(viewsets.ViewSet):
                         is_initial_query
                     ORDER BY query_start_time DESC
                     LIMIT 100
+                    SETTINGS skip_unavailable_shards=1
                 )
                 GROUP BY hour
                 ORDER BY hour
@@ -101,6 +103,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     JSONExtractRaw(log_comment, 'insight_id') = %(insight_id)s AND
                     event_time > %(start_time)s AND
                     is_initial_query
+
+                SETTINGS skip_unavailable_shards=1
             )
         """
 
@@ -151,6 +155,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     is_initial_query
                 ORDER BY query_start_time DESC
                 LIMIT 100
+
+                SETTINGS skip_unavailable_shards=1
             )
             GROUP BY query_id
             ORDER BY query_start_time DESC

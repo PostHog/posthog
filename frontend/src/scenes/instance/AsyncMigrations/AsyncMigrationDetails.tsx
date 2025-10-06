@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { AsyncMigration, AsyncMigrationError, asyncMigrationsLogic } from './asyncMigrationsLogic'

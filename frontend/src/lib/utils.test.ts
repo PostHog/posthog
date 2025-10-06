@@ -1,11 +1,13 @@
-import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import { dayjs } from 'lib/dayjs'
 
 import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
     areObjectValuesEmpty,
+    autoCaptureEventToDescription,
     average,
     booleanOperatorMap,
     calculateDays,
@@ -26,6 +28,7 @@ import {
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
+    getRelativeNextPath,
     hexToRGBA,
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
@@ -40,6 +43,7 @@ import {
     objectClean,
     objectCleanWithEmpty,
     objectDiffShallow,
+    parseTagsFilter,
     pluralize,
     range,
     reverseColonDelimitedDuration,
@@ -48,6 +52,7 @@ import {
     shortTimeZone,
     stringOperatorMap,
     toParams,
+    wordPluralize,
 } from './utils'
 
 describe('lib/utils', () => {
@@ -57,12 +62,6 @@ describe('lib/utils', () => {
             expect(toParams([])).toEqual('')
             expect(toParams(undefined as any)).toEqual('')
             expect(toParams(null as any)).toEqual('')
-        })
-
-        it('is tolerant of empty objects', () => {
-            const left = toParams({ a: 'b', ...{}, b: 'c' })
-            const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
-            expect(left).toEqual(right)
         })
 
         it('can handle numeric values', () => {
@@ -206,6 +205,17 @@ describe('lib/utils', () => {
             expect(pluralize(28321, 'member')).toEqual('28,321 members')
             expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
             expect(pluralize(3, 'word', undefined, false)).toEqual('words')
+        })
+    })
+
+    describe('wordPluralize()', () => {
+        it('handles singular cases', () => {
+            expect(wordPluralize('company')).toEqual('companies')
+            expect(wordPluralize('person')).toEqual('people')
+            expect(wordPluralize('bacterium')).toEqual('bacteria')
+            expect(wordPluralize('word')).toEqual('words')
+            expect(wordPluralize('child')).toEqual('children')
+            expect(wordPluralize('knife')).toEqual('knives')
         })
     })
 
@@ -521,6 +531,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(1)).toEqual('1s')
         })
         it('returns correct value for 60 < t < 120', () => {
+            expect(humanFriendlyDuration(119.6)).toEqual('1m 59s')
             expect(humanFriendlyDuration(90)).toEqual('1m 30s')
         })
         it('returns correct value for t > 120', () => {
@@ -531,7 +542,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
             expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
             expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 1s')
         })
         it('returns correct value for t >= 86400', () => {
             expect(humanFriendlyDuration(86400)).toEqual('1d')
@@ -739,6 +750,122 @@ describe('lib/utils', () => {
         })
     })
 
+    describe('autoCaptureEventToDescription()', () => {
+        const baseEvent = {
+            elements: [],
+            event: '$autocapture',
+            properties: { $event_type: 'click' },
+            person: {},
+        } as any as EventType
+
+        it('handles regular text by adding quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Analyzing Characters with',
+                    },
+                })
+            ).toEqual('clicked element with text "Analyzing Characters with"')
+        })
+
+        it('prioritizes $el_text from properties over text in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Text from properties',
+                    },
+                    elements: [{ tag_name: 'button', text: 'Text from elements' } as ElementType],
+                })
+            ).toEqual('clicked button with text "Text from properties"')
+        })
+
+        it('handles text with double quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Unit Skills Assessment 1: "',
+                    },
+                })
+            ).toEqual('clicked element with text "Unit Skills Assessment 1: ""')
+        })
+
+        it('handles text with single quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: "Reading Lesson: '",
+                    },
+                })
+            ).toEqual('clicked element with text "Reading Lesson: \'"')
+        })
+
+        it('handles longer text with single quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: "A Sense of Wonder: An Introduction to Science Fiction'",
+                    },
+                })
+            ).toEqual('clicked element with text "A Sense of Wonder: An Introduction to Science Fiction\'"')
+        })
+
+        it('handles text in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [{ tag_name: 'button', text: 'hello world' } as ElementType],
+                })
+            ).toEqual('clicked button with text "hello world"')
+        })
+
+        it('handles text with quotes in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [{ tag_name: 'button', text: 'hello "world"' } as ElementType],
+                })
+            ).toEqual('clicked button with text "hello "world""')
+        })
+
+        it('handles aria-label attributes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__aria-label': 'Close dialog' },
+                        } as ElementType,
+                    ],
+                })
+            ).toEqual('clicked button with aria label "Close dialog"')
+        })
+
+        it('handles aria-label attributes with quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__aria-label': 'Close "main" dialog' },
+                        } as ElementType,
+                    ],
+                })
+            ).toEqual('clicked button with aria label "Close "main" dialog"')
+        })
+    })
+
     describe('{floor|ceil}MsToClosestSecond()', () => {
         describe('ceil', () => {
             it('handles ms as expected', () => {
@@ -861,5 +988,208 @@ describe('lib/utils', () => {
         expect(shortTimeZone('America/Phoenix')).toEqual('MST')
         expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
         expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
+    })
+
+    describe('getRelativeNextPath', () => {
+        const location = {
+            origin: 'https://us.posthog.com',
+            protocol: 'https:',
+            host: 'us.posthog.com',
+            hostname: 'us.posthog.com',
+            href: 'https://us.posthog.com/',
+        } as Location
+
+        it('returns relative path for same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for same-origin absolute URL with query and hash', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns relative path for encoded same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fus.posthog.com%2Ftest', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path', () => {
+            expect(getRelativeNextPath('/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path with query and hash', () => {
+            expect(getRelativeNextPath('/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns null for external absolute URL', () => {
+            expect(getRelativeNextPath('https://evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for encoded external absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+
+        it('returns null for protocol-relative external URL', () => {
+            expect(getRelativeNextPath('//evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for empty string', () => {
+            expect(getRelativeNextPath('', location)).toBeNull()
+        })
+
+        it('returns null for malformed URL', () => {
+            expect(getRelativeNextPath('http://', location)).toBeNull()
+            expect(getRelativeNextPath('%%%%', location)).toBeNull()
+        })
+
+        it('returns null for non-string input', () => {
+            expect(getRelativeNextPath(null, location)).toBeNull()
+            expect(getRelativeNextPath(undefined, location)).toBeNull()
+        })
+
+        it('returns relative path for encoded root-relative path', () => {
+            expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
+        })
+
+        it('returns null for encoded protocol-relative URL', () => {
+            expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+    })
+
+    describe('parseTagsFilter()', () => {
+        describe('array input', () => {
+            it('handles string arrays', () => {
+                expect(parseTagsFilter(['tag1', 'tag2', 'tag3'])).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('handles mixed type arrays', () => {
+                expect(parseTagsFilter(['tag1', 123, true, null, undefined])).toEqual([
+                    'tag1',
+                    '123',
+                    'true',
+                    'null',
+                    'undefined',
+                ])
+            })
+
+            it('filters out empty values', () => {
+                expect(parseTagsFilter(['tag1', '', 'tag2', null, 'tag3'])).toEqual(['tag1', 'tag2', 'null', 'tag3'])
+            })
+
+            it('handles empty array', () => {
+                expect(parseTagsFilter([])).toEqual([])
+            })
+        })
+
+        describe('JSON string input', () => {
+            it('parses valid JSON arrays', () => {
+                expect(parseTagsFilter('["tag1", "tag2", "tag3"]')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('parses JSON arrays with mixed types', () => {
+                expect(parseTagsFilter('["tag1", 123, true]')).toEqual(['tag1', '123', 'true'])
+            })
+
+            it('filters out empty values from JSON', () => {
+                expect(parseTagsFilter('["tag1", "", "tag2", null, "tag3"]')).toEqual(['tag1', 'tag2', 'null', 'tag3'])
+            })
+
+            it('handles empty JSON array', () => {
+                expect(parseTagsFilter('[]')).toEqual([])
+            })
+
+            it('handles malformed JSON gracefully', () => {
+                expect(parseTagsFilter('["tag1", "tag2"')).toEqual(['["tag1"', '"tag2"'])
+            })
+
+            it('handles invalid JSON syntax', () => {
+                expect(parseTagsFilter('{invalid json}')).toEqual(['{invalid json}'])
+            })
+
+            it('handles JSON that is not an array', () => {
+                expect(parseTagsFilter('{"not": "an array"}')).toEqual(['{"not": "an array"}'])
+            })
+
+            it('handles JSON with trailing comma', () => {
+                expect(parseTagsFilter('["tag1", "tag2",]')).toEqual(['["tag1"', '"tag2"', ']'])
+            })
+        })
+
+        describe('comma-separated string input', () => {
+            it('parses simple comma-separated values', () => {
+                expect(parseTagsFilter('tag1,tag2,tag3')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('trims whitespace from values', () => {
+                expect(parseTagsFilter(' tag1 , tag2 , tag3 ')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('filters out empty values', () => {
+                expect(parseTagsFilter('tag1,,tag2, ,tag3')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('handles single value', () => {
+                expect(parseTagsFilter('tag1')).toEqual(['tag1'])
+            })
+
+            it('handles empty string', () => {
+                expect(parseTagsFilter('')).toEqual([])
+            })
+
+            it('handles string with only whitespace', () => {
+                expect(parseTagsFilter('   ')).toEqual([])
+            })
+
+            it('handles string with only commas', () => {
+                expect(parseTagsFilter(',,')).toEqual([])
+            })
+
+            it('handles string with commas and whitespace', () => {
+                expect(parseTagsFilter(' , , ')).toEqual([])
+            })
+        })
+
+        describe('edge cases and invalid input', () => {
+            it('returns undefined for null input', () => {
+                expect(parseTagsFilter(null)).toBeUndefined()
+            })
+
+            it('returns undefined for undefined input', () => {
+                expect(parseTagsFilter(undefined)).toBeUndefined()
+            })
+
+            it('returns undefined for number input', () => {
+                expect(parseTagsFilter(123)).toBeUndefined()
+            })
+
+            it('returns undefined for boolean input', () => {
+                expect(parseTagsFilter(true)).toBeUndefined()
+                expect(parseTagsFilter(false)).toBeUndefined()
+            })
+
+            it('returns undefined for object input', () => {
+                expect(parseTagsFilter({})).toBeUndefined()
+                expect(parseTagsFilter({ tags: ['tag1'] })).toBeUndefined()
+            })
+
+            it('handles special characters in tags', () => {
+                expect(parseTagsFilter('tag-with-dash,tag_with_underscore,tag.with.dots')).toEqual([
+                    'tag-with-dash',
+                    'tag_with_underscore',
+                    'tag.with.dots',
+                ])
+            })
+
+            it('handles unicode characters', () => {
+                expect(parseTagsFilter('标签1,🏷️,тег')).toEqual(['标签1', '🏷️', 'тег'])
+            })
+
+            it('handles very long strings', () => {
+                const longTag = 'a'.repeat(1000)
+                expect(parseTagsFilter(longTag)).toEqual([longTag])
+            })
+
+            it('handles strings with newlines and tabs', () => {
+                expect(parseTagsFilter('tag1\ntag2\ttag3')).toEqual(['tag1\ntag2\ttag3'])
+            })
+        })
     })
 })

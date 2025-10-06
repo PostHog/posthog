@@ -6,6 +6,7 @@ use crate::{
     tui::query::start_query_editor,
     utils::{
         auth::load_token,
+        posthog::capture_command_invoked,
         query::{check_query, run_query, MetadataResponse, Notice},
     },
 };
@@ -42,8 +43,9 @@ pub enum QueryCommand {
     },
 }
 
-pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
+pub fn query_command(host: Option<String>, query: &QueryCommand) -> Result<(), Error> {
     let creds = load_token()?;
+    let host = creds.get_host(host.as_deref());
 
     match query {
         QueryCommand::Editor {
@@ -51,9 +53,11 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
             debug,
             execute,
         } => {
-            let res = start_query_editor(host, creds.clone(), *debug)?;
+            // Given this is an interactive command, we're happy enough to not join the capture handle
+            let handle = capture_command_invoked("query_editor", Some(creds.env_id.clone()));
+            let res = start_query_editor(&host, creds.clone(), *debug)?;
             if !no_print {
-                println!("Final query: {}", res);
+                println!("Final query: {res}");
             }
             if *execute {
                 let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
@@ -62,8 +66,11 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
                     println!("{}", serde_json::to_string(&result)?);
                 }
             }
+            let _ = handle.join();
         }
         QueryCommand::Run { query, debug } => {
+            // Given this is an interactive command, we're happy enough to not join the capture handle
+            let handle = capture_command_invoked("query_run", Some(creds.env_id.clone()));
             let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
             let res = run_query(&query_endpoint, &creds.token, query)??;
             if *debug {
@@ -73,8 +80,10 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
                     println!("{}", serde_json::to_string(&result)?);
                 }
             }
+            let _ = handle.join();
         }
         QueryCommand::Check { query, raw } => {
+            let handle = capture_command_invoked("query_check", Some(creds.env_id.clone()));
             let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
             let res = check_query(&query_endpoint, &creds.token, query)?;
             if *raw {
@@ -82,6 +91,7 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
             } else {
                 pretty_print_check_response(query, res)?;
             }
+            let _ = handle.join();
         }
     }
 
@@ -147,7 +157,7 @@ fn pretty_print_check_response(query: &str, res: MetadataResponse) -> Result<(),
     }
     .into();
 
-    println!("{:?}", diagnostic);
+    println!("{diagnostic:?}");
 
     Ok(())
 }

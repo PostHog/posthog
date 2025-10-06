@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 interface Props {
     string: string
     substring: string
@@ -13,12 +15,12 @@ interface Props {
 export function SearchHighlight({ string, substring, className }: Props): JSX.Element {
     const parts = string.split(new RegExp(`(${substring})`, 'gi'))
     return (
-        <div className={`truncate ${className}`}>
+        <div className={clsx('truncate flex-1', className)}>
             {parts.map((part, index) => (
                 <span
                     key={index}
                     className={`text-xs ${
-                        part.toLowerCase() === substring.toLowerCase() ? 'bg-accent-primary bg-opacity-60' : ''
+                        part.toLowerCase() === substring.toLowerCase() ? 'bg-accent bg-opacity-60' : ''
                     }`}
                 >
                     {part}
@@ -37,7 +39,7 @@ export function SearchHighlightMultiple({ string, substring, className }: Props)
 
     // If there's nothing to search for, just render the string as-is.
     if (!searchTerms.length) {
-        return <div className={`truncate ${className}`}>{string}</div>
+        return <>{string}</>
     }
 
     // Lowercase version of the original string for case-insensitive matching
@@ -113,12 +115,12 @@ export function SearchHighlightMultiple({ string, substring, className }: Props)
     }
 
     return (
-        <div className={`truncate ${className}`}>
+        <span className={`truncate ${className ? className : ''}`}>
             {highlightedParts.map((part, index) => (
-                <span key={index} className={`text-xs ${part.highlight ? 'bg-highlight' : ''}`}>
+                <span key={index} className={part.highlight ? 'bg-accent-highlight-primary' : ''}>
                     {part.text}
                 </span>
             ))}
-        </div>
+        </span>
     )
 }

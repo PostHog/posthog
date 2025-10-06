@@ -1,8 +1,10 @@
 import './AggregationColumn.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'

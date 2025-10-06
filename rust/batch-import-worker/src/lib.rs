@@ -8,10 +8,14 @@ use std::{
 
 use health::HealthHandle;
 
+pub mod cache;
 pub mod config;
 pub mod context;
 pub mod emit;
+pub mod error;
+pub mod extractor;
 pub mod job;
+pub mod metrics;
 pub mod parse;
 pub mod source;
 

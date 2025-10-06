@@ -1,24 +1,25 @@
-import { Meta, type StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-export default {
-    title: 'Scenes-Other/Products',
+const meta: Meta = {
     component: App,
+    title: 'Scenes-Other/Products',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        pageUrl: urls.products(),
     },
     decorators: [
         mswDecorator({
             get: {
+                '/api/billing/': { ...billingJson },
                 '/_preflight': {
                     ...preflightJson,
                     cloud: true,
@@ -27,40 +28,28 @@ export default {
             },
         }),
     ],
-} as Meta<typeof App>
-
-const Template: StoryFn<typeof App> = () => {
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingJson,
-            },
-        },
-    })
-
-    useEffect(() => {
-        router.actions.push(urls.products())
-    }, [])
-
-    return <App />
 }
+export default meta
 
-export const DesktopView = Template.bind({})
-DesktopView.parameters = {
-    testOptions: {
-        viewport: {
-            width: 2048,
-            height: 1024,
+type Story = StoryObj<typeof meta>
+export const DesktopView: Story = {
+    parameters: {
+        testOptions: {
+            viewport: {
+                width: 2048,
+                height: 1024,
+            },
         },
     },
 }
 
-export const MobileView = Template.bind({})
-MobileView.parameters = {
-    testOptions: {
-        viewport: {
-            width: 568,
-            height: 1024,
+export const MobileView: Story = {
+    parameters: {
+        testOptions: {
+            viewport: {
+                width: 568,
+                height: 1024,
+            },
         },
     },
 }

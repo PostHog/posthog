@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { useEventListener } from 'lib/hooks/useEventListener'
 import { useRef, useState } from 'react'
+
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export interface LemonSliderProps {
     value?: number
@@ -118,13 +119,13 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                 <div className="w-full bg-fill-slider-rail rounded-full h-[6px]" />
             </div>
             <div
-                className="absolute h-[6px] bg-accent-primary rounded-full pointer-events-none"
+                className="absolute h-[6px] bg-accent rounded-full pointer-events-none"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${proportion * 100}%` }}
             />
             <button
                 className={clsx(
-                    'absolute size-3 box-content border-2 border-primary rounded-full cursor-pointer bg-accent-primary transition-shadow duration-75',
+                    'absolute size-3 box-content border-2 border-primary rounded-full cursor-pointer bg-accent transition-shadow duration-75',
                     dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2 focus:ring-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

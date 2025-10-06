@@ -1,15 +1,16 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
+import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
@@ -55,7 +56,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
-            heatmapLogic,
+            heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
                 'disableHeatmap',
@@ -300,6 +301,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
+            actions.disableInspect()
+            actions.disableHeatmap()
+            actions.hideButtonActions()
+
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
                 values.hedgehogActor?.setOnFire(1)
@@ -314,11 +319,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
-            } else {
-                actions.disableInspect()
-                actions.disableHeatmap()
-                actions.hideButtonActions()
-                actions.selectAction(null)
             }
         },
 
@@ -413,17 +413,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
         createAction: () => {
             actions.setVisibleMenu('actions')
         },
-        loadHeatmap: () => {
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
-        },
-        loadHeatmapSuccess: () => {
-            // if embedded we need to signal start and finish of heatmap loading to the parent
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
-        },
-        loadHeatmapFailure: () => {
-            // if embedded we need to signal start and finish of heatmap loading to the parent
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
-        },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
@@ -455,7 +444,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         // Use a setInterval to periodically check for URL changes
         // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
         // And mutation observers don't seem to work :shrug:
-        setInterval(() => {
+        cache.navigationInterval = setInterval(() => {
             actions.maybeSendNavigationMessage()
         }, 500)
 
@@ -480,21 +469,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setCommonFilters(e.data.payload.commonFilters)
                     actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
-                    actions.enableHeatmap()
-                    return
-                case PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS:
-                    actions.patchHeatmapFilters(e.data.payload.filters)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE:
-                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
-                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
-                    actions.setCommonFilters(e.data.payload.commonFilters)
                     return
                 case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
                     if (e.data.payload.enabled) {
@@ -523,5 +497,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)
         window.removeEventListener('message', cache.iframeEventListener, false)
+
+        // Clean up navigation interval to prevent memory leaks
+        if (cache.navigationInterval) {
+            clearInterval(cache.navigationInterval)
+        }
     }),
 ])

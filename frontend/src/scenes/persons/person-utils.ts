@@ -6,9 +6,10 @@ import { midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
+export type PersonPropType =
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
+    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -56,12 +57,14 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
             : undefined)
     )?.trim()
 
-    return display ? midEllipsis(display, maxLength || 40) : 'Person without distinct_id'
+    return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
         : person?.distinct_ids?.length
-        ? urls.personByDistinctId(person.distinct_ids[0])
-        : undefined
+          ? urls.personByDistinctId(person.distinct_ids[0])
+          : person?.id
+            ? urls.personByUUID(person.id)
+            : undefined

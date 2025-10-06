@@ -1,5 +1,6 @@
-import { Chart } from 'chart.js'
 import { useMemo } from 'react'
+
+import { Chart } from 'lib/Chart'
 
 export interface AnnotationsPositioning {
     tickIntervalPx: number

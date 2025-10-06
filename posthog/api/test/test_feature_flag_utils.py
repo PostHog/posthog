@@ -1,8 +1,7 @@
-from posthog.models.cohort.cohort import CohortOrEmpty
-from posthog.test.base import (
-    APIBaseTest,
-)
+from posthog.test.base import APIBaseTest
+
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortOrEmpty
 from posthog.models.cohort.util import sort_cohorts_topologically
 
 

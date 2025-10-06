@@ -1,44 +1,34 @@
 import hashlib
-from typing import Optional, Any
-from django.db.models import Q
-import structlog
+from typing import Any, Optional
+
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.http import JsonResponse
 from django.utils.timezone import now
+
+import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiParameter,
-    extend_schema_view,
-    OpenApiExample,
-)
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
+from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.api.utils import action
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    changes_between,
-    log_activity,
-    load_activity,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
-from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +71,7 @@ def log_notebook_activity(
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Notebook
@@ -93,6 +84,8 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
+            "_create_in_folder",
         ]
         read_only_fields = fields
 
@@ -113,6 +106,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -256,7 +250,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)

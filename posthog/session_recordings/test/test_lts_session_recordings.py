@@ -1,11 +1,11 @@
 import uuid
-from unittest.mock import patch, MagicMock, call
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import MagicMock, call, patch
 
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.test import setup_stream_from
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
 # see: https://github.com/PostHog/posthog/blob/8ff764bb573c6a98368b2ae3503890551a1c3842/posthog/session_recordings/session_recording_helpers.py#L277
@@ -86,7 +86,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         mock_list_objects: MagicMock,
         mock_get_presigned_url: MagicMock,
-        mock_requests: MagicMock,
+        _mock_stream_from: MagicMock,
         _mock_exists: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())

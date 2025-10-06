@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.inlines.team_inline import TeamInline
@@ -27,7 +28,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
     def organization_link(self, project: Project):
         return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
-            project.organization.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_organization_change", args=[project.organization.pk]),
             project.organization.name,
         )

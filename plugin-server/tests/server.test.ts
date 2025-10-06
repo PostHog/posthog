@@ -1,5 +1,3 @@
-import * as Sentry from '@sentry/node'
-
 import { PluginServer } from '../src/server'
 import { LogLevel, PluginServerMode } from '../src/types'
 import { resetTestDatabase } from './helpers/sql'
@@ -11,7 +9,6 @@ describe('server', () => {
     let pluginsServer: PluginServer | null = null
 
     beforeEach(async () => {
-        jest.spyOn(Sentry, 'captureMessage')
         jest.spyOn(process, 'exit').mockImplementation()
 
         const testCode = `
@@ -49,7 +46,7 @@ describe('server', () => {
     it('should not error on startup - replay', async () => {
         pluginsServer = new PluginServer({
             LOG_LEVEL: LogLevel.Debug,
-            PLUGIN_SERVER_MODE: PluginServerMode.recordings_blob_ingestion,
+            PLUGIN_SERVER_MODE: PluginServerMode.recordings_blob_ingestion_v2,
         })
         await pluginsServer.start()
     })

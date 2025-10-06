@@ -1,4 +1,4 @@
-import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 
 import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
@@ -41,14 +41,19 @@ export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean
         const { source: sourceA, ...restA } = a
         const { source: sourceB, ...restB } = b
         return (
-            objectsEqual(objectCleanWithEmpty(restA), objectCleanWithEmpty(restB)) &&
-            compareDataNodeQuery(sourceA, sourceB, opts)
+            objectsEqual(
+                objectCleanWithEmpty(removeUndefinedAndNull(restA)),
+                objectCleanWithEmpty(removeUndefinedAndNull(restB))
+            ) && compareDataNodeQuery(sourceA, sourceB, opts)
         )
     } else if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
-        return compareDataNodeQuery(a, b, opts)
+        return compareDataNodeQuery(removeUndefinedAndNull(a), removeUndefinedAndNull(b), opts)
     }
 
-    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+    return objectsEqual(
+        objectCleanWithEmpty(removeUndefinedAndNull(a as any)),
+        objectCleanWithEmpty(removeUndefinedAndNull(b as any))
+    )
 }
 
 export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
@@ -97,6 +102,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
 
@@ -109,10 +115,11 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
-const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
+export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
     const dupQuery = JSON.parse(JSON.stringify(query))
 
     // remove undefined values, empty arrays and empty objects
@@ -154,6 +161,13 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             resultCustomizationBy: undefined,
             goalLines: undefined,
             dashboardDisplay: undefined,
+            showConfidenceIntervals: undefined,
+            confidenceLevel: undefined,
+            showTrendLines: undefined,
+            showMovingAverage: undefined,
+            movingAverageIntervals: undefined,
+            stacked: undefined,
+            detailedResultsAggregationType: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

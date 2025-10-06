@@ -1,28 +1,21 @@
-import datetime
-import hashlib
 import re
-from typing import (
-    Any,
-    Optional,
-    TypeVar,
-    Union,
-    cast,
-)
+import hashlib
+import datetime
 from collections.abc import Callable
+from typing import Any, Optional, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
-from dateutil.relativedelta import relativedelta
-from dateutil import parser
+
 from django.db.models import Exists, OuterRef, Q, Value
+
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort, CohortPeople, CohortOrEmpty
+from posthog.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.property import (
-    Property,
-    PropertyGroup,
-)
+from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
@@ -175,38 +168,62 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         else:
             return compare(str(override_value), str(value), operator)
 
-    if operator in ["is_date_before", "is_date_after"]:
+    if operator in ["is_date_before", "is_date_after", "is_date_exact"]:
         parsed_date = determine_parsed_date_for_property_matching(value)
 
         if not parsed_date:
             return False
 
-        if isinstance(override_value, datetime.datetime):
-            override_date = convert_to_datetime_aware(override_value)
-            if operator == "is_date_before":
-                return override_date < parsed_date
-            else:
-                return override_date > parsed_date
-        elif isinstance(override_value, datetime.date):
-            if operator == "is_date_before":
-                return override_value < parsed_date.date()
-            else:
-                return override_value > parsed_date.date()
-        elif isinstance(override_value, str):
-            try:
-                override_date = parser.parse(override_value)
-                override_date = convert_to_datetime_aware(override_date)
-                if operator == "is_date_before":
-                    return override_date < parsed_date
-                else:
-                    return override_date > parsed_date
-            except Exception:
-                return False
+        parsed_override_date = determine_parsed_incoming_date(override_value)
+
+        if not parsed_override_date:
+            return False
+
+        if operator == "is_date_before":
+            return parsed_override_date < parsed_date
+        elif operator == "is_date_after":
+            return parsed_override_date > parsed_date
+        elif operator == "is_date_exact":
+            return parsed_override_date == parsed_date
 
     return False
 
 
-def determine_parsed_date_for_property_matching(value: ValueT):
+def determine_parsed_incoming_date(
+    value: ValueT | datetime.date | datetime.datetime | float,
+) -> datetime.datetime | None:
+    # This parses the incoming date value. The range of possibilities is only limited by our customers imagination, but usually
+    # take the form of a string, a unix timestamp, or a datetime object.
+    if isinstance(value, datetime.datetime):
+        return convert_to_datetime_aware(value)
+
+    if isinstance(value, datetime.date):
+        return convert_to_datetime_aware(datetime.datetime.combine(value, datetime.time.min))
+
+    if isinstance(value, int) or isinstance(value, float):
+        return datetime.datetime.fromtimestamp(value, tz=ZoneInfo("UTC"))
+    if isinstance(value, str):
+        try:
+            parsed = parser.parse(value)
+            return convert_to_datetime_aware(parsed)
+        except Exception:
+            try:
+                # This might be a Unix timestamp passed as a string in milliseconds
+                parsed_date = float(value)
+                return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
+            except Exception:
+                try:
+                    # This might be a Unix timestamp passed as a string in seconds
+                    parsed_date = int(value)
+                    return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
+                except Exception:
+                    pass
+
+    return None
+
+
+def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datetime | None:
+    # This parses the filter value we compare against. The range of possible values is limited by our UI.
     parsed_date = None
     try:
         parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
@@ -290,8 +307,9 @@ def property_to_Q(
 ) -> Q:
     if override_property_values is None:
         override_property_values = {}
-    if property.type not in ["person", "group", "cohort", "event"]:
+    if property.type not in ["person", "group", "cohort", "event", "flag"]:
         # We need to support event type for backwards compatibility, even though it's treated as a person property type
+        # Note: "flag" type is not supported here as flag dependencies are handled at the API layer during validation
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
 
     value = property._parse_value(property.value)
@@ -379,9 +397,16 @@ def property_to_Q(
         effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         effective_value = value
 
+        # First try relative date parsing
         relative_date = relative_date_parse_for_feature_flag_matching(str(value))
         if relative_date:
             effective_value = relative_date.isoformat()
+        else:
+            # Parse the date string and convert to ISO format for consistent comparison
+            # This ensures we're comparing dates in the same format (ISO 8601)
+            parsed_date = determine_parsed_date_for_property_matching(value)
+            if parsed_date:
+                effective_value = parsed_date.isoformat()
 
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
@@ -476,6 +501,8 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
     )
 
 
+# Note: Any changes to this function need to be reflected in the rust version
+# rust/feature-flags/src/properties/relative_date.rs
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
     regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)

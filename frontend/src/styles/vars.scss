@@ -21,7 +21,7 @@ $xxl: 1600px;
 //     'warning-highlight': rgba(#f7a501, 0.1),
 //     'warning': #f7a501,
 //     'warning-dark': #e09423,
-//     'highlight': var(--accent-primary),
+//     'highlight': var(--color-accent),
 //     // #e49f2c, //TODO: remove this
 //     'success-highlight': rgba(#388600, 0.1),
 //     'success-light': #5f9d32,
@@ -38,7 +38,7 @@ $xxl: 1600px;
 //     'border-light': rgb(0 0 0 / 8%),
 //     'border-bold': rgb(0 0 0 / 24%),
 //     'transparent': transparent,
-//     'link': var(--accent-primary),
+//     'link': var(--color-accent),
 //     // #f54e00, //TODO: remove this
 //     // Colors of the PostHog logo
 //     'brand-blue': #1d4aff,
@@ -51,12 +51,12 @@ $xxl: 1600px;
 //     'text-secondary-3000-light': rgba(#111, 0.7),
 //     'muted-3000-light': rgba(#111, 0.6),
 //     'trace-3000-light': rgba(#111, 0.25),
-//     'primary-3000-light': var(--accent-primary),
+//     'primary-3000-light': var(--color-accent),
 //     // #f54e01,
 //     'primary-highlight-light': rgba(#f54e01, 0.1),
-//     'primary-3000-hover-light': var(--accent-primary-hover),
+//     'primary-3000-hover-light': var(--color-accent-hover),
 //     // #f54e01, //TODO: remove this
-//     'primary-3000-active-light': var(--accent-primary-active),
+//     'primary-3000-active-light': var(--color-accent-active),
 //     // #f54e01, //TODO: remove this
 //     'secondary-3000-light': rgba(#cfd1c2, 0.6),
 //     'secondary-3000-hover-light': #cfd1c2,
@@ -67,7 +67,7 @@ $xxl: 1600px;
 //     'glass-bg-3000-light': #e4e5deb3,
 //     'glass-border-3000-light': #e4e5de,
 
-//     'link-3000-light': var(--accent-primary),
+//     'link-3000-light': var(--color-accent),
 //     // #f54e00, //TODO: remove this
 //     'primary-3000-frame-bg-light': #eb9d2a,
 //     'primary-3000-button-bg-light': #fff,
@@ -89,9 +89,9 @@ $xxl: 1600px;
 //     'trace-3000-dark': rgba(#fff, 0.25),
 //     'primary-3000-dark': #f7a503,
 //     'primary-highlight-dark': rgba(#f7a503, 0.1),
-//     'primary-3000-hover-dark': var(--accent-primary-hover),
+//     'primary-3000-hover-dark': var(--color-accent-hover),
 //     // #f7a503, //TODO: remove this
-//     'primary-3000-active-dark': var(--accent-primary-active),
+//     'primary-3000-active-dark': var(--color-accent-active),
 //     // #f7a503, //TODO: remove this
 //     'primary-alt-highlight-light': #e5e7e0,
 
@@ -103,7 +103,7 @@ $xxl: 1600px;
 //     'border-bold-3000-dark': #3f4046,
 //     'glass-bg-3000-dark': #24262a99,
 //     'glass-border-3000-dark': var(--border-3000-dark),
-//     'link-3000-dark': var(--accent-primary),
+//     'link-3000-dark': var(--color-accent),
 //     // #f1a82c,
 //     'primary-3000-frame-bg-dark': #926826,
 //     'primary-3000-button-bg-dark': #e0a045,
@@ -127,13 +127,13 @@ $xxl: 1600px;
 //     // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
 //     'default': var(--default),
 //     'text-3000': var(--text-3000),
-//     'text-secondary-3000': var(--text-secondary-3000),
+//     'text-secondary-3000': var(--color-text-secondary-3000),
 //     'muted-3000': var(--muted-3000),
-//     'primary-3000': var(--accent-primary),
+//     'primary-3000': var(--color-accent),
 //     'secondary-3000': var(--secondary-3000),
 //     'secondary-3000-hover': var(--secondary-3000-hover),
-//     'accent-3000': var(--bg-surface-primary),
-//     'bg-3000': var(--bg-3000),
+//     'accent-3000': var(--color-bg-surface-primary),
+//     'bg-3000': var(--color-bg-3000),
 //     'primary-highlight': var(--primary-highlight),
 //     'primary-alt-highlight': var(--primary-alt-highlight),
 //     'primary-alt': var(--primary-alt),
@@ -148,7 +148,7 @@ $xxl: 1600px;
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
 // @mixin root-variables {
-//     --bg-bridge: #ebece8;
+//     --color-bg-bridge: #ebece8;
 
 //     // Non-color vars
 //     --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
@@ -231,9 +231,9 @@ $xxl: 1600px;
 //     // Update and override from react-toastify
 //     // which attaches these variables to :root
 //     // which means they aren't available in the toolbar
-//     --toastify-color-dark: var(--accent-3000-dark);
-//     --toastify-color-light: var(--bg-surface-primary);
-//     --toastify-color-info: var(--accent-primary);
+//     --toastify-color-dark: var(--color-accent-3000-dark);
+//     --toastify-color-light: var(--color-bg-surface-primary);
+//     --toastify-color-info: var(--color-accent);
 //     --toastify-color-success: var(--success);
 //     --toastify-color-warning: var(--warning);
 //     --toastify-color-error: var(--danger);
@@ -241,7 +241,7 @@ $xxl: 1600px;
 //     --toastify-color-progress-success: var(--toastify-color-success);
 //     --toastify-color-progress-warning: var(--toastify-color-warning);
 //     --toastify-color-progress-error: var(--toastify-color-error);
-//     --toastify-toast-background: var(--bg-surface-primary);
+//     --toastify-toast-background: var(--color-bg-surface-primary);
 //     --toastify-toast-width: 26rem;
 //     --toastify-toast-min-height: 3.5rem;
 //     --toastify-toast-max-height: 16rem;
@@ -289,26 +289,26 @@ $xxl: 1600px;
 // // defined here so that they can be shared with the toolbar
 // @mixin light-mode-3000-variables {
 //     --text-3000: var(--text-3000-light);
-//     --text-secondary-3000: var(--text-secondary-3000-light);
+//     --color-text-secondary-3000: var(--color-text-secondary-3000-light);
 //     --muted-3000: var(--muted-3000-light);
 //     --trace-3000: var(--trace-3000-light);
-//     --primary-3000: var(--accent-primary); // var(--primary-3000-light); // TODO: remove this
-//     --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-light); // TODO: remove this
-//     --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-light); // TODO: remove this
-//     --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-light); // TODO: remove this
+//     --primary-3000: var(--color-accent); // var(--primary-3000-light); // TODO: remove this
+//     --primary-highlight: var(--color-accent-highlight); // var(--primary-highlight-light); // TODO: remove this
+//     --primary-3000-hover: var(--color-accent-hover); // var(--primary-3000-hover-light); // TODO: remove this
+//     --primary-3000-active: var(--color-accent-active); // var(--primary-3000-active-light); // TODO: remove this
 //     --secondary-3000: var(--secondary-3000-light);
 //     --secondary-3000-hover: var(--secondary-3000-hover-light);
-//     --accent-3000: var(--accent-3000-light);
-//     --bg-3000: var(--bg-3000-light);
+//     --color-accent-3000: var(--color-accent-3000-light);
+//     --color-bg-3000: var(--color-bg-3000-light);
 //     --border-3000: var(--border-3000-light);
 //     --border-light-opaque: #eee;
 //     --border-bold-3000: var(--border-bold-3000-light);
 
 //     // --glass-bg-3000: var(--glass-bg-3000-light);
-//     --glass-bg-3000: var(--bg-surface-tertiary); // var(--glass-bg-3000-light);
+//     --glass-bg-3000: var(--color-bg-surface-tertiary); // var(--glass-bg-3000-light);
 //     --glass-border-3000: var(--glass-border-3000-light);
-//     --bg-light: #fff;
-//     --bg-table: #f9faf7;
+//     --color-bg-light: #fff;
+//     --color-bg-table: #f9faf7;
 //     --link: var(--link-3000-light);
 //     --shadow-elevation-3000: var(--shadow-elevation-3000-light);
 //     --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
@@ -329,17 +329,17 @@ $xxl: 1600px;
 // // defined here so that they can be shared with the toolbar
 // @mixin dark-mode-3000-variables {
 //     --text-3000: var(--text-3000-dark);
-//     --text-secondary-3000: var(--text-secondary-3000-dark);
+//     --color-text-secondary-3000: var(--color-text-secondary-3000-dark);
 //     --muted-3000: var(--muted-3000-dark);
 //     --trace-3000: var(--trace-3000-dark);
-//     --primary-3000: var(--accent-primary); // var(--primary-3000-dark); // TODO: remove this
-//     --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-dark); // TODO: remove this
-//     --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-dark); // TODO: remove this
-//     --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-dark); // TODO: remove this
+//     --primary-3000: var(--color-accent); // var(--primary-3000-dark); // TODO: remove this
+//     --primary-highlight: var(--color-accent-highlight); // var(--primary-highlight-dark); // TODO: remove this
+//     --primary-3000-hover: var(--color-accent-hover); // var(--primary-3000-hover-dark); // TODO: remove this
+//     --primary-3000-active: var(--color-accent-active); // var(--primary-3000-active-dark); // TODO: remove this
 //     --secondary-3000: var(--secondary-3000-dark);
 //     --secondary-3000-hover: var(--secondary-3000-hover-dark);
-//     --accent-3000: var(--accent-3000-dark);
-//     --bg-3000: var(--bg-3000-dark);
+//     --color-accent-3000: var(--color-accent-3000-dark);
+//     --color-bg-3000: var(--color-bg-3000-dark);
 //     --border-3000: var(--border-3000-dark);
 //     --border-light-opaque: #1e2028;
 //     --border-bold-3000: var(--border-bold-3000-dark);
@@ -347,8 +347,8 @@ $xxl: 1600px;
 //     // --glass-bg-3000: var(--glass-bg-3000-dark);
 //     --glass-bg-3000: var(--surface-quaternary);
 //     --glass-border-3000: var(--glass-border-3000-dark);
-//     --bg-light: var(--bg-surface-primary);
-//     --bg-table: #232429;
+//     --color-bg-light: var(--color-bg-surface-primary);
+//     --color-bg-table: #232429;
 //     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
 //     --link: var(--link-3000-dark);
 //     --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
@@ -375,14 +375,14 @@ $xxl: 1600px;
 
 // // defined here so that they can be shared with the toolbar
 // @mixin common-variables {
-//     --primary: var(--primary-3000); // Changed to accent-primary
+//     --primary: var(--primary-3000); // Changed to accent
 //     --muted: var(--muted-3000);
 //     --default: var(--text-3000);
 
 //     // `--muted-alt` can be removed now, as it's the same as `--muted` after the 3000 redesign
 //     --muted-alt: var(--muted-3000);
 //     --primary-alt: var(--text-3000);
-//     --border: var(--border-primary);
+//     --border: var(--color-border-primary);
 //     --border-bold: var(--border-bold-3000);
 //     --data-color-1: #1d4aff;
 //     --data-color-1-hover: #1a3cf6;

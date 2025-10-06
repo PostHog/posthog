@@ -3,7 +3,7 @@ use std::sync::Arc;
 /// These tests are common between all libraries doing local evaluation of feature flags.
 /// This ensures there are no mismatches between implementations.
 use feature_flags::{
-    cohort::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_match_reason::FeatureFlagMatchReason,
         flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
@@ -116,13 +116,19 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-        let distinct_id = format!("distinct_id_{}", i);
+        let distinct_id = format!("distinct_id_{i}");
 
-        let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
-                .get_match(&flags[0], None, None)
-                .await
-                .unwrap();
+        let feature_flag_match = {
+            let router = feature_flags::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            );
+            FeatureFlagMatcher::new(distinct_id, 1, 1, router, cohort_cache, None, None)
+        }
+        .get_match(&flags[0], None, None)
+        .unwrap();
 
         if *result {
             assert_eq!(
@@ -1208,13 +1214,19 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let distinct_id = format!("distinct_id_{}", i);
+        let distinct_id = format!("distinct_id_{i}");
 
-        let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
-                .get_match(&flags[0], None, None)
-                .await
-                .unwrap();
+        let feature_flag_match = {
+            let router = feature_flags::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            );
+            FeatureFlagMatcher::new(distinct_id, 1, 1, router, cohort_cache, None, None)
+        }
+        .get_match(&flags[0], None, None)
+        .unwrap();
 
         if let Some(variant) = &result {
             assert_eq!(

@@ -1,15 +1,15 @@
 import copy
 import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import Any, Optional, cast
-from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
+import posthoganalytics
 from dateutil import parser
-from sentry_sdk import push_scope
 
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import QueryTags, get_query_tags, update_tags
 from posthog.constants import (
     INSIGHT_LIFECYCLE,
     NON_BREAKDOWN_DISPLAY_TYPES,
@@ -130,12 +130,12 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> list[dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-        with push_scope() as scope:
+        with posthoganalytics.new_context():
             query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
-            scope.set_context("filter", filter.to_dict())
-            scope.set_tag("team", team)
+            posthoganalytics.tag("filter", filter.to_dict())
+            posthoganalytics.tag("team_id", str(team.pk))
             query_params = {**params, **adjusted_filter.hogql_context.values}
-            scope.set_context("query", {"sql": sql, "params": query_params})
+            posthoganalytics.tag("query", {"sql": sql, "params": query_params})
             result = insight_sync_execute(
                 sql,
                 query_params,
@@ -167,13 +167,13 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         query_type,
         sql,
         params,
-        query_tags: dict,
+        query_tags: QueryTags,
         filter: Filter,
         team_id: int,
     ):
-        tag_queries(**query_tags)
-        with push_scope() as scope:
-            scope.set_context("query", {"sql": sql, "params": params})
+        update_tags(query_tags)
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("query", {"sql": sql, "params": params})
             result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> list[dict[str, Any]]:
@@ -197,7 +197,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                     query_type,
                     sql,
                     query_params,
-                    get_query_tags(),
+                    get_query_tags().model_copy(deep=True),
                     adjusted_filter,
                     team.pk,
                 ),
@@ -213,17 +213,10 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             j.join()
 
         # Parse results for each thread
-        with push_scope() as scope:
-            scope.set_context("filter", filter.to_dict())
-            scope.set_tag("team", team)
-            for i, entity in enumerate(filter.entities):
-                scope.set_context(
-                    "query",
-                    {
-                        "sql": sql_statements_with_params[i][0],
-                        "params": sql_statements_with_params[i][1],
-                    },
-                )
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("filter", filter.to_dict())
+            posthoganalytics.tag("team_id", str(team.pk))
+            for entity in filter.entities:
                 serialized_data = cast(list[Callable], parse_functions)[entity.index](result[entity.index])
                 serialized_data = self._format_serialized(entity, serialized_data)
                 merged_results, cached_result = self.merge_results(

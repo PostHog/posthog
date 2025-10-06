@@ -1,19 +1,21 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { HTMLProps } from 'react'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { NotebookNodeResource, SidePanelTab } from '~/types'
+import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { EditorFocusPosition } from '../Notebook/utils'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
+
+import { NotebookNodeResource } from '../types'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelStateLogic, ['sidePanelOpen', 'selectedTab'], featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-    }),
+    })),
     actions({
         selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
             id,
@@ -143,4 +145,11 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             window.removeEventListener('drag', cache.dragListener)
         },
     })),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up any active drag listener if component unmounts during drag
+        if (cache.dragListener) {
+            window.removeEventListener('drag', cache.dragListener)
+        }
+    }),
 ])

@@ -1,5 +1,6 @@
-import dagster
 from django.db.models import Q
+
+import dagster
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 

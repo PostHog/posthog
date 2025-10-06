@@ -1,6 +1,7 @@
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useState } from 'react'
+
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -10,11 +11,13 @@ export const HogQLDropdown = ({
     hogQLValue,
     onHogQLValueChange,
     tableName,
+    hogQLEditorPlaceholder,
     className = '',
 }: {
     hogQLValue: string
     tableName: string
     className?: string
+    hogQLEditorPlaceholder?: string
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
@@ -35,6 +38,7 @@ export const HogQLDropdown = ({
                                 onHogQLValueChange(currentValue)
                                 setIsHogQLDropdownVisible(false)
                             }}
+                            placeholder={hogQLEditorPlaceholder}
                         />
                     </div>
                 }

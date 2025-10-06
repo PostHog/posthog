@@ -1,5 +1,7 @@
 import './SavedInsights.scss'
 
+import { useActions, useValues } from 'kea'
+
 import {
     IconAI,
     IconBrackets,
@@ -10,10 +12,13 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLive,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconPlusSmall,
     IconRetention,
+    IconRetentionHeatmap,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -23,41 +28,43 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     InsightType,
@@ -80,38 +87,51 @@ export interface InsightTypeMetadata {
     tooltipDescription?: string
     icon: (props?: any) => JSX.Element | null
     inMenu: boolean
+    tooltipDocLink?: string
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
+    [NodeKind.CalendarHeatmapQuery]: {
+        name: 'Calendar heatmap (BETA)',
+        description: 'Visualize total or unique users broken down by day and hour.',
+        icon: IconRetentionHeatmap,
+        inMenu: true,
+        // tooltipDescription TODO: Add tooltip description
+    },
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time.',
         icon: IconTrends,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/trends/overview',
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: IconFunnels,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/funnels',
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/retention',
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
         icon: IconUserPaths,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: IconStickiness,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/stickiness',
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
@@ -120,6 +140,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
             "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include anonymous events and users/groups appear as new when they are first identified.",
         icon: IconLifecycle,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },
     [NodeKind.FunnelCorrelationQuery]: {
         name: 'Funnel Correlation',
@@ -151,6 +172,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCursor,
         inMenu: true,
     },
+    [NodeKind.SessionBatchEventsQuery]: {
+        name: 'Session Batch Events',
+        description: 'Batch query for events from multiple sessions.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.PersonsNode]: {
         name: 'Persons',
         description: 'List and explore your persons.',
@@ -172,6 +199,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQuery.',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.StickinessActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight.',
         icon: IconPerson,
         inMenu: false,
     },
@@ -200,7 +233,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.DataVisualizationNode]: {
-        name: 'Data visualization',
+        name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
         icon: IconTableChart,
         inMenu: false,
@@ -253,6 +286,36 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.RevenueAnalyticsMetricsQuery]: {
+        name: 'Revenue Analytics Metrics',
+        description: 'View revenue analytics customer, subscription count, ARPU, and LTV.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
+        name: 'Revenue Analytics Gross Revenue',
+        description: 'View gross revenue analytics.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsMRRQuery]: {
+        name: 'Revenue Analytics MRR',
+        description: 'View MRR revenue analytics.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website.',
@@ -289,6 +352,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebPageURLSearchQuery]: {
+        name: 'Web Page URL Search',
+        description: 'Search and analyze web page URLs.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebTrendsQuery]: {
+        name: 'Web Trends',
+        description: 'Analyze web trends and patterns over time.',
+        icon: IconTrends,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -317,6 +392,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',
         icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingIssueCorrelationQuery]: {
+        name: 'Error Tracking Correlation',
+        description: 'Explore issues affecting other events.',
+        icon: IconCorrelationAnalysis,
         inMenu: false,
     },
     [NodeKind.RecordingsQuery]: {
@@ -361,21 +442,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentEventMetricConfig]: {
-        name: 'Experiment Event Metric Config',
-        description: 'Configuration for experiment event metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentActionMetricConfig]: {
-        name: 'Experiment Action Metric Config',
-        description: 'Configuration for experiment action metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentDataWarehouseMetricConfig]: {
-        name: 'Experiment Data Warehouse Metric Config',
-        description: 'Configuration for experiment data warehouse metrics.',
+    [NodeKind.ExperimentDataWarehouseNode]: {
+        name: 'Experiment Data Warehouse',
+        description: 'Experiment data warehouse source configuration.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -401,12 +470,32 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Observability Traces',
+        name: 'LLM Analytics Traces',
+        icon: IconAI,
+        inMenu: false,
+    },
+    [NodeKind.TraceQuery]: {
+        name: 'LLM Analytics Trace',
         icon: IconAI,
         inMenu: false,
     },
     [NodeKind.VectorSearchQuery]: {
         name: 'Vector Search',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.LogsQuery]: {
+        name: 'Logs',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.WebAnalyticsExternalSummaryQuery]: {
+        name: 'Web Analytics External Summary',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsTableQuery]: {
+        name: 'Marketing Analytics Table',
         icon: IconHogQL,
         inMenu: false,
     },
@@ -451,6 +540,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
+    settingSectionId: 'environment-product-analytics',
 }
 
 export function InsightIcon({
@@ -473,24 +563,29 @@ export function InsightIcon({
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
-        <LemonButton
-            type="primary"
-            to={urls.insightNew()}
-            sideAction={{
-                dropdown: {
-                    placement: 'bottom-end',
-                    className: 'new-insight-overlay',
-                    actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr),
-                },
-                'data-attr': 'saved-insights-new-insight-dropdown',
-            }}
-            data-attr="saved-insights-new-insight-button"
-            size="small"
-            icon={<IconPlusSmall />}
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Insight}
+            minAccessLevel={AccessControlLevel.Editor}
         >
-            New insight
-        </LemonButton>
+            <LemonButton
+                type="primary"
+                to={urls.insightNew()}
+                sideAction={{
+                    dropdown: {
+                        placement: 'bottom-end',
+                        className: 'new-insight-overlay',
+                        actionable: true,
+                        overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
+                    },
+                    'data-attr': 'saved-insights-new-insight-dropdown',
+                }}
+                data-attr="saved-insights-new-insight-button"
+                size="small"
+                icon={<IconPlusSmall />}
+            >
+                New
+            </LemonButton>
+        </AccessControlAction>
     )
 }
 
@@ -498,7 +593,6 @@ function SavedInsightsGrid(): JSX.Element {
     const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
     const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
     const { currentProjectId } = useValues(projectLogic)
-
     const paginationState = usePagination(insights?.results || [], pagination)
 
     return (
@@ -534,13 +628,11 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showAlerts = featureFlags[FEATURE_FLAGS.ALERTS]
-
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
+    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
+
     const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -571,25 +663,28 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
 
-                                    <AccessControlledLemonButton
-                                        userAccessLevel={insight.user_access_level}
-                                        minAccessLevel="editor"
+                                    <AccessControlAction
                                         resourceType={AccessControlResourceType.Insight}
-                                        className="ml-1"
-                                        size="xsmall"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            updateFavoritedInsight(insight, !insight.favorited)
-                                        }}
-                                        icon={
-                                            insight.favorited ? (
-                                                <IconStarFilled className="text-warning" />
-                                            ) : (
-                                                <IconStar className="text-secondary" />
-                                            )
-                                        }
-                                        tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
-                                    />
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={insight.user_access_level}
+                                    >
+                                        <LemonButton
+                                            className="ml-1"
+                                            size="xsmall"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                updateFavoritedInsight(insight, !insight.favorited)
+                                            }}
+                                            icon={
+                                                insight.favorited ? (
+                                                    <IconStarFilled className="text-warning" />
+                                                ) : (
+                                                    <IconStar className="text-secondary" />
+                                                )
+                                            }
+                                            tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                                        />
+                                    </AccessControlAction>
                                 </>
                             }
                             description={insight.description}
@@ -630,6 +725,18 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
+            title: 'Last viewed',
+            sorter: true,
+            dataIndex: 'last_viewed_at',
+            render: function renderLastViewed(last_viewed_at: string | null) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {last_viewed_at ? <TZLabel time={last_viewed_at} /> : <span className="text-muted">Never</span>}
+                    </div>
+                )
+            },
+        },
+        {
             width: 0,
             render: function Render(_, insight) {
                 return (
@@ -642,26 +749,29 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                <AccessControlAction
                                     resourceType={AccessControlResourceType.Insight}
-                                    to={urls.insightEdit(insight.short_id)}
-                                    fullWidth
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Edit
-                                </AccessControlledLemonButton>
+                                    <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                <AccessControlAction
                                     resourceType={AccessControlResourceType.Insight}
-                                    onClick={() => renameInsight(insight)}
-                                    data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
-                                    fullWidth
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Rename
-                                </AccessControlledLemonButton>
+                                    <LemonButton
+                                        onClick={() => renameInsight(insight)}
+                                        data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
+                                        fullWidth
+                                    >
+                                        Rename
+                                    </LemonButton>
+                                </AccessControlAction>
 
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
@@ -673,23 +783,26 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                <AccessControlAction
                                     resourceType={AccessControlResourceType.Insight}
-                                    status="danger"
-                                    onClick={() =>
-                                        void deleteInsightWithUndo({
-                                            object: insight,
-                                            endpoint: `projects/${currentProjectId}/insights`,
-                                            callback: loadInsights,
-                                        })
-                                    }
-                                    data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
-                                    fullWidth
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Delete insight
-                                </AccessControlledLemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() =>
+                                            void deleteInsightWithUndo({
+                                                object: insight,
+                                                endpoint: `projects/${currentProjectId}/insights`,
+                                                callback: loadInsights,
+                                            })
+                                        }
+                                        data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
+                                        fullWidth
+                                    >
+                                        Delete insight
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -699,25 +812,30 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <div className="saved-insights">
-            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+        <SceneContent className={cn('saved-insights')}>
+            <SceneTitleSection
+                name="Product analytics"
+                description="Track, analyze, and experiment with user behavior."
+                resourceType={{
+                    type: 'product_analytics',
+                }}
+                actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'Your insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
-                    ...(showAlerts
-                        ? [
-                              {
-                                  key: SavedInsightsTabs.Alerts,
-                                  label: <div className="flex items-center gap-2">Alerts</div>,
-                              },
-                          ]
-                        : []),
+                    {
+                        key: SavedInsightsTabs.Alerts,
+                        label: <div className="flex items-center gap-2">Alerts</div>,
+                    },
                 ]}
+                sceneInset
             />
 
             {tab === SavedInsightsTabs.History ? (
@@ -727,8 +845,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+                    <LemonDivider className={cn('my-4 my-0')} />
+                    <div className={cn('flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center', 'my-0')}>
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
@@ -757,7 +875,7 @@ export function SavedInsights(): JSX.Element {
                         </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState />
+                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
                         <>
                             <ReloadInsight />
@@ -787,6 +905,6 @@ export function SavedInsights(): JSX.Element {
                     )}
                 </>
             )}
-        </div>
+        </SceneContent>
     )
 }

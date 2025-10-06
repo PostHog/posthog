@@ -4,10 +4,11 @@ from io import BytesIO
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs
 
-import lzstring
-import yaml
 from django.http.multipartparser import MultiPartParser
 from django.test.client import FakePayload
+
+import yaml
+import lzstring
 from jsonschema import validate
 
 

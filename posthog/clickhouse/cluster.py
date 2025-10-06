@@ -1,32 +1,24 @@
 from __future__ import annotations
 
 import abc
-import itertools
-import logging
 import time
+import logging
+import itertools
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence, Set
-from concurrent.futures import (
-    ALL_COMPLETED,
-    FIRST_EXCEPTION,
-    Future,
-    ThreadPoolExecutor,
-    as_completed,
-)
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
+from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, TypeVar
-from collections.abc import Iterable
+from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
 
 import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-
 
 logger = dagster.get_dagster_logger("clickhouse")
 
@@ -118,15 +110,7 @@ class ClickhouseCluster:
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
 
-        cluster_hosts = bootstrap_client.execute(
-            """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(name)s, system.clusters)
-            WHERE name = %(name)s and is_local
-            ORDER BY shard_num, replica_num
-            """,
-            {"name": cluster or settings.CLICKHOUSE_CLUSTER},
-        )
+        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, cluster or settings.CLICKHOUSE_CLUSTER, retry_policy)
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
@@ -137,8 +121,8 @@ class ClickhouseCluster:
                     # otherwise, we will use the default port.
                     port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
                 ),
-                shard_num if host_cluster_role != "coordinator" else None,
-                replica_num if host_cluster_role != "coordinator" else None,
+                shard_num if host_cluster_role == NodeRole.DATA else None,
+                replica_num if host_cluster_role == NodeRole.DATA else None,
                 host_cluster_type,
                 host_cluster_role,
             )
@@ -163,6 +147,22 @@ class ClickhouseCluster:
         self.__client_settings = client_settings
         self.__retry_policy = retry_policy
 
+    def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
+        get_cluster_hosts_fn = lambda client: client.execute(
+            """
+            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            FROM clusterAllReplicas(%(name)s, system.clusters)
+            WHERE name = %(name)s and is_local
+            ORDER BY shard_num, replica_num
+            """,
+            {"name": cluster},
+        )
+
+        if retry_policy is not None:
+            get_cluster_hosts_fn = retry_policy(get_cluster_hosts_fn)
+
+        return get_cluster_hosts_fn(client)
+
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
@@ -185,6 +185,16 @@ class ClickhouseCluster:
 
         return task
 
+    def __hosts_by_roles(
+        self, hosts: set[HostInfo], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
+    ) -> set[HostInfo]:
+        return {
+            host
+            for host in hosts
+            if (host.host_cluster_role in node_roles or NodeRole.ALL in node_roles)
+            and (host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT)
+        }
+
     @property
     def __hosts(self) -> set[HostInfo]:
         """Set containing all hosts in the cluster."""
@@ -202,15 +212,25 @@ class ClickhouseCluster:
             host = next(iter(self.__hosts))
             return executor.submit(self.__get_task_function(host, fn))
 
-    def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
+    def any_host_by_role(
+        self, fn: Callable[[Client], T], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+    ) -> Future[T]:
+        """
+        Execute the callable once for any host with the given node role.
+        """
+        return self.any_host_by_roles(fn, [node_role], workload)
+
+    def any_host_by_roles(
+        self, fn: Callable[[Client], T], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
+    ) -> Future[T]:
         """
         Execute the callable once for any host with the given node role.
         """
         with ThreadPoolExecutor() as executor:
             try:
-                host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
+                host = next(iter(self.__hosts_by_roles(self.__hosts, node_roles, workload)))
             except StopIteration:
-                raise ValueError(f"No hosts found with role {node_role.value}")
+                raise ValueError(f"No hosts found with roles {node_roles}")
             return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
@@ -227,6 +247,16 @@ class ClickhouseCluster:
         fn: Callable[[Client], T],
         node_role: NodeRole,
         concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        return self.map_hosts_by_roles(fn, [node_role], concurrency, workload)
+
+    def map_hosts_by_roles(
+        self,
+        fn: Callable[[Client], T],
+        node_roles: list[NodeRole],
+        concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -238,8 +268,7 @@ class ClickhouseCluster:
             return FuturesMap(
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts
-                    if host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL
+                    for host in self.__hosts_by_roles(self.__hosts, node_roles, workload)
                 }
             )
 
@@ -252,13 +281,44 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_hosts_in_shard_by_role(shard_num, fn, concurrency, NodeRole.ALL, Workload.DEFAULT)
+
+    def map_hosts_in_shard_by_role(
+        self,
+        shard_num: int,
+        fn: Callable[[Client], T],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        return self.map_hosts_in_shard_by_roles(shard_num, fn, [node_role], concurrency, workload)
+
+    def map_hosts_in_shard_by_roles(
+        self,
+        shard_num: int,
+        fn: Callable[[Client], T],
+        node_roles: list[NodeRole],
+        concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shard and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host in self.__shards[shard_num]}
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts_by_roles(self.__shards[shard_num], node_roles, workload)
+                }
             )
 
     def map_all_hosts_in_shards(
-        self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        concurrency: int | None = None,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the specified shards.
@@ -287,10 +347,46 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_any_host_in_shards_by_role(
+            shard_fns,
+            concurrency=concurrency,
+            node_role=NodeRole.ALL,
+            workload=Workload.DEFAULT,
+        )
+
+    def map_any_host_in_shards_by_role(
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        return self.map_any_host_in_shards_by_roles(
+            shard_fns, node_roles=[node_role], concurrency=concurrency, workload=workload
+        )
+
+    def map_any_host_in_shards_by_roles(
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        node_roles: list[NodeRole],
+        concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable on one host for each of the specified shards and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         shard_host_fns = {}
         for shard, fn in shard_fns.items():
-            host = next(iter(self.__shards[shard]))
-            shard_host_fns[host] = fn
+            try:
+                host = next(iter(self.__hosts_by_roles(self.__shards[shard], node_roles, workload)))
+                shard_host_fns[host] = fn
+            except StopIteration:
+                raise ValueError(
+                    f"No hosts found with role {node_roles} and workload {workload.value} in shard {shard}"
+                )
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
@@ -316,13 +412,14 @@ def get_cluster(
     client_settings: Mapping[str, str] | None = None,
     cluster: str | None = None,
     retry_policy: RetryPolicy | None = None,
+    host: str = settings.CLICKHOUSE_HOST,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(
-        default_client(),
+        default_client(host=host),
         extra_hosts=extra_hosts,
         logger=logger,
         client_settings=client_settings,
@@ -340,13 +437,23 @@ class Query:
     def __call__(self, client: Client):
         return client.execute(self.query, self.parameters, settings=self.settings)
 
+    def __repr__(self) -> str:
+        if self.parameters and isinstance(self.parameters, list):
+            params_repr = f"{self.parameters[:50]!r} (showing first 50 out of {len(self.parameters)} parameters)"
+        else:
+            params_repr = f"{self.parameters!r}"
+        return f"Query(query={self.query!r}, parameters={params_repr}, settings={self.settings!r})"
+
 
 @dataclass
 class ExponentialBackoff:
     delay: float
+    max_delay: Optional[float] = None
+    exp: float = 2.0
 
     def __call__(self, attempt: int) -> float:
-        return self.delay * (attempt**2)
+        delay = self.delay * (attempt**self.exp)
+        return min(delay, self.max_delay) if self.max_delay is not None else delay
 
 
 @dataclass
@@ -371,7 +478,9 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
             is_retryable_exception = self.policy.exceptions
 
         if not callable(self.policy.delay):
-            delay_fn = lambda _: self.policy.delay
+
+            def delay_fn(_):
+                return self.policy.delay
         else:
             delay_fn = self.policy.delay
 
@@ -438,6 +547,7 @@ class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+    force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -459,7 +569,15 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
-        mutations_running = self.find_existing_mutations(client, expected_commands)
+        if self.force:
+            logger.info(
+                "Forcing mutation for %r, even if it already exists. This may cause issues if the mutation is already running.",
+                expected_commands,
+            )
+            mutations_running: Mapping[str, str] = {}
+        else:
+            logger.info("Ensuring mutation for %r is running or has completed.", expected_commands)
+            mutations_running = self.find_existing_mutations(client, expected_commands)
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
@@ -473,6 +591,7 @@ class MutationRunner(abc.ABC):
             mutations_running = self.find_existing_mutations(client, expected_commands)
             if mutations_running.keys() == expected_commands:
                 return MutationWaiter(self.table, set(mutations_running.values()))
+            time.sleep(1.0)
 
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
@@ -512,12 +631,15 @@ class MutationRunner(abc.ABC):
                     t.2 as position
             ) commands
             LEFT OUTER JOIN (
-                SELECT *
+                SELECT
+                    command,
+                    argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
                     database = %(__database)s
                     AND table = %(__table)s
                     AND NOT is_killed  -- ok to restart a killed mutation
+                GROUP BY command
             ) mutations USING (command)
             ORDER BY position ASC
             SETTINGS join_use_nulls = 1
@@ -562,7 +684,9 @@ class MutationRunner(abc.ABC):
 
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
-    commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    commands: Set[str] = field(
+        kw_only=True
+    )  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
     def get_all_commands(self) -> Set[str]:
         return self.commands
@@ -573,14 +697,17 @@ class AlterTableMutationRunner(MutationRunner):
 
 @dataclass
 class LightweightDeleteMutationRunner(MutationRunner):
-    predicate: str
+    predicate: str = field(kw_only=True)
+    partition: str | None = field(default=None, kw_only=True)
 
     def get_all_commands(self) -> Set[str]:
-        return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}
+        partition_suffix = f" IN PARTITION '{self.partition}'" if self.partition else ""
+        return {f"UPDATE _row_exists = 0{partition_suffix} WHERE {self.predicate}"}
 
     def get_statement(self, commands: Set[str]) -> str:
         # XXX: lightweight deletes should only be called with the same command represented by the predicate
         if commands != self.get_all_commands():
             raise ValueError(f"unexpected commands: {commands!r}")
 
-        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"
+        partition_clause = f" IN PARTITION '{self.partition}'" if self.partition else ""
+        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table}{partition_clause} WHERE {self.predicate}"

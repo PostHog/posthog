@@ -1,9 +1,11 @@
+import clsx from 'clsx'
+import { useCallback, useState } from 'react'
+
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useCallback, useState } from 'react'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
@@ -112,10 +114,10 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-accent-primary' | 'text-danger' | 'text-warning' | 'text-success' => {
+    const getIconColor = (): 'text-accent' | 'text-danger' | 'text-warning' | 'text-success' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
-                return 'text-accent-primary'
+                return 'text-accent'
             }
             if (item.table.status === 'Failed') {
                 return 'text-danger'

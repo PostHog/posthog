@@ -17,13 +17,14 @@
         "noImplicitAny": true,
         "useUnknownInCatchVariables": false,
         "paths": {
-            "~/*": ["./*"],
-            "main/*": ["./src/main/*"],
-            "worker/*": ["./src/worker/*"],
-            "utils/*": ["./src/utils/*"]
+            "~/tests/*": ["./tests/*"],
+            "~/*": ["./src/*"]
         },
         "skipLibCheck": true
     },
     "include": ["src", "tests"],
-    "exclude": ["node_modules", "dist", "bin"]
+    "exclude": ["node_modules", "dist", "bin"],
+    "ts-node": {
+        "require": ["tsconfig-paths/register"]
+    }
 }

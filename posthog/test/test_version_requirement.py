@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.test.testcases import TestCase
+
 from semantic_version.base import SimpleSpec, Version
 
 from posthog import version_requirement

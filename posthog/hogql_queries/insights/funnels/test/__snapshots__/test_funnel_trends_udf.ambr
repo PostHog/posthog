@@ -7,12 +7,9 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends_v4(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
-                                                                                                                                                                                                    and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
-                                                                                                                                                                                                                                    and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                                                                   and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                   and isNull(x_after.4)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+    (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+            [''] AS prop,
+            arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
             toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown,
@@ -49,7 +46,10 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_timezones_trends.1
@@ -60,12 +60,9 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'US/Pacific')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends_v4(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
-                                                                                                                                                                                                    and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
-                                                                                                                                                                                                                                    and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                                                                   and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                   and isNull(x_after.4)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+    (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'US/Pacific')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+            [''] AS prop,
+            arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
             toTimeZone(toDateTime(toUInt64(af_tuple.1), 'US/Pacific'), 'US/Pacific') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown,
@@ -102,7 +99,10 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval
@@ -113,12 +113,9 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfWeek(timestamp, 0), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends_v4(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
-                                                                                                                                                                                                    and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
-                                                                                                                                                                                                                                    and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                                                                   and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                   and isNull(x_after.4)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+    (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfWeek(timestamp, 0), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+            [''] AS prop,
+            arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
             toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown,
@@ -155,7 +152,10 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval.1

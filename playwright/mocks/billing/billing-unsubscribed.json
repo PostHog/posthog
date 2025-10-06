@@ -685,6 +685,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "event",
             "addons": [
                 {
@@ -1532,6 +1533,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "recording",
             "addons": [],
             "contact_support": false,
@@ -2024,6 +2026,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "request",
             "addons": [],
             "contact_support": false,
@@ -2451,6 +2454,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "survey response",
             "addons": [],
             "contact_support": false,
@@ -2738,6 +2742,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -2808,7 +2813,7 @@
                 {
                     "plan_key": "free-20230117",
                     "product_key": "platform_and_support",
-                    "name": "Totally free",
+                    "name": "Free",
                     "description": "SSO, permission management, and support.",
                     "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
                     "docs_url": "https://posthog.com/docs",
@@ -3122,7 +3127,15 @@
                             "description": "Control who can access and modify data and features within your organization.",
                             "unit": null,
                             "limit": null,
-                            "note": "Project-based only"
+                            "note": null
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
                         },
                         {
                             "key": "audit_logs",
@@ -3151,7 +3164,7 @@
                         {
                             "key": "ingestion_taxonomy",
                             "name": "Ingestion taxonomy",
-                            "description": "Mark events as verified or unverified to help you understand the quality of your data.",
+                            "description": "Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -3233,7 +3246,7 @@
                         {
                             "key": "ingestion_taxonomy",
                             "name": "Ingestion taxonomy",
-                            "description": "Mark events as verified or unverified to help you understand the quality of your data.",
+                            "description": "Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -3305,6 +3318,14 @@
                         {
                             "key": "advanced_permissions",
                             "name": "Advanced permissions",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
                             "description": "Control who can access and modify data and features within your organization.",
                             "unit": null,
                             "limit": null,
@@ -3411,6 +3432,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -3483,6 +3505,14 @@
                 {
                     "key": "advanced_permissions",
                     "name": "Advanced permissions",
+                    "description": "Control who can access and modify data and features within your organization.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "access_control",
+                    "name": "Access control",
                     "description": "Control who can access and modify data and features within your organization.",
                     "images": null,
                     "icon_key": null,
@@ -3643,7 +3673,7 @@
                 {
                     "key": "ingestion_taxonomy",
                     "name": "Ingestion taxonomy",
-                    "description": "Mark events as verified or unverified to help you understand the quality of your data.",
+                    "description": "Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.",
                     "images": null,
                     "icon_key": null,
                     "type": null

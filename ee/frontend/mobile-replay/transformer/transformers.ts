@@ -1,29 +1,31 @@
+import posthog from 'posthog-js'
+
 import {
+    EventType,
+    IncrementalSource,
     addedNodeMutation,
     customEvent,
-    EventType,
     fullSnapshotEvent,
     incrementalSnapshotEvent,
-    IncrementalSource,
     metaEvent,
     mutationData,
     removedNodeMutation,
 } from '@posthog/rrweb-types'
-import { captureMessage } from '@sentry/react'
+
 import { isObject } from 'lib/utils'
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
-    attributes,
-    documentNode,
-    elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
-    keyboardEvent,
-    metaEvent as MobileMetaEvent,
     MobileIncrementalSnapshotEvent,
+    metaEvent as MobileMetaEvent,
     MobileNodeMutation,
     MobileNodeType,
     NodeType,
+    attributes,
+    documentNode,
+    elementNode,
+    keyboardEvent,
     serializedNodeWithId,
     textNode,
     wireframe,
@@ -153,7 +155,7 @@ export const makeCustomEvent = (
                     },
                 })
             } else {
-                captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
+                posthog.captureException(new Error('Failed to create keyboard placeholder'), { mobileCustomEvent })
             }
         } else {
             removes.push({

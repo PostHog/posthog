@@ -3,32 +3,7 @@
     "short_id": "xEAIVJnI",
     "name": "",
     "derived_name": "User stickiness based on Pageview",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "ActionsLineGraph",
-        "insight": "STICKINESS",
-        "interval": "day",
-        "shown_as": "Stickiness",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "step_limit": 5,
-        "funnel_filter": {},
-        "exclude_events": [],
-        "path_groupings": [],
-        "include_event_types": ["$pageview"],
-        "filter_test_accounts": false,
-        "local_path_cleaning_filters": []
-    },
+    "filters": {},
     "filters_hash": "cache_95922a5d0dad24bcbba8be24a3ab3180",
     "order": null,
     "deleted": false,
@@ -160,6 +135,31 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "StickinessQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview",
+                    "math": "dau"
+                }
+            ],
+            "version": 2
+        },
+        "full": true
+    }
 }

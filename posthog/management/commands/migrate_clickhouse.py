@@ -1,19 +1,17 @@
+# ruff: noqa: T201 allow print statements
+
 import datetime
 from textwrap import indent
-from django.conf import settings
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
+
 from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import default_client
-from posthog.settings import (
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USER,
-)
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"

@@ -1,5 +1,4 @@
 import { eventWithTime } from '@posthog/rrweb-types'
-import { deduplicateSnapshots } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { RecordingSnapshot } from '~/types'
 
@@ -24,7 +23,7 @@ export const convertSnapshotsResponse = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
-    return deduplicateSnapshots([...convertSnapshotsByWindowId(snapshotsByWindowId), ...(existingSnapshots ?? [])])
+    return [...convertSnapshotsByWindowId(snapshotsByWindowId), ...(existingSnapshots ?? [])]
 }
 
 export const sortedRecordingSnapshots = (): { snapshot_data_by_window_id: Record<string, RecordingSnapshot[]> } => {

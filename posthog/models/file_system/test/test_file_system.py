@@ -1,12 +1,8 @@
 from django.test import TestCase
-from posthog.models import FeatureFlag, Experiment, Dashboard, Insight, Notebook, Team, User, Organization
-from posthog.models.file_system.file_system import (
-    FileSystem,
-    escape_path,
-    join_path,
-    split_path,
-)
-from posthog.models.file_system.unfiled_file_saver import save_unfiled_files, UnfiledFileSaver
+
+from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Notebook, Organization, Team, User
+from posthog.models.file_system.file_system import FileSystem, escape_path, join_path, split_path
+from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 
 
 class TestFileSystemModel(TestCase):
@@ -31,7 +27,7 @@ class TestFileSystemModel(TestCase):
         are created as FileSystem objects in the DB by save_unfiled_files.
         """
         # Create some objects
-        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         Dashboard.objects.create(team=self.team, name="Main Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user, saved=True)
@@ -55,12 +51,8 @@ class TestFileSystemModel(TestCase):
         """
         FeatureFlags with deleted=True should NOT create FileSystem rows.
         """
-        FeatureFlag.objects.create(
-            team=self.team, name="Active Flag", created_by=self.user, deleted=False, key="flaggy1"
-        )
-        FeatureFlag.objects.create(
-            team=self.team, name="Deleted Flag", created_by=self.user, deleted=True, key="flaggy2"
-        )
+        FeatureFlag.objects.create(team=self.team, key="Active Flag", created_by=self.user, deleted=False)
+        FeatureFlag.objects.create(team=self.team, key="Deleted Flag", created_by=self.user, deleted=True)
         FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 1)
@@ -84,7 +76,7 @@ class TestFileSystemModel(TestCase):
         There's no 'deleted=False' field in Experiment, so all
         experiments should create FileSystem rows.
         """
-        ff = FeatureFlag.objects.create(team=self.team, name="Some Flag", created_by=self.user, key="flaggy1")
+        ff = FeatureFlag.objects.create(team=self.team, key="Some Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
@@ -98,7 +90,7 @@ class TestFileSystemModel(TestCase):
         If save_unfiled_files is called multiple times, existing items in FileSystem
         should NOT be recreated.
         """
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         FileSystem.objects.all().delete()
 
         first_created = save_unfiled_files(self.team, self.user)
@@ -111,11 +103,9 @@ class TestFileSystemModel(TestCase):
 
         self.assertEqual(FileSystem.objects.first().path, "Unfiled/Feature Flags/Beta Feature")  # type: ignore
 
-    def test_naming_collision_with_existing_db_object(self):
+    def test_no_naming_collision_with_existing_db_object(self):
         """
-        If we already have a FileSystem row named 'Unfiled/Feature Flags/Duplicate Name',
-        then creating a new FeatureFlag with that same name should result in a FileSystem
-        path of '... (1)'.
+        We already have a FileSystem row named 'Unfiled/Feature Flags/Duplicate Name', we can make another
         """
         FileSystem.objects.create(
             team=self.team,
@@ -125,28 +115,8 @@ class TestFileSystemModel(TestCase):
             created_by=self.user,
         )
 
-        FeatureFlag.objects.create(team=self.team, name="Duplicate Name", created_by=self.user)
-        self.assertTrue(FileSystem.objects.filter(path="Unfiled/Feature Flags/Duplicate Name (1)").exists())
-
-    def test_naming_collisions_among_multiple_new_items_same_run(self):
-        """
-        If multiple new FeatureFlags are created with the same name, they should
-        be saved with unique paths in FileSystem.
-        """
-        FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-1", created_by=self.user)
-        FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-2", created_by=self.user)
-        FileSystem.objects.all().delete()
-        created = save_unfiled_files(self.team, self.user)
-
-        self.assertEqual(len(created), 2)
-        paths = [obj.path for obj in created]
-        self.assertEqual(
-            paths,
-            [
-                "Unfiled/Feature Flags/Same Name",
-                "Unfiled/Feature Flags/Same Name (1)",
-            ],
-        )
+        FeatureFlag.objects.create(team=self.team, key="Duplicate Name", created_by=self.user)
+        self.assertEqual(FileSystem.objects.filter(path="Unfiled/Feature Flags/Duplicate Name").count(), 2)
 
     def test_split_path(self):
         self.assertEqual(split_path("a/b"), ["a", "b"])
@@ -180,64 +150,13 @@ class TestFileSystemModel(TestCase):
         # Edge case: empty list
         self.assertEqual(join_path([]), "")
 
-    def test_generate_unique_path_no_conflict(self):
-        """
-        Directly test _generate_unique_path in a scenario with no existing conflicts.
-        """
-        saver = UnfiledFileSaver(self.team, self.user)
-        # There's nothing in DB, so "Unfiled/Feature Flags/My Flag" should be used directly
-        path = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
-        self.assertEqual(path, "Unfiled/Feature Flags/My Flag")
-
-        # Now it's in memory, but not in DB
-        # A new name "Another Flag" should be used with no conflict
-        path_2 = saver._generate_unique_path("Unfiled/Feature Flags", "Another Flag")
-        self.assertEqual(path_2, "Unfiled/Feature Flags/Another Flag")
-
-    def test_generate_unique_path_db_conflict(self):
-        """
-        Directly test _generate_unique_path where the DB already has a path.
-        """
-        # Create an existing FileSystem object in DB to mimic a conflict
-        existing_path = "Unfiled/Feature Flags/My Flag"
-        FileSystem.objects.create(
-            team=self.team,
-            path=existing_path,
-            type="feature_flag",
-            ref="some_ref",
-            created_by=self.user,
-        )
-
-        saver = UnfiledFileSaver(self.team, self.user)
-
-        # The original name is taken by the DB object
-        path = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
-        self.assertEqual(path, "Unfiled/Feature Flags/My Flag (1)")
-
-        # Add a second item with the same name, ensure it increments
-        path_2 = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
-        self.assertEqual(path_2, "Unfiled/Feature Flags/My Flag (2)")
-
-    def test_generate_unique_path_in_memory_conflict(self):
-        """
-        Directly test _generate_unique_path conflicts within the same run
-        (no conflict in DB, but two items with the same name in memory).
-        """
-        saver = UnfiledFileSaver(self.team, self.user)
-        path_1 = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
-        self.assertEqual(path_1, "Unfiled/Feature Flags/My Flag")
-
-        # This second path will conflict with the first in-memory, even though DB is empty
-        path_2 = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
-        self.assertEqual(path_2, "Unfiled/Feature Flags/My Flag (1)")
-
     # Example test for save_unfiled_files with a specific file_type
     def test_save_unfiled_files_specific_type(self):
         """
         If we pass a specific file_type (e.g., FEATURE_FLAG) then only that type should be saved.
         """
         # Create a FeatureFlag and a Dashboard
-        FeatureFlag.objects.create(team=self.team, name="A Flag", created_by=self.user, key="flaggy")
+        FeatureFlag.objects.create(team=self.team, key="A Flag", created_by=self.user)
         Dashboard.objects.create(team=self.team, name="A Dashboard", created_by=self.user)
         FileSystem.objects.all().delete()
 

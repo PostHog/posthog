@@ -1,8 +1,8 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -41,7 +41,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             {
                 clearLocalConfig: () => null,
                 patchHedgehogConfig: (state, { config }) => ({
-                    ...(state ?? {}),
+                    ...state,
                     ...config,
                 }),
             },
@@ -96,8 +96,8 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             (s) => [s.localConfig, s.remoteConfig],
             (localConfig, remoteConfig): Partial<HedgehogConfig> => {
                 return {
-                    ...(remoteConfig ?? {}),
-                    ...(localConfig ?? {}),
+                    ...remoteConfig,
+                    ...localConfig,
                 }
             },
         ],
@@ -171,16 +171,5 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         } else {
             actions.loadRemoteConfig()
         }
-
-        posthog.getEarlyAccessFeatures((features) => {
-            const relatedEAF = features.find((x) => x.flagKey === FEATURE_FLAGS.HEDGEHOG_MODE)
-            if (relatedEAF) {
-                if (posthog.getFeatureFlag(FEATURE_FLAGS.HEDGEHOG_MODE)) {
-                    actions.setHedgehogModeEnabled(true)
-                }
-
-                posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, false)
-            }
-        })
     }),
 ])

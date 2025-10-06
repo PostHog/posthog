@@ -1,4 +1,5 @@
 from django.test.testcases import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.session_recordings.session_recording_api import clean_referer_url

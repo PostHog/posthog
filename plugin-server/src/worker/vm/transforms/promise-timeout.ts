@@ -1,5 +1,4 @@
 // inspired by: https://github.com/treywood/babel-plugin-bluebird-async-functions/
-
 import { PluginGen } from './common'
 
 const REPLACED = Symbol()

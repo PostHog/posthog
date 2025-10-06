@@ -1,10 +1,23 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
-from django.utils import timezone
+from django.db.models import QuerySet
 from django.db.models.indexes import Index
+from django.utils import timezone
+
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.utils import generate_short_id
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
-class SessionRecordingPlaylist(models.Model):
+
+class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
+    class PlaylistType(models.TextChoices):
+        COLLECTION = "collection", "Collection"
+        FILTERS = "filters", "Filters"
+
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400, null=True, blank=True)
     derived_name = models.CharField(max_length=400, null=True, blank=True)
@@ -13,6 +26,7 @@ class SessionRecordingPlaylist(models.Model):
     pinned = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(default=dict)
+    type = models.CharField(max_length=50, choices=PlaylistType.choices, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
@@ -42,6 +56,25 @@ class SessionRecordingPlaylist(models.Model):
             Index(fields=["deleted", "last_counted_at"], name="deleted_n_last_count_idx"),
             Index(fields=["deleted", "-last_modified_at"], name="deleted_n_last_mod_desc_idx"),
         ]
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["SessionRecordingPlaylist"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="session_recording_playlist", ref_field="short_id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Replay playlists"),
+            type="session_recording_playlist",  # sync with APIScopeObject in scopes.py
+            ref=str(self.short_id),
+            name=self.name or self.derived_name or "Untitled",
+            href=f"/replay/playlists/{self.short_id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
 
 class SessionRecordingPlaylistViewed(models.Model):

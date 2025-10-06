@@ -1,3 +1,9 @@
+import { Parser } from 'expr-eval'
+import Fuse from 'fuse.js'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import {
     IconCalculator,
     IconChat,
@@ -42,21 +48,16 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { Parser } from 'expr-eval'
-import Fuse from 'fuse.js'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { IconFlare } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { WATCH_RECORDINGS_OF_KEY, watchRecordingsOfCommand } from 'scenes/session-recordings/replayPaletteCommands'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -70,8 +71,8 @@ import { InsightType } from '~/types'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
 import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
-import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -140,7 +141,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
-    connect({
+    connect(() => ({
         actions: [
             router,
             ['push'],
@@ -168,7 +169,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['sidePanelOpen'],
         ],
         logic: [preflightLogic],
-    }),
+    })),
     actions({
         hidePalette: true,
         showPalette: true,
@@ -282,10 +283,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     if (regexp) {
                         const match = argument.match(regexp)
                         if (match && match[1]) {
-                            prefixedResults = [...prefixedResults, ...resolveCommand(command, match[2], match[1])]
+                            prefixedResults.push(...resolveCommand(command, match[2], match[1]))
                         }
                     }
-                    directResults = [...directResults, ...resolveCommand(command, argument)]
+                    directResults.push(...resolveCommand(command, argument))
                 }
                 const allResults = directResults.concat(prefixedResults)
                 let fusableResults: CommandResult[] = []
@@ -478,7 +479,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconHogQL,
-                        display: 'Create a new HogQL insight',
+                        display: 'Create a new SQL insight',
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -552,22 +553,16 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconServer,
-                        display: 'Go to Data warehouse',
+                        display: 'Go to SQL editor',
                         executor: () => {
-                            push(urls.dataWarehouse())
+                            push(urls.sqlEditor())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                        ? [
-                              {
-                                  icon: IconWarning,
-                                  display: 'Go to Error tracking',
-                                  executor: () => {
-                                      push(urls.errorTracking())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconWarning,
+                        display: 'Go to Error tracking',
+                        executor: () => push(urls.errorTracking()),
+                    },
                     {
                         display: 'Go to Session replay',
                         icon: IconRewindPlay,
@@ -608,7 +603,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.pipeline())
+                            push(urls.dataPipelines())
                         },
                     },
                     {

@@ -5,12 +5,7 @@ import uuid
 import temporalio.client
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-)
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.batch_exports.service import sync_batch_export
 
 

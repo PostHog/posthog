@@ -1,10 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
-import { SystemStatusRow } from './../../../types'
+import { AppMetricsV2RequestParams, SystemStatusRow } from './../../../types'
 import type { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
+
 export type TabName = 'overview' | 'internal_metrics'
 
 export enum DeadLetterQueueTab {
@@ -17,6 +19,14 @@ export interface DeadLetterQueueMetricRow extends SystemStatusRow {
     key: string
 }
 
+export type MetricsFilters = Pick<AppMetricsV2RequestParams, 'before' | 'after' | 'interval'>
+
+const DEFAULT_FILTERS: MetricsFilters = {
+    before: undefined,
+    after: '-7d',
+    interval: 'day',
+}
+
 export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
     path(['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic']),
 
@@ -24,6 +34,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
         setActiveTab: (tabKey: DeadLetterQueueTab) => ({ tabKey }),
         loadMoreRows: (key: string) => ({ key }),
         addRowsToMetric: (key: string, rows: string[][][]) => ({ key, rows }),
+        setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
     }),
 
     reducers({
@@ -50,9 +61,15 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
                 },
             },
         ],
+        filters: [
+            DEFAULT_FILTERS,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         deadLetterQueueMetrics: [
             [] as DeadLetterQueueMetricRow[],
             {
@@ -60,19 +77,40 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
-                    return (await api.get('api/dead_letter_queue')).results
+                    let params: Record<string, string> = {}
+                    if (values.filters.before) {
+                        params.before = values.filters.before
+                    }
+                    if (values.filters.after) {
+                        params.after = values.filters.after
+                    }
+                    return (await api.get(`api/dead_letter_queue?${new URLSearchParams(params).toString()}`)).results
                 },
             },
         ],
-    }),
+    })),
 
     listeners(({ values, actions }) => ({
         loadMoreRows: async ({ key }) => {
             const offset = values.rowsPerMetric[key]?.length + 1
-            if (offset) {
-                const res = await api.get(`api/dead_letter_queue/${key}?offset=${offset}`)
+            if (offset || values.filters.before || values.filters.after) {
+                let params: Record<string, string> = {}
+                if (offset) {
+                    params.offset = offset.toString()
+                }
+                if (values.filters.before) {
+                    params.before = values.filters.before
+                }
+                if (values.filters.after) {
+                    params.after = values.filters.after
+                }
+                const res = await api.get(`api/dead_letter_queue/${key}?${new URLSearchParams(params).toString()}`)
                 actions.addRowsToMetric(key, res.subrows.rows)
             }
+        },
+        setFilters: async (_, breakpoint) => {
+            await breakpoint(100)
+            actions.loadDeadLetterQueueMetrics()
         },
     })),
 

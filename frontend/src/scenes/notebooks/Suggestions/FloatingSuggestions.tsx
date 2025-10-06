@@ -1,19 +1,19 @@
 import './FloatingSuggestions.scss'
 
-import { Editor as TTEditor } from '@tiptap/core'
-import { useActions, useValues } from 'kea'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { notebookLogic } from '../Notebook/notebookLogic'
-import { isCurrentNodeEmpty } from '../Notebook/utils'
+import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+
+import { isCurrentNodeEmpty } from '../utils'
 import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 
-export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Element | null {
+export function FloatingSuggestions(): JSX.Element | null {
     const logic = insertionSuggestionsLogic()
+    const { ttEditor, richContentEditor } = useValues(richContentEditorLogic)
     const { activeSuggestion, previousNode } = useValues(logic)
-    const { setEditor } = useActions(logic)
-    const { editor: notebookEditor } = useValues(notebookLogic)
     const { ref: setRef, height } = useResizeObserver()
     const [shouldShow, setShouldShow] = useState<boolean>(false)
 
@@ -26,7 +26,7 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
 
         if (selection && selection.anchorNode && selection.anchorNode.parentElement) {
             if (selection.anchorNode.nodeType === Node.ELEMENT_NODE) {
-                const editorPos = editor.view.dom.getBoundingClientRect()
+                const editorPos = ttEditor.view.dom.getBoundingClientRect()
                 const selectionPos = (selection.anchorNode as HTMLElement).getBoundingClientRect()
 
                 setPosition({ top: selectionPos.top - editorPos.top })
@@ -34,34 +34,33 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
         }
 
         setShouldShow(
-            editor.view.hasFocus() && editor.isEditable && editor.isActive('paragraph') && isCurrentNodeEmpty(editor)
+            ttEditor.view.hasFocus() &&
+                ttEditor.isEditable &&
+                ttEditor.isActive('paragraph') &&
+                isCurrentNodeEmpty(ttEditor)
         )
     }
 
     useEffect(() => {
-        setEditor(notebookEditor)
-    }, [notebookEditor])
-
-    useEffect(() => {
         handleUpdate()
-    }, [height])
+    }, [height]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
-        editor.on('update', handleUpdate)
-        editor.on('selectionUpdate', handleUpdate)
-        setRef(editor.view.dom)
+    useOnMountEffect(() => {
+        ttEditor.on('update', handleUpdate)
+        ttEditor.on('selectionUpdate', handleUpdate)
+        setRef(ttEditor.view.dom)
         return () => {
-            editor.off('update', handleUpdate)
-            editor.off('selectionUpdate', handleUpdate)
+            ttEditor.off('update', handleUpdate)
+            ttEditor.off('selectionUpdate', handleUpdate)
         }
-    }, [])
+    })
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="NotebookFloatingButton" style={{ top: position.top }}>
             {shouldShow && (
                 <div className="FloatingSuggestion flex items-center justify-content">
-                    {Component && notebookEditor && <Component previousNode={previousNode} editor={notebookEditor} />}
+                    {Component && <Component previousNode={previousNode} editor={richContentEditor} />}
                 </div>
             )}
         </div>

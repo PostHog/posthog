@@ -1,16 +1,21 @@
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { SceneIcon } from 'lib/components/SceneDashboardChoice/SceneIcon'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 import {
-    sceneDashboardChoiceModalLogic,
     SceneDashboardChoiceModalProps,
+    sceneDashboardChoiceModalLogic,
     sceneDescription,
 } from './sceneDashboardChoiceModalLogic'
 
@@ -26,7 +31,20 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
             onClose={closeSceneDashboardChoiceModal}
             title={<>Select a default dashboard for {sceneDescription[scene]}</>}
             footer={
-                <>
+                <div className={cn('flex gap-2 w-full', currentDashboardId ? 'justify-between' : 'justify-end')}>
+                    {currentDashboardId ? (
+                        <LemonButton
+                            type="secondary"
+                            data-attr="scene-dashboard-choice-new-tab"
+                            onClick={() => {
+                                setSceneDashboardChoice(null)
+                                setSearchTerm('')
+                                closeSceneDashboardChoiceModal()
+                            }}
+                        >
+                            Reset to "new tab"
+                        </LemonButton>
+                    ) : null}
                     <LemonButton
                         type="secondary"
                         data-attr="close-scene-dashboard-choice-modal"
@@ -34,7 +52,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                     >
                         Close
                     </LemonButton>
-                </>
+                </div>
             }
         >
             {dashboardsLoading ? (
@@ -89,6 +107,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                         setSceneDashboardChoice(dashboard.id)
                                         setSearchTerm('')
                                         closeSceneDashboardChoiceModal()
+                                        router.actions.replace(urls.projectHomepage())
                                     }}
                                 >
                                     {rowContents}

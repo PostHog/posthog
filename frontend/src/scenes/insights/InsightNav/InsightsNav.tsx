@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
@@ -32,6 +33,7 @@ export function InsightsNav(): JSX.Element {
                                     INSIGHT_TYPES_METADATA[type].tooltipDescription ||
                                     INSIGHT_TYPES_METADATA[type].description
                                 }
+                                docLink={INSIGHT_TYPES_METADATA[type].tooltipDocLink}
                             >
                                 <span>{label}</span>
                             </Tooltip>

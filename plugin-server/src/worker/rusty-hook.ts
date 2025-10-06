@@ -1,12 +1,14 @@
-import { Webhook } from '@posthog/plugin-scaffold'
+// eslint-disable-next-line no-restricted-imports
 import fetch from 'node-fetch'
+
+import { Webhook } from '@posthog/plugin-scaffold'
 
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
-import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
+import { raiseIfUserProvidedUrlUnsafe } from '../utils/request'
 import { sleep } from '../utils/utils'
 import { pluginActionMsSummary } from './metrics'
 
@@ -60,7 +62,7 @@ export class RustyHook {
         webhook.method ??= 'POST'
         webhook.headers ??= {}
 
-        if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+        if (isProdEnv()) {
             await raiseIfUserProvidedUrlUnsafe(webhook.url)
         }
 

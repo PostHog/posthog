@@ -1,11 +1,8 @@
 from typing import Any, cast
-import pytest
 
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
-    filter_to_query,
-    hidden_legend_keys_to_breakdowns,
-    hidden_legend_keys_to_indexes,
-)
+import pytest
+from posthog.test.base import BaseTest
+
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -19,6 +16,7 @@ from posthog.schema import (
     CompareFilter,
     CountPerActorMathType,
     DataWarehouseNode,
+    DateRange,
     ElementPropertyFilter,
     EventPropertyFilter,
     EventsNode,
@@ -32,7 +30,6 @@ from posthog.schema import (
     FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
-    DateRange,
     Key,
     LifecycleFilter,
     LifecycleQuery,
@@ -56,7 +53,12 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-from posthog.test.base import BaseTest
+
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    filter_to_query,
+    hidden_legend_keys_to_breakdowns,
+    hidden_legend_keys_to_indexes,
+)
 
 insight_0 = {
     "events": [{"id": "signed_up", "type": "events", "order": 0}],
@@ -1532,7 +1534,6 @@ class TestFilterToQuery(BaseTest):
                     "custom_name": None,
                     "order": None,
                 },
-                showMean=True,
                 meanRetentionCalculation="simple",
                 cumulative=True,
             ),

@@ -1,0 +1,146 @@
+<session_summaries_input_format>
+You'll receive a list of summaries of sessions of users visiting a site or an app, using different features, navigating between pages, interacting with different elements, etc. Each session summary is a JSON object with the following fields:
+
+- session_id: The ID of the session
+- segments: A list of segments in the session
+- key_actions: A list of key actions in the session, including regular actions, failures, confusions, and abandonments.
+- segment_outcomes: A list of outcomes for each segment
+- session_outcome: The overall outcome of the session
+
+Each session represents a single user journey. Use the summaries to identify pain point patterns and user behaviors across all sessions.
+</session_summaries_input_format>
+
+<session_summaries_input>
+```
+{{ SESSION_SUMMARIES|safe }}
+```
+</session_summaries_input>
+
+<pattern_extraction_instructions>
+You are analyzing multiple user session summaries to identify recurring patterns of user behavior, particularly focusing on pain points, failures, and friction in the user experience.
+
+## Step 1: Analyze Session Summaries for Common Issues
+
+Review all provided session summaries and identify recurring themes across multiple sessions:
+
+1.1. Technical Failures:
+- Similar exceptions or errors occurring in different sessions
+- Consistent technical blockers preventing user goals
+- System-level issues affecting multiple users
+
+1.2. UX Friction Points:
+- Repeated confusion indicators (rageclicks, repeated attempts)
+- Common abandonment patterns at specific flow stages
+- Similar navigation difficulties across sessions
+
+1.3. Conversion Barriers:
+- Consistent points where users fail to complete conversions
+- Repeated patterns of starting but not finishing key flows
+- Common obstacles in critical user paths
+
+## Step 2: Extract Patterns
+
+2.1. Find coherent patterns from analyzing similar issues across all provided sessions:
+✓ Each pattern must be supported by evidence from at least 2 sessions
+✓ Ensure patterns are specific enough to be actionable
+✓ Use examples from the actual session data with clear, observable indicators
+✓ Consider both technical and UX-related patterns
+✓ Focus on patterns affecting conversions and critical flows
+
+✗ DO NOT Create patterns based on single occurrences
+✗ DO NOT Include overly generic patterns ("Users click buttons")
+✗ DO NOT Invent patterns not supported by the sessions data
+✗ DO NOT Focus on successful behaviors unless they reveal workarounds for issues
+✗ DO NOT Create more than 10 patterns unless strongly justified by the data
+
+2.2. Assign severity level to each pattern based on:
+- **Critical**: Patterns that block conversions or cause session abandonment
+- **High**: Patterns causing significant user frustration or workflow interruption
+- **Medium**: Patterns creating minor friction but not preventing goal completion
+
+IMPORTANT: If you want to assign "Low" severity (not listed) - better skip the pattern altogether.
+
+Pattern severity level should be higher if it happens often (medium-level pattern that happens in >50% sessions should be high, but not critical), and lower if it happens rarely (if blocking rendering issue happened 2 times out of 100, it should be high, but not critical).
+
+2.3. Ensure actionability of each pattern, as each pattern must pass the "So what?" test:
+- Can specific UI/UX changes address this pattern?
+- Is the pattern specific enough to guide priorities?
+- Does it point to a clear problem owner (frontend, backend, UX, etc.)?
+- Can success be measured after implementing fixes?
+
+## Step 3: Consolidate Patterns
+
+AGGRESSIVELY consolidate similar patterns.
+
+## Step 4: Define Pattern Characteristics
+
+For each identified pattern, specify:
+
+4.1. Pick a proper name:
+- Concise, descriptive title (3-6 words)
+- Should immediately convey the issue type
+- Examples: "Post Creation Friction", "Search Result Confusion", "Checkout Abandonment"
+
+4.2. Write pattern description:
+- Clear explanation of what the pattern represents
+- Include the user context and impact
+- Mention specific areas/features affected
+- 1-2 sentences, focusing on the problem and its consequences
+
+4.3. Attach generalized indicators relevant to this pattern:
+- List observable behaviors that confirm this pattern
+- Include event types with contextual details, not specific events:
+  - Where in the user flow this typically occurs
+  - Common preceding actions or triggers
+  - Typical user state when pattern emerges
+- Each indicator should be verifiable in session data
+- Include 2-5 indicators per pattern
+
+## Step 5: Quality Checks
+
+Before finalizing patterns, verify:
+
+5.1. Pattern Overlap Check:
+- Are patterns distinct enough from each other?
+- Have you aggressively consolidated similar patterns?
+
+5.2. Session Coverage Check:
+- Ensure patterns account for major issues in most sessions
+- If many sessions have issues not captured by patterns, revisit analysis
+
+5.3. Specificity Check:
+- Is the pattern specific enough to guide improvements?
+- Does it pass "So what?" check?
+- Could a product manager create a specific ticket from this pattern?
+
+5.4. Evidence Check:
+- Is the pattern supported by multiple sessions?
+- Are the indicators actually present in the data?
+- Have you avoided inferring patterns not supported by evidence?
+
+5.5. Business Impact Check:
+- Does this pattern affect important user flows?
+- Is it worth prioritizing for improvement?
+- Does it impact conversions, engagement, or user satisfaction?
+
+Revise your analysis if any inconsistencies are found.
+</pattern_extraction_instructions>
+
+<output_format>
+Provide your pattern analysis in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+
+IMPORTANT:
+- Always use quotes around indicator strings that contain special characters
+- Replace comparison operators with words:
+  - Instead of ">3" use "more than 3" 
+  - Instead of "<1" use "less than 1"
+  - Instead of ">=5" use "5 or more"
+- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
+- When in doubt, wrap the entire indicator string in single or double quotes
+</output_format>
+
+<output_example>
+```
+{{ PATTERNS_EXTRACTION_EXAMPLE|safe }}
+```
+</output_example>

@@ -1,14 +1,25 @@
-from datetime import datetime, timedelta
 import time
+import socket
+from datetime import UTC, datetime, timedelta
 from typing import Optional
-from unittest.mock import patch
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from freezegun import freeze_time
-import pytest
+
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.integration import Integration, OauthIntegration, SlackIntegration, GoogleCloudIntegration
-from posthog.test.base import BaseTest
+from posthog.models.integration import (
+    DatabricksIntegration,
+    DatabricksIntegrationError,
+    GitHubIntegration,
+    GoogleCloudIntegration,
+    Integration,
+    OauthIntegration,
+    SlackIntegration,
+)
 
 
 def get_db_field_value(field, model_id):
@@ -304,6 +315,122 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_integration_without_expires_in_initial_response(self, mock_post):
+        """Test that Salesforce integrations without expires_in get default 1 hour expiry"""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "instance_url": "https://fake.salesforce.com",
+                # Note: no expires_in field
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            # Should have default 1 hour (3600 seconds) expiry
+            assert integration.config["expires_in"] == 3600
+            assert integration.config["refreshed_at"] == 1704110400
+
+    def test_salesforce_access_token_expired_without_expires_in(self):
+        """Test that Salesforce tokens without expires_in info use 1 hour default"""
+        now = datetime.now()
+        with freeze_time(now):
+            # Create integration without expires_in
+            integration = self.create_integration(
+                kind="salesforce",
+                config={"refreshed_at": int(time.time())},  # No expires_in
+                sensitive_config={"refresh_token": "REFRESH"},
+            )
+
+        oauth_integration = OauthIntegration(integration)
+
+        with freeze_time(now):
+            # Token should not be expired initially
+            assert not oauth_integration.access_token_expired()
+
+        with freeze_time(now + timedelta(minutes=29)):
+            # Should not be expired before 30 minutes (half of 1 hour default)
+            assert not oauth_integration.access_token_expired()
+
+        with freeze_time(now + timedelta(minutes=31)):
+            # Should be expired after 30 minutes (halfway point of 1 hour)
+            assert oauth_integration.access_token_expired()
+
+    def test_non_salesforce_access_token_expired_without_expires_in(self):
+        """Test that non-Salesforce integrations without expires_in return False"""
+        now = datetime.now()
+        with freeze_time(now):
+            # Create non-Salesforce integration without expires_in - override the default
+            integration = Integration.objects.create(
+                team=self.team,
+                kind="hubspot",
+                config={"refreshed_at": int(time.time())},  # No expires_in
+                sensitive_config={"refresh_token": "REFRESH"},
+            )
+
+        oauth_integration = OauthIntegration(integration)
+
+        with freeze_time(now + timedelta(hours=5)):
+            # Should never expire without expires_in for non-Salesforce
+            assert not oauth_integration.access_token_expired()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_access_token_without_expires_in_response(self, mock_post, mock_reload):
+        """Test that Salesforce refresh without expires_in in response gets 1 hour default"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            # Note: no expires_in field in refresh response
+        }
+
+        integration = self.create_integration(kind="salesforce", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        # Should have default 1 hour (3600 seconds) expiry
+        assert integration.config["expires_in"] == 3600
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_non_salesforce_refresh_access_token_preserves_none_expires_in(self, mock_post, mock_reload):
+        """Test that non-Salesforce integrations preserve None expires_in from refresh response"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            # Note: no expires_in field in refresh response
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        # Should preserve None for non-Salesforce
+        assert integration.config["expires_in"] is None
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
 
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {
@@ -388,3 +515,89 @@ class TestGoogleCloudIntegrationModel(BaseTest):
             "refreshed_at": 1704110400 + 3600 * 2,
             "expires_in": 3600,
         }
+
+
+class TestGitHubIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_integration_refresh_token(self, mock_client_request):
+        def mock_github_client_request(endpoint, method="GET"):
+            mock_response = MagicMock()
+            dt = datetime.now(UTC) + timedelta(hours=1)
+            iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+            if method == "POST":
+                mock_response.status_code = 201
+                mock_response.json.return_value = {
+                    "token": "ACCESS_TOKEN",
+                    "repository_selection": "all",
+                    "expires_at": iso_time,
+                }
+            else:
+                mock_response.status_code = 200
+                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+            return mock_response
+
+        mock_client_request.side_effect = mock_github_client_request
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GitHubIntegration.integration_from_installation_id(
+                "INSTALLATION_ID",
+                self.team.id,
+                self.user,
+            )
+
+            assert GitHubIntegration(integration).access_token_expired() is False
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            assert GitHubIntegration(integration).access_token_expired() is True
+
+            GitHubIntegration(integration).refresh_access_token()
+            assert GitHubIntegration(integration).access_token_expired() is False
+
+        assert integration.config == {
+            "installation_id": "INSTALLATION_ID",
+            "account": {
+                "name": "PostHog",
+                "type": "Organization",
+            },
+            "repository_selection": "all",
+            "refreshed_at": 1704117600,
+            "expires_in": 3600,
+        }
+
+        assert integration.sensitive_config == {
+            "access_token": "ACCESS_TOKEN",
+        }
+
+
+class TestDatabricksIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_valid_config(self, mock_socket):
+        mock_socket.return_value.connect.return_value = None
+        integration = DatabricksIntegration.integration_from_config(
+            team_id=self.team.pk,
+            server_hostname="databricks.com",
+            client_id="client_id",
+            client_secret="client_secret",
+            created_by=self.user,
+        )
+        assert integration.team == self.team
+        assert integration.created_by == self.user
+        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
+
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_invalid_server_hostname(self, mock_socket):
+        # this is the error raised when the server hostname is invalid
+        mock_socket.return_value.connect.side_effect = socket.gaierror(
+            8, "nodename nor servname provided, or not known"
+        )
+        with pytest.raises(
+            DatabricksIntegrationError, match="Databricks integration is not valid: could not connect to 'invalid'"
+        ):
+            DatabricksIntegration.integration_from_config(
+                team_id=self.team.pk,
+                server_hostname="invalid",
+                client_id="client_id",
+                client_secret="client_secret",
+                created_by=self.user,
+            )

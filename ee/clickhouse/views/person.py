@@ -1,25 +1,23 @@
 from typing import Optional
 
 from rest_framework import request, response
-from posthog.api.utils import action
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-    FunnelCorrelationActors,
-)
+from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import PersonViewSet
-from posthog.constants import (
-    FUNNEL_CORRELATION_PERSON_LIMIT,
-    FUNNEL_CORRELATION_PERSON_OFFSET,
-    INSIGHT_FUNNELS,
-)
+from posthog.api.utils import action
+from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FUNNEL_CORRELATION_PERSON_OFFSET, INSIGHT_FUNNELS
 from posthog.decorators import cached_by_filters
 from posthog.models import Filter
 from posthog.utils import format_query_params_absolute_url
+
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
 
 class EnterprisePersonViewSet(PersonViewSet):
     @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: request.Request, **kwargs) -> response.Response:
+        capture_legacy_api_call(request, self.team)
+
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 

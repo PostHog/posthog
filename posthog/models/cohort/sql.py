@@ -47,21 +47,6 @@ SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_
 FROM (
     {cohort_filter}
 ) as person
-UNION ALL
-SELECT person_id, cohort_id, team_id, -1, version
-FROM cohortpeople
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
-SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
-"""
-
-# Continually ensure that all previous version rows are deleted and insert persons that match the criteria
-# optimize_aggregation_in_order = 1 is necessary to avoid oom'ing for our biggest clients
-RECALCULATE_COHORT_BY_ID_HOGQL_TEST = """
-INSERT INTO cohortpeople
-SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, -1 AS sign, %(new_version)s AS version
-FROM (
-    {cohort_filter}
-) as person
 SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
 """
 
@@ -73,11 +58,11 @@ SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND coho
 """
 
 GET_COHORTS_BY_PERSON_UUID = """
-SELECT DISTINCT cohort_id
-FROM cohortpeople
-WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-GROUP BY person_id, cohort_id, team_id, version
-HAVING sum(sign) > 0
+SELECT cohort_id, argMax(version, version) as latest_version
+  FROM cohortpeople
+  WHERE team_id = %(team_id)s AND person_id = %(person_id)s
+  GROUP BY cohort_id
+  HAVING argMax(sign, version) > 0
 """
 
 GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID = f"""
@@ -100,11 +85,6 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
 """
 
-GET_STATIC_COHORT_SIZE_SQL = f"""
-SELECT count(DISTINCT person_id)
-FROM {PERSON_STATIC_COHORT_TABLE}
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-"""
 
 STALE_COHORTPEOPLE = f"""
 SELECT team_id, count() AS stale_people_count FROM cohortpeople

@@ -1,12 +1,13 @@
 from typing import Optional
 
-from rest_framework import filters, serializers, viewsets, response
+from rest_framework import filters, response, serializers, viewsets
+
+from posthog.hogql.ast import Call, Field
+from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.parser import parse_expr
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.ast import Field, Call
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.parser import parse_expr
 from posthog.warehouse.models import DataWarehouseJoin
 
 
@@ -28,6 +29,44 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             "configuration",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
+
+    def to_representation(self, instance):
+        view = super().to_representation(instance)
+
+        view["source_table_name"] = self.get_source_table_name(instance)
+        view["joining_table_name"] = self.get_joining_table_name(instance)
+
+        return view
+
+    def _database(self, team_id: int) -> Database:
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+        return database
+
+    def get_source_table_name(self, join: DataWarehouseJoin) -> str:
+        team_id = self.context["team_id"]
+
+        database = self._database(team_id)
+
+        if not database.has_table(join.source_table_name):
+            return join.source_table_name
+
+        table = database.get_table(join.source_table_name)
+
+        return table.to_printed_hogql().replace("`", "")
+
+    def get_joining_table_name(self, join: DataWarehouseJoin) -> str:
+        team_id = self.context["team_id"]
+
+        database = self._database(team_id)
+
+        if not database.has_table(join.joining_table_name):
+            return join.joining_table_name
+
+        table = database.get_table(join.joining_table_name)
+
+        return table.to_printed_hogql().replace("`", "")
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -51,7 +90,11 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if field_name is None:
             raise serializers.ValidationError("Field name must not be empty.")
 
-        database = create_hogql_database(team_id)
+        if "." in field_name:
+            raise serializers.ValidationError("Field name must not contain a period: '.'")
+
+        database = self._database(team_id)
+
         table = database.get_table(table_name)
         field = table.fields.get(field_name)
         if field is not None:
@@ -64,7 +107,8 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if not table:
             raise serializers.ValidationError("View column must have a table.")
 
-        database = create_hogql_database(team_id)
+        database = self._database(team_id)
+
         try:
             database.get_table(table)
         except Exception:
@@ -88,6 +132,11 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").order_by(self.ordering)

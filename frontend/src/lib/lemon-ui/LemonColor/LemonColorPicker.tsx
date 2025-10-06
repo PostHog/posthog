@@ -1,6 +1,10 @@
+import { useValues } from 'kea'
+import { cloneElement, useEffect, useState } from 'react'
+
 import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
+
 import { DataColorToken } from 'lib/colors'
-import { useState } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
@@ -9,6 +13,8 @@ type LemonColorPickerBaseProps = {
     showCustomColor?: boolean
     hideDropdown?: boolean
     preventPopoverClose?: boolean
+    customButton?: JSX.Element
+    customColorValue?: string
 }
 
 type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
@@ -22,7 +28,7 @@ type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
 }
 
 type LemonColorPickerTokenProps = LemonColorPickerBaseProps & {
-    colorTokens: DataColorToken[]
+    colorTokens?: DataColorToken[]
     selectedColorToken?: DataColorToken | null
     onSelectColorToken: (colorToken: DataColorToken) => void
     themeId?: number | null
@@ -45,9 +51,19 @@ export const LemonColorPickerOverlay = ({
     onSelectColorToken,
     showCustomColor = false,
     preventPopoverClose = false,
+    customColorValue,
 }: LemonColorPickerOverlayProps): JSX.Element => {
-    const [color, setColor] = useState<string | null>(selectedColor || null)
+    const [color, setColor] = useState<string | null>(customColorValue || selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
+    const { getAvailableColorTokens } = useValues(dataThemeLogic)
+
+    useEffect(() => {
+        const newColor = customColorValue || selectedColor
+        if (newColor) {
+            setColor(newColor)
+            setLastValidColor(newColor)
+        }
+    }, [customColorValue, selectedColor])
 
     return (
         <div
@@ -67,14 +83,14 @@ export const LemonColorPickerOverlay = ({
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             {colors ? (
                 <LemonColorList colors={colors} selectedColor={selectedColor} onSelectColor={onSelectColor} />
-            ) : colorTokens ? (
+            ) : (
                 <LemonColorList
                     themeId={themeId}
-                    colorTokens={colorTokens}
+                    colorTokens={colorTokens || getAvailableColorTokens(themeId) || []}
                     selectedColorToken={selectedColorToken}
                     onSelectColorToken={onSelectColorToken}
                 />
-            ) : null}
+            )}
             {showCustomColor && (
                 <div>
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>
@@ -99,7 +115,11 @@ export const LemonColorPickerOverlay = ({
     )
 }
 
-export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorPickerProps): JSX.Element => {
+export const LemonColorPicker = ({
+    hideDropdown = false,
+    customButton,
+    ...props
+}: LemonColorPickerProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
 
     return (
@@ -109,14 +129,20 @@ export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorP
             onClickOutside={() => setIsOpen(false)}
         >
             <div className="relative">
-                <LemonColorButton
-                    type="secondary"
-                    {...(props.selectedColor !== undefined
-                        ? { color: props.selectedColor }
-                        : { colorToken: props.selectedColorToken, themeId: props.themeId })}
-                    onClick={() => setIsOpen(!isOpen)}
-                    sideIcon={hideDropdown ? null : undefined}
-                />
+                {customButton ? (
+                    cloneElement(customButton, {
+                        onClick: () => setIsOpen(!isOpen),
+                    })
+                ) : (
+                    <LemonColorButton
+                        type="secondary"
+                        {...(props.selectedColor !== undefined
+                            ? { color: props.selectedColor }
+                            : { colorToken: props.selectedColorToken, themeId: props.themeId })}
+                        onClick={() => setIsOpen(!isOpen)}
+                        sideIcon={hideDropdown ? null : undefined}
+                    />
+                )}
             </div>
         </Popover>
     )

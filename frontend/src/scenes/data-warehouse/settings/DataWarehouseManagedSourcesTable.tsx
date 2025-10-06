@@ -1,28 +1,35 @@
-import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataJobStatus } from '~/types'
 
-import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
+import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
-export const StatusTagSetting: Record<string, 'primary' | 'success' | 'danger'> = {
-    Running: 'primary',
-    Completed: 'success',
-    Error: 'danger',
-    Failed: 'danger',
-    'Billing limits': 'danger',
+export const StatusTagSetting: Record<ExternalDataJobStatus, 'primary' | 'success' | 'danger'> = {
+    [ExternalDataJobStatus.Running]: 'primary',
+    [ExternalDataJobStatus.Completed]: 'success',
+    [ExternalDataJobStatus.Failed]: 'danger',
+    [ExternalDataJobStatus.BillingLimits]: 'danger',
+    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
+    if (availableSourcesLoading || !availableSources) {
+        return <LemonSkeleton />
+    }
 
     return (
         <LemonTable
@@ -41,12 +48,8 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     key: 'name',
                     render: (_, source) => (
                         <LemonTableLink
-                            to={urls.pipelineNode(
-                                PipelineStage.Source,
-                                `managed-${source.id}`,
-                                PipelineNodeTab.Schemas
-                            )}
-                            title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
+                            to={urls.dataWarehouseSource(`managed-${source.id}`)}
+                            title={availableSources[source.source_type]?.label ?? source.source_type}
                             description={source.prefix}
                         />
                     ),
@@ -152,10 +155,19 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     )
 }
 
-export function getDataWarehouseSourceUrl(service: string): string {
-    if (manualLinkSources.includes(service)) {
-        return 'https://posthog.com/docs/data-warehouse/setup#step-1-creating-a-bucket-in-s3'
-    }
+const DOCS_BASE_URL = 'https://posthog.com/docs/cdp/sources/'
 
-    return `https://posthog.com/docs/data-warehouse/setup#${service.toLowerCase()}`
+export function getDataWarehouseSourceUrl(service: string): string {
+    switch (service) {
+        case 'aws':
+            return `${DOCS_BASE_URL}s3`
+        case 'google-cloud':
+            return `${DOCS_BASE_URL}gcs`
+        case 'azure':
+            return `${DOCS_BASE_URL}azure-blob`
+        case 'cloudflare-r2':
+            return `${DOCS_BASE_URL}r2`
+        default:
+            return `${DOCS_BASE_URL}${service.toLowerCase()}`
+    }
 }

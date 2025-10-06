@@ -12,7 +12,12 @@ const pathsWithoutProjectId = [
     'signup',
     'create-organization',
     'account',
+    'oauth',
+    'shared',
+    'embedded',
 ]
+
+const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
 function isPathWithoutProjectId(path: string): boolean {
     const firstPart = path.split('/')[1]
@@ -20,7 +25,7 @@ function isPathWithoutProjectId(path: string): boolean {
 }
 
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
-    if (path.match(/^\/project\/\d+/)) {
+    if (path.match(projectIdentifierInUrlRegex)) {
         return path
     }
 
@@ -30,7 +35,7 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
         if (path == '/') {
             return prefix
         }
-    } catch (e) {
+    } catch {
         // Not logged in
     }
     if (path === prefix || path.startsWith(prefix + '/')) {
@@ -40,7 +45,7 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
 }
 
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(/^\/project\/\d+/)) {
+    if (path.match(projectIdentifierInUrlRegex)) {
         return '/' + path.split('/').splice(3).join('/')
     }
     return path

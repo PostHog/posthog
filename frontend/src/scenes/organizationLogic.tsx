@@ -1,9 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api, { ApiConfig } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -18,23 +20,35 @@ import { userLogic } from './userLogic'
 export type OrganizationUpdatePayload = Partial<
     Pick<
         OrganizationType,
-        'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa' | 'is_ai_data_processing_approved'
+        | 'name'
+        | 'logo_media_id'
+        | 'is_member_join_email_enabled'
+        | 'enforce_2fa'
+        | 'members_can_invite'
+        | 'members_can_use_personal_api_keys'
+        | 'is_ai_data_processing_approved'
+        | 'default_experiment_stats_method'
+        | 'allow_publicly_shared_resources'
+        | 'default_role_id'
     >
 >
 
 export const organizationLogic = kea<organizationLogicType>([
     path(['scenes', 'organizationLogic']),
     actions({
-        deleteOrganization: (organization: OrganizationType) => ({ organization }),
-        deleteOrganizationSuccess: true,
+        deleteOrganization: ({ organizationId, redirectPath }: { organizationId: string; redirectPath?: string }) => ({
+            organizationId,
+            redirectPath,
+        }),
+        deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: true,
     }),
     connect([userLogic]),
     reducers({
         organizationBeingDeleted: [
-            null as OrganizationType | null,
+            null as string | null,
             {
-                deleteOrganization: (_, { organization }) => organization,
+                deleteOrganization: (_, { organizationId }) => organizationId,
                 deleteOrganizationSuccess: () => null,
                 deleteOrganizationFailure: () => null,
             },
@@ -114,6 +128,13 @@ export const organizationLogic = kea<organizationLogicType>([
                     )
                 ),
         ],
+        isCurrentOrganizationNew: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean => {
+                const orgCreatedAt = currentOrganization?.created_at
+                return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'month') < 3 : false
+            },
+        ],
     }),
     listeners(({ actions }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
@@ -128,15 +149,29 @@ export const organizationLogic = kea<organizationLogicType>([
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
         },
-        deleteOrganization: async ({ organization }) => {
+        deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
-                await api.delete(`api/organizations/${organization.id}`)
-                router.actions.push(router.values.currentLocation.pathname, 'organizationDeleted=true')
-                location.reload()
-                actions.deleteOrganizationSuccess()
+                await api.delete(`api/organizations/${organizationId}`)
+                actions.deleteOrganizationSuccess({ redirectPath })
             } catch {
                 actions.deleteOrganizationFailure()
             }
+        },
+        deleteOrganizationSuccess: ({ redirectPath }) => {
+            router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
+                ...router.values.searchParams,
+                organizationDeleted: true,
+            })
+
+            lemonToast.success('Organization has been deleted', {
+                toastId: 'deleteOrganization',
+            })
+            location.reload()
+        },
+        deleteOrganizationFailure: () => {
+            lemonToast.error('Error deleting organization', {
+                toastId: 'deleteOrganization',
+            })
         },
     })),
     afterMount(({ actions }) => {

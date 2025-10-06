@@ -1,10 +1,13 @@
 use aws_config::{BehaviorVersion, Region};
+use common_geoip::GeoIpClient;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer,
     kafka_producer::{create_kafka_producer, KafkaContext},
     transaction::TransactionalProducer,
 };
+use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
@@ -20,11 +23,18 @@ use crate::{
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
+        hermesmap::HermesMapProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
     },
+    teams::TeamManager,
 };
+
+pub enum FilterMode {
+    In,
+    Out,
+}
 
 pub struct AppContext {
     pub health_registry: HealthRegistry,
@@ -36,6 +46,13 @@ pub struct AppContext {
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
+    pub geoip_client: GeoIpClient,
+
+    pub team_manager: TeamManager,
+    pub billing_limiter: RedisLimiter,
+
+    pub filtered_teams: Vec<i32>,
+    pub filter_mode: FilterMode,
 }
 
 impl AppContext {
@@ -80,6 +97,7 @@ impl AppContext {
             .endpoint_url(&config.object_storage_endpoint)
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
+            .force_path_style(config.object_storage_force_path_style)
             .build();
         let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
         let s3_client = S3Client::new(s3_client);
@@ -90,35 +108,74 @@ impl AppContext {
         )));
 
         let smp = SourcemapProvider::new(config);
-
-        let chunk_layer = ChunkIdFetcher::new(
+        let smp_chunk = ChunkIdFetcher::new(
             smp,
             s3_client.clone(),
             pool.clone(),
             config.object_storage_bucket.clone(),
         );
-
-        let saving_layer = Saving::new(
-            chunk_layer,
+        let smp_saving = Saving::new(
+            smp_chunk,
             pool.clone(),
             s3_client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
-        let caching_layer = Caching::new(saving_layer, ss_cache.clone());
+        let smp_caching = Caching::new(smp_saving, ss_cache.clone());
         // We want to fetch each sourcemap from the outside world
         // exactly once, and if it isn't in the cache, load/parse
         // it from s3 exactly once too. Limiting the per symbol set
         // reference concurrency to 1 ensures this.
-        let limited_layer = concurrency::AtMostOne::new(caching_layer);
+        let smp_atmostonce = concurrency::AtMostOne::new(smp_caching);
+
+        let hmp = HermesMapProvider {};
+        let hmp_chunk = ChunkIdFetcher::new(
+            hmp,
+            s3_client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+        // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(limited_layer);
+        let catalog = Catalog::new(smp_atmostonce, hmp_caching);
         let resolver = Resolver::new(config);
+
+        let team_manager = TeamManager::new(config);
+
+        let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
+
+        let redis_client = RedisClient::new(config.redis_url.clone()).await?;
+        let redis_client = Arc::new(redis_client);
+
+        // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
+        // which we don't want to put into the UnhandledError enum since it basically means "any error"
+        let billing_limiter = RedisLimiter::new(
+            Duration::from_secs(30),
+            redis_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None, // The QUOTA_LIMITER_CACHE_KEY already has the full prefix
+            QuotaResource::Exceptions,
+            ServiceName::Cymbal,
+        )
+        .expect("Redis billing limiter construction succeeds");
+
+        let filtered_teams = config
+            .filtered_teams
+            .split(",")
+            .filter(|s| !s.is_empty())
+            .map(|tid| tid.parse().expect("Filtered team id's must be i32s"))
+            .collect();
+        let filter_mode = match config.filter_mode.to_lowercase().as_str() {
+            "in" => FilterMode::In,
+            "out" => FilterMode::Out,
+            _ => panic!("Invalid filter mode"),
+        };
 
         Ok(Self {
             health_registry,
@@ -130,6 +187,11 @@ impl AppContext {
             catalog,
             resolver,
             config: config.clone(),
+            team_manager,
+            geoip_client,
+            billing_limiter,
+            filtered_teams,
+            filter_mode,
         })
     }
 }

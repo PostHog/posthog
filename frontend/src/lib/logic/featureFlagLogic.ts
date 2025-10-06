@@ -1,13 +1,15 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
-import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
+
+import { FeatureFlagKey } from 'lib/constants'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AppContext } from '~/types'
 
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type FeatureFlagsSet = {
-    [flag: string]: boolean | string
+    [flag in FeatureFlagKey]?: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
@@ -48,7 +50,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
                         return () => availableFlags
                     }
                     const flagString = flag.toString()
-                    const flagState = availableFlags[flagString]
+                    const flagState = availableFlags[flagString as FeatureFlagKey]
                     notifyFlagIfNeeded(flagString, flagState)
                     return flagState
                 },
@@ -69,6 +71,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
         })
     }
     return flags
+}
+
+export function getFeatureFlagPayload(flag: FeatureFlagKey): any {
+    return posthog.getFeatureFlagPayload(flag)
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([

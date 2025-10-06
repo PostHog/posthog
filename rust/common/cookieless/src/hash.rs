@@ -1,3 +1,4 @@
+use common_types::TeamId;
 use siphasher::sip128::{Hasher128, SipHasher24};
 use std::hash::Hasher;
 use thiserror::Error;
@@ -25,7 +26,7 @@ pub enum HashError {
 /// A 16-byte hash value or an error if the salt is not 16 bytes
 pub fn do_hash(
     salt: &[u8],
-    team_id: u64,
+    team_id: TeamId,
     ip: &str,
     root_domain: &str,
     user_agent: &str,
@@ -73,7 +74,7 @@ pub fn do_hash(
 
 /// Builds the input string for the hash function
 fn build_input_str(
-    team_id: u64,
+    team_id: TeamId,
     ip: &str,
     root_domain: &str,
     user_agent: &str,
@@ -120,7 +121,7 @@ mod tests {
     #[derive(Deserialize)]
     struct TestCase {
         salt: String,
-        team_id: u64,
+        team_id: TeamId,
         ip: String,
         root_domain: String,
         user_agent: String,
@@ -148,11 +149,11 @@ mod tests {
         for (i, tc) in test_data.test_cases.iter().enumerate() {
             let salt_bytes = general_purpose::STANDARD
                 .decode(&tc.salt)
-                .unwrap_or_else(|_| panic!("Test case {}: invalid base64 salt", i));
+                .unwrap_or_else(|_| panic!("Test case {i}: invalid base64 salt"));
 
             let expected_bytes = general_purpose::STANDARD
                 .decode(&tc.expected)
-                .unwrap_or_else(|_| panic!("Test case {}: invalid base64 expected hash", i));
+                .unwrap_or_else(|_| panic!("Test case {i}: invalid base64 expected hash"));
 
             let actual = do_hash(
                 &salt_bytes,
@@ -167,10 +168,7 @@ mod tests {
             assert_eq!(
                 actual,
                 Ok(expected_bytes.clone()),
-                "Test case {} failed. Expected {:?}, got {:?}",
-                i,
-                expected_bytes,
-                actual
+                "Test case {i} failed. Expected {expected_bytes:?}, got {actual:?}"
             );
         }
     }

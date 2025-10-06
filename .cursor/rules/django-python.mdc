@@ -1,6 +1,7 @@
 ---
-description: Rules for writing Python with Django (most PostHog backend code)
-globs: ee/*.py, posthog/*.py
+description: Rules for writing Python services at PostHog (Python servers powered by the Django framework)
+globs: *.py
+alwaysApply: false
 ---
 
 You are an expert in Python, Django, and scalable web application development.
@@ -36,7 +37,6 @@ Django-Specific Guidelines
   - Keep business logic in models and forms; keep views light and focused on request handling.
   - Use Django's URL dispatcher (urls.py) to define clear and RESTful URL patterns.
   - Apply Django's security best practices (e.g., CSRF protection, SQL injection protection, XSS prevention).
-  - Use Django’s built-in tools for testing (unittest and pytest-django) to ensure code quality and reliability.
   - Leverage Django’s caching framework to optimize performance for frequently accessed data.
   - Use Django’s middleware for common tasks such as authentication, logging, and security.
 
@@ -49,7 +49,7 @@ Performance Optimization
 
 Logging
   - As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate log level.
-  - We should also be logging these exceptions to Sentry with the Sentry Python SDK. Python exceptions should almost always be captured automatically without extra instrumentation, but custom ones (such as failed requests to external services, query errors, or Celery task failures) can be tracked using capture_exception().
+  - We should also be logging these exceptions to error tracking with the PostHog Python SDK. Python exceptions should almost always be captured automatically without extra instrumentation, but custom ones (such as failed requests to external services, query errors, or Celery task failures) can be tracked using capture_exception().
 
 Log Levels
   - A log level or log severity is a piece of information telling how important a given log message is:
@@ -86,9 +86,12 @@ Security
     - PII (Personal Identifiable Information)
 
 Testing
+  - After adding or updating tests, make sure they pass, by running them with pytest. Before running tests command, you must activate the dev environment with `flox activate`, then activate the venv. If that fails, instead find the Python venv at `.venv`, or `venv`, or `env`, in this order.
+  - When rerunning previously failed tests, specify the specific tests to re-run.
   - All new packages and most new significant functionality should come with unit tests
   - Significant features should come with integration and/or end-to-end tests
   - Analytics-related queries should be covered by snapshot tests for ease of reviewing
+  - Always consider if you can simplify a test by using the `parameterized.expand` decorator
 
 Unit tests
   - A good unit test should:
@@ -100,5 +103,5 @@ Integration tests
   - Integration tests should ensure that the feature works end-to-end. They must cover all the important use cases of the feature.
   
 Running commands
-- Use `uv pip install` instead of `pip install`
+- Use `uv sync` instead of `pip install -r ...`, and `uv add PACKAGE` instead of `pip install PACKAGE`. If there is an import error, first activate the venv at `.flox/cache/venv/` or alternatively `.venv/`.
 Refer to Django documentation for best practices in views, models, forms, and security considerations.

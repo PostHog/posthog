@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-intercom",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Intercom",
     icon_url="/static/services/intercom.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -17,7 +18,7 @@ if (empty(inputs.email)) {
 
 let regions := {
     'US': 'api.intercom.io',
-    'EU': 'api.eu.intercom.io',
+    'Europe': 'api.eu.intercom.io',
     'AU': 'api.au.intercom.io',
 }
 
@@ -43,7 +44,8 @@ if (user.status >= 400) {
 }
 
 let payload := {
-    'email': inputs.email
+    'email': inputs.email,
+    'custom_attributes': {}
 }
 
 if (inputs.include_all_properties) {
@@ -57,6 +59,12 @@ if (inputs.include_all_properties) {
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
         payload[key] := value
+    }
+}
+
+for (let key, value in inputs.customProperties) {
+    if (not empty(value)) {
+        payload.custom_attributes[key] := value
     }
 }
 
@@ -124,13 +132,22 @@ if (res.status >= 400) {
         {
             "key": "properties",
             "type": "dictionary",
-            "label": "Property mapping",
+            "label": "Default property mapping",
             "description": "Map of Intercom properties and their values.",
             "default": {
                 "name": "{f'{person.properties.first_name} {person.properties.last_name}' == ' ' ? null : f'{person.properties.first_name} {person.properties.last_name}'}",
                 "phone": "{person.properties.phone}",
                 "last_seen_at": "{toUnixTimestamp(event.timestamp)}",
             },
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "customProperties",
+            "type": "dictionary",
+            "label": "Custom property mapping",
+            "description": "Map of custom properties and their values. Check out this page for more details: https://www.intercom.com/help/en/articles/179-create-and-track-custom-data-attributes-cdas",
+            "default": {},
             "secret": False,
             "required": False,
         },
@@ -145,8 +162,8 @@ if (res.status >= 400) {
     },
 )
 
-template_send_event: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template_send_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-intercom-event",
@@ -154,7 +171,8 @@ template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Intercom",
     icon_url="/static/services/intercom.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -162,7 +180,7 @@ if (empty(inputs.email)) {
 
 let regions := {
     'US': 'api.intercom.io',
-    'EU': 'api.eu.intercom.io',
+    'Europe': 'api.eu.intercom.io',
     'AU': 'api.au.intercom.io',
 }
 

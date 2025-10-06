@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { CohortType } from '~/types'
@@ -14,7 +15,7 @@ export function PersonCohorts(): JSX.Element {
 
     useEffect(() => {
         loadCohorts()
-    }, [person])
+    }, [person, loadCohorts])
 
     const columns: LemonTableColumns<CohortType> = [
         {

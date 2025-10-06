@@ -1,6 +1,7 @@
 use aws_sdk_s3::{primitives::ByteStream, Client as S3Client, Error as S3Error};
 #[cfg(test)]
 use mockall::automock;
+use tracing::error;
 
 use crate::{
     error::UnhandledError,
@@ -33,9 +34,13 @@ impl S3Impl {
         }
         start.label("outcome", "failure").fin();
 
+        let err = res.unwrap_err();
+
+        error!("Failed to fetch object {} from S3: {:?}", key, err);
+
         // Note that we're not handling the "object not found" case here, because if we
         // got a key from the DB, we should have the object in S3
-        Err(S3Error::from(res.unwrap_err()).into())
+        Err(S3Error::from(err).into())
     }
 
     #[allow(dead_code)]

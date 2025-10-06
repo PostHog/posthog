@@ -1,20 +1,24 @@
-import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, IconPlus } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React from 'react'
+
+import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, IconPlus } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
 import { ProfessorHog } from 'lib/components/hedgehogs'
-import type { LemonIconProps } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
+import type { LemonIconProps } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
-    activationLogic,
     type ActivationSection,
     ActivationTaskType,
+    activationLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { activationTaskContentMap } from './ActivationTaskContent'
 
 export const SidePanelActivation = (): JSX.Element | null => {
     const { completionPercent, sections, isReady, showHiddenSections, hasHiddenSections } = useValues(activationLogic)
@@ -39,7 +43,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         <LemonProgress
                             percent={completionPercent}
                             size="medium"
-                            bgColor="var(--bg-3000)"
+                            bgColor="var(--color-bg-3000)"
                             strokeColor="var(--success)"
                             className="w-full stroke-opacity-80 h-2"
                         />
@@ -58,7 +62,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                 {hasHiddenSections && (
                     <div className="w-full">
                         <button
-                            className="px-4 py-2 flex items-center justify-between w-full"
+                            className="px-4 py-2 flex items-center justify-between w-full cursor-pointer"
                             onClick={() => toggleShowHiddenSections()}
                             role="button"
                             aria-expanded={showHiddenSections}
@@ -87,15 +91,21 @@ export const SidePanelActivation = (): JSX.Element | null => {
     )
 }
 
-export const SidePanelActivationIcon = ({ className }: { className?: LemonIconProps['className'] }): JSX.Element => {
+export const SidePanelActivationIcon = ({
+    className,
+    size = 20,
+}: {
+    className?: LemonIconProps['className']
+    size?: number
+}): JSX.Element => {
     const { activeTasks, completionPercent } = useValues(activationLogic)
 
     return (
         <LemonProgressCircle
             progress={completionPercent / 100}
             strokePercentage={0.15}
-            size={20}
-            className={clsx(activeTasks.length > 0 ? 'text-accent-primary' : 'text-muted-alt', className)}
+            size={size}
+            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-alt', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
@@ -190,65 +200,122 @@ const ActivationTask = ({
     canSkip,
     lockedReason,
     url,
+    buttonText,
 }: ActivationTaskType): JSX.Element => {
-    const { runTask, markTaskAsSkipped } = useActions(activationLogic)
+    const { runTask, markTaskAsSkipped, setExpandedTaskId, setTaskContentHeight } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
+    const { expandedTaskId, taskContentHeights } = useValues(activationLogic)
+    const isActive = !completed && !skipped && !lockedReason
+    const hasContent = Boolean(activationTaskContentMap[id])
+    const expanded = expandedTaskId === id
+    const ContentComponent = hasContent ? activationTaskContentMap[id] : undefined
+    const contentHeight = taskContentHeights[id] || 0
 
-    const handleClick = (): void => {
-        reportActivationSideBarTaskClicked(id)
-        if (url) {
-            try {
-                const newWindow = window.open(url, '_blank')
-                if (newWindow === null) {
-                    // Handle popup blocked case
-                    window.location.href = url
-                }
-            } catch (e) {
-                // Fallback to regular navigation
+    const handleUrlOpen = (url: string): void => {
+        try {
+            const newWindow = window.open(url, '_blank')
+            if (newWindow === null) {
                 window.location.href = url
             }
+        } catch {
+            window.location.href = url
+        }
+    }
+
+    const handleRowClick = (): void => {
+        if (!isActive) {
+            return
+        }
+        if (hasContent) {
+            setExpandedTaskId(expanded ? null : id)
+        } else {
+            reportActivationSideBarTaskClicked(id)
+            if (url) {
+                handleUrlOpen(url)
+            } else {
+                runTask(id)
+            }
+        }
+    }
+
+    const handleSkip = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        markTaskAsSkipped(id)
+    }
+
+    const handleGetStarted = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        reportActivationSideBarTaskClicked(id)
+        if (url) {
+            handleUrlOpen(url)
         } else {
             runTask(id)
         }
     }
 
-    const canInteract = !completed && !skipped && !lockedReason
-
     return (
         <li
             className={clsx(
-                'p-2 border bg-primary-alt-highlight flex items-center justify-between gap-2 select-none',
+                'p-2 border bg-primary-alt-highlight flex flex-col',
                 completed || skipped ? 'line-through opacity-70' : '',
-                canInteract && 'cursor-pointer',
                 lockedReason && 'opacity-70'
             )}
-            onClick={canInteract ? handleClick : undefined}
         >
-            <div className="flex items-center gap-2">
-                {completed ? (
-                    <IconCheckCircle className="h-6 w-6 text-success" />
-                ) : lockedReason ? (
-                    <Tooltip title={lockedReason}>
-                        <IconLock className="h-6 w-6 text-muted-alt" />
-                    </Tooltip>
-                ) : (
-                    <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
+            <div
+                className={clsx(
+                    'flex items-center justify-between gap-2 w-full select-none',
+                    isActive && 'cursor-pointer'
                 )}
-                <p className="m-0 font-semibold">{title}</p>
+                onClick={handleRowClick}
+            >
+                <div className="flex items-center gap-2">
+                    {completed ? (
+                        <IconCheckCircle className="h-6 w-6 text-success" />
+                    ) : lockedReason ? (
+                        <Tooltip title={lockedReason}>
+                            <IconLock className="h-6 w-6 text-muted-alt" />
+                        </Tooltip>
+                    ) : (
+                        <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
+                    )}
+                    <p className="m-0 font-semibold">{title}</p>
+                </div>
+                {isActive && canSkip && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        className="h-6 font-semibold text-muted-alt activation-task-skip"
+                        onClick={handleSkip}
+                    >
+                        Skip
+                    </LemonButton>
+                )}
             </div>
-
-            {canInteract && canSkip && (
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    className="h-6 font-semibold text-muted-alt"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        markTaskAsSkipped(id)
+            {isActive && hasContent && (
+                <div
+                    className="overflow-hidden transition-[max-height] duration-300"
+                    style={{
+                        maxHeight: expanded ? `${contentHeight}px` : '0px',
+                        marginBottom: expanded ? '8px' : '0px',
+                        marginTop: expanded ? '0px' : '0px',
                     }}
                 >
-                    Skip
-                </LemonButton>
+                    <div
+                        className="pt-2"
+                        ref={(el) => {
+                            // scrollHeight refers to the height of the content,
+                            // including content not visible on the screen due to overflow
+                            if (el && expanded && contentHeight !== el.scrollHeight) {
+                                setTaskContentHeight(id, el.scrollHeight)
+                            }
+                        }}
+                    >
+                        {ContentComponent && <ContentComponent />}
+                        <LemonButton type="primary" size="small" className="mt-2" onClick={handleGetStarted}>
+                            {buttonText || 'Get started'}
+                        </LemonButton>
+                    </div>
+                </div>
             )}
         </li>
     )

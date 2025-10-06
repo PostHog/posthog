@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -24,7 +25,7 @@ const defaultFormValues: DuplicateDashboardForm = {
 
 export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
     path(['scenes', 'dashboard', 'duplicateDashboardLogic']),
-    connect({ actions: [insightsModel, ['insightsAddedToDashboard']] }),
+    connect(() => ({ actions: [insightsModel, ['insightsAddedToDashboard']] })),
     actions({
         showDuplicateDashboardModal: (id: number, name: string) => ({
             id,

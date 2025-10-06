@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { insertHogFunction as _insertHogFunction } from './_tests/fixtures'
-import { HogFunctionInvocationGlobals, HogFunctionInvocationLogEntry } from './types'
-import { convertToHogFunctionFilterGlobal, fixLogDeduplication, gzipObject, unGzipObject } from './utils'
+import { LogEntry } from './types'
+import { fixLogDeduplication, gzipObject, sanitizeLogMessage, unGzipObject } from './utils'
 
 describe('Utils', () => {
     describe('gzip compressions', () => {
@@ -14,9 +13,8 @@ describe('Utils', () => {
             expect(decompressed).toEqual(input)
         })
     })
-
     describe('fixLogDeduplication', () => {
-        const commonProps = {
+        const commonProps: Omit<LogEntry, 'timestamp' | 'message'> = {
             team_id: 1,
             log_source: 'hog_function',
             log_source_id: 'hog-1',
@@ -24,33 +22,16 @@ describe('Utils', () => {
             level: 'info' as const,
         }
         const startTime = DateTime.fromMillis(1620000000000)
-        const example: HogFunctionInvocationLogEntry[] = [
-            {
-                ...commonProps,
-                timestamp: startTime.plus(2),
-                message: 'Third log message',
-            },
-            {
-                ...commonProps,
-                timestamp: startTime,
-                message: 'First log message',
-            },
-            {
-                ...commonProps,
-                timestamp: startTime.plus(1),
-                message: 'Second log message',
-            },
-            {
-                ...commonProps,
-                timestamp: startTime.plus(2),
-                message: 'Duplicate log message',
-            },
+        const example: LogEntry[] = [
+            { ...commonProps, timestamp: startTime.plus(2), message: 'Third log message' },
+            { ...commonProps, timestamp: startTime, message: 'First log message' },
+            { ...commonProps, timestamp: startTime.plus(1), message: 'Second log message' },
+            { ...commonProps, timestamp: startTime.plus(2), message: 'Duplicate log message' },
         ]
-
         it('should add the relevant info to the logs', () => {
             const prepared = fixLogDeduplication(example)
-
-            expect(prepared).toMatchInlineSnapshot(`
+            expect(prepared).toMatchInlineSnapshot(
+                `
                 [
                   {
                     "instance_id": "inv-1",
@@ -89,121 +70,41 @@ describe('Utils', () => {
                     "timestamp": "2021-05-03 00:00:00.003",
                   },
                 ]
-            `)
+            `
+            )
         })
     })
-
-    describe('convertToHogFunctionFilterGlobal', () => {
-        it('should correctly map groups to response including empty group indexes', () => {
-            const globals: HogFunctionInvocationGlobals = {
-                project: {
-                    id: 1,
-                    name: 'Test Project',
-                    url: 'http://example.com',
-                },
-                event: {
-                    uuid: 'event_uuid',
-                    event: 'test_event',
-                    distinct_id: 'user_123',
-                    properties: {},
-                    elements_chain: '',
-                    timestamp: '2025-01-01T00:00:00.000Z',
-                    url: 'http://example.com/event',
-                },
-                person: {
-                    id: 'person_123',
-                    properties: {},
-                    name: 'Test User',
-                    url: 'http://example.com/person',
-                },
-                groups: {
-                    organization: {
-                        id: 'org_123',
-                        type: 'organization',
-                        index: 0,
-                        properties: { name: 'Acme Corp' },
-                        url: 'http://example.com/org',
-                    },
-                    project: {
-                        id: 'proj_456',
-                        type: 'project',
-                        index: 1,
-                        properties: { name: 'Project X' },
-                        url: 'http://example.com/project',
-                    },
-                },
-            }
-
-            const response = convertToHogFunctionFilterGlobal(globals)
-
-            expect(response).toMatchInlineSnapshot(`
-                {
-                  "distinct_id": "user_123",
-                  "elements_chain": "",
-                  "elements_chain_elements": [],
-                  "elements_chain_href": "",
-                  "elements_chain_ids": [],
-                  "elements_chain_texts": [],
-                  "event": "test_event",
-                  "group_0": {
-                    "index": 0,
-                    "key": "org_123",
-                    "properties": {
-                      "name": "Acme Corp",
-                    },
-                  },
-                  "group_1": {
-                    "index": 1,
-                    "key": "proj_456",
-                    "properties": {
-                      "name": "Project X",
-                    },
-                  },
-                  "group_2": {
-                    "index": 2,
-                    "key": null,
-                    "properties": {},
-                  },
-                  "group_3": {
-                    "index": 3,
-                    "key": null,
-                    "properties": {},
-                  },
-                  "group_4": {
-                    "index": 4,
-                    "key": null,
-                    "properties": {},
-                  },
-                  "organization": {
-                    "index": 0,
-                    "key": "org_123",
-                    "properties": {
-                      "name": "Acme Corp",
-                    },
-                  },
-                  "pdi": {
-                    "distinct_id": "user_123",
-                    "person": {
-                      "id": "person_123",
-                      "properties": {},
-                    },
-                    "person_id": "person_123",
-                  },
-                  "person": {
-                    "id": "person_123",
-                    "properties": {},
-                  },
-                  "project": {
-                    "index": 1,
-                    "key": "proj_456",
-                    "properties": {
-                      "name": "Project X",
-                    },
-                  },
-                  "properties": {},
-                  "timestamp": "2025-01-01T00:00:00.000Z",
-                }
-            `)
+    describe('sanitizeLogMessage', () => {
+        it('should sanitize the log message', () => {
+            const message = sanitizeLogMessage(['test', 'test2'])
+            expect(message).toBe('test, test2')
+        })
+        it('should sanitize the log message with a sensitive value', () => {
+            const message = sanitizeLogMessage(['test', 'test2'], ['test2'])
+            expect(message).toBe('test, ***REDACTED***')
+        })
+        it('should sanitize a range of values types', () => {
+            const message = sanitizeLogMessage(['test', 'test2', 1, true, false, null, undefined, { test: 'test' }])
+            expect(message).toMatchInlineSnapshot(`"test, test2, 1, true, false, null, , {"test":"test"}"`)
+        })
+        it('should truncate the log message if it is too long', () => {
+            const veryLongMessage = Array(10000).fill('test').join('')
+            const message = sanitizeLogMessage([veryLongMessage], [], 10)
+            expect(message).toMatchInlineSnapshot(`"testtestte... (truncated)"`)
+        })
+        it('should not truncate through Unicode surrogate pairs', () => {
+            const emoji = '🚀🎉💯🔥'
+            const longMessage = emoji + Array(1000).fill('a').join('')
+            const message = sanitizeLogMessage([longMessage], [], 10)
+            expect(message).not.toMatch(/[\uD800-\uDBFF]$/)
+            expect(message).not.toMatch(/[\uDC00-\uDFFF]$/)
+            expect(message).toMatch(/\.\.\. \(truncated\)$/)
+        })
+        it('should handle truncation at exact surrogate pair boundary', () => {
+            expect(sanitizeLogMessage(['\ud83c\udf82'], [], 1)).not.toContain('\ud83c')
+            expect(sanitizeLogMessage(['🚀🚀🚀🚀🚀'], [], 2)).toMatchInlineSnapshot(`"🚀... (truncated)"`)
+            expect(sanitizeLogMessage(['🚀🚀🚀🚀🚀'], [], 3)).toMatchInlineSnapshot(`"🚀... (truncated)"`)
+            expect(sanitizeLogMessage(['🚀🚀🚀🚀🚀'], [], 4)).toMatchInlineSnapshot(`"🚀🚀... (truncated)"`)
         })
     })
 })

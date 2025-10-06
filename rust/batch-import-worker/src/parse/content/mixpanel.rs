@@ -31,7 +31,7 @@ pub struct MixpanelEvent {
 #[serde(rename_all = "snake_case")]
 pub struct MixpanelProperties {
     #[serde(rename = "time")]
-    timestamp_ms: i64,
+    timestamp: i64,
     distinct_id: Option<String>,
     #[serde(flatten)]
     other: HashMap<String, Value>,
@@ -56,8 +56,18 @@ impl MixpanelEvent {
             };
 
             let event_uuid = Uuid::now_v7();
+
+            // Was seeing timestamp values come in that were in seconds, not milliseconds
+            // Do a quick heuristic check on the size of the timestamp to determine if it's in seconds or milliseconds
+            let timestamp_value = mx.properties.timestamp;
+            let timestamp_seconds = if timestamp_value > 10_000_000_000 {
+                timestamp_value / 1000
+            } else {
+                timestamp_value
+            };
+
             // We don't support subsecond precision for historical imports
-            let timestamp = DateTime::<Utc>::from_timestamp(mx.properties.timestamp_ms / 1000, 0)
+            let timestamp = DateTime::<Utc>::from_timestamp(timestamp_seconds, 0)
                 .ok_or(Error::msg("Invalid timestamp"))?;
 
             let timestamp = timestamp + timestamp_offset;
@@ -84,18 +94,23 @@ impl MixpanelEvent {
                 return Ok(None);
             };
 
-            let inner = CapturedEvent {
-                uuid: event_uuid,
-                distinct_id,
-                ip: "127.0.0.1".to_string(),
-                data: serde_json::to_string(&raw_event)?,
-                now: Utc::now().to_rfc3339(),
-                sent_at: None,
-                token,
-                is_cookieless_mode: false,
-            };
+            // Only return the event if import_events is enabled
+            if context.import_events {
+                let inner = CapturedEvent {
+                    uuid: event_uuid,
+                    distinct_id,
+                    ip: "127.0.0.1".to_string(),
+                    data: serde_json::to_string(&raw_event)?,
+                    now: Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token,
+                    is_cookieless_mode: false,
+                };
 
-            Ok(Some(InternallyCapturedEvent { team_id, inner }))
+                Ok(Some(InternallyCapturedEvent { team_id, inner }))
+            } else {
+                Ok(None)
+            }
         }
     }
 }

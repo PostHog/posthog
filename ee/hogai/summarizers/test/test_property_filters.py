@@ -6,6 +6,8 @@ from ee.hogai.summarizers.property_filters import (
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property.property import Property, PropertyGroup
+from posthog.test.base import BaseTest
+
 from posthog.schema import (
     CohortPropertyFilter,
     DataWarehousePropertyFilter,
@@ -17,7 +19,6 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
 )
-from posthog.test.base import BaseTest
 
 
 class TestPropertyFilterDescriber(BaseTest):

@@ -1,9 +1,11 @@
-import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import { SurveySchedule } from '~/types'
+import { SurveyAppearance, SurveyPosition, SurveySchedule, SurveyWidgetType } from '~/types'
 
 export function SurveyWidgetCustomization(): JSX.Element {
     const { survey, surveyErrors } = useValues(surveyLogic)
@@ -14,15 +16,30 @@ export function SurveyWidgetCustomization(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <LemonField name="appearance" label="">
-                {({ value: appearance, onChange: onAppearanceChange }) => (
+                {({
+                    value: appearance,
+                    onChange: onAppearanceChange,
+                }: {
+                    value: SurveyAppearance
+                    onChange: (appearance: SurveyAppearance) => void
+                }) => (
                     <>
                         <LemonField.Pure label="Feedback button type">
                             <LemonSelect
                                 value={appearance.widgetType}
-                                onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
+                                onChange={(widgetType) => {
+                                    // NextToTrigger is only available for Selector widget type
+                                    const newPosition =
+                                        widgetType !== SurveyWidgetType.Selector &&
+                                        appearance?.position === SurveyPosition.NextToTrigger
+                                            ? SurveyPosition.Right
+                                            : appearance?.position
+
+                                    onAppearanceChange({ ...appearance, widgetType, position: newPosition })
+                                }}
                                 options={[
-                                    { label: 'Embedded tab', value: 'tab' },
-                                    { label: 'Custom', value: 'selector' },
+                                    { label: 'Embedded tab', value: SurveyWidgetType.Tab },
+                                    { label: 'Custom', value: SurveyWidgetType.Selector },
                                 ]}
                             />
                         </LemonField.Pure>
@@ -61,7 +78,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
                 )}
             </LemonField>
             <LemonCheckbox
-                label="Always display the feedback button, no matter how many times it has been shown"
+                label="Allow survey to be displayed every time the button is clicked"
                 checked={survey.schedule === SurveySchedule.Always}
                 onChange={(checked) => {
                     setSurveyValue('schedule', checked ? SurveySchedule.Always : SurveySchedule.Once)

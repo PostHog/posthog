@@ -17,7 +17,7 @@ jobs:
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
 
@@ -62,11 +62,11 @@ jobs:
                 os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-13]
 
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
 
-            - uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236 # v4
+            - uses: actions/setup-python@v5
               with:
-                  python-version: '3.11'
+                  python-version: '3.11.13'
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
@@ -81,7 +81,7 @@ jobs:
                   MACOSX_DEPLOYMENT_TARGET: '13' # A modern target allows us to use C++20
 
             - name: Upload wheels artifact
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: wheels-${{ matrix.os }}
                   path: |
@@ -98,19 +98,19 @@ jobs:
         runs-on: ubuntu-22.04
         steps:
             - name: Download wheels from ubuntu-22.04
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   name: wheels-ubuntu-22.04
                   path: dist
 
             - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   name: wheels-buildjet-2vcpu-ubuntu-2204-arm
                   path: dist
 
             - name: Download wheels from macos-13
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   name: wheels-macos-13
                   path: dist
@@ -118,21 +118,31 @@ jobs:
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
 
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   ref: ${{ github.event.pull_request.head.ref }}
 
             - name: Update hogql-parser in requirements
               shell: bash
+              env:
+                  RETRIES: 20
               run: |
-                  local=$(python common/hogql_parser/setup.py --version)
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.in
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.txt
+                  # In case the version is not available yet, try up to $RETRIES times
+                  for i in {1..$RETRIES}; do
+                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                          break
+                      fi
+                      if [[ $i -eq $RETRIES ]]; then
+                        echo "Failed to update hogql-parser in requirements"
+                        exit 1
+                      fi
+                      sleep 0.5
+                  done
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               with:
-                  add: '["requirements.in", "requirements.txt"]'
+                  add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

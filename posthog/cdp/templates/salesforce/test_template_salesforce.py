@@ -1,12 +1,14 @@
+from posthog.test.base import BaseTest
+
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.salesforce.template_salesforce import (
+    TemplatSalesforceMigrator,
     template_create as template_salesforce_create,
     template_update as template_salesforce_update,
-    TemplatSalesforceMigrator,
 )
 from posthog.models import PluginConfig
-from posthog.test.base import BaseTest
 
 
 class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):

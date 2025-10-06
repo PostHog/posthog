@@ -15,7 +15,7 @@ Because of the above, take the following advice into consideration when manipula
 - When adding / updating a sharded table
 - When adding / updating a distributed table used for the write path
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_role` set to `NodeRole.DATA`.
+In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
 
 <details>
 
@@ -26,8 +26,7 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 
 </details>
 
-
-### When to run a migration for all nodes
+### When to run a migration for DATA and COORDINATOR nodes
 
 - Basically when the migration does not include any of the above listed in the previous section.
 - When adding / updating a distributed table for reading
@@ -36,7 +35,7 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 - When adding / updating a dictionary
 - And so on
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_role` set to `NodeRole.ALL`.
+In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA, NodeRole.COORDINATOR]`.
 
 <details>
 
@@ -46,9 +45,41 @@ Following the previous section example, the sharded events table along with the 
 
 </details>
 
+## When to use NodeRole.ALL
+
+We are introducing changes to our ClickHouse topology frequently, introducing new types of nodes.
+
+Rarely, you'll need to run a migration on all nodes. In that case, you can use the `NodeRole.ALL` role. You should only use it when you're sure that the change is safe to apply to all nodes.
+
+In the vast majority of cases, just follow the [previous](#when-to-run-a-migration-only-on-a-data-node) [sections](#when-to-run-a-migration-for-data-and-coordinator-nodes).
+
 ### The ON CLUSTER clause
 
-The ON CLUSTER clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
+**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+This may cause lots of troubles and block migrations.
 
-Ideally, **do not use the ON CLUSTER clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the ON CLUSTER clause make the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
 
+### Testing
+
+To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
+
+## Ingestion layer
+
+We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
+
+1. Create your data table in ClickHouse main cluster.
+2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`.
+3. Create a Kafka table in ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`.
+4. Create materialized view between Kafka table and writable table on ingestion nodes.
+
+Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
+
+**How and why?**
+
+Our main cluster (`posthog`) nodes were overwhelmed with ingestion and sometimes the query load
+was interfering with ingestion. This was causing delays and at the end incidents.
+
+We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
+
+ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers, coordinator and our new ingestion nodes.

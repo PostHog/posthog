@@ -1,7 +1,11 @@
-import { IconGlobe, IconGraph, IconPieChart, IconTrends } from '@posthog/icons'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } from '@posthog/icons'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -17,9 +21,10 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
 }
 
 export function ChartFilter(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { isTrends, isSingleSeries, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
@@ -60,6 +65,17 @@ export function ChartFilter(): JSX.Element {
                     label: 'Bar chart',
                     labelInMenu: (
                         <ChartFilterOptionLabel label="Bar chart" description="Trends over time as vertical bars." />
+                    ),
+                },
+                {
+                    value: ChartDisplayType.ActionsUnstackedBar,
+                    icon: <IconGraph />,
+                    label: 'Unstacked bar chart',
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Unstacked bar chart"
+                            description="Trends over time as vertical bars side-by-side."
+                        />
                     ),
                 },
             ],
@@ -117,6 +133,11 @@ export function ChartFilter(): JSX.Element {
                     label: 'Table',
                     labelInMenu: <ChartFilterOptionLabel label="Table" description="Total values in a table view." />,
                 },
+            ],
+        },
+        {
+            title: 'Visualizations',
+            options: [
                 {
                     value: ChartDisplayType.WorldMap,
                     icon: <IconGlobe />,
@@ -127,14 +148,29 @@ export function ChartFilter(): JSX.Element {
                         (formula
                             ? "This type isn't available, because it doesn't support formulas."
                             : !!breakdownFilter?.breakdown &&
-                              breakdownFilter.breakdown !== '$geoip_country_code' &&
-                              breakdownFilter.breakdown !== '$geoip_country_name'
-                            ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
-                            : undefined),
+                                breakdownFilter.breakdown !== '$geoip_country_code' &&
+                                breakdownFilter.breakdown !== '$geoip_country_name'
+                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                              : undefined),
                     labelInMenu: (
                         <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
                     ),
                 },
+                ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.CalendarHeatmap,
+                              icon: <IconRetentionHeatmap />,
+                              label: 'Calendar heatmap',
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Calendar heatmap"
+                                      description="Values per day and hour."
+                                  />
+                              ),
+                          },
+                      ]
+                    : []),
             ],
         },
     ]
@@ -152,6 +188,7 @@ export function ChartFilter(): JSX.Element {
             data-attr="chart-filter"
             options={options}
             size="small"
+            disabledReason={editingDisabledReason}
         />
     )
 }

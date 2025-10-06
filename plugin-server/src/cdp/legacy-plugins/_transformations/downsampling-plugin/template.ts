@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent, setupPlugin } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const downsamplingPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -13,7 +14,8 @@ export const downsamplingPlugin: LegacyTransformationPlugin = {
         description: 'Reduces event volume coming into PostHog',
         icon_url: 'https://raw.githubusercontent.com/posthog/downsampling-plugin/main/logo.png',
         category: ['Custom'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 type: 'string',

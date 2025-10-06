@@ -45,8 +45,8 @@ export const seriesNodeToFilter = (
         type: isDataWarehouseNode(node)
             ? EntityTypes.DATA_WAREHOUSE
             : isActionsNode(node)
-            ? EntityTypes.ACTIONS
-            : EntityTypes.EVENTS,
+              ? EntityTypes.ACTIONS
+              : EntityTypes.EVENTS,
         id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
         order: index,
         name: node.name,
@@ -57,6 +57,7 @@ export const seriesNodeToFilter = (
         math_property_type: node.math_property_type as TaxonomicFilterGroupType,
         math_hogql: node.math_hogql,
         math_group_type_index: node.math_group_type_index,
+        optionalInFunnel: node.optionalInFunnel,
         properties: node.properties as any, // TODO,
         ...(isDataWarehouseNode(node)
             ? {
@@ -102,8 +103,13 @@ export const seriesToActionsAndEvents = (
 export const hiddenLegendItemsToKeys = (
     hidden_items: number[] | string[] | undefined
 ): Record<string, boolean | undefined> | undefined =>
-    // @ts-expect-error
-    hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
+    hidden_items?.reduce(
+        (k, b) => {
+            k[b] = true
+            return k
+        },
+        {} as Record<string, boolean | undefined>
+    )
 
 export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
@@ -251,15 +257,20 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedRetentionProps.returning_entity = queryCopy.retentionFilter?.returningEntity
         camelCasedRetentionProps.target_entity = queryCopy.retentionFilter?.targetEntity
         camelCasedRetentionProps.total_intervals = queryCopy.retentionFilter?.totalIntervals
-        camelCasedRetentionProps.show_mean = queryCopy.retentionFilter?.showMean
+        camelCasedRetentionProps.show_mean =
+            queryCopy.retentionFilter?.meanRetentionCalculation === 'simple'
+                ? true
+                : queryCopy.retentionFilter?.meanRetentionCalculation === 'none'
+                  ? false
+                  : undefined
         camelCasedRetentionProps.cumulative = queryCopy.retentionFilter?.cumulative
         delete queryCopy.retentionFilter?.retentionReference
         delete queryCopy.retentionFilter?.retentionType
         delete queryCopy.retentionFilter?.returningEntity
         delete queryCopy.retentionFilter?.targetEntity
         delete queryCopy.retentionFilter?.totalIntervals
-        delete queryCopy.retentionFilter?.showMean
         delete queryCopy.retentionFilter?.cumulative
+        delete queryCopy.retentionFilter?.meanRetentionCalculation
     } else if (isPathsQuery(queryCopy)) {
         camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
         camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression

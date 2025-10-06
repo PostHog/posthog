@@ -1,12 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
-import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
-import posthog from 'posthog-js'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -16,9 +17,7 @@ import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExpo
 
 import type { exportsLogicType } from './exportsLogicType'
 
-const POLL_DELAY_MS = 1000
-const MAX_PNG_POLL = 10
-const MAX_CSV_POLL = 300
+const POLL_DELAY_MS = 10000
 
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
@@ -34,17 +33,38 @@ export const exportsLogic = kea<exportsLogicType>([
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
+        setAssetFormat: (format: ExporterFormat | null) => ({ format }),
+        startReplayExport: (
+            sessionRecordingId: string,
+            format?: ExporterFormat,
+            timestamp?: number,
+            duration?: number,
+            mode?: SessionRecordingPlayerMode,
+            options?: {
+                width?: number
+                height?: number
+                css_selector?: string
+                filename?: string
+            }
+        ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
+        startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
     }),
 
-    connect({
+    connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
 
     reducers({
         exports: [
             [] as ExportedAssetType[],
             {
                 loadExportsSuccess: (_, { exports }) => exports,
+            },
+        ],
+        assetFormat: [
+            null as ExporterFormat | null,
+            {
+                setAssetFormat: (_, { format }) => format,
             },
         ],
         freshUndownloadedExports: [
@@ -66,7 +86,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         exportData.export_context.filename
                     )
                     lemonToast.success('Export complete!')
-                } catch (e) {
+                } catch {
                     lemonToast.error('Export failed!')
                 }
                 return
@@ -74,70 +94,19 @@ export const exportsLogic = kea<exportsLogicType>([
 
             actions.createExport({ exportData })
         },
-        createExportSuccess: ({ pollingExports }) => {
+        createExportSuccess: () => {
             actions.openSidePanel(SidePanelTab.Exports)
+            lemonToast.info('Export starting...')
             actions.loadExports()
-            actions.pollExportStatus(pollingExports[0])
         },
-        pollExportStatus: async ({ exportedAsset }, breakpoint) => {
-            // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
-            const poller = new Promise<string>(async (resolve, reject) => {
-                const trackingProperties = {
-                    export_format: exportedAsset.export_format,
-                    dashboard: exportedAsset.dashboard,
-                    insight: exportedAsset.insight,
-                    export_context: exportedAsset.export_context,
-                    total_time_ms: 0,
-                }
-                const startTime = performance.now()
-
-                const maxPoll = exportedAsset.export_format === ExporterFormat.CSV ? MAX_CSV_POLL : MAX_PNG_POLL
-                let updatedAsset = exportedAsset
-
-                try {
-                    let attempts = 0
-
-                    while (attempts < maxPoll) {
-                        attempts++
-
-                        if (updatedAsset.has_content) {
-                            actions.loadExports()
-                            if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
-                                void downloadExportedAsset(updatedAsset)
-                            } else {
-                                actions.addFresh(updatedAsset)
-                            }
-                            trackingProperties.total_time_ms = performance.now() - startTime
-                            posthog.capture('export succeeded', trackingProperties)
-
-                            resolve('Export complete')
-                            return
-                        }
-                        await delay(POLL_DELAY_MS)
-
-                        // Keep polling for pure network errors, but not any HTTP errors
-                        // Example: `NetworkError when attempting to fetch resource`
-                        try {
-                            updatedAsset = await api.exports.get(exportedAsset.id)
-                            breakpoint()
-                        } catch (e: any) {
-                            if (e.name === 'NetworkError' || e.message?.message?.startsWith('NetworkError')) {
-                                continue
-                            }
-                            throw e
-                        }
-                    }
-                } catch (e: any) {
-                    trackingProperties.total_time_ms = performance.now() - startTime
-                    posthog.capture('export failed', trackingProperties)
-                    reject(new Error(`Export failed: ${JSON.stringify(e.detail ?? e)}`))
-                }
-            })
-            await lemonToast.promise(poller, {
-                pending: 'Export starting...',
-                success: 'Export complete!',
-                error: 'Export failed!',
-            })
+        loadExportsSuccess: async (_, breakpoint) => {
+            // Check if any exports haven't completed
+            const donePolling = exportsLogic.values.exports.every((asset) => asset.has_content || asset.exception)
+            if (!donePolling) {
+                await breakpoint(POLL_DELAY_MS)
+                actions.loadExports()
+                return
+            }
         },
         createStaticCohort: async ({ query, name }) => {
             const toastId = 'toast-' + Math.random()
@@ -158,20 +127,63 @@ export const exportsLogic = kea<exportsLogicType>([
                         action: () => router.actions.push(urls.cohort(cohort.id)),
                     },
                 })
-            } catch (e) {
+            } catch {
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
             }
         },
+        setAssetFormat: () => {
+            actions.loadExports()
+        },
+        startReplayExport: async ({
+            sessionRecordingId,
+            format = ExporterFormat.PNG,
+            timestamp,
+            duration = 5,
+            mode = SessionRecordingPlayerMode.Screenshot,
+            options,
+        }) => {
+            const exportData: TriggerExportProps = {
+                export_format: format,
+                export_context: {
+                    session_recording_id: sessionRecordingId,
+                    timestamp: timestamp,
+                    css_selector: options?.css_selector || '.replayer-wrapper',
+                    width: options?.width || 1400,
+                    height: options?.height || 600,
+                    filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
+                    duration: duration,
+                    mode: mode,
+                },
+            }
+
+            actions.startExport(exportData)
+        },
+        startHeatmapExport: async ({ export_context }) => {
+            const exportData: TriggerExportProps = {
+                export_format: ExporterFormat.PNG,
+                export_context: export_context,
+            }
+
+            actions.startExport(exportData)
+        },
     })),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         exports: [
             [] as ExportedAssetType[],
             {
                 loadExports: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.exports.list()
+                    const params: Record<string, any> = {}
+
+                    // Add format filter if set
+                    const format = values.assetFormat
+                    if (format) {
+                        params.export_format = format
+                    }
+
+                    const response = await api.exports.list(undefined, params)
                     breakpoint()
 
                     return response.results
@@ -181,15 +193,34 @@ export const exportsLogic = kea<exportsLogicType>([
         pollingExports: [
             [] as ExportedAssetType[],
             {
-                createExport: async ({ exportData }) => {
-                    const newExport = await api.exports.create({
-                        export_format: exportData.export_format,
-                        dashboard: exportData.dashboard,
-                        insight: exportData.insight,
-                        export_context: exportData.export_context,
-                        expires_after: dayjs().add(6, 'hour').toJSON(),
-                    })
-                    return [newExport]
+                createExport: ({ exportData }) => {
+                    void (async () => {
+                        try {
+                            const response = await api.exports.create({
+                                export_format: exportData.export_format,
+                                dashboard: exportData.dashboard,
+                                insight: exportData.insight,
+                                export_context: exportData.export_context,
+                                expires_after: dayjs().add(6, 'hour').toJSON(),
+                            })
+
+                            const currentExports = exportsLogic.values.exports
+                            const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
+                            exportsLogic.actions.loadExportsSuccess(updatedExports)
+
+                            // If this was a blocking export, we should download it now
+                            if (response && response.has_content) {
+                                await downloadExportedAsset(response)
+                            } else if (response && response.exception) {
+                                lemonToast.error('Export failed: ' + response.exception)
+                            }
+                        } catch (error) {
+                            const message = error instanceof Error ? error.message : String(error)
+                            lemonToast.error('Export failed: ' + message)
+                        }
+                    })()
+
+                    return [exportData]
                 },
             },
         ],

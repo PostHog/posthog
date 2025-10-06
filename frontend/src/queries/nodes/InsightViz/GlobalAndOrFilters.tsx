@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -14,13 +15,14 @@ import { getAllEventNames } from './utils'
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
     const { actions: allActions } = useValues(actionsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { querySource, isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.EventMetadata,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
@@ -37,7 +39,7 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
             setQuery={updateQuerySource}
             eventNames={getAllEventNames(querySource as TrendsQuery | StickinessQuery, allActions)}
             taxonomicGroupTypes={taxonomicGroupTypes}
-            isDataWarehouseSeries={isDataWarehouseSeries}
+            hasDataWarehouseSeries={hasDataWarehouseSeries}
         />
     )
 }

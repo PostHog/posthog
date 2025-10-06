@@ -1,5 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, path, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { shouldIgnoreInput } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -8,9 +9,9 @@ import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportCommandBarStatusChanged']],
-    }),
+    })),
     actions({
         setCommandBar: (status: BarStatus, initialQuery?: string) => ({ status, initialQuery }),
         hideCommandBar: true,

@@ -1,24 +1,26 @@
 import datetime
-from unittest import mock
+from typing import Any
+
 import pytest
-import responses
 from freezegun import freeze_time
+from unittest import mock
 
 import dagster
+import responses
 from dagster import build_op_context
 
 from dags.exchange_rate import (
-    get_date_partition_from_hourly_partition,
-    fetch_exchange_rates,
-    daily_exchange_rates,
-    hourly_exchange_rates,
-    store_exchange_rates_in_clickhouse,
-    daily_exchange_rates_in_clickhouse,
-    hourly_exchange_rates_in_clickhouse,
-    daily_exchange_rates_schedule,
-    hourly_exchange_rates_schedule,
-    ExchangeRateConfig,
     OPEN_EXCHANGE_RATES_API_BASE_URL,
+    ExchangeRateConfig,
+    daily_exchange_rates,
+    daily_exchange_rates_in_clickhouse,
+    daily_exchange_rates_schedule,
+    fetch_exchange_rates,
+    get_date_partition_from_hourly_partition,
+    hourly_exchange_rates,
+    hourly_exchange_rates_in_clickhouse,
+    hourly_exchange_rates_schedule,
+    store_exchange_rates_in_clickhouse,
 )
 
 # Sample exchange rate data for testing
@@ -58,7 +60,7 @@ class TestExchangeRateAPI:
         context = build_op_context()
 
         # Call the function
-        result = fetch_exchange_rates(context, date_str, app_id, OPEN_EXCHANGE_RATES_API_BASE_URL)
+        result: Any = fetch_exchange_rates(context, date_str, app_id, OPEN_EXCHANGE_RATES_API_BASE_URL)
 
         # Verify the result
         assert result == SAMPLE_EXCHANGE_RATES
@@ -128,7 +130,7 @@ class TestExchangeRateAssets:
         context = dagster.build_asset_context(partition_key=date_str)
 
         # Call the asset
-        result = daily_exchange_rates(context=context, config=config)
+        result: Any = daily_exchange_rates(context=context, config=config)
 
         # Verify the result
         assert result.value == SAMPLE_EXCHANGE_RATES
@@ -153,7 +155,7 @@ class TestExchangeRateAssets:
         context = dagster.build_asset_context(partition_key=hourly_partition)
 
         # Call the asset
-        result = hourly_exchange_rates(context=context, config=config)
+        result: Any = hourly_exchange_rates(context=context, config=config)
 
         # Verify the result
         assert result.value == SAMPLE_EXCHANGE_RATES
@@ -217,28 +219,30 @@ class TestExchangeRateClickhouse:
 
         # Verify result is a MaterializeResult with correct metadata
         assert isinstance(result, dagster.MaterializeResult)
-        assert result.metadata["date"].value == "2023-01-15"
-        assert result.metadata["base_currency"].value == "USD"
-        assert result.metadata["currencies_count"].value == len(SAMPLE_EXCHANGE_RATES)
-        assert result.metadata["min_rate"].value == min(SAMPLE_EXCHANGE_RATES.values())
-        assert result.metadata["max_rate"].value == max(SAMPLE_EXCHANGE_RATES.values())
+        metadata: Any = result.metadata
+        assert metadata["date"].value == "2023-01-15"
+        assert metadata["base_currency"].value == "USD"
+        assert metadata["currencies_count"].value == len(SAMPLE_EXCHANGE_RATES)
+        assert metadata["min_rate"].value == min(SAMPLE_EXCHANGE_RATES.values())
+        assert metadata["max_rate"].value == max(SAMPLE_EXCHANGE_RATES.values())
 
     def test_hourly_exchange_rates_in_clickhouse(self, mock_clickhouse_cluster):
         # Create context
         context = dagster.build_asset_context(partition_key="2023-01-15-10:00")
 
         # Call the asset
-        result = hourly_exchange_rates_in_clickhouse(
+        result: Any = hourly_exchange_rates_in_clickhouse(
             context=context, exchange_rates=SAMPLE_EXCHANGE_RATES, cluster=mock_clickhouse_cluster
         )
 
         # Verify result is a MaterializeResult with correct metadata
         assert isinstance(result, dagster.MaterializeResult)
-        assert result.metadata["date"].value == "2023-01-15"
-        assert result.metadata["base_currency"].value == "USD"
-        assert result.metadata["currencies_count"].value == len(SAMPLE_EXCHANGE_RATES)
-        assert result.metadata["min_rate"].value == min(SAMPLE_EXCHANGE_RATES.values())
-        assert result.metadata["max_rate"].value == max(SAMPLE_EXCHANGE_RATES.values())
+        metadata: Any = result.metadata
+        assert metadata["date"].value == "2023-01-15"
+        assert metadata["base_currency"].value == "USD"
+        assert metadata["currencies_count"].value == len(SAMPLE_EXCHANGE_RATES)
+        assert metadata["min_rate"].value == min(SAMPLE_EXCHANGE_RATES.values())
+        assert metadata["max_rate"].value == max(SAMPLE_EXCHANGE_RATES.values())
 
 
 class TestExchangeRateSchedules:
@@ -248,7 +252,7 @@ class TestExchangeRateSchedules:
         context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2023, 1, 15, 1, 30))
 
         # Call the schedule
-        result = daily_exchange_rates_schedule(context=context)
+        result: Any = daily_exchange_rates_schedule(context=context)
 
         # Verify result is a RunRequest with correct partition key
         assert isinstance(result, dagster.RunRequest)
@@ -263,7 +267,7 @@ class TestExchangeRateSchedules:
         context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2023, 1, 15, 10, 0))
 
         # Call the schedule
-        result = hourly_exchange_rates_schedule(context=context)
+        result: Any = hourly_exchange_rates_schedule(context=context)
 
         # Verify result is a RunRequest with correct partition key
         assert isinstance(result, dagster.RunRequest)

@@ -1,4 +1,6 @@
 import equal from 'fast-deep-equal'
+
+import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils'
 
 import { examples } from '~/queries/examples'
@@ -12,7 +14,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries } from '~/queries/utils'
+import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     DashboardTile,
@@ -83,8 +85,8 @@ type InputInsightModel = InsightModel | Partial<InsightModel>
 type ReturnInsightModel<T> = T extends InsightModel
     ? QueryBasedInsightModel
     : T extends Partial<InsightModel>
-    ? Partial<QueryBasedInsightModel>
-    : never
+      ? Partial<QueryBasedInsightModel>
+      : never
 
 /** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
@@ -114,10 +116,11 @@ export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode =
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
-})
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode =>
+    setLatestVersionsOnQuery({
+        kind: NodeKind.InsightVizNode,
+        source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+    })
 
 export const getDefaultQuery = (
     insightType: InsightType,
@@ -165,7 +168,27 @@ export const getQueryBasedDashboard = (
                 ({
                     ...tile,
                     ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                } as DashboardTile<QueryBasedInsightModel>)
+                }) as DashboardTile<QueryBasedInsightModel>
         ),
     }
+}
+
+export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        // We use 512 for query timeouts
+        // Async queries put the error message on data.error_message, while synchronous ones use detail
+        return error?.status === 400 || error?.status === 512
+            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
+            : null
+    }
+
+    return null
+}
+
+export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        return error?.status === 512
+    }
+
+    return false
 }

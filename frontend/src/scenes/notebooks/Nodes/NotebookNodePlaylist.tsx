@@ -1,22 +1,26 @@
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { PostHogErrorBoundary } from 'posthog-js/react'
+import { useEffect, useMemo } from 'react'
+
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
+
+import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { ErrorBoundary } from '@sentry/react'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
-import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
 
 const Component = ({
     attributes,
@@ -41,11 +45,11 @@ const Component = ({
                 })
             },
         }),
+        // oxlint-disable-next-line exhaustive-deps
         [playerKey, universalFilters, pinned]
     )
 
-    const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
-        useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording } = useValues(logic)
@@ -76,22 +80,13 @@ const Component = ({
                               })
                           },
                       },
-                      {
-                          text: 'Comment',
-                          icon: <IconComment />,
-                          onClick: () => {
-                              if (activeSessionRecording.id) {
-                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
-                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
-                              }
-                          },
-                      },
                   ]
                 : []
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [activeSessionRecording])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMessageListeners({
             'play-replay': ({ sessionRecordingId, time }) => {
                 // IDEA: We could add the desired start time here as a param, which is picked up by the player...
@@ -104,7 +99,7 @@ const Component = ({
                 }, 100)
             },
         })
-    }, [])
+    })
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }
@@ -120,9 +115,9 @@ export const Settings = ({
     }
 
     return (
-        <ErrorBoundary>
-            <RecordingsUniversalFilters filters={filters} setFilters={setFilters} />
-        </ErrorBoundary>
+        <PostHogErrorBoundary>
+            <RecordingsUniversalFiltersEmbed filters={filters} setFilters={setFilters} />
+        </PostHogErrorBoundary>
     )
 }
 

@@ -1,11 +1,27 @@
-import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+
 import { AlertType } from 'lib/components/Alerts/types'
+import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLVariable } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    HogQLFilters,
+    HogQLVariable,
+    Node,
+    NodeKind,
+    TileFilters,
+} from '~/queries/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
-import { DashboardType, InsightShortId, InsightType, ProductManifest } from '../../frontend/src/types'
+import {
+    DashboardType,
+    FileSystemIconColor,
+    InsightSceneSource,
+    InsightShortId,
+    InsightType,
+    ProductManifest,
+} from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Product Analytics',
@@ -15,32 +31,49 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
-        }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string =>
-            combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+            sceneSource,
+        }: {
+            type?: InsightType
+            dashboardId?: DashboardType['id'] | null
+            query?: Node
+            sceneSource?: InsightSceneSource
+        } = {}): string => {
+            // Redirect HogQL queries to SQL editor
+            if (isHogQLQuery(query)) {
+                return urls.sqlEditor(query.query)
+            }
+
+            // Redirect DataNode and DataViz queries with HogQL source to SQL editor
+            if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
+                return urls.sqlEditor(query.source.query)
+            }
+
+            return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
                 ...(type ? { insight: type } : {}),
                 ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-            }).url,
+                ...(sceneSource ? { sceneSource } : {}),
+            }).url
+        },
         insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
-            combineUrl(
-                `/data-warehouse`,
-                {},
-                {
-                    q: JSON.stringify({
-                        kind: 'DataTableNode',
-                        full: true,
-                        source: { kind: 'HogQLQuery', query, filters },
-                    }),
-                }
-            ).url,
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.DataTableNode,
+                    source: { kind: 'HogQLQuery', query, filters },
+                } as any,
+            }),
         insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
         insightView: (
             id: InsightShortId,
             dashboardId?: number,
-            variablesOverride?: Record<string, HogQLVariable>
+            variablesOverride?: Record<string, HogQLVariable>,
+            filtersOverride?: DashboardFilter,
+            tileFiltersOverride?: TileFilters
         ): string => {
             const params = [
                 { param: 'dashboard', value: dashboardId },
                 { param: 'variables_override', value: variablesOverride },
+                { param: 'filters_override', value: filtersOverride },
+                { param: 'tile_filters_override', value: tileFiltersOverride },
             ]
                 .filter((n) => Boolean(n.value))
                 .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
@@ -60,40 +93,71 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         insight: {
-            icon: <IconGraph />,
+            name: 'Insight',
+            iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            iconColor: ['var(--color-product-product-analytics-light)'],
+            filterKey: 'insight',
         },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: `Create new/Insight/Trends`,
+            path: `Insight/Trends`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.TRENDS }),
+            href: urls.insightNew({ type: InsightType.TRENDS }),
+            iconType: 'insight/trends',
+            iconColor: ['var(--color-insight-trends-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.trends,
         },
         {
-            path: `Create new/Insight/Funnels`,
+            path: `Insight/Funnel`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.FUNNELS }),
+            href: urls.insightNew({ type: InsightType.FUNNELS }),
+            iconType: 'insight/funnels',
+            iconColor: ['var(--color-insight-funnel-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.funnel,
         },
         {
-            path: `Create new/Insight/Retention`,
+            path: `Insight/Retention`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.RETENTION }),
+            href: urls.insightNew({ type: InsightType.RETENTION }),
+            iconType: 'insight/retention',
+            iconColor: ['var(--color-insight-retention-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.retention,
         },
         {
-            path: `Create new/Insight/User paths`,
+            path: `Insight/User paths`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.PATHS }),
+            href: urls.insightNew({ type: InsightType.PATHS }),
+            iconType: 'insight/paths',
+            iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.paths,
         },
         {
-            path: `Create new/Insight/Stickiness`,
+            path: `Insight/Stickiness`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.STICKINESS }),
+            href: urls.insightNew({ type: InsightType.STICKINESS }),
+            iconType: 'insight/stickiness',
+            iconColor: ['var(--color-insight-stickiness-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
         },
         {
-            path: `Create new/Insight/Lifecycle`,
+            path: `Insight/Lifecycle`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
+            href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+            iconType: 'insight/lifecycle',
+            iconColor: ['var(--color-insight-lifecycle-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
+        },
+    ],
+    treeItemsProducts: [
+        {
+            path: 'Product analytics',
+            category: 'Analytics',
+            type: 'insight',
+            href: urls.insights(),
+            iconType: 'product_analytics',
+            iconColor: ['var(--color-product-product-analytics-light)'] as FileSystemIconColor,
         },
     ],
 }

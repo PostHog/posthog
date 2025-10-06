@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
 import { mathsLogic } from 'scenes/trends/mathsLogic'

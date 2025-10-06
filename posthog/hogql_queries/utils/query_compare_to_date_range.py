@@ -1,12 +1,11 @@
 from datetime import datetime
 from typing import Optional
 
+from posthog.schema import DateRange, IntervalType
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
-from posthog.schema import DateRange, IntervalType
-from posthog.utils import (
-    relative_date_parse,
-)
+from posthog.utils import relative_date_parse
 
 
 class QueryCompareToDateRange(QueryDateRange):
@@ -25,8 +24,9 @@ class QueryCompareToDateRange(QueryDateRange):
         interval: Optional[IntervalType],
         now: datetime,
         compare_to: str,
+        **kwargs,
     ) -> None:
-        super().__init__(date_range, team, interval, now)
+        super().__init__(date_range, team, interval, now, **kwargs)
         self.compare_to = compare_to
 
     def dates(self) -> tuple[datetime, datetime]:

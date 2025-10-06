@@ -1,4 +1,3 @@
-import { LegacyOneventCompareService } from '../../../src/cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher } from '../../../src/config/config'
 import { Hub, ISOTimestamp, PluginConfig, PostIngestionEvent } from '../../../src/types'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
@@ -57,11 +56,11 @@ describe('runOnEvent', () => {
                 queueError: jest.fn(),
             },
         }
-        mockHub.legacyOneventCompareService = new LegacyOneventCompareService(mockHub)
     })
 
     it('calls onEvent', async () => {
-        await runOnEvent(mockHub, createEvent())
+        const result = await runOnEvent(mockHub, createEvent())
+        await Promise.all(result.map((r) => r.backgroundTask))
 
         expect(onEvent).toHaveBeenCalledTimes(2)
         expect(onEvent.mock.calls[0][0]).toMatchInlineSnapshot(`
@@ -87,7 +86,8 @@ describe('runOnEvent', () => {
                 $elements_chain: 'random',
             },
         })
-        await runOnEvent(mockHub, mockEvent)
+        const result = await runOnEvent(mockHub, mockEvent)
+        await Promise.all(result.map((r) => r.backgroundTask))
 
         expect(onEvent).toHaveBeenCalledTimes(2)
 
@@ -112,7 +112,8 @@ describe('runOnEvent', () => {
                 $elements_chain: 'random',
             },
         })
-        await runOnEvent(mockHub, mockEvent)
+        const result = await runOnEvent(mockHub, mockEvent)
+        await Promise.all(result.map((r) => r.backgroundTask))
 
         expect(onEvent).toHaveBeenCalledTimes(2)
 

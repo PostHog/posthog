@@ -42,14 +42,14 @@
     flex-shrink: 0;
     width: 100%;
     max-height: calc(100% - 2rem);
-    background: var(--bg-surface-primary);
+    background: var(--color-bg-surface-primary);
     border-radius: var(--radius);
 
     h5 {
         margin-bottom: 0;
         overflow: hidden;
         line-height: 1rem;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
         text-overflow: ellipsis;
         white-space: nowrap;
     }
@@ -73,7 +73,7 @@
     .CardMeta__divider {
         height: 1px;
         margin: 0 1rem;
-        background: var(--border-primary);
+        background: var(--color-border-primary);
         opacity: 0;
         transition: opacity 200ms ease;
     }
@@ -86,9 +86,12 @@
         max-height: 24rem;
         margin-top: -1px; // To cause overlap with the divider when closed
         overflow-y: auto;
-        background: var(--bg-surface-primary);
+        background: var(--color-bg-surface-primary);
         border-bottom-width: 1px;
-        transition: box-shadow 200ms ease, height 200ms ease, margin 200ms ease;
+        transition:
+            box-shadow 200ms ease,
+            height 200ms ease,
+            margin 200ms ease;
 
         .CardMeta__details__content {
             overflow-y: auto;
@@ -118,7 +121,7 @@
     align-self: stretch;
     width: 0.375rem;
     margin: 0 0.75rem 0 -0.25rem;
-    background: var(--text-secondary); // Just a fallback value in case there's some unrecognized value
+    background: var(--color-text-secondary); // Just a fallback value in case there's some unrecognized value
     border-radius: var(--radius);
 
     &.blue {

@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { useEffect } from 'react'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -15,22 +16,25 @@ const SEARCH_RESULT = {
             result_id: 'NmLsyopa',
             extra_fields: {
                 name: '',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'total',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                math: 'total',
+                                orderIndex: 0,
+                            },
+                        ],
+                        trendsFilter: {
+                            display: 'ActionsLineGraph',
+                            interval: 'day',
                         },
-                    ],
-                    display: 'ActionsLineGraph',
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    entity_type: 'events',
-                    filter_test_accounts: true,
+                        filterTestAccounts: true,
+                    },
+                    full: true,
                 },
                 description: '',
             },
@@ -40,28 +44,32 @@ const SEARCH_RESULT = {
             result_id: 'QcCPEk7d',
             extra_fields: {
                 name: 'Daily unique visitors over time',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'dau',
-                            type: 'events',
-                            order: 0,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                math: 'dau',
+                                orderIndex: 0,
+                            },
+                            {
+                                kind: 'EventsNode',
+                                math: 'total',
+                                orderIndex: 1,
+                            },
+                        ],
+                        trendsFilter: {
+                            display: 'ActionsLineGraph',
+                            interval: 'day',
                         },
-                        {
-                            id: null,
-                            math: 'total',
-                            type: 'events',
-                            order: 1,
+                        dateRange: {
+                            date_from: '-6m',
                         },
-                    ],
-                    date_to: null,
-                    display: 'ActionsLineGraph',
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    date_from: '-6m',
-                    entity_type: 'events',
+                    },
+                    full: true,
                 },
                 description: null,
             },
@@ -84,7 +92,6 @@ const SEARCH_RESULT = {
                         },
                     },
                 },
-                filters: {},
                 description: '',
             },
         },
@@ -93,37 +100,44 @@ const SEARCH_RESULT = {
             result_id: 'zi5MCnjs',
             extra_fields: {
                 name: 'Feature Flag Called Total Volume',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$feature_flag_called',
-                            name: '$feature_flag_called',
-                            type: 'events',
-                        },
-                    ],
-                    display: 'ActionsLineGraph',
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    breakdown: '$feature_flag_response',
-                    date_from: '-30d',
-                    properties: {
-                        type: 'AND',
-                        values: [
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [
                             {
-                                type: 'AND',
-                                values: [
-                                    {
-                                        key: '$feature_flag',
-                                        type: 'event',
-                                        value: 'notebooks',
-                                    },
-                                ],
+                                kind: 'EventsNode',
+                                event: '$feature_flag_called',
+                                name: '$feature_flag_called',
                             },
                         ],
+                        trendsFilter: {
+                            display: 'ActionsLineGraph',
+                            interval: 'day',
+                            breakdown: '$feature_flag_response',
+                            breakdownType: 'event',
+                        },
+                        dateRange: {
+                            date_from: '-30d',
+                        },
+                        properties: {
+                            type: 'AND',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            key: '$feature_flag',
+                                            type: 'event',
+                                            value: 'notebooks',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        filterTestAccounts: false,
                     },
-                    breakdown_type: 'event',
-                    filter_test_accounts: false,
+                    full: true,
                 },
                 description: 'Shows the number of total calls made on feature flag with key: notebooks',
             },
@@ -186,7 +200,6 @@ const SEARCH_RESULT = {
                         },
                     },
                 },
-                filters: {},
                 description: '',
             },
         },
@@ -219,54 +232,57 @@ const SEARCH_RESULT = {
             result_id: 'YZjAFWBU',
             extra_fields: {
                 name: 'Homepage view to signup conversion',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
-                            properties: [
-                                {
-                                    key: '$current_url',
-                                    type: 'event',
-                                    value: 'https://hedgebox.net/',
-                                    operator: 'exact',
-                                },
-                            ],
-                            custom_name: 'Viewed homepage',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'FunnelsQuery',
+                        series: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                name: 'Viewed homepage',
+                                properties: [
+                                    {
+                                        key: '$current_url',
+                                        value: 'https://hedgebox.net/',
+                                        operator: 'exact',
+                                    },
+                                ],
+                            },
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                type: 'events',
+                                order: 1,
+                                properties: [
+                                    {
+                                        key: '$current_url',
+                                        type: 'event',
+                                        value: 'https://hedgebox.net/signup/',
+                                        operator: 'regex',
+                                    },
+                                ],
+                                custom_name: 'Viewed signup page',
+                            },
+                            {
+                                id: 'signed_up',
+                                name: 'signed_up',
+                                type: 'events',
+                                order: 2,
+                                custom_name: 'Signed up',
+                            },
+                        ],
+                        funnelsFilter: {
+                            display: 'FunnelViz',
+                            funnelVizType: 'steps',
+                            filterTestAccounts: true,
                         },
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 1,
-                            properties: [
-                                {
-                                    key: '$current_url',
-                                    type: 'event',
-                                    value: 'https://hedgebox.net/signup/',
-                                    operator: 'regex',
-                                },
-                            ],
-                            custom_name: 'Viewed signup page',
+                        dateRange: {
+                            date_from: '-1m',
                         },
-                        {
-                            id: 'signed_up',
-                            name: 'signed_up',
-                            type: 'events',
-                            order: 2,
-                            custom_name: 'Signed up',
-                        },
-                    ],
-                    actions: [],
-                    display: 'FunnelViz',
-                    insight: 'FUNNELS',
-                    interval: 'day',
-                    date_from: '-1m',
-                    funnel_viz_type: 'steps',
-                    filter_test_accounts: true,
+                        interval: 'day',
+                    },
+                    full: true,
                 },
                 description: null,
             },
@@ -284,45 +300,48 @@ const SEARCH_RESULT = {
             result_id: 'xK9vs4D2',
             extra_fields: {
                 name: '',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'total',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'FunnelsQuery',
+                        series: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                math: 'total',
+                                name: '$pageview',
+                                orderIndex: 0,
+                            },
+                            {
+                                kind: 'EventsNode',
+                                math: 'total',
+                                orderIndex: 1,
+                            },
+                            {
+                                kind: 'EventsNode',
+                                math: 'total',
+                                orderIndex: 2,
+                            },
+                        ],
+                        funnelsFilter: {
+                            interval: 'day',
+                            funnelVizType: 'steps',
                         },
-                        {
-                            id: null,
-                            math: 'total',
-                            type: 'events',
-                            order: 1,
+                        dateRange: {
+                            date_from: '-7d',
                         },
-                        {
-                            id: null,
-                            math: 'total',
-                            type: 'events',
-                            order: 2,
-                        },
-                    ],
-                    insight: 'FUNNELS',
-                    interval: 'day',
-                    date_from: '-7d',
-                    exclusions: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                            uuid: '40e0f8a9-1297-41e4-b7ca-54d00a9c1d82',
-                            order: 0,
-                            funnel_to_step: 1,
-                            funnel_from_step: 0,
-                        },
-                    ],
-                    entity_type: 'events',
-                    funnel_viz_type: 'steps',
+                        exclusions: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                type: 'events',
+                                uuid: '40e0f8a9-1297-41e4-b7ca-54d00a9c1d82',
+                                funnel_to_step: 1,
+                                funnel_from_step: 0,
+                            },
+                        ],
+                    },
+                    full: true,
                 },
                 description: '',
             },
@@ -340,21 +359,25 @@ const SEARCH_RESULT = {
             result_id: 'vLbs5bhA',
             extra_fields: {
                 name: '',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'total',
-                            name: '$pageview',
-                            type: 'events',
-                            order: 0,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'LifecycleQuery',
+                        series: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                math: 'total',
+                                name: '$pageview',
+                                orderIndex: 0,
+                            },
+                        ],
+                        lifecycleFilter: {
+                            shown_as: 'Lifecycle',
                         },
-                    ],
-                    insight: 'LIFECYCLE',
-                    shown_as: 'Lifecycle',
-                    entity_type: 'events',
-                    filter_test_accounts: false,
+                        filterTestAccounts: false,
+                    },
+                    full: true,
                 },
                 description: '',
             },
@@ -380,38 +403,45 @@ const SEARCH_RESULT = {
             result_id: 'QYrl34sX',
             extra_fields: {
                 name: 'Feature Flag calls made by unique users per variant',
-                query: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$feature_flag_called',
-                            math: 'dau',
-                            name: '$feature_flag_called',
-                            type: 'events',
-                        },
-                    ],
-                    display: 'ActionsTable',
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    breakdown: '$feature_flag_response',
-                    date_from: '-30d',
-                    properties: {
-                        type: 'AND',
-                        values: [
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [
                             {
-                                type: 'AND',
-                                values: [
-                                    {
-                                        key: '$feature_flag',
-                                        type: 'event',
-                                        value: 'cmd-k-search',
-                                    },
-                                ],
+                                kind: 'EventsNode',
+                                event: '$feature_flag_called',
+                                math: 'dau',
+                                name: '$feature_flag_called',
                             },
                         ],
+                        trendsFilter: {
+                            display: 'ActionsTable',
+                            interval: 'day',
+                            breakdown: '$feature_flag_response',
+                            breakdownType: 'event',
+                        },
+                        dateRange: {
+                            date_from: '-30d',
+                        },
+                        properties: {
+                            type: 'AND',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            key: '$feature_flag',
+                                            type: 'event',
+                                            value: 'cmd-k-search',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        filterTestAccounts: false,
                     },
-                    breakdown_type: 'event',
-                    filter_test_accounts: false,
+                    full: true,
                 },
                 description:
                     'Shows the number of unique user calls made on feature flag per variant with key: cmd-k-search',
@@ -422,35 +452,36 @@ const SEARCH_RESULT = {
             result_id: '4Xaltnro',
             extra_fields: {
                 name: '',
-                query: null,
-                filters: {
-                    insight: 'PATHS',
-                    step_limit: 5,
-                    entity_type: 'events',
-                    funnel_paths: 'funnel_path_before_step',
-                    funnel_filter: {
-                        events: [
-                            {
-                                id: '$pageview',
-                                math: 'total',
-                                name: '$pageview',
-                                type: 'events',
-                                order: 0,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'PathsQuery',
+                        stepLimit: 5,
+                        includeEventTypes: ['$pageview', 'custom_event'],
+                        pathsFilter: {
+                            funnelPaths: 'funnel_path_before_step',
+                            funnelFilter: {
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        event: '$pageview',
+                                        math: 'total',
+                                        name: '$pageview',
+                                        orderIndex: 0,
+                                    },
+                                    {
+                                        kind: 'EventsNode',
+                                        math: 'total',
+                                        orderIndex: 1,
+                                    },
+                                ],
+                                funnelVizType: 'steps',
+                                filterTestAccounts: true,
+                                funnelStep: 2,
                             },
-                            {
-                                id: null,
-                                math: 'total',
-                                type: 'events',
-                                order: 1,
-                            },
-                        ],
-                        insight: 'FUNNELS',
-                        exclusions: [],
-                        funnel_step: 2,
-                        funnel_viz_type: 'steps',
-                        filter_test_accounts: true,
+                        },
                     },
-                    include_event_types: ['$pageview', 'custom_event'],
+                    full: true,
                 },
                 description: '',
             },
@@ -506,30 +537,21 @@ export default meta
 
 export function Search(): JSX.Element {
     const { setCommandBar } = useActions(commandBarLogic)
-
-    useEffect(() => {
-        setCommandBar(BarStatus.SHOW_SEARCH)
-    }, [])
+    useDelayedOnMountEffect(() => setCommandBar(BarStatus.SHOW_SEARCH))
 
     return <CommandBar />
 }
 
 export function Actions(): JSX.Element {
     const { setCommandBar } = useActions(commandBarLogic)
-
-    useEffect(() => {
-        setCommandBar(BarStatus.SHOW_ACTIONS)
-    }, [])
+    useDelayedOnMountEffect(() => setCommandBar(BarStatus.SHOW_ACTIONS))
 
     return <CommandBar />
 }
 
 export function Shortcuts(): JSX.Element {
     const { setCommandBar } = useActions(commandBarLogic)
-
-    useEffect(() => {
-        setCommandBar(BarStatus.SHOW_SHORTCUTS)
-    }, [])
+    useDelayedOnMountEffect(() => setCommandBar(BarStatus.SHOW_SHORTCUTS))
 
     return <CommandBar />
 }

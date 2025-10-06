@@ -6,6 +6,7 @@ const VERSION: u32 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolDataType {
     SourceAndMap = 2,
+    HermesMap = 3,
 }
 
 pub trait SymbolData: Sized {
@@ -59,7 +60,7 @@ pub fn assert_data_type(buffer: &[u8], expected_type: SymbolDataType) -> Result<
     if data_type != expected_type as u32 {
         Err(Error::InvalidDataType(
             data_type,
-            format!("{:?}", expected_type),
+            format!("{expected_type:?}"),
         ))
     } else {
         Ok(())

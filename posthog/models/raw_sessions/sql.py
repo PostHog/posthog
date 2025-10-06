@@ -1,25 +1,33 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_BASE_NAME = "raw_sessions"
 
 
-def RAW_SESSIONS_DATA_TABLE():
+def SHARDED_RAW_SESSIONS_DATA_TABLE():
     return f"sharded_{TABLE_BASE_NAME}"
 
 
+def WRITABLE_RAW_SESSIONS_DATA_TABLE():
+    return f"writable_{TABLE_BASE_NAME}"
+
+
 def TRUNCATE_RAW_SESSIONS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
-def DROP_RAW_SESSION_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+def DROP_RAW_SESSION_SHARDED_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_WRITABLE_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL():
@@ -44,6 +52,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+    max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
     -- urls
     urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -88,6 +97,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
@@ -151,7 +163,7 @@ ORDER BY (
 SAMPLE BY cityHash64(session_id_v7)
 """
     ).format(
-        table_name=RAW_SESSIONS_DATA_TABLE(),
+        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=RAW_SESSIONS_DATA_TABLE_ENGINE(),
     )
@@ -184,6 +196,7 @@ SELECT
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
+    inserted_at AS max_inserted_at,
 
     -- urls
     if({current_url} IS NOT NULL, [{current_url}], []) AS urls,
@@ -227,6 +240,9 @@ SELECT
     initializeAggregation('argMinState', {mc_cid}, timestamp) as initial_mc_cid,
     initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
+    initializeAggregation('argMinState', {epik}, timestamp) as initial_epik,
+    initializeAggregation('argMinState', {qclid}, timestamp) as initial_qclid,
+    initializeAggregation('argMinState', {sccid}, timestamp) as initial_sccid,
     initializeAggregation('argMinState', {kx}, timestamp) as initial__kx,
     initializeAggregation('argMinState', {irclid}, timestamp) as initial_irclid,
 
@@ -284,6 +300,9 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        epik=source_string_column("epik"),
+        qclid=source_string_column("qclid"),
+        sccid=source_string_column("sccid"),
         kx=source_string_column("_kx"),
         irclid=source_string_column("irclid"),
         vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
@@ -301,6 +320,7 @@ SELECT
 
     min(timestamp) AS min_timestamp,
     max(timestamp) AS max_timestamp,
+    max(coalesce(inserted_at, now64())) AS max_inserted_at, -- use coalesce to ensure we have a value even if the event is created with inserted_at=NULL
 
     -- urls
     groupUniqArray({current_url}) AS urls,
@@ -344,6 +364,9 @@ SELECT
     argMinState({mc_cid}, timestamp) as initial_mc_cid,
     argMinState({igshid}, timestamp) as initial_igshid,
     argMinState({ttclid}, timestamp) as initial_ttclid,
+    argMinState({epik}, timestamp) as initial_epik,
+    argMinState({qclid}, timestamp) as initial_qclid,
+    argMinState({sccid}, timestamp) as initial_sccid,
     argMinState({kx}, timestamp) as initial__kx,
     argMinState({irclid}, timestamp) as initial_irclid,
 
@@ -406,6 +429,9 @@ GROUP BY
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        epik=source_string_column("epik"),
+        qclid=source_string_column("qclid"),
+        sccid=source_string_column("sccid"),
         kx=source_string_column("_kx"),
         irclid=source_string_column("irclid"),
         vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
@@ -421,7 +447,7 @@ AS
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -434,7 +460,7 @@ MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
 )
@@ -446,10 +472,10 @@ MODIFY QUERY
 
 def WRITABLE_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
     return RAW_SESSIONS_TABLE_BASE_SQL.format(
-        table_name=f"writable_{TABLE_BASE_NAME}",
+        table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
-            data_table=RAW_SESSIONS_DATA_TABLE(),
+            data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             # shard via session_id so that all events for a session are on the same shard
             sharding_key="cityHash64(session_id_v7)",
         ),
@@ -464,7 +490,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
         table_name=TABLE_BASE_NAME,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
-            data_table=RAW_SESSIONS_DATA_TABLE(),
+            data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             sharding_key="cityHash64(session_id_v7)",
         ),
     )
@@ -475,7 +501,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
 # debugging
 RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL = (
     lambda: f"""
-CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()} AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE(on_cluster=False)} AS
 SELECT
     session_id_v7,
     fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,
@@ -483,6 +509,7 @@ SELECT
     argMaxMerge(distinct_id) as distinct_id,
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
+    max(max_inserted_at) as max_inserted_at,
 
     -- urls
     arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,

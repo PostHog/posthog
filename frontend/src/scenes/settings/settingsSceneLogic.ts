@@ -1,5 +1,6 @@
 import { connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -33,12 +34,14 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                     key: Scene.Settings,
                     name: `Settings`,
                     path: urls.settings('project'),
+                    iconType: 'dashboard',
                 },
                 {
                     key: [Scene.Settings, selectedSectionId || selectedLevel],
                     name: selectedSectionId
                         ? sections.find((x) => x.id === selectedSectionId)?.title
                         : capitalizeFirstLetter(selectedLevel),
+                    iconType: 'dashboard',
                 },
             ],
         ],

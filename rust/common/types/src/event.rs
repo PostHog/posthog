@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::ops::Not;
 
+use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
-
-use crate::util::empty_string_is_none;
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
@@ -18,9 +17,36 @@ pub struct RawEvent {
     pub token: Option<String>,
     #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
-    #[serde(default, deserialize_with = "empty_string_is_none")]
+    #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
     pub uuid: Option<Uuid>,
     pub event: String,
+    #[serde(default)]
+    pub properties: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
+    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<HashMap<String, Value>>,
+    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
+    pub set_once: Option<HashMap<String, Value>>,
+}
+
+#[derive(Default, Debug, Deserialize, Serialize)]
+pub struct RawEngageEvent {
+    #[serde(
+        alias = "$token",
+        alias = "api_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub token: Option<String>,
+    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
+    pub uuid: Option<Uuid>,
+    // NOTE: missing event name is the only difference between RawEvent and RawEngageEvent
+    // when the event name is missing, we need fill in $identify as capture.py does:
+    // https://github.com/PostHog/posthog/blob/70ce86a73f6c3d3ee6f44e1ac0acd695e2f78682/posthog/api/capture.py#L501-L502
     #[serde(default)]
     pub properties: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,12 +68,14 @@ pub struct CapturedEvent {
     pub data: String, // This should be a `RawEvent`, but we serialise twice.
     pub now: String,
     #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::serde::rfc3339::option::serialize",
+        deserialize_with = "empty_datetime_is_none",
+        skip_serializing_if = "Option::is_none",
+        default
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
-    #[serde(skip_serializing_if = "<&bool>::not")] // only store if true
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
 }
 
@@ -82,7 +110,8 @@ pub enum PersonMode {
 pub struct ClickHouseEvent {
     pub uuid: Uuid,
     pub team_id: i32,
-    pub project_id: i64,
+    // NOTE - option - this is a nullable column in the DB, so :shrug:
+    pub project_id: Option<i64>,
     pub event: String,
     pub distinct_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,7 +122,7 @@ pub struct ClickHouseEvent {
     pub timestamp: String,
     // TODO: verify timestamp format
     pub created_at: String,
-    pub elements_chain: String,
+    pub elements_chain: Option<String>,
     // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_created_at: Option<String>,
@@ -179,6 +208,10 @@ impl RawEvent {
             .as_str()
             .map(|s| s.to_owned())
             .unwrap_or_else(|| value.to_string());
+
+        // Replace null characters with Unicode replacement character
+        let distinct_id = distinct_id.replace('\0', "\u{FFFD}");
+
         match distinct_id.len() {
             0 => None,
             1..=200 => Some(distinct_id),
@@ -204,5 +237,12 @@ impl RawEvent {
         if let Some(value) = self.properties.get_mut(key) {
             *value = f(value.take());
         }
+    }
+}
+
+impl CapturedEvent {
+    pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
+        self.sent_at
+            .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
     }
 }

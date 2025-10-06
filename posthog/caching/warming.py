@@ -1,28 +1,29 @@
 import itertools
-from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+from django.db.models import Q
+
 import structlog
+import posthoganalytics
 from celery import shared_task
 from celery.canvas import chain
-from django.db.models import Q
 from prometheus_client import Counter, Gauge
-from posthog.exceptions_capture import capture_exception
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.query_cache import QueryCacheManager
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team, Insight, DashboardTile
+from posthog.models import DashboardTile, Insight, Team
+from posthog.ph_client import ph_scoped_capture
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.utils import CeleryQueue
-from posthog.ph_client import ph_us_client
-import posthoganalytics
-
 
 logger = structlog.get_logger(__name__)
 
@@ -86,10 +87,10 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
     )
 
-    QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+    QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
+    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
@@ -162,13 +163,13 @@ def schedule_warming_for_teams_task():
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
             insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
             capture_ph_event(
-                str(team.uuid),
-                "cache warming - insights to cache",
+                distinct_id=str(team.uuid),
+                event="cache warming - insights to cache",
                 properties={
                     "count": len(insight_tuples),
                     "team_id": team.id,
@@ -204,12 +205,12 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
 
     dashboard = None
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2")
+    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2", feature=Feature.CACHE_WARMUP)
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
@@ -234,12 +235,13 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 is_cached=is_cached,
             ).inc()
 
-            with ph_us_client() as capture_ph_event:
+            with ph_scoped_capture() as capture_ph_event:
                 capture_ph_event(
-                    str(insight.team.uuid),
-                    "cache warming - warming insight",
+                    distinct_id=str(insight.team.uuid),
+                    event="cache warming - warming insight",
                     properties={
                         "insight_id": insight.pk,
+                        "insight_short_id": insight.short_id,
                         "dashboard_id": dashboard_id,
                         "is_cached": is_cached,
                         "team_id": insight.team_id,

@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db.models import Count
+
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -38,6 +39,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
     creation_context = serializers.SerializerMethodField()
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Action
@@ -59,6 +61,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "bytecode_error",
             "pinned_at",
             "creation_context",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "team_id",

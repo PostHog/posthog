@@ -1,10 +1,12 @@
 import json
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
 from inline_snapshot import snapshot
 
+from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, MappingsSerializer
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.cdp.validation import InputsSchemaItemSerializer, MappingsSerializer
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 
 def validate_inputs(schema, inputs):
@@ -42,6 +44,7 @@ def create_example_inputs_schema():
             "required": True,
         },
         {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+        {"key": "number", "type": "number", "label": "Number", "required": False},
     ]
 
 
@@ -63,10 +66,17 @@ def create_example_inputs():
                 "event_url": "{f'{event.url}-test'}",
             },
         },
+        "number": {"value": 42},
     }
 
 
 class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    filters_context: dict = {}
+
+    def setUp(self):
+        super().setUp()
+        self.filters_context = {"function_type": "destination", "get_team": lambda: self.team}
+
     def test_validate_inputs_schema(self):
         inputs_schema = create_example_inputs_schema()
         assert validate_inputs_schema(inputs_schema) == snapshot(
@@ -105,6 +115,14 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "type": "dictionary",
                     "key": "headers",
                     "label": "Headers",
+                    "required": False,
+                    "secret": False,
+                    "hidden": False,
+                },
+                {
+                    "type": "number",
+                    "key": "number",
+                    "label": "Number",
                     "required": False,
                     "secret": False,
                     "hidden": False,
@@ -184,6 +202,10 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                         ]
                     },
                     "order": 3,
+                },
+                "number": {
+                    "value": 42,
+                    "order": 4,
                 },
             }
         )
@@ -396,3 +418,58 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
             values_only = {k: {"value": v["value"]} for k, v in validated.items()}
             assert values_only == expected_result
+
+    def test_validate_filters_builds_bytecode(self):
+        filters = {
+            "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
+            "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
+        }
+
+        serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+        serializer.is_valid(raise_exception=True)
+        value = json.loads(json.dumps(serializer.validated_data))
+        assert value == {
+            "source": "events",
+            "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
+            "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
+            "bytecode": [
+                "_H",
+                1,
+                32,
+                "test@posthog.com",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                11,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                3,
+                2,
+            ],
+        }
+
+    def test_validate_filters_person_updates_only_allows_properties(self):
+        filters = {
+            "source": "person-updates",
+            "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
+            "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
+        }
+
+        serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+        serializer.is_valid(raise_exception=True)
+        value = json.loads(json.dumps(serializer.validated_data))
+        assert value == {
+            "source": "person-updates",
+            "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
+            "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+        }

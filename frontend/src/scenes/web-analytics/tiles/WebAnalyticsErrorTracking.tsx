@@ -1,16 +1,19 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
+
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ErrorTrackingTile } from 'scenes/web-analytics/common'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { ProductKey } from '~/types'
@@ -26,7 +29,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="deprecated-space-x-1">
-                            <TZLabel time={record.last_seen as string} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
                         </div>
                     </div>
                 }
@@ -35,6 +38,12 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             />
         </div>
     )
+}
+
+const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
+    const aggregations = (record as ErrorTrackingIssue).aggregations!
+    const count = aggregations[columnName as 'occurrences' | 'users']
+    return <span className="text-lg font-medium">{humanFriendlyLargeNumber(count)}</span>
 }
 
 const context: QueryContext = {
@@ -48,9 +57,11 @@ const context: QueryContext = {
         },
         users: {
             align: 'right',
+            render: CountColumn,
         },
         occurrences: {
             align: 'right',
+            render: CountColumn,
         },
     },
 }
@@ -72,7 +83,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
         >
             <h2 className="m-0 mb-3">Error tracking</h2>
             <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                <Query query={query} embedded={true} context={context} />
+                <Query attachTo={webAnalyticsLogic} query={query} embedded={true} context={context} />
             </div>
             <div className="flex flex-row-reverse my-2">
                 <LemonButton

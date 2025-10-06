@@ -1,16 +1,19 @@
-import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
+import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
-import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
+import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -40,25 +43,18 @@ export default function App({ Component, pageProps }: AppProps) {
 
   useEffect(() => {
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
-      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
+      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
               ? ``
               : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
+      defaults: '${SDK_DEFAULTS_DATE}',
       // Enable debug mode in development
       loaded: (posthog) => {
         if (process.env.NODE_ENV === 'development') posthog.debug()
       }
     })
-
-    const handleRouteChange = () => posthog?.capture('$pageview')
-
-    Router.events.on('routeChangeComplete', handleRouteChange);
-
-    return () => {
-      Router.events.off('routeChangeComplete', handleRouteChange);
-    }
   }, [])
 
   return (
@@ -103,7 +99,7 @@ function NextAppRouterPageViewProviderSnippet(): JSX.Element {
 'use client'
 
 import { usePathname, useSearchParams } from "next/navigation"
-import { useEffect, Suspense } from "react"
+import { useEffect } from "react"
 import { usePostHog } from 'posthog-js/react'
 
 import posthog from 'posthog-js'
@@ -112,54 +108,38 @@ import { PostHogProvider as PHProvider } from 'posthog-js/react'
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
-      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
+      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
               ? ``
               : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
-      capture_pageview: false // Disable automatic pageview capture, as we capture manually
+      defaults: '${SDK_DEFAULTS_DATE}'
     })
   }, [])
 
   return (
     <PHProvider client={posthog}>
-      <SuspendedPostHogPageView />
       {children}
     </PHProvider>
   )
 }
-
-function PostHogPageView() {
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const posthog = usePostHog()
-
-  // Track pageviews
-  useEffect(() => {
-    if (pathname && posthog) {
-      let url = window.origin + pathname
-      if (searchParams.toString()) {
-        url = url + "?" + searchParams.toString();
-      }
-
-      posthog.capture('$pageview', { '$current_url': url })
-    }
-  }, [pathname, searchParams, posthog])
-
-  return null
+`}
+        </CodeSnippet>
+    )
 }
 
-// Wrap PostHogPageView in Suspense to avoid the useSearchParams usage above
-// from de-opting the whole app into client-side rendering
-// See: https://nextjs.org/docs/messages/deopted-into-client-rendering
-function SuspendedPostHogPageView() {
-  return (
-    <Suspense fallback={null}>
-      <PostHogPageView />
-    </Suspense>
-  )
-}`}
+function NextInstrumentationClientSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.TypeScript}>
+            {`// instrumentation-client.js
+import posthog from 'posthog-js'
+
+posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    defaults: '${SDK_DEFAULTS_DATE}'
+});
+            `}
         </CodeSnippet>
     )
 }
@@ -167,26 +147,18 @@ function SuspendedPostHogPageView() {
 export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = !hideWizard && isCloudOrDev
 
-    const region = preflight?.region
-
-    const wizardCommand = `npx @posthog/wizard${region ? ` --region ${region.toLowerCase()}` : ''}`
     return (
         <>
             {showSetupWizard && (
-                <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex flex-col p-2">
-                        <h3 className="flex items-center gap-2 pb-1">
-                            <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
-                        </h3>
-                        <p className="font-normal pb-2">
-                            Try using the AI setup wizard to automatically install PostHog with a single command.
-                        </p>
-                        <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
-                    </div>
-                </LemonBanner>
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="Next.js" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
             )}
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
@@ -207,6 +179,10 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
                 onChange={(key) => setNextJsRouter(key as NextJSRouter)}
                 tabs={[
                     {
+                        key: 'instrumentation-client',
+                        label: 'Next.js 15.3+',
+                    },
+                    {
                         key: 'app',
                         label: 'App router',
                     },
@@ -216,6 +192,15 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
                     },
                 ]}
             />
+            {nextJsRouter === 'instrumentation-client' && (
+                <>
+                    <p>
+                        If you're using Next.js 15.3+ you can use <code>instrumentation-client.ts|js</code> for a
+                        light-weight, fast integration
+                    </p>
+                    <NextInstrumentationClientSnippet />
+                </>
+            )}
             {nextJsRouter === 'app' && (
                 <>
                     <p>
@@ -250,15 +235,6 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
                             pages router
                         </Link>
                         , you can integrate PostHog at the root of your app.
-                    </p>
-                    <p>
-                        PostHog's <code>$pageview</code> autocapture relies on page load events. Since Next.js acts as a
-                        single-page app, this event doesn't trigger on navigation and we need to capture{' '}
-                        <code>$pageview</code> events manually.
-                    </p>
-                    <p>
-                        We can set up a <code>handleRouteChange</code> function to capture pageviews in the{' '}
-                        <code>useEffect</code> hook in <code>pages/_app.tsx</code>.
                     </p>
                     <NextPagesRouterPageViewSnippet />
                 </>

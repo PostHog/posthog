@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'
@@ -77,7 +79,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
-                <div className="text-secondary text-xs mb-4">This will be the table name used when writing queries</div>
+                <div className="mb-4 text-xs text-secondary">This will be the table name used when writing queries</div>
                 <LemonField name="url_pattern" label="Files URL pattern">
                     {({ value = '', onChange }) => (
                         <LemonInput
@@ -93,10 +95,10 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
-                <div className="text-secondary text-xs mb-4">
+                <div className="mb-4 text-xs text-secondary">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
-                <LemonField name="format" label="File format" className="w-max mb-4">
+                <LemonField name="format" label="File format" className="mb-4 w-max">
                     {({ value = '', onChange }) => (
                         <LemonSelect
                             data-attr="table-format"
@@ -144,7 +146,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                     )}
                 </LemonField>
                 {provider === 'google-cloud' && (
-                    <div className="text-secondary text-xs">
+                    <div className="text-xs text-secondary">
                         We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
                         <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
                             here

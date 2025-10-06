@@ -3,9 +3,10 @@
     inset: 0;
     z-index: var(--z-modal);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    transition: background-color var(--modal-transition-time) ease-out,
+    transition:
+        background-color var(--modal-transition-time) ease-out,
         backdrop-filter var(--modal-transition-time) ease-out;
 
     &.LemonModal__overlay--force-modal-above-popovers {
@@ -36,14 +37,18 @@
     width: fit-content;
     min-width: min(28rem, 100%);
     max-width: 90%;
-    max-height: 90%;
+
+    // Always give toasts some space at the bottom
+    max-height: calc(100vh - 60px - 2rem);
     margin: 1rem auto;
-    background-color: var(--bg-surface-primary);
+    background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
     border-radius: var(--radius);
     box-shadow: var(--modal-shadow-elevation);
     opacity: 0;
-    transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
+    transition:
+        opacity var(--modal-transition-time) ease-out,
+        transform var(--modal-transition-time) ease-out;
     transform: scale(0.85);
 
     // Transition properties
@@ -103,7 +108,7 @@
     padding-bottom: 1rem;
     margin: 1rem;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
 
     h3 {
         margin-right: 2.5rem;
@@ -128,7 +133,7 @@
     margin: 1rem;
     margin-top: 0;
     white-space: nowrap;
-    border-top: 1px solid var(--border-primary);
+    border-top: 1px solid var(--color-border-primary);
 }
 
 .LemonModal__header + .LemonModal__footer {

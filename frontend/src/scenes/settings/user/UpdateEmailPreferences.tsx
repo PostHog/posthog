@@ -1,5 +1,9 @@
-import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -8,97 +12,124 @@ export function UpdateEmailPreferences(): JSX.Element {
     const { updateUser } = useActions(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
+    const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
+    const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
+    const pipelineErrorsEnabled = user?.notification_settings?.plugin_disabled ?? true
+
+    const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
+        if (!user?.notification_settings) {
+            return
+        }
+
+        updateUser({
+            notification_settings: {
+                ...user.notification_settings,
+                project_weekly_digest_disabled: {
+                    ...user.notification_settings.project_weekly_digest_disabled,
+                    [teamId]: !enabled,
+                },
+            },
+        })
+    }
+
     return (
         <div className="deprecated-space-y-4">
-            <LemonSwitch
-                id="plugin-disabled"
-                data-attr="plugin_disabled"
-                onChange={() => {
-                    user?.notification_settings &&
-                        updateUser({
-                            notification_settings: {
-                                ...user?.notification_settings,
-                                plugin_disabled: !user?.notification_settings.plugin_disabled,
-                            },
-                        })
-                }}
-                checked={user?.notification_settings.plugin_disabled || false}
-                disabled={userLoading}
-                bordered
-                label="Get notified of data pipeline errors."
-            />
+            <h3>Email notifications</h3>
+            <p>Configure which email notifications you want to receive.</p>
 
-            <h3>Weekly digest</h3>
-            <p>
-                The weekly digest keeps you up to date with everything that's happening in your PostHog organizations.
-            </p>
-            <div className="deprecated-space-y-2">
-                <LemonSwitch
-                    id="all-digests-disabled"
-                    data-attr="all_digests_disabled"
-                    onChange={() => {
-                        user?.notification_settings &&
-                            updateUser({
-                                notification_settings: {
-                                    ...user?.notification_settings,
-                                    all_weekly_digest_disabled: !user?.notification_settings.all_weekly_digest_disabled,
-                                },
-                            })
-                    }}
-                    checked={!user?.notification_settings.all_weekly_digest_disabled}
-                    disabled={userLoading}
-                    bordered
-                    label="Receive the weekly digests"
-                    tooltip="This option applies to all organizations you belong to. If you want to opt out of digests for a specific organization, disable all the individual project settings below."
-                />
-                {!user?.notification_settings.all_weekly_digest_disabled ? (
-                    <>
-                        <h4 className="ml-12">Individual project settings:</h4>
-                        <ul className="flex flex-col gap-2 w-fit">
-                            {currentOrganization?.teams?.map((team) => (
-                                <li key={team.id} className="ml-16 grow list-disc">
-                                    <div className="flex items-center grow">
-                                        <LemonSwitch
-                                            id={`project-digest-${team.id}`}
-                                            data-attr={`project_digest_${team.id}`}
-                                            onChange={() => {
-                                                user?.notification_settings &&
-                                                    updateUser({
-                                                        notification_settings: {
-                                                            ...user?.notification_settings,
-                                                            project_weekly_digest_disabled: {
-                                                                ...user.notification_settings
-                                                                    .project_weekly_digest_disabled,
-                                                                [team.id]:
-                                                                    !user.notification_settings
-                                                                        .project_weekly_digest_disabled?.[team.id],
-                                                            },
-                                                        },
-                                                    })
-                                            }}
-                                            checked={
-                                                !user?.notification_settings.project_weekly_digest_disabled?.[team.id]
-                                            }
-                                            disabled={
-                                                userLoading || user?.notification_settings.all_weekly_digest_disabled
-                                            }
-                                            bordered
-                                            label={
-                                                <>
-                                                    {team.name}
-                                                    <LemonTag type="muted" className="ml-2">
-                                                        id: {team.id.toString()}
-                                                    </LemonTag>
-                                                </>
-                                            }
-                                            fullWidth
-                                        />
+            <div className="deprecated-space-y-4">
+                <div className="deprecated-space-y-4">
+                    <h4>Notification types</h4>
+
+                    {/* Weekly Digest Section */}
+                    <div className="border rounded p-4 deprecated-space-y-3">
+                        <LemonSwitch
+                            id="weekly-digest-enabled"
+                            data-attr="weekly_digest_enabled"
+                            onChange={() => {
+                                user?.notification_settings &&
+                                    updateUser({
+                                        notification_settings: {
+                                            ...user?.notification_settings,
+                                            all_weekly_digest_disabled:
+                                                !user?.notification_settings.all_weekly_digest_disabled,
+                                        },
+                                    })
+                            }}
+                            checked={weeklyDigestEnabled}
+                            disabled={userLoading}
+                            label="Weekly digest"
+                        />
+                        <p className="text-muted mt-2">
+                            The weekly digest keeps you up to date with everything that's happening in your PostHog
+                            organizations.
+                        </p>
+
+                        {weeklyDigestEnabled && (
+                            <div className="ml-6">
+                                <LemonButton
+                                    icon={weeklyDigestProjectsExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                                    onClick={() => setWeeklyDigestProjectsExpanded(!weeklyDigestProjectsExpanded)}
+                                    size="small"
+                                    type="tertiary"
+                                    className="p-0"
+                                >
+                                    Select projects ({currentOrganization?.teams?.length || 0} available)
+                                </LemonButton>
+
+                                {weeklyDigestProjectsExpanded && (
+                                    <div className="mt-3 ml-6 deprecated-space-y-2">
+                                        <div className="flex flex-col gap-2">
+                                            {currentOrganization?.teams?.map((team) => (
+                                                <LemonCheckbox
+                                                    key={`weekly-digest-${team.id}`}
+                                                    id={`weekly-digest-${team.id}`}
+                                                    data-attr={`weekly_digest_${team.id}`}
+                                                    onChange={(checked) =>
+                                                        updateWeeklyDigestForProject(team.id, checked)
+                                                    }
+                                                    checked={
+                                                        !user?.notification_settings.project_weekly_digest_disabled?.[
+                                                            team.id
+                                                        ]
+                                                    }
+                                                    disabled={userLoading}
+                                                    label={
+                                                        <div className="flex items-center gap-2">
+                                                            <span>{team.name}</span>
+                                                            <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                                                        </div>
+                                                    }
+                                                />
+                                            ))}
+                                        </div>
                                     </div>
-                                </li>
-                            ))}
-                        </ul>
-                    </>
-                ) : null}
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Data Pipeline Errors Section */}
+                    <div className="border rounded p-4 deprecated-space-y-3">
+                        <LemonSwitch
+                            id="pipeline-errors-enabled"
+                            data-attr="pipeline_errors_enabled"
+                            onChange={() => {
+                                user?.notification_settings &&
+                                    updateUser({
+                                        notification_settings: {
+                                            ...user?.notification_settings,
+                                            plugin_disabled: !user?.notification_settings.plugin_disabled,
+                                        },
+                                    })
+                            }}
+                            checked={pipelineErrorsEnabled}
+                            disabled={userLoading}
+                            label="Data pipeline errors"
+                            tooltip="Get notified when data pipeline components (destinations, batch exports) encounter errors for all projects"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     )

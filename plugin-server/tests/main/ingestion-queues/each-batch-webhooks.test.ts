@@ -1,10 +1,14 @@
+import { DateTime } from 'luxon'
+
 import { eachMessageWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
+    GroupTypeIndex,
     Hub,
     ProjectId,
     RawKafkaEvent,
+    TeamId,
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -13,7 +17,6 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
@@ -53,23 +56,14 @@ describe('eachMessageWebhooksHandlers', () => {
             [],
             'testTag'
         )
-        await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `
-            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `,
-            [
-                2,
-                'org_posthog',
-                0,
-                JSON.stringify({ name: 'PostHog' }),
-                new Date().toISOString(),
-                JSON.stringify({}),
-                JSON.stringify({}),
-                1,
-            ],
-            'upsertGroup'
+        await hub.groupRepository.insertGroup(
+            2 as TeamId,
+            0 as GroupTypeIndex,
+            'org_posthog',
+            { name: 'PostHog' },
+            DateTime.now(),
+            {},
+            {}
         )
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -84,24 +78,20 @@ describe('eachMessageWebhooksHandlers', () => {
     })
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
-        const actionManager = new ActionManager(hub.postgres, hub)
+        const actionManager = new ActionManager(hub.postgres, hub.pubSub)
         const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,
-            hub.organizationManager,
             hub.rustyHook,
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
-        const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
+        const groupTypeManager = new GroupTypeManager(hub.groupRepository, hub.teamManager)
+        await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
-        const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        organizationManager['availableProductFeaturesCache'].set(2, [
-            [{ name: 'Group Analytics', key: 'group_analytics' }],
-            Date.now(),
-        ])
+        const team = await hub.teamManager.getTeam(2)
+        team!.available_features = ['group_analytics'] // NOTE: Hacky but this will be removed soon
 
         actionManager['ready'] = true
         actionManager['actionCache'] = {
@@ -146,8 +136,8 @@ describe('eachMessageWebhooksHandlers', () => {
             actionMatcher,
             hookCannon,
             groupTypeManager,
-            organizationManager,
-            hub.postgres
+            hub.teamManager,
+            hub.groupRepository
         )
 
         // NOTE: really it would be nice to verify that fire has been called

@@ -72,8 +72,7 @@ impl Manager {
         self.init_where_clause(qb, project_id);
         self.where_property_type(qb, params.parent_type);
         qb.push(format!(
-            "AND COALESCE({}.\"group_type_index\", -1) = ",
-            PROPERTY_DEFS_TABLE
+            "AND COALESCE({PROPERTY_DEFS_TABLE}.\"group_type_index\", -1) = "
         ));
         qb.push_bind(params.group_type_index);
         qb.push(" ");
@@ -139,13 +138,12 @@ impl Manager {
 
         // append event_property_field clause to SELECT clause
         let is_seen_resolved = if self.is_parent_type_event(params.parent_type) {
-            format!("{}.\"property\"", EVENT_PROPERTY_TABLE_ALIAS)
+            format!("{EVENT_PROPERTY_TABLE_ALIAS}.\"property\"")
         } else {
             "NULL".to_string()
         };
         qb.push(format!(
-            ", {} IS NOT NULL AS is_seen_on_filtered_events ",
-            is_seen_resolved
+            ", {is_seen_resolved} IS NOT NULL AS is_seen_on_filtered_events "
         ));
 
         self.gen_from_clause(qb, params.use_enterprise_taxonomy);
@@ -160,8 +158,7 @@ impl Manager {
         self.init_where_clause(qb, project_id);
         self.where_property_type(qb, params.parent_type);
         qb.push(format!(
-            " AND COALESCE({}.\"group_type_index\", -1) = ",
-            PROPERTY_DEFS_TABLE
+            " AND COALESCE({PROPERTY_DEFS_TABLE}.\"group_type_index\", -1) = "
         ));
         qb.push_bind(params.group_type_index);
         qb.push(" ");
@@ -188,11 +185,10 @@ impl Manager {
         if params.use_enterprise_taxonomy {
             // "verified" col only exists on the enterprise prop defs table!
             qb.push(format!(
-                " {}.\"verified\" DESC NULLS LAST, ",
-                ENTERPRISE_PROP_DEFS_TABLE
+                " {ENTERPRISE_PROP_DEFS_TABLE}.\"verified\" DESC NULLS LAST, "
             ));
         }
-        qb.push(format!(" {}.\"name\" ASC ", PROPERTY_DEFS_TABLE));
+        qb.push(format!(" {PROPERTY_DEFS_TABLE}.\"name\" ASC "));
         qb.push(" ");
 
         // LIMIT and OFFSET clauses
@@ -213,13 +209,13 @@ impl Manager {
         let mut selections = vec![];
 
         for col_name in PROPERTY_DEFS_TABLE_COLUMNS {
-            selections.push(format!("{}.\"{}\"", PROPERTY_DEFS_TABLE, col_name));
+            selections.push(format!("{PROPERTY_DEFS_TABLE}.\"{col_name}\""));
         }
 
         // if we're JOINing in the enterprise property def, select ee-specific cols too
         if use_enterprise_taxonomy {
             for col_name in ENTERPRISE_PROP_DEFS_TABLE_COLUMNS {
-                selections.push(format!("{}.\"{}\"", ENTERPRISE_PROP_DEFS_TABLE, col_name));
+                selections.push(format!("{ENTERPRISE_PROP_DEFS_TABLE}.\"{col_name}\""));
             }
         }
 
@@ -231,12 +227,11 @@ impl Manager {
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
         let from_clause = if use_enterprise_taxonomy {
             format!(
-                " FROM {0} FULL OUTER JOIN {1} ON {0}.\"id\"={1}.\"propertydefinition_ptr_id\" ",
-                PROPERTY_DEFS_TABLE, ENTERPRISE_PROP_DEFS_TABLE,
+                " FROM {PROPERTY_DEFS_TABLE} FULL OUTER JOIN {ENTERPRISE_PROP_DEFS_TABLE} ON {PROPERTY_DEFS_TABLE}.\"id\"={ENTERPRISE_PROP_DEFS_TABLE}.\"propertydefinition_ptr_id\" "
             )
         } else {
             // this is the default if enterprise taxonomy is not requested
-            format!(" FROM {} ", PROPERTY_DEFS_TABLE)
+            format!(" FROM {PROPERTY_DEFS_TABLE} ")
         };
         qb.push(from_clause);
         qb.push(" ");
@@ -258,8 +253,7 @@ impl Manager {
             // to only those events. otherwise it's a LEFT JOIN for enrichment only
             qb.push(self.event_property_join_type(filter_by_event_names));
             qb.push(format!(
-                " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
-                EVENT_PROPERTY_TABLE
+                " (SELECT DISTINCT property FROM {EVENT_PROPERTY_TABLE} WHERE COALESCE(project_id, team_id) = "
             ));
             qb.push_bind(project_id);
             qb.push(" ");
@@ -273,16 +267,14 @@ impl Manager {
 
             // close the JOIN clause and add the JOIN condition
             qb.push(format!(
-                ") AS {0} ON {0}.\"property\" = {1}.\"name\" ",
-                EVENT_PROPERTY_TABLE_ALIAS, PROPERTY_DEFS_TABLE
+                ") AS {EVENT_PROPERTY_TABLE_ALIAS} ON {EVENT_PROPERTY_TABLE_ALIAS}.\"property\" = {PROPERTY_DEFS_TABLE}.\"name\" "
             ));
         }
     }
 
     fn init_where_clause(&self, qb: &mut QueryBuilder<Postgres>, project_id: i32) {
         qb.push(format!(
-            "WHERE COALESCE({0}.\"project_id\", {0}.\"team_id\") = ",
-            PROPERTY_DEFS_TABLE
+            "WHERE COALESCE({PROPERTY_DEFS_TABLE}.\"project_id\", {PROPERTY_DEFS_TABLE}.\"team_id\") = "
         ));
         qb.push_bind(project_id);
         qb.push(" ");
@@ -293,7 +285,7 @@ impl Manager {
         qb: &mut QueryBuilder<Postgres>,
         parent_type: PropertyParentType,
     ) {
-        qb.push(format!(" AND {}.\"type\" = ", PROPERTY_DEFS_TABLE));
+        qb.push(format!(" AND {PROPERTY_DEFS_TABLE}.\"type\" = "));
         qb.push_bind(parent_type as i32);
         qb.push(" ");
     }
@@ -309,7 +301,7 @@ impl Manager {
         // but may not matter when passed to this service. TBD. See below:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
         if self.is_parent_type_event(parent_type) {
-            qb.push(format!(" AND NOT {0}.\"name\" = ANY(", PROPERTY_DEFS_TABLE));
+            qb.push(format!(" AND NOT {PROPERTY_DEFS_TABLE}.\"name\" = ANY("));
 
             // here we combine fixed set of "hidden" event props with a
             // possibly empty list of user-supplied excluded props to filter
@@ -332,7 +324,7 @@ impl Manager {
         properties: &'args [String],
     ) {
         if !properties.is_empty() {
-            qb.push(format!(" AND {}.\"name\" = ANY(", PROPERTY_DEFS_TABLE));
+            qb.push(format!(" AND {PROPERTY_DEFS_TABLE}.\"name\" = ANY("));
             qb.push_bind(properties);
             qb.push(") ");
         }
@@ -348,8 +340,7 @@ impl Manager {
         // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
         if is_numerical {
             qb.push(format!(
-                " AND {0}.\"is_numerical\" = true AND NOT {0}.\"name\" = ANY(ARRAY['distinct_id', 'timestamp']) ",
-                PROPERTY_DEFS_TABLE,
+                " AND {PROPERTY_DEFS_TABLE}.\"is_numerical\" = true AND NOT {PROPERTY_DEFS_TABLE}.\"name\" = ANY(ARRAY['distinct_id', 'timestamp']) ",
             ));
         }
     }
@@ -390,7 +381,7 @@ impl Manager {
                     " OR name = ANY(ARRAY[{}]) ",
                     term_aliases
                         .iter()
-                        .map(|ta| format!("'{}'", ta))
+                        .map(|ta| format!("'{ta}'"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
@@ -401,13 +392,13 @@ impl Manager {
             // step 2: filter "initial" prop defs if the user wants "latest"
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
             let screening_clause = if filter_initial_props {
-                format!(" OR NOT name ILIKE '%{}%' ", SEARCH_SCREEN_WORD)
+                format!(" OR NOT name ILIKE '%{SEARCH_SCREEN_WORD}%' ")
             } else {
                 "".to_string()
             };
 
             // step 2.5: join whatever we found in search_extras and trigger word result
-            let search_extras = format!("{}{}", search_extras, screening_clause);
+            let search_extras = format!("{search_extras}{screening_clause}");
 
             // step 3: generate the search fuzzy-matching SQL clause
             // Original Django monolith query construction step is here:
@@ -431,7 +422,7 @@ impl Manager {
                         // applying terms directly to ensure fuzzy matches are
                         // in parity with original query. Terms are cleansed
                         // upstream to ensure this is safe.
-                        qb.push(format!("'%{}%'", term));
+                        qb.push(format!("'{term}%'"));
                         if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
                             qb.push(" OR ");
                         }
@@ -459,13 +450,11 @@ impl Manager {
         if is_feature_flag.is_some() {
             if is_feature_flag.unwrap() {
                 qb.push(format!(
-                    " AND ({}.\"name\" LIKE '$feature/%') ",
-                    PROPERTY_DEFS_TABLE
+                    " AND ({PROPERTY_DEFS_TABLE}.\"name\" LIKE '$feature/%') ",
                 ));
             } else {
                 qb.push(format!(
-                    " AND ({}.\"name\" NOT LIKE '$feature/%') ",
-                    PROPERTY_DEFS_TABLE
+                    " AND ({PROPERTY_DEFS_TABLE}.\"name\" NOT LIKE '$feature/%') ",
                 ));
             }
         }

@@ -3,57 +3,65 @@
     "short_id": "dEMd6kZm",
     "name": "Organic SEO Trend (Trend)",
     "derived_name": "Pageview unique users by event's Referring Domain",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "math": "dau",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0,
-                "properties": [
+    "filters": {},
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "$referring_domain",
+                "breakdown_type": "event"
+            },
+            "dateRange": {
+                "date_from": "-90d"
+            },
+            "filterTestAccounts": true,
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
                     {
-                        "key": "$referring_domain",
-                        "type": "event",
-                        "value": "google|duckduckgo|brave|bing",
-                        "operator": "regex"
-                    },
-                    {
-                        "key": "$host",
-                        "type": "event",
-                        "value": ["posthog.com"],
-                        "operator": "exact"
-                    },
-                    {
-                        "key": "utm_medium",
-                        "type": "event",
-                        "value": "cpc",
-                        "operator": "not_icontains"
+                        "type": "AND",
+                        "values": []
                     }
                 ]
-            }
-        ],
-        "compare": false,
-        "date_to": null,
-        "display": "ActionsLineGraph",
-        "insight": "TRENDS",
-        "interval": "week",
-        "breakdown": "$referring_domain",
-        "date_from": "-90d",
-        "properties": {
-            "type": "AND",
-            "values": [
+            },
+            "series": [
                 {
-                    "type": "AND",
-                    "values": []
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "math": "dau",
+                    "name": "$pageview",
+                    "properties": [
+                        {
+                            "key": "$referring_domain",
+                            "operator": "regex",
+                            "type": "event",
+                            "value": "google|duckduckgo|brave|bing"
+                        },
+                        {
+                            "key": "$host",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": ["posthog.com"]
+                        },
+                        {
+                            "key": "utm_medium",
+                            "operator": "not_icontains",
+                            "type": "event",
+                            "value": "cpc"
+                        }
+                    ]
                 }
-            ]
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
         },
-        "entity_type": "events",
-        "breakdown_type": "event",
-        "filter_test_accounts": true
+        "full": true
     },
-    "query": null,
     "order": null,
     "deleted": false,
     "dashboards": [51661, 49928, 92173, 56695, 65101],
@@ -2494,8 +2502,6 @@
         }
     },
     "is_sample": false,
-    "effective_restriction_level": 37,
-    "effective_privilege_level": 37,
     "timezone": "US/Pacific",
     "is_cached": true,
     "query_status": null,

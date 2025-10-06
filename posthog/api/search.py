@@ -1,15 +1,17 @@
 import re
 from typing import Any, Literal, TypedDict
-from django.db.models import Model, Value, CharField, F, QuerySet
+
+from django.db.models import CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
-from rest_framework import viewsets, serializers
+
+from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
+from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
@@ -25,7 +27,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description", "filters", "query"],
+        "extra_fields": ["name", "description", "query"],
     },
     "dashboard": {
         "klass": Dashboard,

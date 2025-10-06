@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { ExperimentIdType } from '~/types'
 
-import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
 
 export interface AuthorizedUrlFormProps {
     type: AuthorizedUrlListType

@@ -1,12 +1,11 @@
 import pytest
+from posthog.test.base import APIBaseTest
 
 from django.db import connection
 
 from posthog.helpers.full_text_search import process_query
+from posthog.models import Dashboard, FeatureFlag, Insight, Notebook, Team
 from posthog.models.event_definition import EventDefinition
-from posthog.test.base import APIBaseTest
-
-from posthog.models import Dashboard, FeatureFlag, Team, Insight, Notebook
 
 
 class TestSearch(APIBaseTest):
@@ -87,7 +86,7 @@ class TestSearch(APIBaseTest):
                     "rank": sorted_results[1]["rank"],
                     "type": "insight",
                     "result_id": self.insight_1.short_id,
-                    "extra_fields": {"name": "second insight", "description": None, "filters": {}, "query": None},
+                    "extra_fields": {"name": "second insight", "description": None, "query": None},
                 },
                 {
                     "rank": sorted_results[2]["rank"],
@@ -102,10 +101,9 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?entities=insight")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json()["results"][0]["extra_fields"],
-            {"name": None, "description": None, "filters": {}, "query": None},
-        )
+        results = response.json()["results"]
+        for result in results:
+            self.assertEqual(set(result["extra_fields"].keys()), {"name", "description", "query"})
 
     def test_search_with_fully_invalid_query(self):
         response = self.client.get("/api/projects/@current/search?q=%3E")

@@ -1,13 +1,15 @@
-import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
+
+import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
@@ -20,14 +22,8 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
         editingSelectorValue,
         actionForm,
     } = useValues(actionsTabLogic)
-    const {
-        setActionFormValue,
-        selectAction,
-        inspectForElementWithIndex,
-        deleteAction,
-        setElementSelector,
-        editSelectorWithIndex,
-    } = useActions(actionsTabLogic)
+    const { setActionFormValue, selectAction, inspectForElementWithIndex, setElementSelector, editSelectorWithIndex } =
+        useActions(actionsTabLogic)
 
     return (
         <ToolbarMenu>
@@ -127,7 +123,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                         toolbarPosthogJS.capture(
                                                             'toolbar_manual_selector_modal_opened',
                                                             {
-                                                                selector: step?.selector,
+                                                                selector: step?.selector ?? null,
                                                             }
                                                         )
                                                         editSelectorWithIndex(index)
@@ -200,19 +196,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
-                    <span className="flex-1">
-                        {selectedActionId !== 'new' ? (
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                onClick={deleteAction}
-                                icon={<IconTrash />}
-                                size="small"
-                            >
-                                Delete
-                            </LemonButton>
-                        ) : null}
-                    </span>
+                    <span className="flex-1" />
                     <LemonButton type="secondary" size="small" onClick={() => selectAction(null)}>
                         Cancel
                     </LemonButton>

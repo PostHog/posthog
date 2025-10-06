@@ -1,5 +1,5 @@
 // copied from rrweb-snapshot, not included in rrweb types
-import { customEvent, EventType, IncrementalSource, removedNodeMutation } from '@posthog/rrweb-types'
+import { EventType, IncrementalSource, customEvent, removedNodeMutation } from '@posthog/rrweb-types'
 
 export enum NodeType {
     Document = 0,

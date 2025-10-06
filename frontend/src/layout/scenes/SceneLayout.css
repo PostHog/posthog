@@ -1,0 +1,11 @@
+.scene-layout__content-panel {
+    z-index: var(--z-scene-layout-content-panel);
+    width: var(--scene-layout-panel-width);
+    border-left: 1px solid var(--color-border-primary);
+}
+
+.storybook-test-runner main,
+.storybook-test-runner .scene-layout {
+    container-name: unset;
+    container-type: unset;
+}

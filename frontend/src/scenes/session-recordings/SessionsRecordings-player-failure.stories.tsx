@@ -1,6 +1,5 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -12,13 +11,13 @@ import { recordingPlaylists } from './__mocks__/recording_playlists'
 import { recordings } from './__mocks__/recordings'
 
 const meta: Meta = {
-    title: 'Replay/Player/Failure',
-    tags: ['test-skip'],
+    component: App,
+    title: 'Replay/Tabs/Home/Failure',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        pageUrl: urls.replay(),
     },
     decorators: [
         // API is set up so that everything except the call to load session recording metadata succeeds
@@ -91,7 +90,7 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
                     // with no source requested should return sources
@@ -100,10 +99,10 @@ const meta: Meta = {
                         {
                             sources: [
                                 {
-                                    source: 'blob',
+                                    source: 'blob_v2',
                                     start_timestamp: '2023-08-11T12:03:36.097000Z',
                                     end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
+                                    blob_key: '0',
                                 },
                             ],
                         },
@@ -127,9 +126,9 @@ const meta: Meta = {
 }
 export default meta
 
-export function RecentRecordings404(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replay())
-    }, [])
-    return <App />
+type Story = StoryObj<typeof meta>
+export const NotFound: Story = {
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },
+    },
 }

@@ -1,4 +1,200 @@
 # serializer version: 1
+# name: TestFOSSFunnel.test_funnel_aggregation_with_groups
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.`$group_0` AS aggregation_target,
+                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_aggregation_with_groups_across_persons
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.`$group_0` AS aggregation_target,
+                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 LEFT JOIN
+                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                           groups.group_type_index AS index,
+                           groups.group_key AS key
+                    FROM groups
+                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+                    GROUP BY groups.group_type_index,
+                             groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_aggregation_with_groups_global_filtering
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.`$group_0` AS aggregation_target,
+                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 LEFT JOIN
+                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                           groups.group_type_index AS index,
+                           groups.group_key AS key
+                    FROM groups
+                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+                    GROUP BY groups.group_type_index,
+                             groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds
   '''
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
@@ -93,7 +289,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
@@ -182,7 +381,8 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [2, 3]), 0)
+     WHERE in(steps,
+              [2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -195,7 +395,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
@@ -301,20 +504,13 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
-  '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
   '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
@@ -324,8 +520,9 @@
     AND version = 0
   '''
 # ---
-# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
   '''
+  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
@@ -360,10 +557,10 @@
               FROM
                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                        if(and(equals(e.event, 'user signed up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                              (SELECT cohortpeople.person_id AS person_id
-                                                                               FROM cohortpeople
-                                                                               WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0)), 1, 0) AS step_0,
+                        if(and(equals(e.event, 'user signed up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                       (SELECT cohortpeople.person_id AS person_id
+                                                                        FROM cohortpeople
+                                                                        WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                         if(equals(e.event, 'paid'), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
@@ -388,7 +585,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups
@@ -477,12 +677,12 @@
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
                           FROM person
-                          WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                                FROM person
-                                                                                WHERE equals(person.team_id, 99999)
-                                                                                GROUP BY person.id
-                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                          WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                        (SELECT person.id AS id, max(person.version) AS version
+                                                                         FROM person
+                                                                         WHERE equals(person.team_id, 99999)
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
@@ -496,7 +696,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
@@ -584,19 +787,20 @@
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
                              FROM person
-                             WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                                  (SELECT person.id AS id, max(person.version) AS version
-                                                                                   FROM person
-                                                                                   WHERE equals(person.team_id, 99999)
-                                                                                   GROUP BY person.id
-                                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                             WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                           (SELECT person.id AS id, max(person.version) AS version
+                                                                            FROM person
+                                                                            WHERE equals(person.team_id, 99999)
+                                                                            GROUP BY person.id
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [1, 2, 3]), 0)
+     WHERE in(steps,
+              [1, 2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -609,7 +813,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -697,19 +904,20 @@
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
                              FROM person
-                             WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                                  (SELECT person.id AS id, max(person.version) AS version
-                                                                                   FROM person
-                                                                                   WHERE equals(person.team_id, 99999)
-                                                                                   GROUP BY person.id
-                                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                             WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                           (SELECT person.id AS id, max(person.version) AS version
+                                                                            FROM person
+                                                                            WHERE equals(person.team_id, 99999)
+                                                                            GROUP BY person.id
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [2, 3]), 0)
+     WHERE in(steps,
+              [2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -722,7 +930,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -810,19 +1021,20 @@
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
                              FROM person
-                             WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                                  (SELECT person.id AS id, max(person.version) AS version
-                                                                                   FROM person
-                                                                                   WHERE equals(person.team_id, 99999)
-                                                                                   GROUP BY person.id
-                                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                             WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                           (SELECT person.id AS id, max(person.version) AS version
+                                                                            FROM person
+                                                                            WHERE equals(person.team_id, 99999)
+                                                                            GROUP BY person.id
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [3]), 0)
+     WHERE in(steps,
+              [3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -835,16 +1047,80 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                        if(and(equals(e.event, 'user signed up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                       (SELECT person_static_cohort.person_id AS person_id
+                                                                        FROM person_static_cohort
+                                                                        WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
@@ -883,10 +1159,10 @@
               FROM
                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                        if(and(equals(e.event, 'user signed up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                              (SELECT person_static_cohort.person_id AS person_id
-                                                                               FROM person_static_cohort
-                                                                               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0)), 1, 0) AS step_0,
+                        if(and(equals(e.event, 'user signed up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                       (SELECT person_static_cohort.person_id AS person_id
+                                                                        FROM person_static_cohort
+                                                                        WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                         if(equals(e.event, 'paid'), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
@@ -911,7 +1187,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFOSSFunnel.test_timezones
@@ -975,7 +1254,10 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -1072,7 +1354,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -1176,7 +1461,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -1273,7 +1561,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1395,7 +1686,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1411,7 +1702,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1533,7 +1827,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1549,7 +1843,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1694,7 +1991,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
@@ -1818,8 +2118,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
-                                                       and isNull(arrayFlatten(array('finance')))))
+     WHERE and(in(steps, [1, 2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
+                                            and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1832,7 +2132,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -1956,8 +2259,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
-                                                    and isNull(arrayFlatten(array('finance')))))
+     WHERE and(in(steps, [2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
+                                         and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1970,7 +2273,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
@@ -2094,8 +2400,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
-                                                       and isNull(arrayFlatten(array('technology')))))
+     WHERE and(in(steps, [1, 2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
+                                            and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2108,7 +2414,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -2232,8 +2541,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
-                                                    and isNull(arrayFlatten(array('technology')))))
+     WHERE and(in(steps, [2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
+                                         and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2246,6 +2555,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

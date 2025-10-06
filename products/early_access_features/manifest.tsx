@@ -1,20 +1,21 @@
-import { IconRocket } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Early Access Features',
+    name: 'Early access features',
     scenes: {
         EarlyAccessFeatures: {
-            name: 'Early Access Features',
+            name: 'Early access features',
             import: () => import('./frontend/EarlyAccessFeatures'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'EarlyAccessFeature',
         },
         EarlyAccessFeature: {
-            name: 'Early Access Features',
+            name: 'Early access feature',
             import: () => import('./frontend/EarlyAccessFeature'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
@@ -33,17 +34,40 @@ export const manifest: ProductManifest = {
             (id: string): string => `/early_access_features/${id}`,
     },
     fileSystemTypes: {
-        // TODO: add to project tree backend
-        // early_access_feature: {
-        //     icon: <IconRocket />,
-        //     href: (ref: string) => urls.earlyAccessFeature(ref),
-        // },
+        early_access_feature: {
+            name: 'Early access feature',
+            iconType: 'early_access_feature' as FileSystemIconType,
+            href: (ref: string) => urls.earlyAccessFeature(ref),
+            iconColor: [
+                'var(--color-product-early-access-features-light)',
+                'var(--color-product-early-access-features-dark)',
+            ],
+            filterKey: 'early_access_feature',
+        },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: 'Explore/Early access features',
-            icon: <IconRocket />,
-            href: () => urls.earlyAccessFeatures(),
+            path: `Early access feature`,
+            type: 'early_access_feature',
+            href: urls.earlyAccessFeature('new'),
+            iconType: 'early_access_feature' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-early-access-features-light)',
+                'var(--color-product-early-access-features-dark)',
+            ] as FileSystemIconColor,
+        },
+    ],
+    treeItemsProducts: [
+        {
+            path: 'Early access features',
+            category: 'Features',
+            type: 'early_access_feature',
+            href: urls.earlyAccessFeatures(),
+            iconType: 'early_access_feature' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-early-access-features-light)',
+                'var(--color-product-early-access-features-dark)',
+            ] as FileSystemIconColor,
         },
     ],
 }

@@ -1,7 +1,6 @@
 import re
 from typing import Any
 
-
 COST_PER_UNIT = 8
 
 
@@ -23,6 +22,24 @@ class UncaughtHogVMException(HogVMException):
     def __str__(self):
         msg = self.message.replace("'", "\\'")
         return f"{self.type}('{msg}')"
+
+
+class HogVMRuntimeExceededException(HogVMException):
+    """Exception thrown when HogVM code exceeds its runtime limit"""
+
+    def __init__(self, timeout_seconds: float, ops_performed: int):
+        self.timeout_seconds = timeout_seconds
+        self.ops_performed = ops_performed
+        super().__init__(f"Runtime exceeded {timeout_seconds} seconds after {ops_performed} operations")
+
+
+class HogVMMemoryExceededException(HogVMException):
+    """Exception thrown when HogVM code exceeds its memory limit"""
+
+    def __init__(self, memory_limit: int, attempted_memory: int):
+        self.memory_limit = memory_limit
+        self.attempted_memory = attempted_memory
+        super().__init__(f"Memory limit of {memory_limit} bytes exceeded. Attempted to use {attempted_memory} bytes")
 
 
 def like(string, pattern, flags=0):

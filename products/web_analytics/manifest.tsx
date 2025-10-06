@@ -1,7 +1,9 @@
-import { IconPieChart } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
@@ -9,13 +11,25 @@ export const manifest: ProductManifest = {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
         webAnalyticsPageReports: (): string => `/web/page-reports`,
+        webAnalyticsMarketing: (): string => `/web/marketing`,
     },
     fileSystemTypes: {},
-    treeItems: [
+    treeItemsProducts: [
         {
-            path: 'Explore/Web Analytics',
-            icon: <IconPieChart />,
-            href: () => urls.webAnalytics(),
+            path: 'Web analytics',
+            category: 'Analytics',
+            iconType: 'web_analytics',
+            iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
+            href: urls.webAnalytics(),
+        },
+    ],
+    treeItemsMetadata: [
+        {
+            path: 'Marketing settings',
+            category: 'Unreleased',
+            iconType: 'marketing_settings' as FileSystemIconType,
+            href: urls.marketingAnalytics(),
+            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         },
     ],
 }

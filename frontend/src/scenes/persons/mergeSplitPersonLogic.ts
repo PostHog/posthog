@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -36,11 +37,12 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
             false,
             {
                 execute: async () => {
-                    const splitAction = await api.create('api/person/' + values.person.id + '/split/', {
-                        ...(values.selectedPersonToAssignSplit
+                    const splitAction = await api.create(
+                        'api/person/' + values.person.id + '/split/',
+                        values.selectedPersonToAssignSplit
                             ? { main_distinct_id: values.selectedPersonToAssignSplit }
-                            : {}),
-                    })
+                            : {}
+                    )
                     if (splitAction.success) {
                         lemonToast.success(
                             'Person succesfully split. This may take up to a couple of minutes to complete.'

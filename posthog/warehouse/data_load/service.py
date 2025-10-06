@@ -1,50 +1,48 @@
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
-from datetime import datetime
 
+from django.conf import settings
+
+import s3fs
+import temporalio
+from asgiref.sync import async_to_sync
 from temporalio.client import (
+    Client as TemporalClient,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
-    ScheduleCalendarSpec,
-    ScheduleRange,
-    ScheduleIntervalSpec,
 )
 from temporalio.common import RetryPolicy
+
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
     a_delete_schedule,
+    a_schedule_exists,
     a_trigger_schedule,
     a_update_schedule,
     create_schedule,
+    delete_schedule,
     pause_schedule,
-    a_schedule_exists,
     schedule_exists,
     trigger_schedule,
-    update_schedule,
-    delete_schedule,
     unpause_schedule,
+    update_schedule,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-import temporalio
-from temporalio.client import Client as TemporalClient
-from asgiref.sync import async_to_sync
-
-from django.conf import settings
-import s3fs
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSource
     from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
-def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
+def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: bool = True):
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
@@ -69,11 +67,18 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
         minute_of_hour=minute,
         sync_frequency=sync_frequency,
         jitter=jitter,
+        should_sync=should_sync,
     )
 
 
 def to_temporal_schedule(
-    external_data_schema, inputs, hour_of_day=0, minute_of_hour=0, sync_frequency=timedelta(hours=6), jitter=None
+    external_data_schema,
+    inputs,
+    hour_of_day=0,
+    minute_of_hour=0,
+    sync_frequency=timedelta(hours=6),
+    jitter=None,
+    should_sync=True,
 ):
     action = ScheduleActionStartWorkflow(
         "external-data-job",
@@ -88,42 +93,31 @@ def to_temporal_schedule(
         ),
     )
 
-    # Determine spec based on frequency
-    if sync_frequency <= timedelta(hours=1):
-        spec = ScheduleSpec(intervals=[ScheduleIntervalSpec(every=sync_frequency)], jitter=jitter)
-    else:
-        spec = ScheduleSpec(
-            calendars=[get_calendar_spec(hour_of_day, minute_of_hour, sync_frequency)],
-            jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
-        )
+    sync_time = time(hour_of_day, minute_of_hour)
+    schedule_start = datetime.combine(datetime.now(UTC).date(), sync_time, tzinfo=UTC)
+
+    # Create the spec for the schedule based on the sync frequency and sync time
+    # The sync time is applied using a combination of the offset and the start_at time
+    spec = ScheduleSpec(
+        intervals=[
+            ScheduleIntervalSpec(
+                every=sync_frequency,
+                offset=timedelta(minutes=sync_time.hour * 60 + sync_time.minute) % sync_frequency,
+            )
+        ],
+        start_at=schedule_start,
+        # if custom sync time, don't apply jitter
+        jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
+    )
 
     return Schedule(
         action=action,
         spec=spec,
-        state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
+        state=ScheduleState(
+            paused=not should_sync,
+            note=f"Schedule for external data schema: {external_data_schema.pk}",
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-    )
-
-
-def get_calendar_spec(hour_of_day: int, minute_of_hour: int, sync_frequency: timedelta) -> ScheduleCalendarSpec:
-    hours_per_day = 24
-    seconds_per_hour = 3600
-    step = max(int(sync_frequency.total_seconds() // seconds_per_hour), 1)
-
-    # If step is greater than or equal to 24 hours, we only need one execution per day
-    if step >= hours_per_day:
-        return ScheduleCalendarSpec(
-            hour=[ScheduleRange(start=hour_of_day, end=hour_of_day, step=step)],
-            minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
-        )
-
-    end_hour = hour_of_day
-    while (end_hour + step) < hours_per_day:
-        end_hour += step
-
-    return ScheduleCalendarSpec(
-        hour=[ScheduleRange(start=hour_of_day, end=end_hour, step=step)],
-        minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
     )
 
 
@@ -137,11 +131,11 @@ def get_sync_frequency(external_data_schema: "ExternalDataSchema") -> tuple[time
 
 
 def sync_external_data_job_workflow(
-    external_data_schema: "ExternalDataSchema", create: bool = False
+    external_data_schema: "ExternalDataSchema", create: bool = False, should_sync: bool = True
 ) -> "ExternalDataSchema":
     temporal = sync_connect()
 
-    schedule = get_sync_schedule(external_data_schema)
+    schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
         create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
@@ -152,11 +146,11 @@ def sync_external_data_job_workflow(
 
 
 async def a_sync_external_data_job_workflow(
-    external_data_schema: "ExternalDataSchema", create: bool = False
+    external_data_schema: "ExternalDataSchema", create: bool = False, should_sync: bool = True
 ) -> "ExternalDataSchema":
     temporal = await async_connect()
 
-    schedule = get_sync_schedule(external_data_schema)
+    schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
         await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)

@@ -1,5 +1,7 @@
 import pytest
+
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.make.template_make import template as template_make
 

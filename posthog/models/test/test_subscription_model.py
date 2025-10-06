@@ -1,12 +1,15 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-import jwt
-import pytest
-from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.utils import timezone
-from freezegun import freeze_time
+
+import jwt
 
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.insight import Insight
@@ -16,7 +19,6 @@ from posthog.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-from posthog.test.base import BaseTest
 
 
 @patch.object(settings, "SECRET_KEY", "not-so-secret")

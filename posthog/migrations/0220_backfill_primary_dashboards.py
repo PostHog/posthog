@@ -1,5 +1,6 @@
-import structlog
 from django.db import connection, migrations
+
+import structlog
 
 
 def backfill_primary_dashboards(apps, _):

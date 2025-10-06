@@ -1,10 +1,11 @@
 import asyncio
-import typing
+import collections.abc
 
 import pyarrow as pa
-import structlog
 
-logger = structlog.get_logger()
+from posthog.temporal.common.logger import get_write_only_logger
+
+logger = get_write_only_logger()
 
 CONTINUATION_BYTES = b"\xff\xff\xff\xff"
 
@@ -16,7 +17,7 @@ class InvalidMessageFormat(Exception):
 class AsyncMessageReader:
     """Asynchronously read PyArrow messages from bytes iterator."""
 
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]):
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]):
         self._bytes = bytes_iter
         self._buffer = bytearray()
 
@@ -48,14 +49,18 @@ class AsyncMessageReader:
 
         await self.read_until(8 + metadata_size)
 
-        metadata_flatbuffer = self._buffer[8:][:metadata_size]
+        with memoryview(self._buffer) as buffer_view:
+            metadata_flatbuffer = buffer_view[8:][:metadata_size]
+            body_size = self.parse_body_size(metadata_flatbuffer)
 
-        body_size = self.parse_body_size(metadata_flatbuffer)
+        del metadata_flatbuffer
 
         total_message_size = 8 + metadata_size + body_size
         await self.read_until(total_message_size)
 
-        msg = pa.ipc.read_message(memoryview(self._buffer)[:total_message_size])
+        with memoryview(self._buffer) as buffer_view:
+            loop = asyncio.get_running_loop()
+            msg = await loop.run_in_executor(None, pa.ipc.read_message, buffer_view[:total_message_size])
 
         self._buffer = self._buffer[total_message_size:]
 
@@ -67,7 +72,7 @@ class AsyncMessageReader:
             bytes = await anext(self._bytes)
             self._buffer.extend(bytes)
 
-    def parse_body_size(self, metadata_flatbuffer: bytearray) -> int:
+    def parse_body_size(self, metadata_flatbuffer: bytes | bytearray | memoryview) -> int:
         """Parse body size from metadata flatbuffer.
 
         See: https://github.com/dvidelabs/flatcc/blob/master/doc/binary-format.md#internals.
@@ -105,7 +110,7 @@ class AsyncMessageReader:
 class AsyncRecordBatchReader:
     """Asynchronously read PyArrow RecordBatches from an iterator of bytes."""
 
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]) -> None:
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]) -> None:
         self._reader = AsyncMessageReader(bytes_iter)
         self._schema: None | pa.Schema = None
 
@@ -137,10 +142,10 @@ class AsyncRecordBatchReader:
 
 
 class AsyncRecordBatchProducer(AsyncRecordBatchReader):
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]) -> None:
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]) -> None:
         super().__init__(bytes_iter)
 
-    async def produce(self, queue: asyncio.Queue):
+    async def produce(self, queue: asyncio.Queue[pa.RecordBatch]):
         """Read all record batches and produce them to a queue for async processing."""
         await logger.adebug("Starting record batch produce loop")
 

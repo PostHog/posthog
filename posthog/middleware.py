@@ -1,60 +1,56 @@
-from datetime import datetime, timedelta
-from posthog.geoip import get_geoip_properties
 import time
-from ipaddress import ip_address, ip_network
-from typing import Any, Optional, cast
+import uuid
 from collections.abc import Callable
-from loginas.utils import is_impersonated_session, restore_original_login
-from posthog.rbac.user_access_control import UserAccessControl
-from django.shortcuts import redirect
-import structlog
-from corsheaders.middleware import CorsMiddleware
+from contextlib import suppress
+from datetime import datetime, timedelta
+from ipaddress import ip_address, ip_network
+from typing import Optional, cast
+
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import (
-    Metrics,
-    PrometheusAfterMiddleware,
-)
+
+import structlog
+from django_prometheus.middleware import Metrics
+from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
+from social_core.exceptions import AuthFailed
 from statshog.defaults.django import statsd
 
-from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
+from posthog.geoip import get_geoip_properties
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
+from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
-    "engage",
-    "track",
-    "capture",
-    "batch",
-    "e",
-    "s",
     "static",
     "_health",
     "flags",
+    "messaging-preferences",
+    "i",
 ]
-
-if DEBUG:
-    # /i/ is the new root path for capture endpoints
-    ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
@@ -65,7 +61,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track", "flags"}
+cookie_api_paths_to_ignore = {"decide", "api", "flags"}
 
 
 class AllowIPMiddleware:
@@ -84,7 +80,7 @@ class AllowIPMiddleware:
     def get_forwarded_for(self, request: HttpRequest):
         forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",")]
+            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
             return []
 
@@ -128,8 +124,6 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
-            return self._accept(request)
-        if DEBUG and request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return self._accept(request)
         return result
 
@@ -294,6 +288,7 @@ class AutoProjectMiddleware:
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
+        self.logger = structlog.get_logger(__name__)
 
     def __call__(self, request: HttpRequest):
         """Install monkey-patch on demand.
@@ -305,6 +300,10 @@ class CHQueries:
 
         user = cast(User, request.user)
 
+        with suppress(Exception):
+            if request_id := structlog.get_context(self.logger).get("request_id"):
+                tag_queries(http_request_id=uuid.UUID(request_id))
+
         tag_queries(
             user_id=user.pk,
             kind="request",
@@ -312,7 +311,6 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            container_hostname=settings.CONTAINER_HOSTNAME,
             http_referer=request.META.get("HTTP_REFERER"),
             http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
@@ -400,7 +398,6 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    container_hostname=settings.CONTAINER_HOSTNAME,
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
@@ -422,91 +419,6 @@ class ShortCircuitMiddleware:
         return response
 
 
-class CaptureMiddleware:
-    """
-    Middleware to serve up capture responses. We specifically want to avoid
-    doing any unnecessary work in these endpoints as they are hit very
-    frequently, and we want to provide the best availability possible, which
-    translates to keeping dependencies to a minimum.
-    """
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-        middlewares: list[Any] = []
-        # based on how we're using these middlewares, only middlewares that
-        # have a process_request and process_response attribute can be valid here.
-        # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
-        # reconciles the old style middleware with the new style middleware.
-        for middleware_class in (
-            CorsMiddleware,
-            PrometheusAfterMiddleware,
-        ):
-            try:
-                # Some middlewares raise MiddlewareNotUsed if they are not
-                # needed. In this case we want to avoid the default middlewares
-                # being used.
-                middlewares.append(middleware_class(get_response=get_response))
-            except MiddlewareNotUsed:
-                pass
-
-        # List of middlewares we want to run, that would've been shortcircuited otherwise
-        self.CAPTURE_MIDDLEWARE = middlewares
-
-    def __call__(self, request: HttpRequest):
-        if request.path in (
-            "/e",
-            "/e/",
-            "/s",
-            "/s/",
-            "/track",
-            "/track/",
-            "/capture",
-            "/capture/",
-            "/batch",
-            "/batch/",
-            "/engage/",
-            "/engage",
-        ):
-            try:
-                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
-                tag_queries(
-                    kind="request",
-                    id=request.path,
-                    route_id=resolve(request.path).route,
-                    container_hostname=settings.CONTAINER_HOSTNAME,
-                    http_referer=request.META.get("HTTP_REFERER"),
-                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
-                )
-
-                for middleware in self.CAPTURE_MIDDLEWARE:
-                    middleware.process_request(request)
-
-                # call process_view for PrometheusAfterMiddleware to get the right metrics in place
-                # simulate how django prepares the url
-                resolver_match = resolve(request.path)
-                request.resolver_match = resolver_match
-                for middleware in self.CAPTURE_MIDDLEWARE:
-                    middleware.process_view(
-                        request,
-                        resolver_match.func,
-                        resolver_match.args,
-                        resolver_match.kwargs,
-                    )
-
-                response: HttpResponse = get_event(request)
-
-                for middleware in self.CAPTURE_MIDDLEWARE[::-1]:
-                    middleware.process_response(request, response)
-
-                return response
-            finally:
-                reset_query_tags()
-
-        response = self.get_response(request)
-        return response
-
-
 def per_request_logging_context_middleware(
     get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
@@ -517,7 +429,7 @@ def per_request_logging_context_middleware(
     for details. They include e.g. request_id, user_id. In some cases e.g. we
     add the team_id to the context like the get_events and decide endpoints.
 
-    This middleware adds some additional context at the beggining of the
+    This middleware adds some additional context at the beginning of the
     request. Feel free to add anything that's relevant for the request here.
     """
 
@@ -637,7 +549,30 @@ class SessionAgeMiddleware:
     def __call__(self, request: HttpRequest):
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
-        return self.get_response(request)
+
+        if request.user.is_authenticated:
+            # Get session creation time
+            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+            if session_created_at:
+                # Get timeout from Redis cache first, fallback to settings
+                org_id = request.user.current_organization_id
+                session_age = None
+                if org_id:
+                    session_age = cache.get(f"org_session_age:{org_id}")
+
+                if session_age is None:
+                    session_age = settings.SESSION_COOKIE_AGE
+
+                current_time = time.time()
+                if current_time - session_created_at > session_age:
+                    # Log out the user
+                    from django.contrib.auth import logout
+
+                    logout(request)
+                    return redirect("/login?message=Your session has expired. Please log in again.")
+
+        response = self.get_response(request)
+        return response
 
 
 def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
@@ -694,3 +629,116 @@ class AutoLogoutImpersonateMiddleware:
                 return redirect("/admin/")
 
         return self.get_response(request)
+
+
+class Fix204Middleware:
+    """
+    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+
+        if response.status_code == 204:
+            response.content = b""
+            for h in ["Content-Type", "X-Content-Type-Options"]:
+                response.headers.pop(h, None)
+
+        return response
+
+
+class ActivityLoggingMiddleware:
+    """
+    Middleware that sets the current user and impersonation status in activity storage
+    for use by the activity logging system.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # Set user in activity storage if authenticated
+        if request.user.is_authenticated:
+            activity_storage.set_user(request.user)
+            activity_storage.set_was_impersonated(is_impersonated_session(request))
+
+        try:
+            response = self.get_response(request)
+        finally:
+            # Clean up activity storage after request
+            activity_storage.clear_all()
+
+        return response
+
+
+# Add CSP to Admin tooling
+class AdminCSPMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        is_admin_view = request.path.startswith("/admin/")
+        # add nonce to request before generating response
+        if is_admin_view:
+            nonce = generate_random_token(16)
+            request.admin_csp_nonce = nonce
+
+        response = self.get_response(request)
+
+        if is_admin_view:
+            # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
+            django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
+            csp_parts = [
+                "default-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                "worker-src 'none'",
+                "child-src 'none'",
+                "object-src 'none'",
+                "frame-ancestors 'none'",
+                "manifest-src 'none'",
+                "base-uri 'self'",
+                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
+                "report-to posthog",
+            ]
+
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
+            )
+            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+
+        return response
+
+
+class SocialAuthExceptionMiddleware:
+    """
+    Middleware to handle custom social auth exceptions.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
+        # Only handle exceptions on OAuth callback URLs
+        if not request.path.startswith("/complete/"):
+            return None
+
+        if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
+            error = exception.args[0]
+            if error in (
+                "saml_sso_enforced",
+                "google_sso_enforced",
+                "github_sso_enforced",
+                "gitlab_sso_enforced",
+                "sso_enforced",
+            ):
+                return redirect(f"/login?error_code={error}")
+
+        # Handle other exceptions with existing middleware
+        return None

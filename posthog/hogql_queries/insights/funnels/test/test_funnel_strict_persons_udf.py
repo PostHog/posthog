@@ -1,4 +1,4 @@
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 from posthog.hogql_queries.insights.funnels.test.test_funnel_strict_persons import BaseTestFunnelStrictStepsPersons
 from posthog.hogql_queries.insights.funnels.test.test_funnel_udf import use_udf_funnel_flag_side_effect

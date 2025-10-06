@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+
 import { uuid } from 'lib/utils'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 
 import { PersonType } from '~/types'
 
@@ -13,8 +14,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const id = person.id
-
-    const personId = person.distinct_ids[0]
+    const distinctId = person.distinct_ids[0]
 
     return (
         <Notebook
@@ -30,27 +30,32 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                             height: null,
                             title: null,
                             nodeId: uuid(),
-                            id: personId,
+                            id,
+                            distinctId,
                             __init: null,
                             children: [
                                 {
                                     type: 'ph-person',
-                                    attrs: { id: personId, nodeId: uuid(), title: 'Info' },
+                                    attrs: { id, distinctId, nodeId: uuid(), title: 'Info' },
                                 },
                                 ...(isCloudOrDev
                                     ? [
                                           {
                                               type: 'ph-map',
-                                              attrs: { id: personId, nodeId: uuid() },
+                                              attrs: { id, distinctId, nodeId: uuid() },
                                           },
                                       ]
                                     : []),
                                 {
                                     type: 'ph-properties',
-                                    attrs: { id: personId, nodeId: uuid() },
+                                    attrs: { id, distinctId, nodeId: uuid() },
                                 },
                             ],
                         },
+                    },
+                    {
+                        type: 'ph-llm-trace',
+                        attrs: { personId: id, nodeId: uuid() },
                     },
                 ],
             }}

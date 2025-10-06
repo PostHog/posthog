@@ -1,9 +1,10 @@
-import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
+import posthog from 'posthog-js'
+import { CSSProperties } from 'react'
+
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { CSSProperties } from 'react'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
 import {
     ActionType,
@@ -81,22 +82,25 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
 
     return Object.entries(obj)
         .filter((item) => item[1] != undefined && item[1] != null)
-        .reduce((acc, [key, val]) => {
-            /**
-             *  query parameter arrays can be handled in two ways
-             *  either they are encoded as a single query parameter
-             *    a=[1, 2] => a=%5B1%2C2%5D
-             *  or they are "exploded" so each item in the array is sent separately
-             *    a=[1, 2] => a=1&a=2
-             **/
-            if (explodeArrays && Array.isArray(val)) {
-                val.forEach((v) => acc.push([key, v]))
-            } else {
-                acc.push([key, val])
-            }
+        .reduce(
+            (acc, [key, val]) => {
+                /**
+                 *  query parameter arrays can be handled in two ways
+                 *  either they are encoded as a single query parameter
+                 *    a=[1, 2] => a=%5B1%2C2%5D
+                 *  or they are "exploded" so each item in the array is sent separately
+                 *    a=[1, 2] => a=1&a=2
+                 **/
+                if (explodeArrays && Array.isArray(val)) {
+                    val.forEach((v) => acc.push([key, v]))
+                } else {
+                    acc.push([key, val])
+                }
 
-            return acc
-        }, [] as [string, any][])
+                return acc
+            },
+            [] as [string, any][]
+        )
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -107,11 +111,14 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
         : url
               .replace(/^\?/, '')
               .split('&')
-              .reduce((paramsObject, paramString) => {
-                  const [key, value] = paramString.split('=')
-                  paramsObject[key] = decodeURIComponent(value)
-                  return paramsObject
-              }, {} as Record<string, any>)
+              .reduce(
+                  (paramsObject, paramString) => {
+                      const [key, value] = paramString.split('=')
+                      paramsObject[key] = decodeURIComponent(value)
+                      return paramsObject
+                  },
+                  {} as Record<string, any>
+              )
 }
 
 export function fromParams(): Record<string, any> {
@@ -124,6 +131,33 @@ export function tryDecodeURIComponent(value: string): string {
     } catch {
         return value
     }
+}
+
+// Parse a tags filter value coming from URL search params.
+// Supports:
+// - Repeated params handled upstream and aggregated as an array
+// - JSON array string (e.g. "[\"a\",\"b\"]")
+// - Comma-separated string (e.g. "a,b")
+export function parseTagsFilter(raw: unknown): string[] | undefined {
+    if (Array.isArray(raw)) {
+        return (raw as unknown[]).map((v) => String(v)).filter(Boolean)
+    }
+    if (typeof raw === 'string') {
+        // Try JSON first
+        try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v)).filter(Boolean)
+            }
+        } catch {
+            // Fall through to comma-separated
+        }
+        return raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    }
+    return undefined
 }
 
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
@@ -183,7 +217,10 @@ export function lowercaseFirstLetter(string: string): string {
     return string.charAt(0).toLowerCase() + string.slice(1)
 }
 
-export function fullName(props: { first_name?: string; last_name?: string }): string {
+export function fullName(props?: { first_name?: string; last_name?: string }): string {
+    if (!props) {
+        return 'Unknown User'
+    }
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
@@ -209,6 +246,15 @@ export const stringOperatorMap: Record<string, string> = {
     not_regex: "≁ doesn't match regex",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+}
+
+export const stringArrayOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
 }
 
 export const numericOperatorMap: Record<string, string> = {
@@ -252,26 +298,39 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const featureFlagOperatorMap: Record<string, string> = {
+    flag_evaluates_to: '= evaluates to',
+}
+
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: 'Exactly',
-    gte: 'At least',
-    lte: 'At most (but at least once)',
+    exact: '= Exactly',
+    gte: '≥ At least',
+    lte: '≤ At most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const assigneeOperatorMap: Record<string, string> = {
+    exact: '= is',
+    is_not: '≠ is not',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
+    ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
@@ -285,6 +344,9 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Flag: featureFlagOperatorMap,
+    Assignee: assigneeOperatorMap,
+    StringArray: stringArrayOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -354,10 +416,14 @@ export function isNonEmptyObject(candidate: unknown): candidate is Record<string
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
-export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectClean<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    options?: { removeNulls?: boolean }
+): T {
+    const { removeNulls = false } = options || {}
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
-        if (response[key] === undefined) {
+        if (removeNulls ? response[key] == null : response[key] === undefined) {
             delete response[key]
         }
     })
@@ -396,6 +462,23 @@ export function objectCleanWithEmpty<T extends Record<string | number | symbol, 
     return response
 }
 
+export const removeUndefinedAndNull = (obj: any): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefinedAndNull)
+    } else if (obj && typeof obj === 'object') {
+        return Object.entries(obj).reduce(
+            (acc, [key, value]) => {
+                if (value !== undefined && value !== null) {
+                    acc[key] = removeUndefinedAndNull(value)
+                }
+                return acc
+            },
+            {} as Record<string, any>
+        )
+    }
+    return obj
+}
+
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
     const response: Record<string, any> = { ...obj2 }
@@ -417,6 +500,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
         object[element[keyField]] = element
     }
     return object
+}
+
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -460,27 +547,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
-}
-
-/** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
-    if (!d) {
-        d = '0.00'
-    }
-
-    let number: number
-    if (typeof d === 'string') {
-        number = parseFloat(d)
-    } else {
-        number = d
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -516,6 +595,22 @@ export function humanFriendlyLargeNumber(d: number): string {
         return `${prefix}${(d / thousand).toString()}K`
     }
     return `${prefix}${d}`
+}
+
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -563,7 +658,7 @@ export function humanFriendlyDuration(
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.round((d % 3600) % 60)
+    const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -607,6 +702,13 @@ export function humanFriendlyDetailedTime(
         formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
+}
+
+export function detailedTime(date: dayjs.Dayjs | string | null | undefined): string {
+    if (!date) {
+        return ''
+    }
+    return dayjs(date).format('MMMM DD, YYYY h:mm:ss A')
 }
 
 // Pad numbers with leading zeros
@@ -715,7 +817,7 @@ export function isExternalLink(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^(https?:|mailto:)/
+    const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
 }
 
@@ -784,7 +886,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
@@ -819,9 +923,9 @@ export function determineDifferenceType(
     return 'minute'
 }
 
-const DATE_FORMAT = 'MMMM D, YYYY'
-const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
-const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT = 'MMMM D, YYYY'
+export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
+export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -937,6 +1041,7 @@ const dateOptionsMap = {
     w: 'week',
     d: 'day',
     h: 'hour',
+    M: 'minute',
 } as const
 
 export function dateFilterToText(
@@ -1000,6 +1105,9 @@ export function dateFilterToText(
                 case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
+                case 'minute':
+                    date = dayjs().subtract(counter, 'm')
+                    break
                 default:
                     date = dayjs().subtract(counter, 'd')
                     break
@@ -1026,16 +1134,18 @@ export function dateFromToText(dateFrom: string): string | undefined {
     return undefined
 }
 
-export function dateStringToComponents(date: string | null): {
+export type DateComponents = {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
     clip: 'Start' | 'End'
-} | null {
+}
+
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null
     }
-    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
-    const matches = date.match(parseDate)
+    const matches = date.match(isStringDateRegex)
     if (!matches) {
         return null
     }
@@ -1045,37 +1155,34 @@ export function dateStringToComponents(date: string | null): {
     return { amount, unit, clip: clip as 'Start' | 'End' }
 }
 
-/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
-export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
-    if (isDate.test(date || '')) {
-        return dayjs(date)
-    }
-    const dateComponents = dateStringToComponents(date)
-    if (!dateComponents) {
-        return null
-    }
-
-    const { unit, amount, clip } = dateComponents
+export function componentsToDayJs(
+    { amount, unit, clip }: DateComponents,
+    offset?: Dayjs,
+    timezone: string = 'UTC'
+): Dayjs {
+    const dayjsInstance = offset ?? dayjs().tz(timezone)
     let response: dayjs.Dayjs
-
     switch (unit) {
         case 'year':
-            response = dayjs().add(amount, 'year')
+            response = dayjsInstance.add(amount, 'year')
             break
         case 'quarter':
-            response = dayjs().add(amount * 3, 'month')
+            response = dayjsInstance.add(amount * 3, 'month')
             break
         case 'month':
-            response = dayjs().add(amount, 'month')
+            response = dayjsInstance.add(amount, 'month')
             break
         case 'week':
-            response = dayjs().add(amount * 7, 'day')
+            response = dayjsInstance.add(amount * 7, 'day')
             break
         case 'day':
-            response = dayjs().add(amount, 'day')
+            response = dayjsInstance.add(amount, 'day')
             break
         case 'hour':
-            response = dayjs().add(amount, 'hour')
+            response = dayjsInstance.add(amount, 'hour')
+            break
+        case 'minute':
+            response = dayjsInstance.add(amount, 'minute')
             break
         default:
             throw new UnexpectedNeverError(unit)
@@ -1086,7 +1193,34 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     } else if (clip === 'End') {
         return response.endOf(unit)
     }
-    return response.startOf('day')
+    return response
+}
+
+/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
+export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
+    if (isDate.test(date || '')) {
+        return dayjs(date).tz(timezone)
+    }
+    const dateComponents = dateStringToComponents(date)
+    if (!dateComponents) {
+        return null
+    }
+    const offset: dayjs.Dayjs = dayjs().tz(timezone).startOf('day')
+    const response = componentsToDayJs(dateComponents, offset, timezone)
+    return response
+}
+
+export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    if (isStringDateRegex.test(date)) {
+        return true
+    }
+    if (dayjs(date).isValid()) {
+        return true
+    }
+    if (date === 'all') {
+        return true
+    }
+    return false
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
@@ -1107,6 +1241,15 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     }
 
     if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        (parsedDateFrom?.unit === 'month' && parsedDateFrom.amount <= 3) ||
+        (parsedDateTo?.unit === 'month' && parsedDateTo.amount <= 3) ||
+        (parsedDateFrom?.unit === 'quarter' && parsedDateFrom.amount <= 1) ||
+        (parsedDateTo?.unit === 'quarter' && parsedDateTo.amount <= 1)
+    ) {
         return 'day'
     }
 
@@ -1378,6 +1521,49 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const WORD_PLURALIZATION_RULES = [
+    [/s?$/i, 's'],
+    [/([^aeiou]ese)$/i, '$1'],
+    [/(ax|test)is$/i, '$1es'],
+    [/(alias|[^aou]us|t[lm]as|gas|ris)$/i, '$1es'],
+    [/(e[mn]u)s?$/i, '$1s'],
+    [/([^l]ias|[aeiou]las|[ejzr]as|[iu]am)$/i, '$1'],
+    [/(alumn|syllab|vir|radi|nucle|fung|cact|stimul|termin|bacill|foc|uter|loc|strat)(?:us|i)$/i, '$1i'],
+    [/(alumn|alg|vertebr)(?:a|ae)$/i, '$1ae'],
+    [/(seraph|cherub)(?:im)?$/i, '$1im'],
+    [/(her|at|gr)o$/i, '$1oes'],
+    [
+        /(agend|addend|millenni|dat|extrem|bacteri|desiderat|strat|candelabr|errat|ov|symposi|curricul|automat|quor)(?:a|um)$/i,
+        '$1a',
+    ],
+    [/(apheli|hyperbat|periheli|asyndet|noumen|phenomen|criteri|organ|prolegomen|hedr|automat)(?:a|on)$/i, '$1a'],
+    [/sis$/i, 'ses'],
+    [/(?:(kni|wi|li)fe|(ar|l|ea|eo|oa|hoo)f)$/i, '$1$2ves'],
+    [/([^aeiouy]|qu)y$/i, '$1ies'],
+    [/([^ch][ieo][ln])ey$/i, '$1ies'],
+    [/(x|ch|ss|sh|zz)$/i, '$1es'],
+    [/(matr|cod|mur|sil|vert|ind|append)(?:ix|ex)$/i, '$1ices'],
+    [/\b((?:tit)?m|l)(?:ice|ouse)$/i, '$1ice'],
+    [/(pe)(?:rson|ople)$/i, '$1ople'],
+    [/(child)(?:ren)?$/i, '$1ren'],
+    [/eaux$/i, '$0'],
+    [/m[ae]n$/i, 'men'],
+] as [RegExp, string][]
+
+export function wordPluralize(word: string): string {
+    let len = WORD_PLURALIZATION_RULES.length
+
+    // Iterate over the sanitization rules and use the first one to match.
+    while (len--) {
+        const [regex, replacement] = WORD_PLURALIZATION_RULES[len]
+        if (regex.test(word)) {
+            return word.replace(regex, replacement)
+        }
+    }
+
+    return word
+}
+
 const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1439,9 +1625,20 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
-        Sentry.captureException(e)
+        posthog.captureException(e)
         return null
     }
+}
+
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
 }
 
 export function humanTzOffset(timezone?: string): string {
@@ -1634,7 +1831,7 @@ export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
         return true
-    } catch (error) {
+    } catch {
         return false
     }
 }
@@ -1642,7 +1839,7 @@ export function validateJson(value: string): boolean {
 export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
-    } catch (error) {
+    } catch {
         return fallback
     }
 }
@@ -1716,7 +1913,7 @@ export function isNumeric(x: any): boolean {
 }
 
 /**
- * Check if the argument is nullish (null or undefined).
+ * Check if the argument is not nullish (null or undefined).
  *
  * Useful as a typeguard, e.g. when passed to Array.filter()
  *
@@ -1810,6 +2007,17 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
         return timeValue * 7
     }
     return timeValue
+}
+
+// Compute the ISO week string for a given date
+// Useful above to show the toast once per week
+export function getISOWeekString(date = new Date()): string {
+    const dayjs_date = dayjs(date)
+
+    const year = dayjs_date.year()
+    const week = dayjs_date.week()
+
+    return `${year}-W${week}`
 }
 
 export function range(startOrEnd: number, end?: number): number[] {
@@ -1976,4 +2184,37 @@ export const getJSHeapMemory = (): {
         }
     }
     return {}
+}
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+    let decoded: string
+    try {
+        decoded = decodeURIComponent(nextPath)
+    } catch {
+        decoded = nextPath
+    }
+
+    // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
+    if (decoded.startsWith('//')) {
+        return null
+    }
+
+    // Root-relative path
+    if (decoded.startsWith('/')) {
+        return decoded
+    }
+
+    // Try to parse as a full URL
+    try {
+        const url = new URL(decoded)
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
+            return url.pathname + url.search + url.hash
+        }
+        return null
+    } catch {
+        return null
+    }
 }

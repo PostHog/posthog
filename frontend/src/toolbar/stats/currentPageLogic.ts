@@ -75,11 +75,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
             // Iterate over query params and do the same for their values
             if (urlParts.length > 1) {
                 const queryParams = urlParts[1].split('&')
+
                 for (let i = 0; i < queryParams.length; i++) {
                     const [key, value] = queryParams[i].split('=')
                     queryParams[i] = `${key}=${replaceWithWildcard(value)}`
                 }
-                url = `${url}?${queryParams.join('&')}`
+
+                url = `${url}\\?${queryParams.join('&')}`
             }
 
             actions.setWildcardHref(url)
@@ -87,17 +89,11 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
-        // an earlier bug means that some folk have a bad URL saved
-        // this auto-fixes things for those folks
-        // to save us having to explain the fix individually
-        // can be removed by end of Nov 2024
-        if (values.href && values.href.includes('#__posthog=')) {
-            actions.setHref(withoutPostHogInit(values.href))
-        }
+        actions.setHref(withoutPostHogInit(values.href))
 
         cache.interval = window.setInterval(() => {
             if (window.location.href !== values.href) {
-                actions.setHref(window.location.href)
+                actions.setHref(withoutPostHogInit(window.location.href))
             }
         }, 500)
     }),

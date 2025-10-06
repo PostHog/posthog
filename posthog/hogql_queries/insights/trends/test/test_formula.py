@@ -1,12 +1,6 @@
 from typing import Optional
-from unittest import mock
 
-from django.test import override_settings
-
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_BOLD_NUMBER
-from posthog.models import Cohort
-from posthog.models.group.util import create_group
-from posthog.models.utils import uuid7
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -15,14 +9,18 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import mock
 
-from freezegun import freeze_time
+from django.test import override_settings
 
+from posthog.schema import TrendsFilter, TrendsQuery
+
+from posthog.constants import TRENDS_BOLD_NUMBER, TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.schema import (
-    TrendsFilter,
-    TrendsQuery,
-)
+from posthog.models import Cohort
+from posthog.models.group.util import create_group
+from posthog.models.utils import uuid7
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -547,6 +545,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "breakdown_value": "Paris",
                     "action": None,
                     "filter": mock.ANY,
+                    "order": 0,
                 },
                 {
                     "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -575,6 +574,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "breakdown_value": "London",
                     "action": None,
                     "filter": mock.ANY,
+                    "order": 0,
                 },
             ],
         )
@@ -775,6 +775,12 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_group_formulas(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
         self.assertEqual(
             self._run(
                 {

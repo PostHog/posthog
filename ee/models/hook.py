@@ -9,7 +9,6 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import generate_random_token
 from posthog.redis import get_client
 
-
 HOOK_EVENTS = ["action_performed"]
 
 

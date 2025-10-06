@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
-import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
+import { md5, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -474,6 +474,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args.map((arg: any) => (arg === null ? '' : STLToString([arg]))).join('')
         },
+        description: 'Concatenates multiple values into a single string',
+        example: 'concat($1, $2, $3)',
         minArgs: 1,
         maxArgs: undefined,
     },
@@ -484,32 +486,50 @@ export const STL: Record<string, STLFunction> = {
             }
             return !args[0] || !args[1] ? false : options.external.regex.match(args[1], args[0])
         },
+        description: 'Checks if a string matches a regex pattern',
+        example: 'match($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
     like: {
         fn: ([str, pattern], _name, options) => like(str, pattern, false, options?.external?.regex?.match),
+        description: 'Checks if a string matches a SQL LIKE pattern',
+        example: 'like($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
     ilike: {
         fn: ([str, pattern], _name, options) => like(str, pattern, true, options?.external?.regex?.match),
+        description: 'Case-insensitive SQL LIKE pattern matching',
+        example: 'ilike($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
     notLike: {
         fn: ([str, pattern], _name, options) => !like(str, pattern, false, options?.external?.regex?.match),
+        description: 'Negated SQL LIKE pattern matching',
+        example: 'notLike($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
     notILike: {
         fn: ([str, pattern], _name, options) => !like(str, pattern, true, options?.external?.regex?.match),
+        description: 'Case-insensitive negated SQL LIKE pattern matching',
+        example: 'notILike($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
-    toString: { fn: STLToString, minArgs: 1, maxArgs: 1 },
+    toString: {
+        fn: STLToString,
+        description: 'Converts a value to its string representation',
+        example: 'toString($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
     toUUID: {
         fn: STLToString,
+        description: 'Converts a value to a UUID string',
+        example: 'toUUID($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -524,6 +544,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
         },
+        description: 'Converts a value to an integer',
+        example: 'toInt($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -538,6 +560,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
         },
+        description: 'Converts a value to a floating point number',
+        example: 'toFloat($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -546,6 +570,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0] !== null ? args[0] : args[1]
         },
+        description: 'Returns first non-null value',
+        example: 'ifNull($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -553,6 +579,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0] === null || args[0] === undefined
         },
+        description: 'Checks if a value is null or undefined',
+        example: 'isNull($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -560,6 +588,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0] !== null && args[0] !== undefined
         },
+        description: 'Checks if a value is not null and not undefined',
+        example: 'isNotNull($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -567,6 +597,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0].length
         },
+        description: 'Returns the length of a string or array',
+        example: 'length($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -586,6 +618,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return !args[0]
         },
+        description: 'Checks if a value is empty (null, undefined, empty string, empty array, empty object, etc.)',
+        example: 'empty($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -593,6 +627,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return !STL.empty.fn(args, 'empty')
         },
+        description: 'Checks if a value is not empty',
+        example: 'notEmpty($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -602,6 +638,8 @@ export const STL: Record<string, STLFunction> = {
             ;(tuple as any).__isHogTuple = true
             return tuple
         },
+        description: 'Creates a tuple from multiple values',
+        example: 'tuple($1, $2, $3)',
         minArgs: 0,
         maxArgs: undefined,
     },
@@ -610,6 +648,8 @@ export const STL: Record<string, STLFunction> = {
             if (args[0] === null || args[0] === undefined) return null
             return args[0].toLowerCase()
         },
+        description: 'Converts a string to lowercase',
+        example: 'lower($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -617,6 +657,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0].toUpperCase()
         },
+        description: 'Converts a string to uppercase',
+        example: 'upper($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -624,6 +666,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0].split('').reverse().join('')
         },
+        description: 'Reverses a string',
+        example: 'reverse($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -632,6 +676,8 @@ export const STL: Record<string, STLFunction> = {
             // eslint-disable-next-line no-console
             console.log(...args.map(printHogStringOutput))
         },
+        description: 'Prints values to console',
+        example: 'print($1, $2)',
         minArgs: 0,
         maxArgs: undefined,
     },
@@ -661,6 +707,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return convert(JSON.parse(args[0]))
         },
+        description: 'Parses a JSON string into an object',
+        example: 'jsonParse($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -711,6 +759,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return JSON.stringify(convert(args[0]))
         },
+        description: 'Converts an object to a JSON string',
+        example: 'jsonStringify($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -760,6 +810,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return true
         },
+        description: 'Checks if a JSON path exists in an object',
+        example: 'JSONHas($1, $2)',
         minArgs: 2,
     },
     isValidJSON: {
@@ -771,6 +823,8 @@ export const STL: Record<string, STLFunction> = {
                 return false
             }
         },
+        description: 'Checks if a string is valid JSON',
+        example: 'isValidJSON($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -795,6 +849,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return 0
         },
+        description: 'Returns the length of a JSON array or object',
+        example: 'JSONLength($1, $2)',
         minArgs: 2,
     },
     JSONExtractBool: {
@@ -814,12 +870,16 @@ export const STL: Record<string, STLFunction> = {
             }
             return false
         },
+        description: 'Extracts a boolean value from JSON',
+        example: 'JSONExtractBool($1, $2)',
         minArgs: 1,
     },
     base64Encode: {
         fn: (args) => {
             return Buffer.from(args[0]).toString('base64')
         },
+        description: 'Encodes a string to base64',
+        example: 'base64Encode($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -827,6 +887,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return Buffer.from(args[0], 'base64').toString()
         },
+        description: 'Decodes a base64 string',
+        example: 'base64Decode($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -838,16 +900,22 @@ export const STL: Record<string, STLFunction> = {
                 return ''
             }
         },
+        description: 'Safely decodes a base64 string, returns empty string on error',
+        example: 'tryBase64Decode($1)',
         minArgs: 1,
         maxArgs: 1,
     },
     encodeURLComponent: {
         fn: (args) => encodeURIComponent(args[0]),
+        description: 'URL-encodes a string',
+        example: 'encodeURLComponent($1)',
         minArgs: 1,
         maxArgs: 1,
     },
     decodeURLComponent: {
         fn: (args) => decodeURIComponent(args[0]),
+        description: 'URL-decodes a string',
+        example: 'decodeURLComponent($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -855,6 +923,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0].replace(args[1], args[2])
         },
+        description: 'Replaces first occurrence of a substring',
+        example: 'replaceOne($1, $2, $3)',
         minArgs: 3,
         maxArgs: 3,
     },
@@ -862,6 +932,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return args[0].replaceAll(args[1], args[2])
         },
+        description: 'Replaces all occurrences of a substring',
+        example: 'replaceAll($1, $2, $3)',
         minArgs: 3,
         maxArgs: 3,
     },
@@ -872,6 +944,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return 0
         },
+        description: 'Returns position of substring in string (1-based)',
+        example: 'position($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -882,6 +956,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return 0
         },
+        description: 'Case-insensitive substring position (1-based)',
+        example: 'positionCaseInsensitive($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -906,6 +982,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return str.slice(start, end)
         },
+        description: 'Removes leading and trailing characters',
+        example: 'trim($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -923,6 +1001,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return str.slice(start)
         },
+        description: 'Removes leading characters',
+        example: 'trimLeft($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -940,6 +1020,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return str.slice(0, end)
         },
+        description: 'Removes trailing characters',
+        example: 'trimRight($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -950,6 +1032,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return str.split(separator, maxSplits)
         },
+        description: 'Splits string by separator',
+        example: 'splitByString($1, $2, $3)',
         minArgs: 2,
         maxArgs: 3,
     },
@@ -961,26 +1045,57 @@ export const STL: Record<string, STLFunction> = {
                 return v.toString(16)
             })
         },
+        description: 'Generates a random UUID v4',
+        example: 'generateUUIDv4()',
         minArgs: 0,
         maxArgs: 0,
     },
     sha256Hex: {
-        fn: ([str], _, options) => sha256Hex(str, options),
+        fn: ([str], _, options) => sha256(str, 'hex', options),
+        description: 'Computes SHA-256 hash of a string',
+        example: 'sha256($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    sha256: {
+        fn: ([str, encoding], _, options) => sha256(str, encoding, options),
+        description: 'Computes SHA-256 hash of a string',
+        example: 'sha256($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
     },
     md5Hex: {
-        fn: ([str], _, options) => md5Hex(str, options),
+        fn: ([str], _, options) => md5(str, 'hex', options),
+        description: 'Computes MD5 hash of a string',
+        example: 'md5($1)',
         minArgs: 1,
         maxArgs: 1,
     },
+    md5: {
+        fn: ([str, encoding], _, options) => md5(str, encoding, options),
+        description: 'Computes MD5 hash of a string',
+        example: 'md5($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
     sha256HmacChainHex: {
-        fn: ([data], _, options) => sha256HmacChainHex(data, options),
+        fn: ([data], _, options) => sha256HmacChain(data, 'hex', options),
+        description: 'Computes SHA-256 HMAC chain hash',
+        example: 'sha256HmacChainHex($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    sha256HmacChain: {
+        fn: ([data, encoding], _, options) => sha256HmacChain(data, encoding, options),
+        description: 'Computes SHA-256 HMAC chain hash',
+        example: 'sha256HmacChainHex($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
     },
     isIPAddressInRange: {
         fn: ([address, prefix]) => isIPAddressInRange(address, prefix),
+        description: 'Checks if IP address is in CIDR range',
+        example: 'isIPAddressInRange($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -996,6 +1111,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return []
         },
+        description: 'Returns array of object keys',
+        example: 'keys($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1011,6 +1128,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return []
         },
+        description: 'Returns array of object values',
+        example: 'values($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1021,6 +1140,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return 0
         },
+        description: 'Returns 1-based index of element in array',
+        example: 'indexOf($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -1031,6 +1152,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return [...arr, item]
         },
+        description: 'Adds element to end of array',
+        example: 'arrayPushBack($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -1041,6 +1164,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return [item, ...arr]
         },
+        description: 'Adds element to start of array',
+        example: 'arrayPushFront($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -1051,6 +1176,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return arr.slice(0, arr.length - 1)
         },
+        description: 'Removes last element from array',
+        example: 'arrayPopBack($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1061,6 +1188,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return arr.slice(1)
         },
+        description: 'Removes first element from array',
+        example: 'arrayPopFront($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1071,6 +1200,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return [...arr].sort()
         },
+        description: 'Sorts array in ascending order',
+        example: 'arraySort($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1081,6 +1212,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return [...arr].reverse()
         },
+        description: 'Reverses array order',
+        example: 'arrayReverse($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1091,6 +1224,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return [...arr].sort().reverse()
         },
+        description: 'Sorts array in descending order',
+        example: 'arrayReverseSort($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1101,6 +1236,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return arr.join(separator)
         },
+        description: 'Joins array elements with separator',
+        example: 'arrayStringConcat($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -1111,6 +1248,8 @@ export const STL: Record<string, STLFunction> = {
             }
             return arr.includes(elem)
         },
+        description: 'Checks if array contains element',
+        example: 'has($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -1118,6 +1257,8 @@ export const STL: Record<string, STLFunction> = {
         fn: () => {
             return now()
         },
+        description: 'Returns current datetime',
+        example: 'now()',
         minArgs: 0,
         maxArgs: 0,
     },
@@ -1125,6 +1266,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return toUnixTimestamp(args[0], args[1])
         },
+        description: 'Converts datetime to Unix timestamp',
+        example: 'toUnixTimestamp($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -1132,6 +1275,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return fromUnixTimestamp(args[0])
         },
+        description: 'Converts Unix timestamp to datetime',
+        example: 'fromUnixTimestamp($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1139,6 +1284,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return toUnixTimestampMilli(args[0], args[1])
         },
+        description: 'Converts datetime to Unix timestamp in milliseconds',
+        example: 'toUnixTimestampMilli($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -1146,6 +1293,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return fromUnixTimestampMilli(args[0])
         },
+        description: 'Converts Unix timestamp in milliseconds to datetime',
+        example: 'fromUnixTimestampMilli($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1153,6 +1302,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return toTimeZone(args[0], args[1])
         },
+        description: 'Converts datetime to specified timezone',
+        example: 'toTimeZone($1, $2)',
         minArgs: 2,
         maxArgs: 2,
     },
@@ -1160,6 +1311,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return toDate(args[0])
         },
+        description: 'Converts value to date',
+        example: 'toDate($1)',
         minArgs: 1,
         maxArgs: 1,
     },
@@ -1167,6 +1320,8 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return toDateTime(args[0], args[1])
         },
+        description: 'Converts value to datetime',
+        example: 'toDateTime($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -1174,26 +1329,36 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             return formatDateTime(args[0], args[1], args[2])
         },
+        description: 'Formats datetime with pattern',
+        example: 'formatDateTime($1, $2, $3)',
         minArgs: 2,
         maxArgs: 3,
     },
     HogError: {
         fn: (args) => newHogError(args[0], args[1], args[2]),
+        description: 'Creates a Hog error',
+        example: 'HogError($1, $2, $3)',
         minArgs: 1,
         maxArgs: 3,
     },
     Error: {
         fn: (args, name) => newHogError(name, args[0], args[1]),
+        description: 'Creates a generic error',
+        example: 'Error($1, $2)',
         minArgs: 0,
         maxArgs: 2,
     },
     RetryError: {
         fn: (args, name) => newHogError(name, args[0], args[1]),
+        description: 'Creates a retry error',
+        example: 'RetryError($1, $2)',
         minArgs: 0,
         maxArgs: 2,
     },
     NotImplementedError: {
         fn: (args, name) => newHogError(name, args[0], args[1]),
+        description: 'Creates a not implemented error',
+        example: 'NotImplementedError($1, $2)',
         minArgs: 0,
         maxArgs: 2,
     },
@@ -1227,53 +1392,306 @@ export const STL: Record<string, STLFunction> = {
             }
             return 'unknown'
         },
+        description: 'Returns type of value as string',
+        example: 'typeof($1)',
         minArgs: 1,
         maxArgs: 1,
     },
-
-    JSONExtractArrayRaw: { fn: JSONExtractArrayRawFn, minArgs: 1 },
-    JSONExtractFloat: { fn: JSONExtractFloatFn, minArgs: 1 },
-    JSONExtractInt: { fn: JSONExtractIntFn, minArgs: 1 },
-    JSONExtractString: { fn: JSONExtractStringFn, minArgs: 1 },
-    addDays: { fn: addDaysFn, minArgs: 2, maxArgs: 2 },
-    assumeNotNull: { fn: assumeNotNullFn, minArgs: 1, maxArgs: 1 },
-    coalesce: { fn: coalesceFn, minArgs: 1 },
-    dateAdd: { fn: dateAddFn, minArgs: 3, maxArgs: 3 },
-    dateDiff: { fn: dateDiffFn, minArgs: 3, maxArgs: 3 },
-    dateTrunc: { fn: dateTruncFn, minArgs: 2, maxArgs: 2 },
-    equals: { fn: equalsFn, minArgs: 2, maxArgs: 2 },
-    extract: { fn: extractFn, minArgs: 2, maxArgs: 2 },
-    floor: { fn: floorFn, minArgs: 1, maxArgs: 1 },
-    greater: { fn: greaterFn, minArgs: 2, maxArgs: 2 },
-    greaterOrEquals: { fn: greaterOrEqualsFn, minArgs: 2, maxArgs: 2 },
-    if: { fn: ifFn, minArgs: 3, maxArgs: 3 },
-    in: { fn: inFn, minArgs: 2, maxArgs: 2 },
-    less: { fn: lessFn, minArgs: 2, maxArgs: 2 },
-    lessOrEquals: { fn: lessOrEqualsFn, minArgs: 2, maxArgs: 2 },
-    min2: { fn: min2Fn, minArgs: 2, maxArgs: 2 },
-    minus: { fn: minusFn, minArgs: 2, maxArgs: 2 },
-    multiIf: { fn: multiIfFn, minArgs: 3 },
-    not: { fn: notFn, minArgs: 1, maxArgs: 1 },
-    notEquals: { fn: notEqualsFn, minArgs: 2, maxArgs: 2 },
-    and: { fn: andFn, minArgs: 2, maxArgs: 2 },
-    or: { fn: orFn, minArgs: 2, maxArgs: 2 },
-    plus: { fn: plusFn, minArgs: 2, maxArgs: 2 },
-    range: { fn: rangeFn, minArgs: 1, maxArgs: 2 },
-    round: { fn: roundFn, minArgs: 1, maxArgs: 1 },
-    startsWith: { fn: startsWithFn, minArgs: 2, maxArgs: 2 },
-    substring: { fn: substringFn, minArgs: 2, maxArgs: 3 },
-    toIntervalDay: { fn: toIntervalDayFn, minArgs: 1, maxArgs: 1 },
-    toIntervalHour: { fn: toIntervalHourFn, minArgs: 1, maxArgs: 1 },
-    toIntervalMinute: { fn: toIntervalMinuteFn, minArgs: 1, maxArgs: 1 },
-    toIntervalMonth: { fn: toIntervalMonthFn, minArgs: 1, maxArgs: 1 },
-    toMonth: { fn: toMonthFn, minArgs: 1, maxArgs: 1 },
-    toStartOfDay: { fn: toStartOfDayFn, minArgs: 1, maxArgs: 1 },
-    toStartOfHour: { fn: toStartOfHourFn, minArgs: 1, maxArgs: 1 },
-    toStartOfMonth: { fn: toStartOfMonthFn, minArgs: 1, maxArgs: 1 },
-    toStartOfWeek: { fn: toStartOfWeekFn, minArgs: 1, maxArgs: 1 },
-    toYYYYMM: { fn: toYYYYMMFn, minArgs: 1, maxArgs: 1 },
-    toYear: { fn: toYearFn, minArgs: 1, maxArgs: 1 },
-    today: { fn: todayFn, minArgs: 0, maxArgs: 0 },
+    JSONExtractArrayRaw: {
+        fn: JSONExtractArrayRawFn,
+        description: 'Extracts array from JSON path',
+        example: 'JSONExtractArrayRaw($1, $2)',
+        minArgs: 1,
+    },
+    JSONExtractFloat: {
+        fn: JSONExtractFloatFn,
+        description: 'Extracts float from JSON path',
+        example: 'JSONExtractFloat($1, $2)',
+        minArgs: 1,
+    },
+    JSONExtractInt: {
+        fn: JSONExtractIntFn,
+        description: 'Extracts integer from JSON path',
+        example: 'JSONExtractInt($1, $2)',
+        minArgs: 1,
+    },
+    JSONExtractString: {
+        fn: JSONExtractStringFn,
+        description: 'Extracts string from JSON path',
+        example: 'JSONExtractString($1, $2)',
+        minArgs: 1,
+    },
+    addDays: {
+        fn: addDaysFn,
+        description: 'Adds days to date/datetime',
+        example: 'addDays($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    assumeNotNull: {
+        fn: assumeNotNullFn,
+        description: 'Asserts value is not null',
+        example: 'assumeNotNull($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    coalesce: {
+        fn: coalesceFn,
+        description: 'Returns first non-null value',
+        example: 'coalesce($1, $2, $3)',
+        minArgs: 1,
+    },
+    dateAdd: {
+        fn: dateAddFn,
+        description: 'Adds interval to date/datetime',
+        example: 'dateAdd($1, $2, $3)',
+        minArgs: 3,
+        maxArgs: 3,
+    },
+    dateDiff: {
+        fn: dateDiffFn,
+        description: 'Returns difference between dates',
+        example: 'dateDiff($1, $2, $3)',
+        minArgs: 3,
+        maxArgs: 3,
+    },
+    dateTrunc: {
+        fn: dateTruncFn,
+        description: 'Truncates datetime to unit',
+        example: 'dateTrunc($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    equals: {
+        fn: equalsFn,
+        description: 'Checks if values are equal',
+        example: 'equals($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    extract: {
+        fn: extractFn,
+        description: 'Extracts part from date/datetime',
+        example: 'extract($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    floor: {
+        fn: floorFn,
+        description: 'Rounds number down to integer',
+        example: 'floor($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    greater: {
+        fn: greaterFn,
+        description: 'Checks if first value is greater',
+        example: 'greater($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    greaterOrEquals: {
+        fn: greaterOrEqualsFn,
+        description: 'Checks if first value is greater or equal',
+        example: 'greaterOrEquals($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    if: {
+        fn: ifFn,
+        description: 'Returns value based on condition',
+        example: 'if($1, $2, $3)',
+        minArgs: 3,
+        maxArgs: 3,
+    },
+    in: {
+        fn: inFn,
+        description: 'Checks if value is in array/tuple',
+        example: 'in($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    less: {
+        fn: lessFn,
+        description: 'Checks if first value is less',
+        example: 'less($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    lessOrEquals: {
+        fn: lessOrEqualsFn,
+        description: 'Checks if first value is less or equal',
+        example: 'lessOrEquals($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    min2: {
+        fn: min2Fn,
+        description: 'Returns minimum of two values',
+        example: 'min2($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    minus: {
+        fn: minusFn,
+        description: 'Subtracts second value from first',
+        example: 'minus($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    multiIf: {
+        fn: multiIfFn,
+        description: 'Returns value based on multiple conditions',
+        example: 'multiIf($1, $2, $3, $4, $5)',
+        minArgs: 3,
+    },
+    not: {
+        fn: notFn,
+        description: 'Logical NOT operation',
+        example: 'not($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    notEquals: {
+        fn: notEqualsFn,
+        description: 'Checks if values are not equal',
+        example: 'notEquals($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    and: {
+        fn: andFn,
+        description: 'Logical AND operation',
+        example: 'and($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    or: {
+        fn: orFn,
+        description: 'Logical OR operation',
+        example: 'or($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    plus: {
+        fn: plusFn,
+        description: 'Adds two values',
+        example: 'plus($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    range: {
+        fn: rangeFn,
+        description: 'Creates array of numbers',
+        example: 'range($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    round: {
+        fn: roundFn,
+        description: 'Rounds number to nearest integer',
+        example: 'round($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    startsWith: {
+        fn: startsWithFn,
+        description: 'Checks if string starts with prefix',
+        example: 'startsWith($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    substring: {
+        fn: substringFn,
+        description: 'Extracts substring from string',
+        example: 'substring($1, $2, $3)',
+        minArgs: 2,
+        maxArgs: 3,
+    },
+    toIntervalDay: {
+        fn: toIntervalDayFn,
+        description: 'Creates day interval',
+        example: 'toIntervalDay($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toIntervalHour: {
+        fn: toIntervalHourFn,
+        description: 'Creates hour interval',
+        example: 'toIntervalHour($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toIntervalMinute: {
+        fn: toIntervalMinuteFn,
+        description: 'Creates minute interval',
+        example: 'toIntervalMinute($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toIntervalMonth: {
+        fn: toIntervalMonthFn,
+        description: 'Creates month interval',
+        example: 'toIntervalMonth($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toMonth: {
+        fn: toMonthFn,
+        description: 'Extracts month from date/datetime',
+        example: 'toMonth($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toStartOfDay: {
+        fn: toStartOfDayFn,
+        description: 'Truncates datetime to start of day',
+        example: 'toStartOfDay($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toStartOfHour: {
+        fn: toStartOfHourFn,
+        description: 'Truncates datetime to start of hour',
+        example: 'toStartOfHour($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toStartOfMonth: {
+        fn: toStartOfMonthFn,
+        description: 'Truncates datetime to start of month',
+        example: 'toStartOfMonth($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toStartOfWeek: {
+        fn: toStartOfWeekFn,
+        description: 'Truncates datetime to start of week',
+        example: 'toStartOfWeek($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toYYYYMM: {
+        fn: toYYYYMMFn,
+        description: 'Converts date to YYYYMM format',
+        example: 'toYYYYMM($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toYear: {
+        fn: toYearFn,
+        description: 'Extracts year from date/datetime',
+        example: 'toYear($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    today: {
+        fn: todayFn,
+        description: 'Returns current date',
+        example: 'today()',
+        minArgs: 0,
+        maxArgs: 0,
+    },
 }
 
 export const ASYNC_STL: Record<string, AsyncSTLFunction> = {

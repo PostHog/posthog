@@ -2,6 +2,8 @@ import './LemonCard.scss'
 
 import { IconX } from '@posthog/icons'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { LemonButton } from '../LemonButton'
 
 export interface LemonCardProps {
@@ -27,9 +29,16 @@ export function LemonCard({
 }: LemonCardProps): JSX.Element {
     return (
         <div
-            className={`LemonCard ${hoverEffect && 'LemonCard--hoverEffect'} border ${
-                focused ? 'border-2 border-accent-primary' : 'border-primary'
-            } rounded p-6 bg-surface-primary relative ${onClick && !focused ? 'cursor-pointer' : ''} ${className}`}
+            className={cn(
+                'LemonCard border rounded p-6 bg-surface-primary relative',
+                {
+                    'LemonCard--hoverEffect': hoverEffect,
+                    'border-2 border-accent': focused,
+                    'border-primary': !focused,
+                    'cursor-pointer': !!onClick && !focused,
+                },
+                className
+            )}
             onClick={onClick}
             {...props}
         >

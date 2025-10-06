@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '~/src/types'
+import { PreIngestionEvent } from '~/types'
 
-import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
+import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { parseEventTimestamp } from '../timestamps'
@@ -23,7 +23,7 @@ export async function prepareEventStep(
         tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db.kafkaProducer, team_id, type, details))
     }
 
-    if (event.event === '$ai_generation' || event.event === '$ai_embedding') {
+    if (AI_EVENT_TYPES.has(event.event)) {
         try {
             event = processAiEvent(event)
         } catch (error) {
@@ -40,7 +40,8 @@ export async function prepareEventStep(
         team_id,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
-        processPerson
+        processPerson,
+        runner.groupStoreForBatch
     )
     await Promise.all(tsParsingIngestionWarnings)
 

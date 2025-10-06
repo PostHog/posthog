@@ -113,7 +113,8 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [1, 2, 3]), 0)
+     WHERE in(steps,
+              [1, 2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -126,21 +127,27 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
@@ -257,7 +264,8 @@
                  steps
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE ifNull(in(steps, [2, 3]), 0)
+     WHERE in(steps,
+              [2, 3])
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -270,21 +278,27 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
@@ -414,20 +428,26 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

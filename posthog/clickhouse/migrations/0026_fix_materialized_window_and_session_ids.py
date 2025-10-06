@@ -1,7 +1,7 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 

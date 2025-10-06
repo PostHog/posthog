@@ -6,15 +6,15 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-from dags.common import ClickhouseClusterResource
+from dags.common import ClickhouseClusterResource, settings_with_log_comment
 
 
 class DateRange(dagster.Config):
@@ -196,6 +196,7 @@ def export_query_logs(
                     {
                         "current_date": current_date.strftime(DateRange.FORMAT),
                     },
+                    settings=settings_with_log_comment(context),
                 )
 
             # Move to the next date

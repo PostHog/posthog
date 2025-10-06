@@ -1,31 +1,42 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 from posthog.schema import (
+    CachedExperimentExposureQueryResponse,
+    DateRange,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
-    DateRange,
     IntervalType,
-    CachedExperimentExposureQueryResponse,
 )
-from typing import Optional
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    build_common_exposure_conditions,
+    get_entity_key,
+    get_exposure_event_and_property,
+    get_multiple_variant_handling_from_experiment,
+    get_variant_selection_expr,
+)
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+
+QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 
 
 class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
-    response: ExperimentExposureQueryResponse
     cached_response: CachedExperimentExposureQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -34,26 +45,47 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
-        self.feature_flag = self.experiment.feature_flag
-        self.variants = [variant["key"] for variant in self.feature_flag.variants]
-        if self.experiment.holdout:
-            self.variants.append(f"holdout-{self.experiment.holdout.id}")
+        self.feature_flag_key = self.query.feature_flag.get("key")
+        if not self.feature_flag_key:
+            raise ValidationError("feature_flag key is required")
+        self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
+        self.exposure_criteria = self.query.exposure_criteria
+
+        # Determine how to handle entities exposed to multiple variants
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.exposure_criteria)
+
+        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        self.variants = [variant.get("key") for variant in multivariate_data.get("variants", [])]
+
+        if self.query.holdout:
+            self.variants.append(f"holdout-{self.query.holdout.id}")
 
         self.date_range = self._get_date_range()
+        self.date_range_query = QueryDateRange(
+            date_range=self.date_range,
+            team=self.team,
+            interval=IntervalType.DAY,
+            now=datetime.now(),
+        )
 
     def _get_date_range(self) -> DateRange:
         """
-        Returns a DateRange object based on the experiment's start and end dates,
+        Returns a DateRange object based on the experiment's start and end dates from the query,
         adjusted for the team's timezone if applicable.
         """
+        start_date_str = self.query.start_date
+        end_date_str = self.query.end_date
+
+        if not start_date_str:
+            return DateRange(date_from=None, date_to=None, explicitDate=True)
+
+        start_date = datetime.fromisoformat(start_date_str)
+        end_date = datetime.fromisoformat(end_date_str) if end_date_str else None
+
         if self.team.timezone:
             tz = ZoneInfo(self.team.timezone)
-            start_date = self.experiment.start_date.astimezone(tz) if self.experiment.start_date else None
-            end_date = self.experiment.end_date.astimezone(tz) if self.experiment.end_date else None
-        else:
-            start_date = self.experiment.start_date
-            end_date = self.experiment.end_date
+            start_date = start_date.astimezone(tz) if start_date else start_date
+            end_date = end_date.astimezone(tz) if end_date else end_date
 
         return DateRange(
             date_from=start_date.isoformat() if start_date else None,
@@ -62,118 +94,48 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        feature_flag_key = self.feature_flag.key
-        feature_flag_property = f"$feature/{feature_flag_key}"
+        # Get the exposure event and feature flag variant property
+        if not self.feature_flag_key:
+            raise ValidationError("feature_flag key is required")
+        _, feature_flag_variant_property = get_exposure_event_and_property(
+            self.feature_flag_key, self.exposure_criteria
+        )
 
-        test_accounts_filter: list[ast.Expr] = []
-        if (
-            self.experiment.exposure_criteria
-            and self.experiment.exposure_criteria.get("filterTestAccounts")
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for property in self.team.test_account_filters:
-                test_accounts_filter.append(property_to_expr(property, self.team))
-
-        date_range_query = QueryDateRange(
-            date_range=self.date_range,
+        # Build common exposure conditions using shared logic
+        exposure_conditions = build_common_exposure_conditions(
+            feature_flag_variant_property=feature_flag_variant_property,
+            variants=self.variants,
+            date_range_query=self.date_range_query,
             team=self.team,
-            interval=IntervalType.DAY,
-            now=datetime.now(),
+            exposure_criteria=self.exposure_criteria,
+            feature_flag_key=self.feature_flag_key,
         )
 
-        event_name = "$feature_flag_called"
-        exposure_config = (
-            self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
-        )
-        if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
-            event_name = exposure_config.get("event")
-            exposure_property_filters: list[ast.Expr] = []
-            if exposure_config.get("properties"):
-                for property in exposure_config.get("properties"):
-                    exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_where_clause = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                    *exposure_property_filters,
-                ]
-            )
-        else:
-            exposure_where_clause = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value="$feature_flag_called"),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["properties", "$feature_flag"]),
-                        right=ast.Constant(value=feature_flag_key),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", "$feature_flag_response"]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                ]
-            )
+        # Get the appropriate entity key
+        entity = get_entity_key(self.group_type_index)
 
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["subq", "day"]),
                 ast.Field(chain=["subq", "variant"]),
-                parse_expr("count(person_id) as exposed_count"),
+                parse_expr("count(entity_id) as exposed_count"),
             ],
             select_from=ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
                         ast.Alias(
                             alias="variant",
-                            expr=parse_expr(
-                                "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
-                                placeholders={
-                                    "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
-                                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                                },
+                            expr=get_variant_selection_expr(
+                                feature_flag_variant_property, self.multiple_variant_handling
                             ),
                         ),
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.And(
-                        exprs=[
-                            exposure_where_clause,
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=date_range_query.date_from()),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.LtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=date_range_query.date_to()),
-                            ),
-                            *test_accounts_filter,
-                        ]
-                    ),
+                    where=ast.And(exprs=exposure_conditions),
                     group_by=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Field(chain=["entity_id"]),
                     ],
                 ),
                 alias="subq",
@@ -184,44 +146,84 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         return exposure_query
 
-    def calculate(self) -> ExperimentExposureQueryResponse:
-        response = execute_hogql_query(
-            query=self._get_exposure_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
-        )
-
-        response.results = self._fill_date_gaps(response.results)
-        variant_series: dict[str, ExperimentExposureTimeSeries] = {}
-
-        # Organize results by variant
-        variant_data: dict[str, dict[str, int]] = {}
-        for result in response.results:
-            day, variant, count = result
-            if variant not in variant_data:
-                variant_data[variant] = {}
-            variant_data[variant][day.isoformat()] = count
-
-        # Create cumulative series for each variant
-        for variant, daily_counts in variant_data.items():
-            sorted_days = sorted(daily_counts.keys())
-            cumulative_counts = []
-            running_total = 0
-
-            for day in sorted_days:
-                running_total += daily_counts[day]
-                cumulative_counts.append(int(running_total))
-
-            variant_series[variant] = ExperimentExposureTimeSeries(
-                variant=variant, days=sorted_days, exposure_counts=cumulative_counts
+    def _calculate(self) -> ExperimentExposureQueryResponse:
+        try:
+            # Adding experiment specific tags to the tag collection
+            # This will be available as labels in Prometheus
+            tag_queries(
+                experiment_id=self.query.experiment_id,
+                experiment_name=self.query.experiment_name,
+                experiment_feature_flag_key=self.feature_flag_key,
             )
 
-        return ExperimentExposureQueryResponse(
-            timeseries=list(variant_series.values()),
-            total_exposures={variant: int(series.exposure_counts[-1]) for variant, series in variant_series.items()},
-            date_range=self.date_range,
-        )
+            # Set limit to avoid being cut-off by the default 100 rows limit
+            query = self._get_exposure_query()
+            query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+
+            response = execute_hogql_query(
+                query_type="ExperimentExposuresQuery",
+                query=query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=create_default_modifiers_for_team(self.team),
+                settings=HogQLGlobalSettings(max_execution_time=600, allow_experimental_analyzer=True),
+            )
+
+            response.results = self._fill_date_gaps(response.results)
+            variant_series: dict[str, ExperimentExposureTimeSeries] = {}
+
+            # Organize results by variant
+            variant_data: dict[str, dict[str, int]] = {}
+            for result in response.results:
+                day, variant, count = result
+                if variant not in variant_data:
+                    variant_data[variant] = {}
+                variant_data[variant][day.isoformat()] = count
+
+            # Create cumulative series for each variant
+            for variant, daily_counts in variant_data.items():
+                sorted_days = sorted(daily_counts.keys())
+                cumulative_counts = []
+                running_total = 0
+
+                for day in sorted_days:
+                    running_total += daily_counts[day]
+                    cumulative_counts.append(int(running_total))
+
+                variant_series[variant] = ExperimentExposureTimeSeries(
+                    variant=variant, days=sorted_days, exposure_counts=cumulative_counts
+                )
+
+            # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
+            ordered_timeseries = []
+
+            # Add variants in original order
+            for variant in self.variants:
+                if variant in variant_series:
+                    ordered_timeseries.append(variant_series[variant])
+
+            if MULTIPLE_VARIANT_KEY in variant_series:
+                ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
+
+            # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
+            total_exposures = {}
+            for variant, series in variant_series.items():
+                total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
+
+            return ExperimentExposureQueryResponse(
+                timeseries=ordered_timeseries,
+                total_exposures=total_exposures,
+                date_range=self.date_range,
+            )
+        except Exception as e:
+            capture_exception(
+                e,
+                additional_properties={
+                    "query_runner": "ExperimentExposuresQueryRunner",
+                    "experiment_id": self.query.experiment_id,
+                },
+            )
+            raise
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError("Cannot convert exposure query to raw query")
@@ -232,8 +234,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         For initial dates with no data, adds entries with zero exposures for each variant.
         """
         date_range = self._get_date_range()
+
+        # for draft experiments, return an empty result
         if not date_range.date_from:
-            raise ValidationError("Start date is required for experiment exposure data")
+            return []
+
         start_date = datetime.fromisoformat(date_range.date_from).date()
         end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
 

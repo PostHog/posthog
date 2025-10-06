@@ -1,20 +1,24 @@
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Optional
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
 
-import pytest
+from django.test import override_settings
+from django.utils.timezone import now
+
 from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
-from django.test import override_settings
-from django.utils.timezone import now
-from freezegun import freeze_time
 from openpyxl import load_workbook
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
@@ -31,7 +35,6 @@ from posthog.tasks.exports.csv_exporter import (
     _convert_response_to_csv_data,
     add_query_params,
 )
-from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -372,12 +375,10 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_tabular(self._create_asset())
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(
-        self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10
-    ) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, CSV_EXPORT_LIMIT=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -418,9 +419,9 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content is None
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -461,11 +462,9 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[2], "$pageview")
             self.assertEqual(first_row[5], str(self.team.pk))
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query_with_columns(
-        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
-    ) -> None:
+    def test_csv_exporter_events_query_with_columns(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT: int = 10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(

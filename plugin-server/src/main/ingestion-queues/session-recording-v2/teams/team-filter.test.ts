@@ -3,11 +3,11 @@ import { DateTime } from 'luxon'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamFilter } from './team-filter'
 import { TeamService } from './team-service'
-import { Team } from './types'
+import { TeamForReplay } from './types'
 
 jest.mock('./team-service')
 
-const validTeam: Team = {
+const validTeam: TeamForReplay = {
     teamId: 1,
     consoleLogIngestionEnabled: true,
 }
@@ -52,7 +52,7 @@ describe('TeamFilter', () => {
 
             const result = await teamFilter.filterBatch([message])
 
-            expect(result).toEqual([{ team: validTeam, message }])
+            expect(result).toEqual([{ team: validTeam, message: message }])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('valid-token')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })

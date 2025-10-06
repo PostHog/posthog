@@ -1,60 +1,66 @@
+from collections import namedtuple
 from numbers import Number
 from typing import Literal, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PropertyOperatorType
+from posthog.schema import (
+    ActionsNode,
+    ActorsQuery,
+    BaseMathType,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    EventsQuery,
+    FunnelConversionWindowTimeUnit,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelsQuery,
+    HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    PersonPropertyFilter,
+    PersonsOnEventsMode,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+    StickinessActorsQuery,
+    StickinessCriteria,
+    StickinessFilter,
+    StickinessQuery,
+    TrendsFilter,
+    TrendsQuery,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.property import get_property_type
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor
+
+from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Filter, Cohort, Team, Property
+from posthog.models import Cohort, Filter, Property, Team
 from posthog.models.property import PropertyGroup
+from posthog.queries.cohort_query import CohortQuery
 from posthog.queries.foss_cohort_query import (
-    validate_interval,
-    parse_and_validate_positive_integer,
     INTERVAL_TO_SECONDS,
     FOSSCohortQuery,
+    parse_and_validate_positive_integer,
+    validate_interval,
 )
-from posthog.schema import (
-    ActorsQuery,
-    EventsQuery,
-    InsightActorsQuery,
-    TrendsQuery,
-    DateRange,
-    TrendsFilter,
-    EventsNode,
-    ActionsNode,
-    BaseMathType,
-    FunnelsQuery,
-    FunnelsActorsQuery,
-    FunnelsFilter,
-    FunnelConversionWindowTimeUnit,
-    StickinessQuery,
-    StickinessFilter,
-    StickinessCriteria,
-    StickinessActorsQuery,
-    PersonPropertyFilter,
-    PropertyOperator,
-    PropertyGroupFilterValue,
-    EventPropertyFilter,
-    HogQLPropertyFilter,
-)
-from posthog.queries.cohort_query import CohortQuery
 from posthog.types import AnyPropertyFilter
 
 
 class TestWrapperCohortQuery(CohortQuery):
     def __init__(self, filter: Filter, team: Team):
         cohort_query = CohortQuery(filter=filter, team=team)
-        hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
-        self.clickhouse_query = hogql_cohort_query.query_str("clickhouse")
-        self.hogql_result = execute_hogql_query(hogql_cohort_query.get_query(), team)
+        executor = HogQLCohortQuery(cohort_query=cohort_query).get_query_executor()
+        self.hogql_result = executor.execute()
+        self.clickhouse_query = executor.clickhouse_sql
         super().__init__(filter=filter, team=team)
 
 
@@ -85,10 +91,12 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 
 class HogQLCohortQuery:
-    def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
+    def __init__(
+        self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None, team: Optional[Team] = None
+    ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
-            self.team = cohort.team
+            self.team = team or cohort.team
             filter = FOSSCohortQuery.unwrap_cohort(
                 Filter(
                     data={"properties": cohort.properties},
@@ -101,9 +109,19 @@ class HogQLCohortQuery:
         elif cohort_query is not None:
             self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
             self.property_groups = cohort_query._filter.property_groups
-            self.team = cohort_query._team
+            self.team = team or cohort_query._team
         else:
             raise
+
+    def get_query_executor(self) -> HogQLQueryExecutor:
+        return HogQLQueryExecutor(
+            query_type="HogQLCohortQuery",
+            query=self.get_query(),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            team=self.team,
+            limit_context=LimitContext.COHORT_CALCULATION,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
+        )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
         return self._get_conditions()
@@ -334,6 +352,11 @@ class HogQLCohortQuery:
 
         series = self._get_series(prop)
 
+        # Remove when we support years
+        if date_interval == "year":
+            date_interval = "month"
+            time_value = time_value * 12
+
         date_from = f"-{time_value * total_period_count}{date_interval[:1]}"
 
         stickiness_query = StickinessQuery(
@@ -371,6 +394,20 @@ class HogQLCohortQuery:
             ),
         )
 
+    def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
+        cohort_id = cast(int, prop.value)
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
+                SELECT person_id as id FROM cohort_people
+                WHERE cohort_id = {cohort_id}
+                AND team_id = {self.team.pk}
+                """,
+            ),
+        )
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         if prop.type == "behavioral":
             if prop.value == "performed_event":
@@ -391,77 +428,77 @@ class HogQLCohortQuery:
                 raise ValueError(f"Invalid behavioral property value for Cohort: {prop.value}")
         elif prop.type == "person":
             return self.get_person_condition(prop)
-        elif (
-            prop.type == "static-cohort"
-        ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
+        elif prop.type == "static-cohort":  # static cohorts are handled by flattening during initialization
             return self.get_static_cohort_condition(prop)
+        elif prop.type == "dynamic-cohort":
+            return self.get_dynamic_cohort_condition(prop)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        Condition = namedtuple("Condition", ["query", "negation"])
+
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
-        ) -> tuple[None | ast.SelectQuery | ast.SelectSetQuery, bool]:
+        ) -> Condition:
             if not prop:
-                # What do we do here?
-                return (None, False)
+                raise ValidationError("Cohort has a null property", str(prop))
 
-            if isinstance(prop, PropertyGroup):
-                queries = []
-                for property in prop.values:
-                    query, negation = build_conditions(property)
-                    if query is not None:
-                        queries.append((query, negation))
+            if isinstance(prop, Property):
+                return Condition(self._get_condition_for_property(prop), prop.negation or False)
 
-                all_negated = all(x[1] for x in queries)
-                all_not_negated = all(not x[1] for x in queries)
-                """
-                hogql = [
-                    print_ast(
-                        query,
-                        HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
-                        dialect="hogql",
-                        pretty=True,
+            children = [build_conditions(property) for property in prop.values]
+
+            if len(children) == 0:
+                raise ValidationError("Cohort has a property group with no condition", str(prop))
+
+            all_children_negated = all(condition.negation for condition in children)
+            all_children_positive = all(not condition.negation for condition in children)
+
+            parent_condition_negated = all_children_negated
+
+            if prop.type == PropertyOperatorType.OR:
+                if all_children_positive or all_children_negated:
+                    return Condition(
+                        ast.SelectSetQuery(
+                            initial_select_query=children[0][0],
+                            subsequent_select_queries=[
+                                SelectSetNode(
+                                    select_query=query,
+                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT DISTINCT",
+                                )
+                                for (query, negation) in children[1:]
+                            ],
+                        ),
+                        parent_condition_negated,
                     )
-                    for query, negation in queries
-                ]
-                """
-                negated = False
-                if prop.type == PropertyOperatorType.OR:
-                    if all_negated or all_not_negated:
-                        return (
-                            ast.SelectSetQuery(
-                                initial_select_query=queries[0][0],
-                                subsequent_select_queries=[
-                                    SelectSetNode(select_query=query, set_operator="UNION DISTINCT")
-                                    for (query, negation) in queries[1:]
-                                ],
-                            ),
-                            all_negated,
-                        )
-                    else:
-                        negated = True
-                        queries = [(query, not negation) for query, negation in queries]
-                # Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.
-                queries.sort(key=lambda query: query[1])  # False before True
-                return (
-                    ast.SelectSetQuery(
-                        initial_select_query=queries[0][0],
-                        subsequent_select_queries=[
-                            SelectSetNode(
-                                select_query=query,
-                                set_operator=(
-                                    "UNION DISTINCT" if all_negated else ("EXCEPT" if negation else "INTERSECT")
-                                ),
-                            )
-                            for (query, negation) in queries[1:]
-                        ],
-                    ),
-                    all_negated or negated,
-                )
-            else:
-                return (self._get_condition_for_property(prop), prop.negation or False)
+                else:
+                    # Use De Morgan's law to convert OR to AND
+                    parent_condition_negated = True
+                    children = [Condition(query, not negation) for query, negation in children]
 
-        conditions, _ = build_conditions(self.property_groups)
-        assert conditions is not None
-        return conditions
+            # Negation criteria must be accompanied by at least one positive matching criteria.
+            # Sort the positive queries first, then subtract the negative queries.
+            children.sort(key=lambda query: query[1])  # False before True
+            return Condition(
+                ast.SelectSetQuery(
+                    initial_select_query=children[0][0],
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            select_query=query,
+                            set_operator=(
+                                "UNION DISTINCT"
+                                if all_children_negated
+                                else ("EXCEPT" if negation else "INTERSECT DISTINCT")
+                            ),
+                        )
+                        for (query, negation) in children[1:]
+                    ],
+                ),
+                parent_condition_negated,
+            )
+
+        condition = build_conditions(self.property_groups)
+        if condition.negation:
+            raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
+        return condition.query

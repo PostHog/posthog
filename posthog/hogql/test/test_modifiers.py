@@ -1,16 +1,16 @@
 from typing import NamedTuple
+
+from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import override_settings
+
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode
+
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Cohort
-from posthog.schema import (
-    HogQLQueryModifiers,
-    PersonsArgMaxVersion,
-    PersonsOnEventsMode,
-    MaterializationMode,
-)
-from posthog.test.base import BaseTest
-from django.test import override_settings
 
 
 class TestModifiers(BaseTest):
@@ -299,3 +299,23 @@ class TestModifiers(BaseTest):
         assert response is not None
         assert response.clickhouse is not None
         assert response.clickhouse.count("ilike") == 2
+
+    def test_no_convert_timezone(self):
+        # default to convert to timezone
+        response = execute_hogql_query(
+            f"select timestamp from events limit 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(),
+        )
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("toTimeZone") == 1
+
+        response = execute_hogql_query(
+            f"select timestamp from events limit 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("toTimeZone") == 0

@@ -1,7 +1,9 @@
-import { LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInputSelect } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullName } from 'lib/utils'
-import { useEffect } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
@@ -16,16 +18,14 @@ export type MemberSelectMultipleProps = {
 
 export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMultipleProps): JSX.Element {
     const { filteredMembers, membersLoading } = useValues(membersLogic)
-    const { ensureAllMembersLoaded } = useActions(membersLogic)
 
-    useEffect(() => {
-        ensureAllMembersLoaded()
-    }, [])
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
+    useOnMountEffect(ensureAllMembersLoaded)
 
     const options = filteredMembers.map((member) => ({
         key: member.user[idKey].toString(),
         label: fullName(member.user),
-        value: member.user[idKey],
+        value: member.user[idKey].toString(),
     }))
 
     return (

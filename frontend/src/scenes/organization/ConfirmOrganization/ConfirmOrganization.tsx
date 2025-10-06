@@ -1,6 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupReferralSource from 'lib/components/SignupReferralSource'

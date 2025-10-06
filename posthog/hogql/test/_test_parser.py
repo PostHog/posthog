@@ -1,36 +1,35 @@
-from typing import Literal, cast, Optional
-
 import math
+from typing import Literal, Optional, cast
+
+from posthog.test.base import BaseTest, MemoryLeakTestMixin
+
+from posthog.hogql import ast
 from posthog.hogql.ast import (
-    VariableAssignment,
-    Constant,
     ArithmeticOperation,
-    Field,
-    ExprStatement,
-    Call,
     ArithmeticOperationOp,
-    CompareOperationOp,
-    CompareOperation,
-    JoinExpr,
-    SelectQuery,
-    Program,
-    IfStatement,
-    Block,
-    WhileStatement,
-    Function,
     Array,
+    Block,
+    Call,
+    CompareOperation,
+    CompareOperationOp,
+    Constant,
     Dict,
-    VariableDeclaration,
+    ExprStatement,
+    Field,
+    Function,
+    IfStatement,
+    JoinExpr,
+    Program,
+    SelectQuery,
     SelectSetNode,
     SelectSetQuery,
+    VariableAssignment,
+    VariableDeclaration,
+    WhileStatement,
 )
-
-from posthog.hogql.parser import parse_program
-from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
-from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 
 def parser_test_factory(backend: Literal["python", "cpp"]):
@@ -1283,6 +1282,16 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     end=14,
                 ),
             )
+            # Note that the parser will skip anything after `--`, so the `DESC` behind will not be parsed
+            self.assertEqual(
+                parse_order_expr("timestamp -- a comment DESC"),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"], start=0, end=9),
+                    order="ASC",
+                    start=0,
+                    end=9,
+                ),
+            )
 
         def test_select_order_by(self):
             self.assertEqual(
@@ -1981,6 +1990,246 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ],
             )
+
+        def test_visit_hogqlx_text_only_child(self):
+            """A tag with a single plain-text child should be turned into
+            a Constant wrapped in the auto-injected `children` attribute."""
+            node = self._select("select <span>Hello World</span> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[ast.Constant(value="Hello World")],
+                        )
+                    ],
+                ),
+            )
+
+        def test_visit_hogqlx_text_and_expr_children(self):
+            """Mixed text + expression children must keep ordering:
+            Constant('Hello')  →  Field(event)."""
+            node = self._select("select <span>Hello {event}</span> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Constant(value="Hello "),
+                                ast.Field(chain=["event"]),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 1. <strong>hello world <strong>banana</strong></strong>
+        def test_visit_hogqlx_nested_tags(self) -> None:
+            node = self._select("select <strong>hello world <strong>banana</strong></strong>")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="strong",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Constant(value="hello world "),
+                                ast.HogQLXTag(
+                                    kind="strong",
+                                    attributes=[
+                                        ast.HogQLXAttribute(
+                                            name="children",
+                                            value=[ast.Constant(value="banana")],
+                                        )
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 2. <em />
+        def test_visit_hogqlx_self_closing(self) -> None:
+            node = self._select("select <em /> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            # A self-closing element has no “children” attribute at all.
+            self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
+
+        # 3. <strong>{event} <em>asd</em></strong>
+        def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
+            node = self._select("select <strong>{event} <em>asd</em></strong> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="strong",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Field(chain=["event"]),
+                                ast.Constant(value=" "),
+                                ast.HogQLXTag(
+                                    kind="em",
+                                    attributes=[
+                                        ast.HogQLXAttribute(
+                                            name="children",
+                                            value=[ast.Constant(value="asd")],
+                                        )
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
+        def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
+            node = self._select(
+                "select <strong>"
+                "<a href='https://google.com'>Hello <em>{event}</em></a>"
+                "{'a'}"
+                "</strong> from events"
+            )
+            assert isinstance(node, ast.SelectQuery)
+            outer = cast(ast.HogQLXTag, node.select[0])
+
+            expected = ast.HogQLXTag(
+                kind="strong",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="a",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="href",
+                                        value=ast.Constant(value="https://google.com"),
+                                    ),
+                                    ast.HogQLXAttribute(
+                                        name="children",
+                                        value=[
+                                            ast.Constant(value="Hello "),
+                                            ast.HogQLXTag(
+                                                kind="em",
+                                                attributes=[
+                                                    ast.HogQLXAttribute(
+                                                        name="children",
+                                                        value=[ast.Field(chain=["event"])],
+                                                    )
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ast.Constant(value="a"),
+                        ],
+                    )
+                ],
+            )
+
+            self.assertEqual(outer, expected)
+
+        # Regression tests: “<” operator vs HOGQLX-tag opener
+        def test_lt_vs_tags_and_comments(self):
+            # 1. Plain operator – no whitespace
+            self.assertEqual(
+                self._expr("a<b"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["b"]),
+                ),
+            )
+
+            # 2. Operator with unusual spacing: the ‘b+c’ part must be parsed first,
+            #    so we use a small arithmetic expression on the RHS.
+            self.assertEqual(
+                self._expr("a <b +c"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Field(chain=["b"]),
+                        right=ast.Field(chain=["c"]),
+                    ),
+                ),
+            )
+
+            # 3. Trailing whitespace after RHS – still an operator
+            self.assertEqual(
+                self._expr("a < timestamp "),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["timestamp"]),
+                ),
+            )
+
+            # 4. Same, but with an end-of-line comment that must be ignored
+            self.assertEqual(
+                self._expr("a < timestamp // comment\n"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["timestamp"]),
+                ),
+            )
+
+            # 5. Sequence that *is* a tag: `<b …`  → should now fail to parse
+            with self.assertRaises(SyntaxError):
+                self._expr("a <b c")
+
+        def test_program_while_lt_with_space_and_comment(self):
+            code = """
+                while (a < timestamp // comment
+                ) {
+                    let c := 3;
+                }
+            """
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    WhileStatement(
+                        expr=CompareOperation(
+                            op=CompareOperationOp.Lt,
+                            left=Field(chain=["a"]),
+                            right=Field(chain=["timestamp"]),
+                        ),
+                        body=Block(
+                            declarations=[
+                                VariableDeclaration(
+                                    name="c",
+                                    expr=Constant(value=3),
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
 
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")

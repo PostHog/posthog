@@ -1,13 +1,14 @@
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
+import { Dispatch, RefObject, SetStateAction } from 'react'
+
 import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
-import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
-import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
+import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
 import { Paths } from './types'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
@@ -94,7 +95,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
     dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
 
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-surface-primary)')
+    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--color-bg-surface-primary)')
 }
 
 const appendPathLinks = (
@@ -145,11 +146,8 @@ const appendPathLinks = (
             setNodeCards(
                 nodes.map((node: PathNodeData) => ({
                     ...node,
-                    ...{
-                        visible: pathCardsToShow.includes(node.index)
-                            ? true
-                            : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
-                    },
+
+                    visible: pathCardsToShow.includes(node.index) ? true : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
                 }))
             )
         })
@@ -186,7 +184,7 @@ const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[
         const minWidthApart = nodes[1].x0 - nodes[0].x0
         arr.forEach((_, i) => {
             svg.append('line')
-                .style('stroke', 'var(--border-primary)')
+                .style('stroke', 'var(--color-border-primary)')
                 .attr('stroke-width', 2)
                 .attr('x1', minWidthApart * (i + 1) - 20)
                 .attr('y1', 0)

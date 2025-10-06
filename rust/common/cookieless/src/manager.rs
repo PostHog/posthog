@@ -3,13 +3,15 @@ use std::sync::Arc;
 
 use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, Utc};
+use common_types::TeamId;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
 use crate::constants::{
-    COOKIELESS_DISTINCT_ID_PREFIX, IDENTIFIES_TTL_SECONDS, SALT_TTL_SECONDS, SESSION_INACTIVITY_MS,
-    SESSION_TTL_SECONDS, TIMEZONE_FALLBACK,
+    COOKIELESS_DISTINCT_ID_PREFIX, COOKIELESS_SENTINEL_VALUE, IDENTIFIES_TTL_SECONDS,
+    SALT_TTL_SECONDS, TIMEZONE_FALLBACK,
 };
 use crate::hash::{do_hash, HashError};
 use crate::salt_cache::{SaltCache, SaltCacheError};
@@ -26,9 +28,6 @@ pub enum CookielessManagerError {
     #[error("Invalid URL: {0}")]
     UrlParseError(#[from] url::ParseError),
 
-    #[error("Cookieless mode is disabled")]
-    Disabled,
-
     #[error("Missing required property: {0}")]
     MissingProperty(String),
 
@@ -38,14 +37,11 @@ pub enum CookielessManagerError {
     #[error("Chrono error: {0}")]
     ChronoError(#[from] chrono::ParseError),
 
-    #[error("Timezone error: {0}")]
-    TimezoneError(String),
-
     #[error("Invalid identify count: {0}")]
     InvalidIdentifyCount(String),
 
-    #[error("Redis error: {0}")]
-    RedisError(String),
+    #[error("Redis error(key={0}): {1}")]
+    RedisError(String, String),
 }
 
 /// Configuration for the CookielessManager
@@ -57,12 +53,8 @@ pub struct CookielessConfig {
     pub force_stateless_mode: bool,
     /// TTL for identifies (in seconds)
     pub identifies_ttl_seconds: u64,
-    /// TTL for sessions (in seconds)
-    pub session_ttl_seconds: u64,
     /// TTL for salts (in seconds)
     pub salt_ttl_seconds: u64,
-    /// Session inactivity timeout (in milliseconds)
-    pub session_inactivity_ms: u64,
 }
 
 impl Default for CookielessConfig {
@@ -71,9 +63,7 @@ impl Default for CookielessConfig {
             disabled: false,
             force_stateless_mode: false,
             identifies_ttl_seconds: IDENTIFIES_TTL_SECONDS,
-            session_ttl_seconds: SESSION_TTL_SECONDS,
             salt_ttl_seconds: SALT_TTL_SECONDS,
-            session_inactivity_ms: SESSION_INACTIVITY_MS,
         }
     }
 }
@@ -88,7 +78,7 @@ pub struct HashParams<'a> {
     /// Team timezone
     pub team_time_zone: Option<&'a str>,
     /// Team ID
-    pub team_id: u64,
+    pub team_id: TeamId,
     /// IP address
     pub ip: &'a str,
     /// Host
@@ -116,10 +106,40 @@ pub struct EventData<'a> {
     pub event_time_zone: Option<&'a str>,
     /// Additional data to include in the hash (optional)
     pub hash_extra: Option<&'a str>,
-    /// Team ID
-    pub team_id: u64,
-    /// Team timezone (optional)
-    pub team_time_zone: Option<&'a str>,
+    /// Original distinct ID
+    pub distinct_id: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
+impl From<i16> for CookielessServerHashMode {
+    fn from(value: i16) -> Self {
+        match value {
+            0 => Self::Disabled,
+            1 => Self::Stateless,
+            2 => Self::Stateful,
+            _ => Self::Disabled, // Default to disabled for unknown values
+        }
+    }
+}
+
+impl From<CookielessServerHashMode> for i16 {
+    fn from(mode: CookielessServerHashMode) -> Self {
+        mode as i16
+    }
+}
+
+/// Team information required for cookieless distinct ID computation
+#[derive(Debug, Clone)]
+pub struct TeamData {
+    pub team_id: TeamId,
+    pub timezone: String,
+    pub cookieless_server_hash_mode: CookielessServerHashMode,
 }
 
 /// Manager for cookieless tracking
@@ -161,10 +181,18 @@ impl CookielessManager {
     pub async fn compute_cookieless_distinct_id(
         &self,
         event_data: EventData<'_>,
+        team_data: TeamData,
     ) -> Result<String, CookielessManagerError> {
-        // If cookieless mode is disabled, return an error
-        if self.config.disabled {
-            return Err(CookielessManagerError::Disabled);
+        // If cookieless mode is disabled or team's hash mode is Disabled, return the original distinct id
+        if self.config.disabled
+            || team_data.cookieless_server_hash_mode == CookielessServerHashMode::Disabled
+        {
+            return Ok(event_data.distinct_id.to_string());
+        }
+
+        // If the distinct_id is not the sentinel value, return it as is
+        if event_data.distinct_id != COOKIELESS_SENTINEL_VALUE {
+            return Ok(event_data.distinct_id.to_string());
         }
 
         // Validate required fields
@@ -184,8 +212,8 @@ impl CookielessManager {
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
-            team_time_zone: event_data.team_time_zone,
-            team_id: event_data.team_id,
+            team_time_zone: Some(&team_data.timezone),
+            team_id: team_data.team_id,
             ip: event_data.ip,
             host: event_data.host,
             user_agent: event_data.user_agent,
@@ -203,7 +231,7 @@ impl CookielessManager {
 
         // Get the number of identify events for this hash
         let n = self
-            .get_identify_count(&base_hash, event_data.team_id)
+            .get_identify_count(&base_hash, team_data.team_id)
             .await?;
 
         // If n is 0, we can use the base hash
@@ -262,7 +290,7 @@ impl CookielessManager {
     pub async fn get_identify_count(
         &self,
         hash: &[u8],
-        team_id: u64,
+        team_id: TeamId,
     ) -> Result<u64, CookielessManagerError> {
         // If we're in stateless mode, always return 0
         if self.config.force_stateless_mode {
@@ -273,20 +301,15 @@ impl CookielessManager {
         let redis_key = get_redis_identifies_key(hash, team_id);
 
         // Try to get the count from Redis
-        match self.redis_client.get(redis_key).await {
-            Ok(count_str) => {
-                // Parse the count string to a u64
-                count_str
-                    .parse::<u64>()
-                    .map_err(|e| CookielessManagerError::InvalidIdentifyCount(e.to_string()))
-            }
+        match self.redis_client.scard(redis_key.clone()).await {
+            Ok(count) => Ok(count),
             Err(common_redis::CustomRedisError::NotFound) => {
                 // If the key doesn't exist, the count is 0
                 Ok(0)
             }
             Err(e) => {
                 // If there's a Redis error, propagate it
-                Err(CookielessManagerError::RedisError(e.to_string()))
+                Err(CookielessManagerError::RedisError(redis_key, e.to_string()))
             }
         }
     }
@@ -303,50 +326,43 @@ impl CookielessManager {
 /// It returns the root domain (eTLD+1) for valid domains, or the original host for
 /// special cases like IP addresses, localhost, etc.
 /// The port is preserved if present in the original host.
-pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError> {
+pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> {
     use std::net::IpAddr;
 
     // If the host is empty, return it as is
-    if host.is_empty() {
-        return Ok(host.to_string());
+    if url.is_empty() {
+        return Ok(url.to_string());
     }
 
     // Check if it's an IPv6 address
-    if let Ok(IpAddr::V6(ipv6)) = host.parse::<IpAddr>() {
+    if let Ok(IpAddr::V6(ipv6)) = url.parse::<IpAddr>() {
         // Return the normalized form of the IPv6 address in brackets
-        return Ok(format!("[{}]", ipv6));
+        return Ok(format!("[{ipv6}]"));
     }
 
-    // Split host and port for special handling of IP addresses
-    let (hostname, port) = if let Some((h, p)) = host.split_once(':') {
-        (h, Some(p))
+    // Add a fake protocol if none exists
+    let input = if !url.contains("://") {
+        format!("http://{url}")
     } else {
-        (host, None)
+        url.to_string()
     };
+
+    // Parse the URL to extract hostname and port
+    let parsed_url = match Url::parse(&input) {
+        Ok(url) => url,
+        Err(_) => return Ok(url.to_string()),
+    };
+
+    let hostname = parsed_url.host_str().unwrap_or(url).to_string();
+    let port = parsed_url.port().map(|p| p.to_string());
 
     // Check if the hostname is an IP address
     if hostname.parse::<IpAddr>().is_ok() {
         return match port {
-            Some(p) => Ok(format!("{}:{}", hostname, p)),
+            Some(p) => Ok(format!("{hostname}:{p}")),
             None => Ok(hostname.to_string()),
         };
     }
-
-    // Add a fake protocol if none exists
-    let input = if !host.contains("://") {
-        format!("http://{}", host)
-    } else {
-        host.to_string()
-    };
-
-    // Parse the URL to extract hostname and port
-    let url = match Url::parse(&input) {
-        Ok(url) => url,
-        Err(_) => return Ok(host.to_string()),
-    };
-
-    let hostname = url.host_str().unwrap_or(host).to_string();
-    let port = url.port().map(|p| p.to_string());
 
     // Use the public-suffix list to extract the root domain (eTLD+1)
     let domain = match DEFAULT_PROVIDER.effective_tld_plus_one(&hostname) {
@@ -354,9 +370,15 @@ pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError>
         Err(_) => hostname,
     };
 
+    // if domain is localhost, map to 127.0.0.1 to make local dev easier
+    let domain = match domain.as_str() {
+        "localhost" => "127.0.0.1".to_string(),
+        _ => domain,
+    };
+
     // Add the port back if it exists
     match port {
-        Some(p) => Ok(format!("{}:{}", domain, p)),
+        Some(p) => Ok(format!("{domain}:{p}")),
         None => Ok(domain),
     }
 }
@@ -387,7 +409,7 @@ fn to_yyyy_mm_dd_in_timezone_safe(
 }
 
 /// Get the Redis key for identify counts
-pub fn get_redis_identifies_key(hash: &[u8], team_id: u64) -> String {
+pub fn get_redis_identifies_key(hash: &[u8], team_id: TeamId) -> String {
     // cklsi = cookieless identifies
     format!(
         "cklsi:{}:{}",
@@ -398,6 +420,8 @@ pub fn get_redis_identifies_key(hash: &[u8], team_id: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    // TODO these tests should really hit a real redis rather than a mocked one
+
     use super::*;
     use common_redis::MockRedisClient;
     use serde_json::Value;
@@ -498,7 +522,7 @@ mod tests {
                 let expected_root_domain = test_case["expected_root_domain"].as_str().unwrap();
 
                 let result = extract_root_domain(host).unwrap();
-                assert_eq!(result, expected_root_domain, "Failed for host: {}", host);
+                assert_eq!(result, expected_root_domain, "Failed for host: {host}");
             }
         } else {
             panic!("extract_root_domain_tests not found in test_cases.json");
@@ -522,7 +546,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -530,7 +554,7 @@ mod tests {
         let config = CookielessConfig::default();
         let manager = CookielessManager::new(config, redis_client);
 
-        // Create an event
+        // Test with non-sentinel distinct ID
         let event_data = EventData {
             ip: "127.0.0.1",
             timestamp_ms: Utc::now().timestamp_millis() as u64,
@@ -538,17 +562,48 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "non_sentinel_id",
         };
 
-        // Process the event
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
             .await
             .unwrap();
 
-        // Check that we got a distinct ID
+        // Check that we got back the original distinct ID
+        assert_eq!(result, "non_sentinel_id");
+
+        // Test with sentinel distinct ID
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
+        };
+
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await
+            .unwrap();
+
+        // Check that we got a cookieless distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
     }
 
@@ -558,13 +613,13 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
-        let redis_client = Arc::new(mock_redis);
+        let redis_client = Arc::new(mock_redis.clone());
 
         // Create a CookielessManager
         let config = CookielessConfig::default();
-        let manager = CookielessManager::new(config, redis_client.clone());
+        let manager = CookielessManager::new(config, redis_client);
 
         // Create an event with hash_extra
         let event_data1 = EventData {
@@ -574,8 +629,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: Some("extra1"),
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Create another event with different hash_extra
@@ -586,22 +640,37 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: Some("extra2"),
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the events
         let result1 = manager
-            .compute_cookieless_distinct_id(event_data1)
+            .compute_cookieless_distinct_id(
+                event_data1,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
             .await
             .unwrap();
         let result2 = manager
-            .compute_cookieless_distinct_id(event_data2)
+            .compute_cookieless_distinct_id(
+                event_data2,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
             .await
             .unwrap();
 
         // Check that we got different distinct IDs
         assert_ne!(result1, result2);
+        assert!(result1.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
+        assert!(result2.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
     }
 
     #[tokio::test]
@@ -616,7 +685,7 @@ mod tests {
         };
         let manager = CookielessManager::new(config, redis_client);
 
-        // Create an event
+        // Test with sentinel distinct ID
         let event_data = EventData {
             ip: "127.0.0.1",
             timestamp_ms: Utc::now().timestamp_millis() as u64,
@@ -624,15 +693,50 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the event
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await
+            .unwrap();
 
-        // Check that we got a Disabled error
-        assert!(matches!(result, Err(CookielessManagerError::Disabled)));
+        // Check that we got back the sentinel value
+        assert_eq!(result, COOKIELESS_SENTINEL_VALUE);
+
+        // Test with non-sentinel distinct ID
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: "non_sentinel_id",
+        };
+
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await
+            .unwrap();
+
+        // Check that we got back the original distinct ID
+        assert_eq!(result, "non_sentinel_id");
     }
 
     #[tokio::test]
@@ -652,10 +756,18 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await;
         assert!(matches!(
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "ip"
@@ -669,10 +781,18 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await;
         assert!(matches!(
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "host"
@@ -686,10 +806,18 @@ mod tests {
             user_agent: "",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await;
         assert!(matches!(
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "user_agent"
@@ -705,7 +833,7 @@ mod tests {
         let redis_key = get_redis_identifies_key(&hash, team_id);
 
         // Set up the mock to return a count of 3
-        mock_redis = mock_redis.get_ret(&redis_key, Ok("3".to_string()));
+        mock_redis = mock_redis.scard_ret(&redis_key, Ok(3));
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -762,7 +890,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
 
         // Create an event
@@ -773,8 +901,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Compute the base hash
@@ -783,8 +910,8 @@ mod tests {
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
-            team_time_zone: event_data.team_time_zone,
-            team_id: event_data.team_id,
+            team_time_zone: None,
+            team_id: 1,
             ip: event_data.ip,
             host: event_data.host,
             user_agent: event_data.user_agent,
@@ -797,10 +924,10 @@ mod tests {
             .unwrap();
 
         // Get the Redis key for the identify count
-        let identifies_key = get_redis_identifies_key(&base_hash, event_data.team_id);
+        let identifies_key = get_redis_identifies_key(&base_hash, 1);
 
         // Set up the mock to return a count of 2
-        mock_redis = mock_redis.get_ret(&identifies_key, Ok("2".to_string()));
+        mock_redis = mock_redis.scard_ret(&identifies_key, Ok(2));
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -808,7 +935,14 @@ mod tests {
 
         // Process the event
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
+                },
+            )
             .await
             .unwrap();
 
@@ -836,7 +970,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -855,13 +989,19 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the event
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
             .await
             .unwrap();
 
@@ -894,7 +1034,7 @@ mod tests {
             for test_case in identifies_key_tests.as_array().unwrap() {
                 let hash_base64 = test_case["hash"].as_str().unwrap();
                 let hash = general_purpose::STANDARD.decode(hash_base64).unwrap();
-                let team_id = test_case["team_id"].as_u64().unwrap();
+                let team_id: TeamId = test_case["team_id"].as_i64().unwrap().try_into().unwrap();
                 let expected_identifies_key =
                     test_case["expected_identifies_key"].as_str().unwrap();
 
@@ -910,7 +1050,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -926,17 +1066,56 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: None,
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the event - this should use the TIMEZONE_FALLBACK
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
             .await
             .unwrap();
 
         // Check that we got a distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
+    }
+
+    #[tokio::test]
+    async fn test_includes_key_in_redis_error() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let team_id = 1;
+        let redis_key = get_redis_identifies_key(&hash, team_id);
+
+        // Set up the mock to return an error
+        mock_redis = mock_redis.scard_ret(
+            &redis_key,
+            Err(common_redis::CustomRedisError::Other(
+                "Some Redis error".to_string(),
+            )),
+        );
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Get the error
+        let result = manager
+            .get_identify_count(&hash, team_id)
+            .await
+            .unwrap_err();
+
+        // Check that the error string includes the Redis key and the error message
+        let error_str = result.to_string();
+        assert!(error_str.contains(&redis_key));
+        assert!(error_str.contains("Some Redis error"));
     }
 }

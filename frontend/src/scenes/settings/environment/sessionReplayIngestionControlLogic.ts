@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { isObject } from 'lib/utils'
 import { variantKeyToIndexFeatureFlagPayloads } from 'scenes/feature-flags/featureFlagLogic'
@@ -14,7 +15,7 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
     actions({
         selectFeatureFlag: (flag: FeatureFlagBasicType) => ({ flag }),
     }),
-    connect({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
         selectedFlag: [
             null as FeatureFlagBasicType | null,

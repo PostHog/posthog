@@ -1,5 +1,8 @@
 import './Variables.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,13 +13,10 @@ import {
     LemonSwitch,
     Popover,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef, useState } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -29,40 +29,39 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { dashboardVariables } = useValues(dashboardLogic)
+    const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !dashboardVariables.length) {
+    if (!effectiveVariablesAndAssociatedInsights.length) {
         return <></>
     }
 
     return (
         <>
-            <div className="flex gap-4 flex-wrap px-px mt-4">
-                {dashboardVariables.map((n) => (
-                    <VariableComponent
-                        key={n.id}
-                        variable={n}
-                        showEditingUI={false}
-                        onChange={overrideVariableValue}
-                        variableOverridesAreSet={false}
-                    />
-                ))}
-            </div>
+            {effectiveVariablesAndAssociatedInsights.map((n) => (
+                <VariableComponent
+                    key={n.variable.id}
+                    variable={n.variable}
+                    showEditingUI={false}
+                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull)}
+                    variableOverridesAreSet={false}
+                    emptyState={<i className="text-xs">No override set</i>}
+                    insightsUsingVariable={n.insightNames}
+                    size="small"
+                />
+            ))}
         </>
     )
 }
 
 export const VariablesForInsight = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { variablesForInsight, showVariablesBar } = useValues(variablesLogic)
     const { updateVariableValue, removeVariable } = useActions(variablesLogic)
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variableOverridesAreSet } = useValues(dataNodeLogic)
     const { openExistingVariableModal } = useActions(variableModalLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !variablesForInsight.length || !showVariablesBar) {
+    if (!variablesForInsight.length || !showVariablesBar) {
         return <></>
     }
 
@@ -111,7 +110,7 @@ const VariableInput = ({
         }
 
         if (variable.type === 'Boolean') {
-            return val ? 'true' : 'false'
+            return val === true || val === 'true' ? 'true' : 'false'
         }
 
         if (variable.type === 'Date' && !val) {
@@ -247,8 +246,8 @@ const VariableInput = ({
                         <LemonButton
                             icon={<IconCopy />}
                             size="xsmall"
-                            onClick={() => void copyToClipboard(variableAsHogQL, 'variable HogQL')}
-                            tooltip="Copy HogQL"
+                            onClick={() => void copyToClipboard(variableAsHogQL, 'variable SQL')}
+                            tooltip="Copy SQL"
                         />
                         {onRemove && (
                             <LemonButton
@@ -296,6 +295,9 @@ interface VariableComponentProps {
     variableOverridesAreSet: boolean
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
+    insightsUsingVariable?: string[]
+    emptyState?: JSX.Element | string
+    size?: 'small' | 'medium'
 }
 
 export const VariableComponent = ({
@@ -305,18 +307,24 @@ export const VariableComponent = ({
     variableOverridesAreSet,
     onRemove,
     variableSettingsOnClick,
+    insightsUsingVariable,
+    emptyState = '',
+    size = 'medium',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
+
+    let tooltip = `Use this variable in your HogQL by referencing {variables.${variable.code_name}}`
+
+    if (insightsUsingVariable && insightsUsingVariable.length) {
+        tooltip += `. Insights using this variable: ${insightsUsingVariable.join(', ')}`
+    }
 
     // Dont show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
         return (
-            <LemonField.Pure
-                label={variable.name}
-                className="gap-0"
-                info={`Use this variable in your HogQL by referencing {variables.${variable.code_name}}`}
-            >
+            <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
+                    disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     value={variable.value ?? variable.default_value}
                     onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
                     options={variable.values.map((n) => ({ label: n, value: n }))}
@@ -349,20 +357,19 @@ export const VariableComponent = ({
             className="DataVizVariable_Popover"
         >
             <div>
-                <LemonField.Pure
-                    label={variable.name}
-                    className="gap-0"
-                    info={`Use this variable in your HogQL by referencing {variables.${variable.code_name}}`}
-                >
+                <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                     <LemonButton
                         type="secondary"
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                        size={size}
                     >
                         {variable.isNull
                             ? 'Set to null'
-                            : variable.value?.toString() ?? variable.default_value?.toString()}
+                            : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
+                              ? emptyState
+                              : (variable.value?.toString() ?? variable.default_value?.toString())}
                     </LemonButton>
                 </LemonField.Pure>
             </div>

@@ -1,39 +1,45 @@
 from typing import TypeAlias, Union
 
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
     DataWarehouseNode,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
+    ErrorTrackingIssueFilter,
+    EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
-    DataWarehousePropertyFilter,
-    DataWarehousePersonPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     FunnelCorrelationActorsQuery,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
+    FunnelsQuery,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     InsightActorsQuery,
+    LifecycleQuery,
+    LogEntryPropertyFilter,
+    LogPropertyFilter,
+    PathsQuery,
     PersonPropertyFilter,
     RecordingPropertyFilter,
-    SessionPropertyFilter,
-    LogEntryPropertyFilter,
-    TrendsQuery,
-    FunnelsQuery,
     RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
+    RevenueAnalyticsPropertyFilter,
+    SessionPropertyFilter,
     StickinessActorsQuery,
+    StickinessQuery,
+    TrendsQuery,
 )
+
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 
 FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 """Legacy insight filters."""
@@ -55,16 +61,21 @@ AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,
     PersonPropertyFilter,
     ElementPropertyFilter,
+    EventMetadataPropertyFilter,
+    RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     LogEntryPropertyFilter,
     CohortPropertyFilter,
     RecordingPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
+    ErrorTrackingIssueFilter,
+    LogPropertyFilter,
 ]
 
 EntityNode: TypeAlias = Union[EventsNode, ActionsNode, DataWarehouseNode]

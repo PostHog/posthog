@@ -1,14 +1,17 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
-import { NotebookNodeProps } from 'scenes/notebooks/Notebook/utils'
+import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { personLogic } from 'scenes/persons/personLogic'
 
-import { NotebookNodeType, PersonType } from '~/types'
+import { PersonType } from '~/types'
 
 import { createPostHogWidgetNode } from '../NodeWrapper'
-import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
+import { notebookNodeLogic } from '../notebookNodeLogic'
 import { Session } from './Session'
+import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
 const FeedSkeleton = (): JSX.Element => (
     <div className="deprecated-space-y-4 p-4">
@@ -39,11 +42,16 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
     )
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
-    const { id } = attributes
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element | null => {
+    const { id, distinctId } = attributes
+    const { expanded } = useValues(notebookNodeLogic)
 
-    const logic = personLogic({ id })
+    const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
+
+    if (!expanded) {
+        return null
+    }
 
     if (personLoading) {
         return <FeedSkeleton />
@@ -56,6 +64,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
 
 type NotebookNodePersonFeedAttributes = {
     id: string
+    distinctId: string
 }
 
 export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePersonFeedAttributes>({
@@ -63,8 +72,10 @@ export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePerson
     titlePlaceholder: 'Feed',
     Component,
     resizeable: false,
-    expandable: false,
+    expandable: true,
+    startExpanded: true,
     attributes: {
         id: {},
+        distinctId: {},
     },
 })

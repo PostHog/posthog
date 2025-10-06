@@ -7,7 +7,7 @@
 -->
 <clickhouse>
     <logger>
-        <level>trace</level>
+        <level>warning</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
         <size>1000M</size>
@@ -72,6 +72,7 @@
     of the time, in which case a higher number of threads might be required.
     -->
 
+    <background_message_broker_schedule_pool_size>10</background_message_broker_schedule_pool_size>
     <max_thread_pool_size>10000</max_thread_pool_size>
 
     <!-- Number of workers to recycle connections in background (see also drain_timeout).
@@ -192,7 +193,7 @@
         <partition_by>toYYYYMM(event_date)</partition_by>
 
         <!-- Interval of flushing data. -->
-        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <flush_interval_milliseconds>500</flush_interval_milliseconds>
         <!-- Maximal size in lines for the logs. When non-flushed logs amount reaches max_size, logs dumped to the disk. -->
         <max_size_rows>8388608</max_size_rows>
         <!-- Pre-allocated size in lines for the logs. -->

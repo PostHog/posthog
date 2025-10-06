@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
@@ -27,24 +28,26 @@ export function RecentFeatureFlagInsights(): JSX.Element {
         },
     }
     return (
-        <CompactList
-            loading={relatedInsightsLoading}
-            emptyMessage={{
-                title: 'You have no insights that use this feature flag',
-                description: "Explore this feature flag's insights by creating one below.",
-                buttonText: 'Create insight',
-                buttonTo: urls.insightNew({ query }),
-                buttonOnClick: () => {
-                    addProductIntentForCrossSell({
-                        from: ProductKey.FEATURE_FLAGS,
-                        to: ProductKey.PRODUCT_ANALYTICS,
-                        intent_context: ProductIntentContext.FEATURE_FLAG_CREATE_INSIGHT,
-                    })
-                },
-            }}
-            items={relatedInsights.slice(0, 5)}
-            renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
-            contentHeightBehavior="shrink"
-        />
+        <div className="max-w-prose">
+            <CompactList
+                loading={relatedInsightsLoading}
+                emptyMessage={{
+                    title: 'You have no insights that use this feature flag',
+                    description: "Explore this feature flag's insights by creating one below.",
+                    buttonText: 'Create insight',
+                    buttonTo: urls.insightNew({ query }),
+                    buttonOnClick: () => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.FEATURE_FLAGS,
+                            to: ProductKey.PRODUCT_ANALYTICS,
+                            intent_context: ProductIntentContext.FEATURE_FLAG_CREATE_INSIGHT,
+                        })
+                    },
+                }}
+                items={relatedInsights.slice(0, 5)}
+                renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
+                contentHeightBehavior="shrink"
+            />
+        </div>
     )
 }

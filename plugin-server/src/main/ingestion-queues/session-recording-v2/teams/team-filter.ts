@@ -4,7 +4,7 @@ import { logger } from '../../../../utils/logger'
 import { eventDroppedCounter } from '../../metrics'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamService } from './team-service'
-import { MessageWithTeam, Team } from './types'
+import { MessageWithTeam, TeamForReplay } from './types'
 
 export class TeamFilter {
     constructor(private readonly teamService: TeamService) {}
@@ -17,7 +17,7 @@ export class TeamFilter {
             if (team) {
                 messagesWithTeam.push({
                     team,
-                    message,
+                    message: message,
                 })
             }
         }
@@ -25,12 +25,12 @@ export class TeamFilter {
         return messagesWithTeam
     }
 
-    private async validateTeam(message: ParsedMessageData): Promise<Team | null> {
+    private async validateTeam(message: ParsedMessageData): Promise<TeamForReplay | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
             // TODO refactor
             eventDroppedCounter
                 .labels({
-                    event_type: 'session_recordings_blob_ingestion',
+                    event_type: 'session_recordings_blob_ingestion_v2',
                     drop_cause: reason,
                 })
                 .inc()

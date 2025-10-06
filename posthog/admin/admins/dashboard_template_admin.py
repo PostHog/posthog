@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -25,7 +26,7 @@ class DashboardTemplateAdmin(admin.ModelAdmin):
         if template.team is None:
             return None
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            template.team.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[template.team.pk]),
             template.team.name,
         )

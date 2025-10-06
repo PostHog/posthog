@@ -3,22 +3,22 @@ from typing import TYPE_CHECKING, Optional
 import posthoganalytics
 from pydantic import ValidationError
 
-from posthog.cloud_utils import is_cloud
 from posthog.schema import (
+    BounceRatePageViewMode,
+    CustomChannelRule,
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
     PersonsArgMaxVersion,
-    BounceRatePageViewMode,
     PropertyGroupsMode,
-    SessionTableVersion,
-    CustomChannelRule,
     SessionsV2JoinMode,
+    SessionTableVersion,
 )
 
+from posthog.cloud_utils import is_cloud
+
 if TYPE_CHECKING:
-    from posthog.models import Team
-    from posthog.models import User
+    from posthog.models import Team, User
 
 
 def create_default_modifiers_for_user(
@@ -49,6 +49,9 @@ def create_default_modifiers_for_team(
         modifiers = HogQLQueryModifiers()
     else:
         modifiers = modifiers.model_copy()
+
+    if modifiers.useMaterializedViews is None:
+        modifiers.useMaterializedViews = True
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
@@ -94,19 +97,17 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.sessionsV2JoinMode is None:
         modifiers.sessionsV2JoinMode = SessionsV2JoinMode.STRING
 
-    if (
-        modifiers.propertyGroupsMode is None
-        and is_cloud()
-        and posthoganalytics.feature_enabled(
-            "hogql-optimized-property-groups-mode-enabled",
-            str(team.uuid),
-            groups={"project": str(team.id)},
-            group_properties={"project": {"id": str(team.id), "created_at": team.created_at, "uuid": team.uuid}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    ):
+    if modifiers.useMaterializedViews is None:
+        modifiers.useMaterializedViews = True
+
+    if modifiers.usePresortedEventsTable is None:
+        modifiers.usePresortedEventsTable = False
+
+    if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
+    if modifiers.convertToProjectTimezone is None:
+        modifiers.convertToProjectTimezone = True
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
