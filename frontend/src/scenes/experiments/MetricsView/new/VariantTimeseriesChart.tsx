@@ -10,6 +10,7 @@ interface VariantTimeseriesChartProps {
 
 export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesChartProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
+    const chartRef = useRef<Chart | null>(null)
 
     useEffect(() => {
         if (!data) {
@@ -114,11 +115,15 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                 },
             }
 
-            new Chart(ctx, config)
+            chartRef.current = new Chart(ctx, config)
         }, 0)
 
         return () => {
             clearTimeout(timeoutId)
+            if (chartRef.current) {
+                chartRef.current.destroy()
+                chartRef.current = null
+            }
         }
     }, [data])
 
