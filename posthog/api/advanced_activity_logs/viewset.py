@@ -206,6 +206,11 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         else:
             base_queryset = base_queryset.filter(team_id=self.team_id)
 
+        # Apply lookback restriction based on feature limits
+        lookback_date = get_activity_log_lookback_restriction(self.organization)
+        if lookback_date:
+            base_queryset = base_queryset.filter(created_at__gte=lookback_date)
+
         return base_queryset.order_by("-created_at")
 
     def get_serializer_class(self):
@@ -221,11 +226,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         filters = filters_serializer.validated_data
 
         queryset = self.dangerously_get_queryset()
-
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
-
         queryset = self.filter_manager.apply_filters(queryset, filters)
 
         page = self.paginate_queryset(queryset)
@@ -239,11 +239,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
         queryset = self.dangerously_get_queryset()
-
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
-
         available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
