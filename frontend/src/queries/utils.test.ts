@@ -7,7 +7,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
-import { hogql } from './utils'
+import { NodeKind } from './schema/schema-general'
+import { hogql, setLatestVersionsOnQuery } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
@@ -61,5 +62,65 @@ describe('hogql tag', () => {
         if (context?.current_team) {
             context.current_team.timezone = oldTimezone
         }
+    })
+})
+
+describe('setLatestVersionsOnQuery', () => {
+    it('handles circular references without stack overflow', () => {
+        const parent: any = {
+            kind: NodeKind.EventsQuery,
+            name: 'parent',
+            children: [],
+        }
+        const child: any = {
+            kind: NodeKind.EventsNode,
+            name: 'child',
+            parent: parent,
+        }
+        parent.children.push(child)
+
+        const result = setLatestVersionsOnQuery(parent)
+
+        expect(result.name).toEqual('parent')
+        expect(result.children).toHaveLength(1)
+        expect(result.children[0].name).toEqual('child')
+    })
+
+    it('handles self-referencing objects', () => {
+        const obj: any = {
+            kind: NodeKind.HogQLQuery,
+            name: 'self',
+        }
+        obj.self = obj
+
+        const result = setLatestVersionsOnQuery(obj)
+
+        expect(result.name).toEqual('self')
+    })
+
+    it('handles deeply nested circular references', () => {
+        const root: any = {
+            kind: NodeKind.EventsQuery,
+            level: 'root',
+        }
+        const nested: any = {
+            kind: NodeKind.EventsNode,
+            level: 'nested',
+            parent: root,
+        }
+        const deepNested: any = {
+            kind: NodeKind.HogQuery,
+            level: 'deep',
+            parent: nested,
+            root: root,
+        }
+        root.child = nested
+        nested.child = deepNested
+
+        const result = setLatestVersionsOnQuery(root)
+
+        expect(result.level).toEqual('root')
+        expect(result.child.level).toEqual('nested')
+        expect(result.child.child.level).toEqual('deep')
     })
 })
