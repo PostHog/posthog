@@ -174,7 +174,7 @@ class TaxonomyAgentToolkit:
             formatted_sample_values.append("and many more distinct values")
         elif sample_count > len(sample_values):
             remaining = sample_count - len(sample_values)
-            formatted_sample_values.append(f"and {remaining} more distinct values")
+            formatted_sample_values.append(f"and {remaining} more distinct value{'' if remaining == 1 else 's'}.")
         data = {"property": property_name, "values": formatted_sample_values}
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
@@ -204,7 +204,7 @@ class TaxonomyAgentToolkit:
 
         return self._format_property_values(property_name, sample_values, sample_count, format_as_string=is_str)
 
-    @database_sync_to_async(thread_sensitive=True)
+    @database_sync_to_async(thread_sensitive=False)
     def _retrieve_event_or_action_taxonomy(
         self, event_name_or_action_id: str | int, properties: list[str] | None = None
     ):
@@ -408,7 +408,7 @@ class TaxonomyAgentToolkit:
         )
         return results
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_entity(
         self, entity: str, property_names: list[str], query: ActorsPropertyTaxonomyQuery
     ) -> dict[str, PropertyDefinition]:
@@ -458,7 +458,7 @@ class TaxonomyAgentToolkit:
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
 
-    @database_sync_to_async(thread_sensitive=True)
+    @database_sync_to_async(thread_sensitive=False)
     def _get_project_actions(self) -> list[Action]:
         return list(Action.objects.filter(team__project_id=self._team.project_id, deleted=False))
 
@@ -512,7 +512,7 @@ class TaxonomyAgentToolkit:
         results = await asyncio.gather(*event_tasks)
         return dict(zip(event_properties.keys(), results))
 
-    @database_sync_to_async(thread_sensitive=True)
+    @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinition]:
         return {
             prop.name: prop
