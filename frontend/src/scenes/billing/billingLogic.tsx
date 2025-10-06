@@ -67,7 +67,7 @@ export interface BillingError {
     action: LemonButtonPropsBase
 }
 
-export type SwitchSubscriptionPlanPayload = {
+export type SwitchPlanPayload = {
     from_product_key: string
     from_plan_key: string
     to_product_key: string
@@ -170,6 +170,7 @@ export const billingLogic = kea<billingLogicType>([
         setComputedDiscount: (discount: number) => ({ discount }),
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
+        setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
     }),
     connect(() => ({
         values: [
@@ -288,6 +289,12 @@ export const billingLogic = kea<billingLogicType>([
                 setCreditBrackets: (_, { creditBrackets }) => creditBrackets || [],
             },
         ],
+        switchPlanLoading: [
+            null as string | null,
+            {
+                setSwitchPlanLoading: (_, { productKey }) => productKey,
+            },
+        ],
     }),
     lazyLoaders(({ actions, values }) => ({
         billing: [
@@ -382,7 +389,7 @@ export const billingLogic = kea<billingLogicType>([
                         return values.billing
                     }
                 },
-                switchSubscriptionPlan: async (data: SwitchSubscriptionPlanPayload, breakpoint) => {
+                switchFlatrateSubscriptionPlan: async (data: SwitchPlanPayload, breakpoint) => {
                     try {
                         await api.create('api/billing/subscription/switch-plan', data)
 
@@ -742,6 +749,15 @@ export const billingLogic = kea<billingLogicType>([
             if (isDismissed) {
                 posthog.capture('credits cta hero dismissed')
             }
+        },
+        switchFlatrateSubscriptionPlan: async (payload) => {
+            actions.setSwitchPlanLoading(payload.to_product_key)
+        },
+        switchFlatrateSubscriptionPlanSuccess: () => {
+            actions.setSwitchPlanLoading(null)
+        },
+        switchFlatrateSubscriptionPlanFailure: () => {
+            actions.setSwitchPlanLoading(null)
         },
         loadBillingSuccess: async (_, breakpoint) => {
             actions.registerInstrumentationProps()

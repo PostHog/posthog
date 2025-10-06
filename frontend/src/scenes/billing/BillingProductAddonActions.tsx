@@ -30,9 +30,15 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds, currentPlatformAddon } =
-        useValues(billingLogic)
-    const { switchSubscriptionPlan } = useActions(billingLogic)
+    const {
+        billing,
+        billingError,
+        switchPlanLoading,
+        timeTotalInSeconds,
+        timeRemainingInSeconds,
+        currentPlatformAddon,
+    } = useValues(billingLogic)
+    const { switchFlatrateSubscriptionPlan } = useActions(billingLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
@@ -209,9 +215,10 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
+                        loading={switchPlanLoading === addon.type}
                         // TODO: Show confirmation modal with AddonFeatureLossNotice
                         onClick={() =>
-                            switchSubscriptionPlan({
+                            switchFlatrateSubscriptionPlan({
                                 from_product_key: String(currentPlatformAddon?.type),
                                 from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
                                 to_product_key: addon.type,
@@ -243,8 +250,9 @@ export const BillingProductAddonActions = ({
 
                 <LemonButton
                     type="primary"
+                    loading={switchPlanLoading === addon.type}
                     onClick={() =>
-                        switchSubscriptionPlan({
+                        switchFlatrateSubscriptionPlan({
                             from_product_key: String(currentPlatformAddon?.type),
                             from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
                             to_product_key: addon.type,
