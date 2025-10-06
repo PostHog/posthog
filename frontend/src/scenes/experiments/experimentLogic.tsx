@@ -695,8 +695,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
                         : originalMetric.kind === NodeKind.ExperimentMetric
-                            ? `${getDefaultMetricTitle(originalMetric)} (copy)`
-                            : undefined
+                          ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                          : undefined
 
                     const newMetric = { ...originalMetric, uuid: newUuid, name }
                     metrics.splice(originalIndex + 1, 0, newMetric)
@@ -905,11 +905,11 @@ export const experimentLogic = kea<experimentLogicType>([
                              */
                             props.formMode === FORM_MODES.create
                                 ? {
-                                    ...values.experiment?.parameters,
-                                    recommended_running_time: recommendedRunningTime,
-                                    recommended_sample_size: recommendedSampleSize,
-                                    minimum_detectable_effect: minimumDetectableEffect,
-                                }
+                                      ...values.experiment?.parameters,
+                                      recommended_running_time: recommendedRunningTime,
+                                      recommended_sample_size: recommendedSampleSize,
+                                      minimum_detectable_effect: minimumDetectableEffect,
+                                  }
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
@@ -1544,9 +1544,9 @@ export const experimentLogic = kea<experimentLogicType>([
             (experimentId: Experiment['id']): SidePanelSceneContext | null => {
                 return experimentId && experimentId !== 'new'
                     ? {
-                        activity_scope: ActivityScope.EXPERIMENT,
-                        activity_item_id: `${experimentId}`,
-                    }
+                          activity_scope: ActivityScope.EXPERIMENT,
+                          activity_item_id: `${experimentId}`,
+                      }
                     : null
             },
         ],
@@ -1597,14 +1597,14 @@ export const experimentLogic = kea<experimentLogicType>([
         isPrimaryMetricSignificant: [
             (s) => [s.legacyPrimaryMetricsResults, s.experiment],
             (
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
+                    legacyPrimaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    experiment: Experiment
+                ) =>
                 (metricUuid: string): boolean => {
                     // Find metric index by UUID
                     const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
@@ -1623,14 +1623,14 @@ export const experimentLogic = kea<experimentLogicType>([
         isSecondaryMetricSignificant: [
             (s) => [s.legacySecondaryMetricsResults, s.experiment],
             (
-                legacySecondaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
+                    legacySecondaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    experiment: Experiment
+                ) =>
                 (metricUuid: string): boolean => {
                     // Find metric index by UUID
                     const index = experiment.metrics_secondary.findIndex((m) => m.uuid === metricUuid)
@@ -1649,14 +1649,14 @@ export const experimentLogic = kea<experimentLogicType>([
         significanceDetails: [
             (s) => [s.legacyPrimaryMetricsResults, s.experiment],
             (
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
+                    legacyPrimaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    experiment: Experiment
+                ) =>
                 (metricUuid: string): string => {
                     // Find metric index by UUID
                     const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
@@ -1726,21 +1726,21 @@ export const experimentLogic = kea<experimentLogicType>([
         tabularExperimentResults: [
             (s) => [s.experiment, s.legacyPrimaryMetricsResults, s.legacySecondaryMetricsResults, s.getInsightType],
             (
-                experiment,
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                legacySecondaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                getInsightType
-            ) =>
+                    experiment,
+                    legacyPrimaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    legacySecondaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    getInsightType
+                ) =>
                 (metricIdentifier: number | string = 0, isSecondary: boolean = false): any[] => {
                     let index: number
                     if (typeof metricIdentifier === 'string') {
@@ -1794,14 +1794,14 @@ export const experimentLogic = kea<experimentLogicType>([
         sortedWinProbabilities: [
             (s) => [s.legacyPrimaryMetricsResults, s.experiment],
             (
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
+                    legacyPrimaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    experiment: Experiment
+                ) =>
                 (metricIdentifier: number | string = 0) => {
                     let index: number
                     if (typeof metricIdentifier === 'string') {
@@ -1832,15 +1832,15 @@ export const experimentLogic = kea<experimentLogicType>([
         funnelResultsPersonsTotal: [
             (s) => [s.experiment, s.legacyPrimaryMetricsResults, s.getInsightType],
             (
-                experiment,
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                getInsightType
-            ) =>
+                    experiment,
+                    legacyPrimaryMetricsResults: (
+                        | CachedLegacyExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
+                    getInsightType
+                ) =>
                 (metricIdentifier: number | string = 0): number => {
                     let index: number
                     if (typeof metricIdentifier === 'string') {
