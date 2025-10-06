@@ -21,7 +21,12 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, S3BatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportInsertInputs,
+    BatchExportModel,
+    S3BatchExportInputs,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -117,9 +122,12 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
+def get_allowed_template_variables(
+    data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+) -> dict[str, str]:
     """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
-    export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
+    export_datetime = dt.datetime.fromisoformat(data_interval_end)
+
     return {
         "second": f"{export_datetime:%S}",
         "minute": f"{export_datetime:%M}",
@@ -127,39 +135,52 @@ def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
         "day": f"{export_datetime:%d}",
         "month": f"{export_datetime:%m}",
         "year": f"{export_datetime:%Y}",
-        "data_interval_start": inputs.data_interval_start or "START",
-        "data_interval_end": inputs.data_interval_end,
-        "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
+        "data_interval_start": data_interval_start or "START",
+        "data_interval_end": data_interval_end,
+        "table": batch_export_model.name if batch_export_model is not None else "events",
     }
 
 
-def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
-    template_variables = get_allowed_template_variables(inputs)
+def get_s3_key_prefix(
+    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+) -> str:
+    template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
 
     try:
-        return inputs.prefix.format(**template_variables)
+        return prefix.format(**template_variables)
     except (KeyError, ValueError) as e:
         EXTERNAL_LOGGER.warning(
-            f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
         )
-        return inputs.prefix
+        return prefix
 
 
-def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
+def get_s3_key(
+    prefix: str,
+    data_interval_start: str | None,
+    data_interval_end: str,
+    batch_export_model: BatchExportModel | None,
+    file_format: str,
+    file_number: int | None = None,
+    compression: str | None = None,
+) -> str:
     """Return an S3 key given S3InsertInputs."""
-    key_prefix = get_s3_key_prefix(inputs)
+    key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
 
     try:
-        file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
+        file_extension = FILE_FORMAT_EXTENSIONS[file_format]
     except KeyError:
-        raise UnsupportedFileFormatError(inputs.file_format)
+        raise UnsupportedFileFormatError(file_format)
 
-    base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
-    # to maintain backwards compatibility with the old file naming scheme
-    if inputs.max_file_size_mb is not None:
+    base_file_name = f"{data_interval_start}-{data_interval_end}"
+
+    if file_number is not None:
+        # For backwards compatibility, single-file batch exports do not include a file
+        # number suffix.
         base_file_name = f"{base_file_name}-{file_number}"
-    if inputs.compression is not None:
-        file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[inputs.compression]}"
+
+    if compression is not None:
+        file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
     else:
         file_name = base_file_name + f".{file_extension}"
 
@@ -172,8 +193,22 @@ def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
     return key
 
 
+def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int | None = None) -> str:
+    return get_s3_key(
+        inputs.prefix,
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+        inputs.batch_export_model,
+        inputs.file_format,
+        file_number,
+        inputs.compression,
+    )
+
+
 def get_manifest_key(inputs: S3InsertInputs) -> str:
-    key_prefix = get_s3_key_prefix(inputs)
+    key_prefix = get_s3_key_prefix(
+        inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
+    )
     return posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}_manifest.json")
 
 
@@ -361,7 +396,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
-        get_s3_key(inputs),
+        get_s3_key_from_inputs(inputs),
     )
 
     async with Heartbeater():
@@ -399,7 +434,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             [field.with_nullable(True) for field in record_batch_schema]
         )
 
-        consumer = ConcurrentS3Consumer(
+        consumer = ConcurrentS3Consumer.from_inputs(
             s3_inputs=inputs,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
@@ -440,13 +475,24 @@ class ConcurrentS3Consumer(Consumer):
 
     def __init__(
         self,
-        s3_inputs: S3InsertInputs,
+        bucket: str,
+        region_name: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        endpoint_url: str | None = None,
+        use_virtual_style_addressing: bool = False,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
         super().__init__()
 
-        self.s3_inputs = s3_inputs
+        self.bucket = bucket
+        self.use_virtual_style_addressing = use_virtual_style_addressing
+        self.region_name = region_name
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+        self.endpoint_url = endpoint_url
+
         self.part_size = part_size
         self.max_concurrent_uploads = max_concurrent_uploads
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
@@ -468,6 +514,24 @@ class ConcurrentS3Consumer(Consumer):
 
         self._finalized = False
 
+    @classmethod
+    def from_inputs(
+        cls,
+        s3_inputs: S3InsertInputs,
+        part_size: int = 50 * 1024 * 1024,
+        max_concurrent_uploads: int = 5,
+    ):
+        return cls(
+            s3_inputs.bucket_name,
+            s3_inputs.use_virtual_style_addressing,
+            s3_inputs.region,
+            s3_inputs.aws_access_key_id,
+            s3_inputs.aws_secret_access_key,
+            s3_inputs.endpoint_url,
+            part_size,
+            max_concurrent_uploads,
+        )
+
     async def _get_s3_client(self) -> "S3Client":
         """Get or create the shared S3 client.
 
@@ -478,17 +542,17 @@ class ConcurrentS3Consumer(Consumer):
                 "max_pool_connections": self.max_concurrent_uploads
                 * 5,  # Increase connection pool, so to ensure we're not limited by this
             }
-            if self.s3_inputs.use_virtual_style_addressing:
+            if self.use_virtual_style_addressing:
                 config["s3"] = {"addressing_style": "virtual"}
             boto_config = AioConfig(**config)
 
             try:
                 client_ctx = self._session.client(
                     "s3",
-                    region_name=self.s3_inputs.region,
-                    aws_access_key_id=self.s3_inputs.aws_access_key_id,
-                    aws_secret_access_key=self.s3_inputs.aws_secret_access_key,
-                    endpoint_url=self.s3_inputs.endpoint_url,
+                    region_name=self.region_name,
+                    aws_access_key_id=self.aws_access_key_id,
+                    aws_secret_access_key=self.aws_secret_access_key,
+                    endpoint_url=self.endpoint_url,
                     config=boto_config,
                 )
                 self._s3_client = await client_ctx.__aenter__()
@@ -606,7 +670,7 @@ class ConcurrentS3Consumer(Consumer):
                 while response is None:
                     try:
                         response = await client.upload_part(
-                            Bucket=self.s3_inputs.bucket_name,
+                            Bucket=self.bucket,
                             Key=current_key,
                             PartNumber=part_number,
                             UploadId=self.upload_id,
@@ -658,7 +722,15 @@ class ConcurrentS3Consumer(Consumer):
 
     def _get_current_key(self) -> str:
         """Generate the key for the current file"""
-        return get_s3_key(self.s3_inputs, self.current_file_index)
+        return get_s3_key(
+            self.prefix,
+            self.data_interval_start,
+            self.data_interval_end,
+            self.batch_export_model,
+            self.file_format,
+            self.current_file_index,
+            self.compression,
+        )
 
     async def _start_new_file(self):
         """Start a new file (reset state for file splitting)"""
