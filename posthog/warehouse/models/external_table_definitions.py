@@ -795,7 +795,6 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "livemode": BooleanDatabaseField(name="livemode"),
         "redaction": StringJSONDatabaseField(name="redaction"),
         "metadata": StringJSONDatabaseField(name="metadata"),
-        "object": StringDatabaseField(name="object"),
         "type": StringDatabaseField(name="type"),
     },
     "zendesk_brands": {
