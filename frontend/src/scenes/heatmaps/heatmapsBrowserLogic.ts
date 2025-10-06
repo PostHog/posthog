@@ -50,11 +50,9 @@ const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 
-// Helper function to ensure trailing slash on paths (unless it's a file)
 const normalizeUrlPath = (urlObj: URL): string => {
-    const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(urlObj.pathname)
-    if (!hasFileExtension && !urlObj.pathname.endsWith('/')) {
-        urlObj.pathname += '/'
+    if (urlObj.pathname === '') {
+        urlObj.pathname = '/'
     }
     return urlObj.toString()
 }
@@ -376,12 +374,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url?.trim().length) {
                 actions.startTrackingLoading()
 
-                const urlObj = new URL(url.trim())
-                const normalizedUrl = normalizeUrlPath(urlObj)
-
-                actions.setHref(normalizedUrl)
+                let normalizedUrl = url.trim()
 
                 const isPattern = isUrlPattern(normalizedUrl)
+                if (!isPattern) {
+                    const urlObj = new URL(normalizedUrl)
+                    normalizedUrl = normalizeUrlPath(urlObj)
+                }
+
+                actions.setHref(normalizedUrl)
                 actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             }
         },
