@@ -2,7 +2,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonLabel,
+    LemonSkeleton,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -357,7 +365,9 @@ export function HeatmapsBrowser(): JSX.Element {
                 <ReplayIframeDataIntro />
                 <div className="overflow-hidden w-full h-screen">
                     <UrlSearchHeader iframeRef={iframeRef} />
+                    <LemonDivider className="my-4" />
                     <FilterPanel />
+                    <LemonDivider className="my-4" />
                     <div className="relative flex flex-1 overflow-hidden border min-h-screen">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
