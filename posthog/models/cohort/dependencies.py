@@ -41,7 +41,7 @@ def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
                     dependencies.add(prop.value)
         except ValidationError as e:
             COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="invalid").inc()
-            logger.exception("Skipping cohort with invalid filters", cohort_id=cohort.id, error=str(e))
+            logger.warning("Skipping cohort with invalid filters", cohort_id=cohort.id, error=str(e))
     return dependencies
 
 
