@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 import { type RenderResult, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
@@ -169,6 +171,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             const input = screen.getByPlaceholderText(/examples: new-landing-page/)
             await userEvent.type(input, 'test')
+
+            // Spinner should appear during validation (debounced)
+            await waitFor(() => {
+                const spinner = document.querySelector('.Spinner')
+                expect(spinner).toBeInTheDocument()
+            })
         })
 
         it('shows success checkmark for valid key', async () => {
@@ -461,8 +469,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         })
 
         it('prevents adding more than maximum variants', async () => {
-            // Add variants up to the max (MAX_EXPERIMENT_VARIANTS is 20)
-            const maxVariants = Array.from({ length: 20 }, (_, i) => ({
+            const maxVariants = Array.from({ length: MAX_EXPERIMENT_VARIANTS }, (_, i) => ({
                 key: `variant-${i}`,
                 rollout_percentage: 5,
             }))

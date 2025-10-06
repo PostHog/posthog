@@ -203,14 +203,27 @@ describe('variantsPanelLogic', () => {
         it('debounces validation calls', async () => {
             const spy = jest.spyOn(logic.actions, 'validateFeatureFlagKey')
 
-            logic.actions.validateFeatureFlagKey('test-1')
-            logic.actions.validateFeatureFlagKey('test-2')
-            logic.actions.validateFeatureFlagKey('test-3')
-
-            // Should debounce and only process the last call
-            await new Promise((resolve) => setTimeout(resolve, 350))
+            await expectLogic(logic, () => {
+                logic.actions.validateFeatureFlagKey('test-1')
+                logic.actions.validateFeatureFlagKey('test-2')
+                logic.actions.validateFeatureFlagKey('test-3')
+            })
+                .delay(350)
+                .toDispatchActions([
+                    'validateFeatureFlagKey',
+                    'validateFeatureFlagKey',
+                    'validateFeatureFlagKey',
+                    'validateFeatureFlagKeySuccess',
+                ])
+                .toMatchValues({
+                    featureFlagKeyValidation: partial({
+                        valid: true,
+                        error: null,
+                    }),
+                })
 
             expect(spy).toHaveBeenCalledTimes(3)
+            expect(spy).toHaveBeenLastCalledWith('test-3')
         })
     })
 

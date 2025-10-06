@@ -236,20 +236,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             />
                         </div>
                         <div className="col-span-8">
-                            <JSONEditorInput
-                                readOnly={true}
-                                onChange={(newValue) => {
-                                    const updatedVariant = { ...variant, name: newValue }
-                                    if (newValue === '') {
-                                        delete updatedVariant.name
-                                    } else {
-                                        updatedVariant.name = newValue
-                                    }
-                                    updateVariant(index, updatedVariant)
-                                }}
-                                value={''}
-                                placeholder='{"key": "value"}'
-                            />
+                            <JSONEditorInput readOnly={true} value={''} placeholder='{"key": "value"}' />
                         </div>
                         <div className="col-span-3">
                             <LemonInput

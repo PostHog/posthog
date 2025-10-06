@@ -351,7 +351,7 @@ describe('VariantsPanel', () => {
             const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
             await userEvent.click(linkCard!)
 
-            let selectButton = screen.getByRole('button', { name: /select feature flag/i })
+            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
             await userEvent.click(selectButton)
 
             // Wait for flags to load, then select
