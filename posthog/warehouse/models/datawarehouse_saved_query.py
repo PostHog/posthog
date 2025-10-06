@@ -57,6 +57,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         FAILED = "Failed"
         RUNNING = "Running"
 
+    class Type(models.TextChoices):
+        """Possible types of this SavedQuery."""
+
+        SNAPSHOT = "Snapshot"
+        VIEW = "View"
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -83,6 +89,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
+
+    # Whether this saved query is a snapshot or a view
+    type = models.CharField(max_length=128, choices=Type.choices, default=Type.VIEW)
+
+    # If this is query itself is a snapshot, these fields will be unused
+    snapshot_enabled = models.BooleanField(default=False)
+
+    # Snapshot SCD2 table
+    snapshot_table = models.ForeignKey(
+        "posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="snapshot_table"
+    )
 
     class Meta:
         constraints = [
@@ -187,6 +204,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
 
     @property
+    def snapshot_folder_path(self):
+        return f"team_{self.team.pk}_snapshot_{self.id.hex}"
+
+    @property
     def normalized_name(self):
         return NamingConvention().normalize_identifier(self.name)
 
@@ -199,6 +220,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
+    @property
+    def snapshot_url_pattern(self):
+        if settings.USE_LOCAL_SETUP:
+            parsed = urlparse(settings.BUCKET_URL)
+            bucket_name = parsed.netloc
+
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_snapshot_{self.id.hex}/{self.normalized_name}"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/team_{self.team.pk}_snapshot_{self.id.hex}/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
@@ -250,6 +280,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
     return (
         DataWarehouseSavedQuery.objects.prefetch_related("team")
+        .select_related("datawarehousesnapshotconfig")
+        .prefetch_related("table")
         .exclude(deleted=True)
         .get(id=saved_query_id, team_id=team_id)
     )

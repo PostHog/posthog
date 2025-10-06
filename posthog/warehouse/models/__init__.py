@@ -9,4 +9,6 @@ from .join import *
 from .modeling import *
 from .query_tab_state import *
 from .revenue_analytics_config import *
+from .snapshot_config import *
+from .snapshot_job import *
 from .table import *

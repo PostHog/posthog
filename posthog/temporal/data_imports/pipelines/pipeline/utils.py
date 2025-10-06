@@ -6,7 +6,7 @@ import hashlib
 import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 import numpy as np
 import orjson
@@ -324,7 +324,7 @@ def setup_partitioning(
             return pa_table
 
     partition_result = append_partition_key_to_table(
-        table=pa_table,
+        table_or_batch=pa_table,
         partition_count=partition_count,
         partition_size=partition_size,
         partition_keys=partition_keys,
@@ -347,21 +347,45 @@ def setup_partitioning(
     return pa_table
 
 
+TArrow = TypeVar("TArrow", pa.Table, pa.RecordBatch)
+
+
 def append_partition_key_to_table(
-    table: pa.Table,
+    table_or_batch: TArrow,
     partition_count: Optional[int],
     partition_size: Optional[int],
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> None | tuple[pa.Table, PartitionMode, list[str]]:
+) -> None | tuple[TArrow, PartitionMode, list[str]]:
     """
-    Partitions the pyarrow table via one of three methods:
+    Partitions the pyarrow table or record batch via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
     - datetime: Uses a stable timestamp, such as a created_at field, to partition the rows
     - numerical: Uses a numerical primary key to bucket the rows by count
+
+    Args:
+        table_or_batch: Either a PyArrow Table or RecordBatch to partition
+        partition_count: Number of partitions for md5 mode
+        partition_size: Size of partitions for numerical mode
+        partition_keys: List of column names to use as partition keys
+        partition_mode: Partition mode to use (md5, datetime, numerical), auto-detected if None
+        partition_format: Format for datetime partitions (day, month)
+        logger: Logger instance
+
+    Returns:
+        None if partitioning is skipped, otherwise tuple of (partitioned_data, mode, normalized_keys)
     """
+
+    is_record_batch = isinstance(table_or_batch, pa.RecordBatch)
+    batches: list[pa.RecordBatch]
+    if is_record_batch:
+        batches = [cast(pa.RecordBatch, table_or_batch)]
+    else:
+        batches = cast(pa.Table, table_or_batch).to_batches()
+
+    data_source: TArrow = table_or_batch
 
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
     mode: PartitionMode | None = partition_mode
@@ -372,15 +396,15 @@ def append_partition_key_to_table(
             mode = "md5"
 
         # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-        is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+        is_partition_key_int = pa.types.is_integer(table_or_batch.field(normalized_partition_keys[0]).type)
         are_incrementing_ints = False
         if is_partition_key_int:
             min_max: dict[str, int] = cast(
-                dict[str, int], pc.min_max(table.column(normalized_partition_keys[0])).as_py()
+                dict[str, int], pc.min_max(table_or_batch.column(normalized_partition_keys[0])).as_py()
             )
             min_int_val, max_int_val = min_max["min"], min_max["max"]
             range_size = max_int_val - min_int_val + 1
-            are_incrementing_ints = table.num_rows / range_size >= 0.2
+            are_incrementing_ints = table_or_batch.num_rows / range_size >= 0.2
 
         if (
             partition_size is not None
@@ -390,12 +414,12 @@ def append_partition_key_to_table(
         ):
             mode = "numerical"
         # If the table has a created_at-ish timestamp, then we can partition by this
-        elif any(column_name in table.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES):
+        elif any(column_name in data_source.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES):
             for column_name in PARTITION_DATETIME_COLUMN_NAMES:
                 if (
-                    column_name in table.column_names
-                    and pa.types.is_timestamp(table.field(column_name).type)
-                    and table.column(column_name).null_count != table.num_rows
+                    column_name in data_source.column_names
+                    and pa.types.is_timestamp(data_source.schema.field(column_name).type)
+                    and data_source.column(column_name).null_count != data_source.num_rows
                 ):
                     mode = "datetime"
                     normalized_partition_keys = [column_name]
@@ -408,7 +432,7 @@ def append_partition_key_to_table(
 
     partition_array: list[str] = []
 
-    for batch in table.to_batches():
+    for batch in batches:
         for row in batch.to_pylist():
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
@@ -454,7 +478,8 @@ def append_partition_key_to_table(
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
 
-    return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
+    result_with_partition = data_source.append_column(PARTITION_KEY, new_column)
+    return cast(TArrow, result_with_partition), mode, normalized_partition_keys
 
 
 def _convert_uuid_to_string(row: dict) -> dict:

@@ -45,6 +45,7 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
+from posthog.warehouse.data_load.snapshot_service import start_snapshot_workflow
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.s3 import ensure_bucket_exists
@@ -1243,6 +1244,7 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
                 tg.create_task(
                     update_saved_query_status(label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id)
                 )
+                tg.create_task(start_snapshot_workflow(label, inputs.team_id))
 
             for label in inputs.failed:
                 await logger.adebug(f"Updating saved query status for {label} to FAILED")
