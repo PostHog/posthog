@@ -4,9 +4,10 @@ import { useMemo } from 'react'
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 
 import { BillingProductV2AddonType } from '~/types'
@@ -39,6 +40,7 @@ export const BillingProductAddonActions = ({
         currentPlatformAddon,
     } = useValues(billingLogic)
     const { switchFlatrateSubscriptionPlan } = useActions(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
@@ -62,6 +64,7 @@ export const BillingProductAddonActions = ({
         [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
     const isTrialEligible = !!addon.trial
+    const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
 
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
@@ -290,9 +293,9 @@ export const BillingProductAddonActions = ({
         // We don't allow multiple add-ons to be subscribed to at the same time so this checks if the customer is subscribed to another add-on
         // TODO: add support for when a customer has a Paid Plan trial
         content = renderPurchaseActions()
-    } else if (!billing?.trial && isSubscribedToAnotherAddon && isLowerTierThanCurrentAddon) {
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
         content = renderDowngradeActions()
-    } else if (!billing?.trial && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon) {
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
         content = renderUpgradeActions()
     }
 
