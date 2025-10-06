@@ -40,7 +40,7 @@ export default function FilePage({ params }: FilePageProps) {
         file_size_b: foundFile.size
       });
     }
-  }, [params.uuid]);
+  }, [params.id]);
 
   if (!user) return null;
 
@@ -84,7 +84,7 @@ export default function FilePage({ params }: FilePageProps) {
       file_type: file.type,
       file_size_b: file.size
     });
-    
+
     // Simulate download processing
     setTimeout(() => {
       setIsProcessing(false);
@@ -155,7 +155,7 @@ export default function FilePage({ params }: FilePageProps) {
   return (
     <div>
       <Header />
-      
+
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         {/* Breadcrumb */}
         <div className="breadcrumbs text-sm mb-6">
@@ -191,16 +191,16 @@ export default function FilePage({ params }: FilePageProps) {
                   )}
                 </div>
               </div>
-              
+
               <div className="flex space-x-2">
-                <button 
+                <button
                   onClick={handleDownload}
                   className={`btn btn-primary ${isProcessing ? 'loading' : ''}`}
                   disabled={isProcessing}
                 >
                   {isProcessing ? 'Processing...' : '📥 Download'}
                 </button>
-                <button 
+                <button
                   onClick={handleShare}
                   className="btn btn-secondary"
                 >
@@ -278,19 +278,19 @@ export default function FilePage({ params }: FilePageProps) {
           <div className="modal-box">
             <h3 className="font-bold text-lg mb-4">Share File</h3>
             <p className="mb-4">Share this file with others using the link below:</p>
-            
+
             <div className="form-control mb-4">
               <label className="label">
                 <span className="label-text">Share Link</span>
               </label>
               <div className="join">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={file.sharedLink || `https://hedgebox.net/files/${file.id}/shared`}
-                  className="input input-bordered join-item flex-1" 
-                  readOnly 
+                  className="input input-bordered join-item flex-1"
+                  readOnly
                 />
-                <button 
+                <button
                   onClick={copyShareLink}
                   className="btn btn-primary join-item"
                 >
@@ -307,7 +307,7 @@ export default function FilePage({ params }: FilePageProps) {
             </div>
 
             <div className="modal-action">
-              <button 
+              <button
                 onClick={() => setShowShareModal(false)}
                 className="btn"
               >

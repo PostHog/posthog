@@ -163,10 +163,20 @@ export default function FilesPage() {
                 <span className="text-sm text-base-content/70">
                   {selectedFiles.size} selected
                 </span>
-                <button className="btn btn-error btn-sm">
+                <button 
+                  className="btn btn-error btn-sm"
+                  onClick={() => {
+                    selectedFiles.forEach(fileId => handleFileDelete(fileId));
+                  }}
+                >
                   🗑️ Delete
                 </button>
-                <button className="btn btn-secondary btn-sm">
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    selectedFiles.forEach(fileId => handleFileShare(fileId));
+                  }}
+                >
                   📤 Share
                 </button>
               </div>
