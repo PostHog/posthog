@@ -345,8 +345,6 @@ ee/hogai/graph/memory/test/test_nodes.py:0: error: Value of type "Sequence[BaseM
 ee/hogai/graph/memory/test/test_nodes.py:0: error: Value of type "Sequence[BaseMessage] | None" is not indexable  [index]
 ee/hogai/graph/memory/test/test_nodes.py:0: error: Value of type "Sequence[BaseMessage] | None" is not indexable  [index]
 ee/hogai/graph/memory/test/test_nodes.py:0: error: Value of type "Sequence[BaseMessage] | None" is not indexable  [index]
-ee/hogai/graph/query_executor/test/test_format.py:0: error: Argument 2 to "SQLResultsFormatter" has incompatible type "list[object]"; expected "list[dict[str, Any]]"  [arg-type]
-ee/hogai/graph/query_executor/test/test_format.py:0: error: Need type annotation for "results" (hint: "results: list[<type>] = ...")  [var-annotated]
 ee/hogai/graph/query_executor/test/test_query_executor.py:0: error: Dict entry 0 has incompatible type "str": "int"; expected "str": "Sequence[object]"  [dict-item]
 ee/hogai/graph/query_executor/test/test_query_executor.py:0: error: Dict entry 2 has incompatible type "str": "int"; expected "str": "Sequence[object]"  [dict-item]
 ee/hogai/graph/query_executor/test/test_query_executor.py:0: error: Dict entry 3 has incompatible type "str": "int"; expected "str": "Sequence[object]"  [dict-item]
