@@ -9,6 +9,7 @@ from posthog.schema import RevenueAnalyticsAssistantFilters
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from products.revenue_analytics.backend.api import find_values_for_revenue_analytics_property
@@ -72,7 +73,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
         """Returns the list of tools available in this toolkit."""
         return [*self._get_custom_tools(), ask_user_for_help]
 
-    def _retrieve_revenue_analytics_property_values(self, property_name: str) -> str:
+    async def _retrieve_revenue_analytics_property_values(self, property_name: str) -> str:
         """
         Revenue analytics properties come from Clickhouse so let's run a separate query here.
         """
@@ -80,7 +81,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
             return TaxonomyErrorMessages.property_not_found(property_name, "revenue_analytics")
 
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-            values = find_values_for_revenue_analytics_property(property_name, self._team)
+            values = await database_sync_to_async(find_values_for_revenue_analytics_property)(property_name, self._team)
 
         return self._format_property_values(property_name, values, sample_count=len(values))
 
