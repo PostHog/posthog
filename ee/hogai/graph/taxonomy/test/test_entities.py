@@ -1,6 +1,5 @@
 import pytest
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import patch
 
 from posthog.models.person import Person
 from posthog.models.property_definition import PropertyDefinition
