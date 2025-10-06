@@ -60,7 +60,7 @@ export function StacktraceTab({
                             tooltip="Generate AI prompt to fix this error"
                         >
                             <IconMagicWand />
-                            AI fix prompt
+                            Get AI prompt
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>
