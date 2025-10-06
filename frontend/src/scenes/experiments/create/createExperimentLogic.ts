@@ -32,7 +32,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['addProductIntent'],
         ],
     })),
-    forms(() => ({
+    forms(({ actions }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -40,6 +40,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 name: !name ? 'Name is required' : undefined,
                 description: !description ? 'Hypothesis is required' : undefined,
             }),
+            submit: () => {
+                actions.createExperiment()
+            },
         },
     })),
     actions(() => ({
