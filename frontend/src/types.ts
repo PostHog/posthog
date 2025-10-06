@@ -321,7 +321,7 @@ export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
     hedgehog_config?: MinimalHedgehogConfig
-    role_at_organization?: string | null
+    role_at_organization?: string
 }
 
 /**
