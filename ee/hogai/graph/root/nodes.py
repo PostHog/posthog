@@ -758,11 +758,17 @@ class RootNodeTools(AssistantNode):
                 capture_exception(
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
                 )
-                result = AssistantToolCallMessage(
-                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=False,
+                # Return without a NodeInterrupt
+                return PartialAssistantState(
+                    messages=[
+                        AssistantToolCallMessage(
+                            content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=False,
+                        )
+                    ],
+                    root_tool_calls_count=tool_call_count + 1,
                 )
             if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
