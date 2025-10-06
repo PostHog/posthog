@@ -2950,7 +2950,7 @@ const api = {
 
         async getSimilarIssues(
             issueId: ErrorTrackingIssue['id']
-        ): Promise<Array<{ id: string; title: string; description: string }>> {
+        ): Promise<Array<{ id: string; title: string; description: string; library?: string; distance?: number }>> {
             return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
     },
