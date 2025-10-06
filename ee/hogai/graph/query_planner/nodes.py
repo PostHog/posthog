@@ -155,6 +155,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
+            include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
         ).bind_tools(

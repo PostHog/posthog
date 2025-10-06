@@ -444,7 +444,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         // Use a setInterval to periodically check for URL changes
         // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
         // And mutation observers don't seem to work :shrug:
-        setInterval(() => {
+        cache.navigationInterval = setInterval(() => {
             actions.maybeSendNavigationMessage()
         }, 500)
 
@@ -497,5 +497,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)
         window.removeEventListener('message', cache.iframeEventListener, false)
+
+        // Clean up navigation interval to prevent memory leaks
+        if (cache.navigationInterval) {
+            clearInterval(cache.navigationInterval)
+        }
     }),
 ])

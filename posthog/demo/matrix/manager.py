@@ -319,6 +319,11 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
+            # Ensure snapshot is taken before accessing properties_at_now
+            # This handles cases where simulation didn't reach 'now' for this person
+            if not hasattr(subject, "properties_at_now"):
+                subject.take_snapshot_at_now()
+
             create_person(
                 uuid=str(subject.in_posthog_id),
                 team_id=team.pk,
@@ -327,7 +332,8 @@ class MatrixManager:
             )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
-            for distinct_id in subject.distinct_ids_at_now:
+            # Sort distinct_ids for deterministic iteration order
+            for distinct_id in sorted(subject.distinct_ids_at_now):
                 create_person_distinct_id(
                     team_id=team.pk,
                     distinct_id=str(distinct_id),

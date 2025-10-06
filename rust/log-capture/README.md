@@ -24,7 +24,7 @@ The service is configured using environment variables:
 
 Clients must authenticate by sending a valid JWT token in the Authorization header:
 
-```
+```http
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMTIzNDU2Nzg5MCJ9.czOuiHUzSl8s9aJiPghhkGZP-WxI7K-I85XNY-bXRSQ
 ```
 
