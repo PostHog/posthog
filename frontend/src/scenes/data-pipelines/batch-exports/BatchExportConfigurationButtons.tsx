@@ -35,8 +35,10 @@ export function BatchExportConfigurationSaveButton(): JSX.Element {
 }
 
 export function BatchExportConfigurationClearChangesButton(): JSX.Element | null {
-    const { isNew, isConfigurationSubmitting, configurationChanged } = useValues(batchExportConfigurationLogic)
-    const { resetConfiguration } = useActions(batchExportConfigurationLogic)
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
+    const { isNew, isConfigurationSubmitting, configurationChanged, savedConfiguration, service } = useValues(logic)
+    const { resetConfiguration } = useActions(logic)
 
     if (!configurationChanged) {
         return null
@@ -46,7 +48,11 @@ export function BatchExportConfigurationClearChangesButton(): JSX.Element | null
         <LemonButton
             type="secondary"
             htmlType="reset"
-            onClick={() => resetConfiguration()}
+            onClick={() =>
+                isNew && service
+                    ? resetConfiguration(getDefaultConfiguration(service))
+                    : resetConfiguration(savedConfiguration)
+            }
             disabledReason={
                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
             }
@@ -56,23 +62,3 @@ export function BatchExportConfigurationClearChangesButton(): JSX.Element | null
         </LemonButton>
     )
 }
-
-// const buttons = (
-//     <>
-//         <LemonButton
-//             type="secondary"
-//             htmlType="reset"
-//             onClick={() =>
-//                 isNew && service
-//                     ? resetConfiguration(getDefaultConfiguration(service))
-//                     : resetConfiguration(savedConfiguration)
-//             }
-//             disabledReason={
-//                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-//             }
-//         >
-//             {isNew ? 'Reset' : 'Cancel'}
-//         </LemonButton>
-
-//     </>
-// )
