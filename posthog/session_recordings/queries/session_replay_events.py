@@ -42,9 +42,7 @@ class SessionReplayEvents:
             return cached_response
 
         # Once we know that session exists we don't need to check again (until the end of the day since TTL might apply)
-        existence = self._check_exists_within_days(ttl_days(team), session_id, team) or self._check_exists_within_days(
-            370, session_id, team
-        )
+        existence = self._check_not_expired(ttl_days(team), session_id, team)
 
         if existence:
             # let's be cautious and not cache non-existence
@@ -54,21 +52,20 @@ class SessionReplayEvents:
         return existence
 
     @staticmethod
-    def _check_exists_within_days(days: int, session_id: str, team: Team) -> bool:
+    def _check_not_expired(old_ttl: int, session_id: str, team: Team) -> bool:
         result = sync_execute(
             """
             SELECT count()
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id = %(session_id)s
-            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
             AND min_first_timestamp <= %(python_now)s
-            AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
+            AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, %(old_ttl)s) days
             """,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
-                "days": days,
+                "old_ttl": old_ttl,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
