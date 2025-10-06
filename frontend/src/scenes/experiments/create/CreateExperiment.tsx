@@ -15,9 +15,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { FeatureFlagFilters } from '~/types'
 
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
+import { TargetingPanel } from './TargetingPanel'
 import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
 import { ExperimentTypePanel } from './panels/ExperimentTypePanel'
@@ -120,7 +122,24 @@ export const CreateExperiment = (): JSX.Element => {
                                 header: 'Targeting',
                                 content: (
                                     <div className="p-4">
-                                        <span>Targeting Panel Goes Here</span>
+                                        <TargetingPanel
+                                            id={experiment.id?.toString() || 'new'}
+                                            filters={
+                                                experiment.feature_flag_filters || {
+                                                    groups: [
+                                                        {
+                                                            properties: [],
+                                                            rollout_percentage: 100,
+                                                            variant: null,
+                                                        },
+                                                    ],
+                                                    aggregation_group_type_index: null,
+                                                }
+                                            }
+                                            onChange={(filters: FeatureFlagFilters) => {
+                                                setExperimentValue('feature_flag_filters', filters)
+                                            }}
+                                        />
                                     </div>
                                 ),
                             },
