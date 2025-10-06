@@ -2,7 +2,9 @@ import { Message } from 'node-rdkafka'
 
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { BufferingBatchPipeline } from './buffering-batch-pipeline'
+import { Pipeline } from './pipeline.interface'
 import { ok } from './results'
+import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 import { StartPipeline } from './start-pipeline'
 
 /**
@@ -20,11 +22,21 @@ export function createNewBatchPipeline<T = { message: Message }>(): BufferingBat
 }
 
 /**
- * Helper function to create a batch of ResultWithContext from Kafka messages
+ * Helper function to create a batch of ResultWithContext from Kafka messages or objects with a message property
  */
-export function createBatch(messages: Message[]): BatchPipelineResultWithContext<{ message: Message }> {
-    return messages.map((message) => ({
-        result: ok({ message }),
-        context: { message },
+export function createBatch<T extends { message: Message }>(items: T[]): BatchPipelineResultWithContext<T> {
+    return items.map((item) => ({
+        result: ok(item),
+        context: { message: item.message },
     }))
+}
+
+/**
+ * Helper function to create a retrying pipeline
+ */
+export function createRetryingPipeline<TInput, TOutput>(
+    innerPipeline: Pipeline<TInput, TOutput>,
+    options?: RetryingPipelineOptions
+): RetryingPipeline<TInput, TOutput> {
+    return new RetryingPipeline(innerPipeline, options)
 }

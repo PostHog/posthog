@@ -127,7 +127,6 @@ def process_scheduled_changes() -> None:
                     else:
                         failure_context["error_classification"] = "recoverable"
 
-                    # Store as JSON string
                     scheduled_change.failure_reason = json.dumps(failure_context)
 
                     # Only mark as permanently failed if we won't retry
