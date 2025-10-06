@@ -34,6 +34,10 @@ class ConversationWindowManager(ABC):
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
+    APPROXIMATE_TOKEN_LENGTH = 4
+    """
+    Determines the approximate number of tokens per character.
+    """
 
     def find_window_boundary(
         self, messages: list[AssistantMessageUnion], max_messages: int = 10, max_tokens: int = 1000
@@ -88,10 +92,12 @@ class ConversationWindowManager(ABC):
         if isinstance(message, HumanMessage):
             char_count = len(message.content)
         if isinstance(message, AssistantMessage):
-            char_count = len(message.content) + sum(len(json.dumps(m.args)) for m in message.tool_calls or [])
+            char_count = len(message.content) + sum(
+                len(json.dumps(m.args, separators=(",", ":"))) for m in message.tool_calls or []
+            )
         if isinstance(message, AssistantToolCallMessage):
             char_count = len(message.content)
-        return round(char_count / 4)
+        return round(char_count / self.APPROXIMATE_TOKEN_LENGTH)
 
     def _get_conversation_window(self, messages: Sequence[T], start_id: str) -> Sequence[T]:
         """
