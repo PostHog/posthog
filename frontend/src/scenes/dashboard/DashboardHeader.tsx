@@ -225,7 +225,6 @@ export function DashboardHeader(): JSX.Element | null {
                             />
                         </>
                     )}
-                    {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
                     {dashboard && canEditDashboard && hasDashboardColors && (
                         <ButtonPrimitive
@@ -310,6 +309,8 @@ export function DashboardHeader(): JSX.Element | null {
                             Save as template
                         </ButtonPrimitive>
                     )}
+
+                    {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
                 </ScenePanelActionsSection>
                 {dashboard && canEditDashboard && (
                     <>
