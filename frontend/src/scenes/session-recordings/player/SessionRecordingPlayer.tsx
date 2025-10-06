@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -36,6 +36,39 @@ import {
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const useIsMouseMoving = (ref: React.RefObject<HTMLElement>, timeAfterWhichToConsiderStopped: number): boolean => {
+    const [isMoving, setIsMoving] = useState(false)
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+    useEffect(() => {
+        const handleMouseMove = (): void => {
+            setIsMoving(true)
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current)
+            }
+            timeoutRef.current = setTimeout(() => {
+                setIsMoving(false)
+            }, timeAfterWhichToConsiderStopped)
+        }
+
+        const current = ref.current
+        if (current) {
+            current.addEventListener('mousemove', handleMouseMove)
+        }
+
+        return () => {
+            if (current) {
+                current.removeEventListener('mousemove', handleMouseMove)
+            }
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current)
+            }
+        }
+    }, [ref, timeAfterWhichToConsiderStopped])
+
+    return isMoving
+}
 
 const MAX_PLAYBACK_SPEED = 4
 
@@ -220,11 +253,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const showMeta = !(hidePlayerElements || (noMeta && !isFullScreen))
 
     const isHovering = useIsHovering(playerRef)
+    const isMovingRecently = useIsMouseMoving(playerRef, 1500)
 
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
-        setIsHovering(isHovering)
-    }, [isHovering])
+        setIsHovering(isHovering && isMovingRecently)
+    }, [isHovering, isMovingRecently])
 
     useEffect(() => {
         // just once per recording clear the flag that forces the player chrome to show
