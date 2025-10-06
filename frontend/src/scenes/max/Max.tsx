@@ -162,6 +162,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 <div
                     style={
                         {
+                            // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
                             display: 'contents',
                             '--radius': '0.5rem',
                             '--radius-sm': '0.375rem',
