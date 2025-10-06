@@ -4,6 +4,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 from structlog import get_logger
 
 from posthog.models.cohort.cohort import Cohort
@@ -34,9 +35,13 @@ def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     """
     dependencies = set()
     if not cohort.deleted:
-        for prop in cohort.properties.flat:
-            if prop.type == "cohort" and isinstance(prop.value, int) and prop.value != cohort.id:
-                dependencies.add(prop.value)
+        try:
+            for prop in cohort.properties.flat:
+                if prop.type == "cohort" and isinstance(prop.value, int) and prop.value != cohort.id:
+                    dependencies.add(prop.value)
+        except ValidationError as e:
+            COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="invalid").inc()
+            logger.exception("Skipping cohort with invalid filters", cohort_id=cohort.id, error=str(e))
     return dependencies
 
 
