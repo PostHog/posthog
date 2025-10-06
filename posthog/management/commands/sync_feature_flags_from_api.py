@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from collections.abc import Callable
 
 from django.core.management.base import BaseCommand
 
@@ -12,7 +12,7 @@ from posthog.ph_client import PH_US_API_KEY
 def sync_feature_flags_from_api(
     distinct_id: str,
     groups: dict[str, str] | None = None,
-    output_fn: Any = print,
+    output_fn: Callable[[str], None] = print,
 ) -> None:
     """
     Fetch feature flags from the PostHog API and sync them to the database.
