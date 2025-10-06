@@ -1,13 +1,15 @@
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { IncomingEvent } from '../../types'
+import { Hub, IncomingEvent } from '../../types'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export function createDropExceptionEventsStep<T extends { event: IncomingEvent }>(): ProcessingStep<T, T> {
+export function createDropExceptionEventsStep<T extends { event: IncomingEvent }>(
+    hub: Hub
+): ProcessingStep<T, T> {
     return async function dropExceptionEventsStep(input) {
         const { event } = input
 
-        if (event.event.event === '$exception') {
+        if (hub.DROP_EXCEPTION_EVENTS && event.event.event === '$exception') {
             eventDroppedCounter
                 .labels({
                     event_type: 'analytics',

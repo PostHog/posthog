@@ -234,7 +234,7 @@ export class IngestionConsumer {
                 })
             )
             .pipe(createParseKafkaMessageStep())
-            .pipe(createDropExceptionEventsStep())
+            .pipe(createDropExceptionEventsStep(this.hub))
             .pipe(createResolveTeamStep(this.hub))
             .pipe(createValidateEventPropertiesStep(this.hub))
             .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
