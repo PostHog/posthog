@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
@@ -64,8 +65,6 @@ export function EditSubscription({
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations } = useValues(integrationsLogic)
-    // TODO: Fix this so that we use the appropriate config...
-    const firstSlackIntegration = slackIntegrations?.[0]
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -205,7 +204,7 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {!firstSlackIntegration ? (
+                                {!slackIntegrations?.length ? (
                                     <>
                                         <LemonBanner type="info">
                                             <div className="flex justify-between gap-2">
@@ -233,6 +232,25 @@ export function EditSubscription({
                                     </>
                                 ) : (
                                     <>
+                                        <LemonField name="target_integration_id" label="Which Slack integration to use">
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    <IntegrationChoice
+                                                        // Fallback to the first integration as this was the previous behavior
+                                                        value={
+                                                            value
+                                                                ? slackIntegrations.find((x) => x.id === value)?.id
+                                                                : subscription.target_value
+                                                                  ? slackIntegrations[0].id
+                                                                  : undefined
+                                                        }
+                                                        onChange={onChange}
+                                                        integration="slack"
+                                                        redirectUrl={window.location.pathname}
+                                                    />
+                                                </>
+                                            )}
+                                        </LemonField>
                                         <LemonField
                                             name="target_value"
                                             label="Which Slack channel to send reports to"
@@ -248,11 +266,24 @@ export function EditSubscription({
                                             }
                                         >
                                             {({ value, onChange }) => (
-                                                <SlackChannelPicker
-                                                    value={value}
-                                                    onChange={onChange}
-                                                    integration={firstSlackIntegration}
-                                                />
+                                                <>
+                                                    {subscription.target_integration_id || value ? (
+                                                        <SlackChannelPicker
+                                                            value={value}
+                                                            onChange={onChange}
+                                                            // Fallback to the first integration as this was the previous behavior
+                                                            integration={
+                                                                slackIntegrations.find(
+                                                                    (x) => x.id === subscription.target_integration_id
+                                                                ) ?? slackIntegrations[0]
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
+                                                            Configure Slack to continue
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </LemonField>
                                     </>

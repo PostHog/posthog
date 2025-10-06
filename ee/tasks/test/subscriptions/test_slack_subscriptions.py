@@ -31,9 +31,10 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration_id=1,
         )
 
-        self.integration = Integration.objects.create(team=self.team, kind="slack")
+        self.integration = Integration.objects.create(id=1, team=self.team, kind="slack")
 
     def test_subscription_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
@@ -106,6 +107,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration_id=1,
         )
 
         send_slack_subscription_report(self.subscription, [self.asset, self.asset, self.asset], 10)
@@ -197,3 +199,35 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         assert mock_slack_integration.client.chat_postMessage.call_count == 0
 
         # TODO: Should we perhaps save something to say the Subscription failed?
+
+    def test_subscription_delivery_with_target_integration_id(self, MockSlackIntegration: MagicMock) -> None:
+        integration2 = Integration.objects.create(id=2, team=self.team, kind="slack")
+
+        subscription_targeting_integration2 = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+            target_integration_id=integration2.id,
+        )
+
+        mock_slack_integration1 = MagicMock()
+        mock_slack_integration2 = MagicMock()
+        mock_slack_integration1.client.chat_postMessage.return_value = {"ts": "1.234"}
+        mock_slack_integration2.client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        def mock_slack_integration_constructor(integration):
+            if integration.id == self.integration.id:
+                return mock_slack_integration1
+            elif integration.id == integration2.id:
+                return mock_slack_integration2
+            else:
+                raise ValueError(f"Unexpected integration id: {integration.id}")
+
+        MockSlackIntegration.side_effect = mock_slack_integration_constructor
+
+        send_slack_subscription_report(subscription_targeting_integration2, [self.asset], 1)
+
+        assert mock_slack_integration1.client.chat_postMessage.call_count == 0
+        assert mock_slack_integration2.client.chat_postMessage.call_count == 1

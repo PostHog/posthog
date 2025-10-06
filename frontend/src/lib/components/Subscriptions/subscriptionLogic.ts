@@ -123,7 +123,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 }
             }
 
-            if (key === 'target_type') {
+            if (key === 'target_type' || key === 'target_integration_id') {
                 actions.setSubscriptionValues({
                     target_value: '',
                 })
