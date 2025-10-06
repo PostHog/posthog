@@ -2,11 +2,19 @@ import { actions, beforeUnmount, connect, kea, key, listeners, path, props, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { EventType, customEvent } from '@posthog/rrweb-types'
+import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { RecordingSegment, RecordingSnapshot, SessionPlayerData, SessionRecordingId } from '~/types'
+import {
+    RecordingSegment,
+    RecordingSnapshot,
+    SessionPlayerData,
+    SessionRecordingId,
+    SessionRecordingType,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -210,7 +218,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         segments: [
             (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId],
-            (snapshots, start, end, trackedWindow, snapshotsByWindowId): RecordingSegment[] => {
+            (
+                snapshots: RecordingSnapshot[],
+                start: Dayjs | null,
+                end: Dayjs | null,
+                trackedWindow: string | null,
+                snapshotsByWindowId: Record<string, eventWithTime[]>
+            ): RecordingSegment[] => {
                 return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
             },
         ],
@@ -275,7 +289,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         snapshotsInvalid: [
             (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
-            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId, currentTeam): boolean => {
+            (
+                snapshotsByWindowId: Record<string, eventWithTime[]>,
+                fullyLoaded: boolean,
+                start: Dayjs | null,
+                sessionRecordingId: SessionRecordingId,
+                currentTeam: TeamPublicType | TeamType | null
+            ): boolean => {
                 if (!fullyLoaded || !start) {
                     return false
                 }
@@ -321,7 +341,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowIds: [
             (s) => [s.snapshotsByWindowId],
-            (snapshotsByWindowId) => {
+            (snapshotsByWindowId: Record<string, eventWithTime[]>): string[] => {
                 return Object.keys(snapshotsByWindowId)
             },
         ],
@@ -390,15 +410,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 p.sessionRecordingId,
             ],
             (
-                meta,
-                snapshotsByWindowId,
-                segments,
-                bufferedToTime,
-                start,
-                end,
-                durationMs,
-                fullyLoaded,
-                sessionRecordingId
+                meta: SessionRecordingType | null,
+                snapshotsByWindowId: Record<string, eventWithTime[]>,
+                segments: RecordingSegment[],
+                bufferedToTime: number | null,
+                start: Dayjs | null,
+                end: Dayjs | null,
+                durationMs: number,
+                fullyLoaded: boolean,
+                sessionRecordingId: SessionRecordingId
             ): SessionPlayerData => ({
                 person: meta?.person ?? null,
                 start,
