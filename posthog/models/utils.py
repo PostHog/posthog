@@ -444,6 +444,12 @@ class RootTeamQuerySet(models.QuerySet):
             return super().filter(team_filter, *args, **kwargs)
         return super().filter(*args, **kwargs)
 
+    def further_orm_chain_if_needed(self):
+        """Return an async iterable for the QuerySet."""
+        from ee.hogai.utils.asgi import SyncIterableToAsync
+
+        return SyncIterableToAsync(self)
+
 
 class RootTeamManager(models.Manager):
     def get_queryset(self):

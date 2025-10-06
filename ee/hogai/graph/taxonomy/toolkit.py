@@ -12,8 +12,10 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
+    CacheMissResponse,
     EventTaxonomyItem,
     EventTaxonomyQuery,
+    QueryStatusResponse,
 )
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -104,16 +106,15 @@ class TaxonomyAgentToolkit:
         self._team = team
         self.MAX_ENTITIES_PER_BATCH = 6
 
-    # @property
-    async def _groups(self):
-        return await database_sync_to_async(list)(
-            GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
-        )
+    @property
+    def _groups(self):
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
     @cached_property
     async def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
-        return list(await self._groups().values_list("group_type", flat=True))
+        groups = [group async for group in self._groups.further_orm_chain_if_needed()]
+        return [group.group_type for group in groups]
 
     @property
     async def _entity_names(self) -> list[str]:
@@ -127,12 +128,11 @@ class TaxonomyAgentToolkit:
             entities = [
                 "person",
                 "session",
-                *[group.group_type for group in await self._groups()],
+                *[group.group_type async for group in self._groups.further_orm_chain_if_needed()],
             ]
             self._cached_entity_names = entities
         return self._cached_entity_names
 
-    @database_sync_to_async
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
         enriched_props = []
         mapping = {
@@ -204,7 +204,7 @@ class TaxonomyAgentToolkit:
 
         return self._format_property_values(property_name, sample_values, sample_count, format_as_string=is_str)
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=True)
     def _retrieve_event_or_action_taxonomy(
         self, event_name_or_action_id: str | int, properties: list[str] | None = None
     ):
@@ -311,10 +311,10 @@ class TaxonomyAgentToolkit:
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
             )
-            props = await self._enrich_props_with_descriptions("person", qs)
+            props = self._enrich_props_with_descriptions("person", [prop async for prop in qs])
         elif entity == "session":
             # Session properties are not in the DB.
-            props = await self._enrich_props_with_descriptions(
+            props = self._enrich_props_with_descriptions(
                 "session",
                 [
                     (prop_name, prop["type"])
@@ -324,15 +324,17 @@ class TaxonomyAgentToolkit:
             )
 
         else:
-            group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
-            )
+            group_type_index = None
+            async for group in self._groups.further_orm_chain_if_needed():
+                if group.group_type == entity:
+                    group_type_index = group.group_type_index
+                    break
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")[:max_properties]
-            props = await self._enrich_props_with_descriptions(entity, qs)
+            props = self._enrich_props_with_descriptions(entity, [prop async for prop in qs])
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
@@ -375,15 +377,12 @@ class TaxonomyAgentToolkit:
             for property_name in property_names:
                 results.append(self._retrieve_session_properties(property_name))
             return results
-
-        groups = await self._groups()
+        groups = [group async for group in self._groups.further_orm_chain_if_needed()]
         query = self._build_query(entity, property_names, groups)
         if query is None:
             results.append(TaxonomyErrorMessages.entity_not_found(entity))
             return results
-
         property_values_response = await self._run_actors_taxonomy_query(query)
-
         if not isinstance(property_values_response, CachedActorsPropertyTaxonomyQueryResponse):
             results.append(TaxonomyErrorMessages.entity_not_found(entity))
             return results
@@ -450,12 +449,18 @@ class TaxonomyAgentToolkit:
             query = ActorsPropertyTaxonomyQuery(groupTypeIndex=group_index, properties=properties, maxPropertyValues=25)
         return query
 
-    @database_sync_to_async
-    def _run_actors_taxonomy_query(self, query):
+    @database_sync_to_async(thread_sensitive=False)
+    def _run_actors_taxonomy_query(
+        self, query
+    ) -> CachedActorsPropertyTaxonomyQueryResponse | CacheMissResponse | QueryStatusResponse:
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
             return ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
+
+    @database_sync_to_async(thread_sensitive=True)
+    def _get_project_actions(self) -> list[Action]:
+        return list(Action.objects.filter(team__project_id=self._team.project_id, deleted=False))
 
     async def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
@@ -464,7 +469,7 @@ class TaxonomyAgentToolkit:
         try:
             response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
+            project_actions = await self._get_project_actions()
             if not project_actions:
                 return TaxonomyErrorMessages.no_actions_exist()
             return TaxonomyErrorMessages.action_not_found(event_name_or_action_id)
@@ -476,7 +481,7 @@ class TaxonomyAgentToolkit:
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_data = await database_sync_to_async(list)(qs)
+        property_data = [prop async for prop in qs]
         property_to_type = {prop.name: prop.property_type for prop in property_data}
         props = [
             (item.property, property_to_type.get(item.property))
@@ -487,7 +492,7 @@ class TaxonomyAgentToolkit:
 
         if not props:
             return TaxonomyErrorMessages.event_properties_not_found(verbose_name)
-        enriched_props = await self._enrich_props_with_descriptions("event", props)
+        enriched_props = self._enrich_props_with_descriptions("event", props)
         return self._format_properties(enriched_props)
 
     async def retrieve_event_or_action_property_values(
@@ -507,7 +512,7 @@ class TaxonomyAgentToolkit:
         results = await asyncio.gather(*event_tasks)
         return dict(zip(event_properties.keys(), results))
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=True)
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinition]:
         return {
             prop.name: prop

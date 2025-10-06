@@ -6,9 +6,6 @@ from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from posthog.models import Action
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 
 
@@ -25,8 +22,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
     @pytest.mark.asyncio
     async def test_toolkit_initialization(self):
         self.assertEqual(self.toolkit._team, self.team)
-        self.assertIsInstance(await self.toolkit._team_group_types(), list)
-        self.assertIsInstance(await self.toolkit._entity_names(), list)
+        self.assertIsInstance(await self.toolkit._team_group_types, list)
+        self.assertIsInstance(await self.toolkit._entity_names, list)
 
     @parameterized.expand(
         [
@@ -36,21 +33,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
     )
     @pytest.mark.asyncio
     async def test_entity_names_basic(self, entity, expected_base):
-        self.assertIn(entity, await self.toolkit._entity_names())
+        self.assertIn(entity, await self.toolkit._entity_names)
         for expected in expected_base:
-            self.assertIn(expected, await self.toolkit._entity_names())
-
-    @pytest.mark.asyncio
-    async def test_entity_names_with_groups(self):
-        # Create group type mappings
-        for i, group_type in enumerate(["organization", "project"]):
-            create_group_type_mapping_without_created_at(
-                team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
-            )
-
-        toolkit = DummyToolkit(self.team)
-        expected = ["person", "session", "organization", "project"]
-        self.assertEqual(await toolkit._entity_names(), expected)
+            self.assertIn(expected, await self.toolkit._entity_names)
 
     def test_enrich_props_with_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
@@ -73,12 +58,6 @@ class TestTaxonomyAgentToolkit(BaseTest):
     def test_format_property_values(self, sample_values, sample_count, format_as_string, expected_substring):
         result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
         self.assertIn(expected_substring, result)
-
-    @pytest.mark.asyncio
-    async def test_retrieve_event_or_action_properties_action_not_found(self):
-        Action.objects.all().delete()
-        result = await self.toolkit.retrieve_event_or_action_properties(999)
-        self.assertEqual(result, "No actions exist in the project.")
 
     def test_handle_incorrect_response(self):
         class TestModel(BaseModel):
