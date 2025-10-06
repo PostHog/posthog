@@ -10,7 +10,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
 
-pytestmark = pytest.mark.xdist_group(name="project_api")
+pytestmark = pytest.mark.xdist_group(name="demo_projects")
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
