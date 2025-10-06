@@ -370,7 +370,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         self, fingerprints: list[str], earliest_timestamp: datetime, latest_timestamp: datetime
     ) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
-        params = {}
+        params: dict[str, Any] = {}
         params["team_id"] = self.team.pk
         params["fingerprints"] = fingerprints
 
