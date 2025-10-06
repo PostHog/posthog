@@ -114,7 +114,7 @@ export function InsightTooltip({
     const title: ReactNode | null =
         concreteTooltipTitle ||
         (date
-            ? `${dayjs.tz(date, timezone).format('dddd')}, ${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
+            ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
             : null)
     const rightTitle: ReactNode | null = altRightTitle
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)

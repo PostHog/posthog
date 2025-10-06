@@ -826,6 +826,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
+        currentPlayerTimeSeconds: [
+            (s) => [s.currentPlayerTime],
+            (currentPlayerTime) => Math.floor(currentPlayerTime / 1000),
+        ],
+
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
             (s) => [s.sessionPlayerData, s.currentSegment],
