@@ -89,6 +89,8 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
         const memoryBefore = process.memoryUsage()
         const heapBefore = v8.getHeapStatistics()
 
+        // If externalMB/arrayBuffersMB grows That's classic V8 off-heap (ArrayBuffer/Buffer) arenas piling up—not JS heap.
+        // c.f. https://posthog.slack.com/archives/C06GG249PR6/p1759764183830319
         logger.info('📸 Starting heap dump streaming to S3', {
             filename,
             bucket: s3Bucket,
