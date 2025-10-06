@@ -182,17 +182,6 @@ async def generate_assets_async(
                 subscription_id=subscription_id,
                 team_id=resource.team_id,
             )
-            # Continue with partial results - filter out assets without content
+            # Continue with partial results - some assets may not have content
 
-        # Filter out assets that don't have content (failed or timed out exports)
-        assets_with_content = [asset for asset in assets if asset.content or asset.content_location]
-        if len(assets_with_content) < len(assets):
-            logger.warning(
-                "generate_assets_async.partial_results",
-                total_assets=len(assets),
-                successful_assets=len(assets_with_content),
-                subscription_id=subscription_id,
-                team_id=resource.team_id,
-            )
-
-        return insights, assets_with_content
+        return insights, assets

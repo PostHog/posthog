@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -16,6 +17,18 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, g
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_export_asset():
+    """Mock export_asset_direct to avoid launching Chrome browser in tests."""
+
+    def set_content(asset: ExportedAsset) -> None:
+        asset.content = b"fake image data"
+        asset.save()
+
+    with patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct", side_effect=set_content):
+        yield
 
 
 @pytest_asyncio.fixture

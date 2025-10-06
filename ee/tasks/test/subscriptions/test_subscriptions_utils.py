@@ -162,8 +162,10 @@ async def test_async_generate_assets_timeout_continues_with_partial_results(
 
     # Should return insights even though exports timed out
     assert len(insights) == 3
-    # Should return empty assets list since none have content (timeout before any completed)
-    assert len(assets) == 0
+    # Should return all assets even though none have content
+    assert len(assets) == 3
+    # Assets won't have content or content_location since timeout happened immediately
+    assert all(asset.content is None and asset.content_location is None for asset in assets)
     # Verify timeout was triggered
     assert mock_wait_for.called
 
@@ -171,9 +173,7 @@ async def test_async_generate_assets_timeout_continues_with_partial_results(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @patch("posthog.tasks.exporter.export_asset_direct")
-async def test_async_generate_assets_partial_timeout_filters_incomplete_assets(
-    mock_export: MagicMock, team, user
-) -> None:
+async def test_async_generate_assets_partial_success(mock_export: MagicMock, team, user) -> None:
     from asgiref.sync import sync_to_async
 
     call_count = 0
@@ -206,6 +206,9 @@ async def test_async_generate_assets_partial_timeout_filters_incomplete_assets(
     insights, assets = await generate_assets_async(subscription)
 
     assert len(insights) == 3
-    # Only 2 assets should be returned (the ones with content)
-    assert len(assets) == 2
-    assert all(asset.content for asset in assets)
+    # All 3 assets returned (not filtered), but only 2 have content
+    assert len(assets) == 3
+    assets_with_content = [a for a in assets if a.content or a.content_location]
+    assets_without_content = [a for a in assets if not a.content and not a.content_location]
+    assert len(assets_with_content) == 2
+    assert len(assets_without_content) == 1
