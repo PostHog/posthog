@@ -774,7 +774,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
         # NOTE: PostgreSQL has a 63 byte limit on identifiers.
         # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
         # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
@@ -811,7 +811,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
                 ) as pg_table,
                 pg_client.managed_table(
                     inputs.schema,
-                    stagle_table_name,
+                    stage_table_name,
                     table_fields,
                     create=requires_merge,
                     delete=requires_merge,

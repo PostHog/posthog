@@ -169,7 +169,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded-sm button-primitive--full-width justify-start shrink-0 text-left',
+            true: 'rounded button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -219,7 +219,7 @@ export const buttonPrimitiveVariants = cva({
         {
             hasSideActionRight: true,
             menuItem: true,
-            className: 'rounded-sm',
+            className: 'rounded',
         },
     ],
 })
