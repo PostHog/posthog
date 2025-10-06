@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
@@ -6,6 +7,8 @@ from flaky import flaky
 from rest_framework import status
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
+
+pytestmark = pytest.mark.xdist_group(name="playwright_setup")
 
 
 class TestPlaywrightSetup(APIBaseTest):
