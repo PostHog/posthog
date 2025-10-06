@@ -97,7 +97,7 @@ export function Navigation({
                                 : '0px',
                             '--scene-layout-background': sceneConfig?.canvasBackground
                                 ? 'var(--color-bg-surface-primary)'
-                                : 'var(--color-bg-surface-secondary)',
+                                : 'var(--color-bg-primary)',
                         } as React.CSSProperties
                     }
                 >
