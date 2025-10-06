@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -45,6 +45,18 @@ export interface ReplayIframeData {
 // team id is always available on window
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
+// Helper function to detect if a URL contains regex pattern characters
+const isUrlPattern = (url: string): boolean => {
+    return /[*+?^${}()|[\]\\]/.test(url)
+}
+
+const normalizeUrlPath = (urlObj: URL): string => {
+    if (urlObj.pathname === '') {
+        urlObj.pathname = '/'
+    }
+    return urlObj.toString()
+}
+
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
@@ -57,7 +69,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['heatmapEmpty'],
+            ['heatmapEmpty', 'hrefMatchType'],
         ],
         actions: [heatmapDataLogic({ context: 'in-app' }), ['loadHeatmap', 'setHref', 'setHrefMatchType']],
     })),
@@ -65,6 +77,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setBrowserUrl: (url: string | null) => ({ url }),
+        setDisplayUrl: (url: string | null) => ({ url }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -228,6 +241,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframeWidth: (_, { width }) => width,
             },
         ],
+        displayUrl: [
+            null as string | null,
+            {
+                setDisplayUrl: (_, { url }) => url,
+            },
+        ],
     }),
 
     selectors({
@@ -286,16 +305,23 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
                 actions.setHref(replayIframeData.url)
-                // TODO we need to be able to handle regex values
-                actions.setHrefMatchType('exact')
+                // Auto-detect match type for replay data URLs too
+                const isPattern = isUrlPattern(replayIframeData.url)
+                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
         },
 
-        setBrowserSearch: async (_, breakpoint) => {
+        setBrowserSearch: async ({ searchTerm }, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
+
+            // Also update match type based on search term if it has regex patterns
+            if (searchTerm && isUrlPattern(searchTerm)) {
+                actions.setHrefMatchType('pattern')
+                actions.setHref(searchTerm)
+            }
         },
 
         sendToolbarMessage: ({ type, payload }) => {
@@ -311,7 +337,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         onIframeLoad: () => {
             // it should be impossible to load an iframe without a browserUrl
             // right?!
-            actions.setHref(values.browserUrl ?? '')
+            const url = values.browserUrl ?? ''
+            actions.setHref(url)
+
+            // Ensure match type is set correctly when iframe loads
+            const isPattern = isUrlPattern(url)
+            actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+
             actions.loadHeatmap()
             posthog.capture('in-app heatmap iframe loaded', {
                 inapp_heatmap_page_url_visited: values.browserUrl,
@@ -331,8 +363,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             await breakpoint(150)
             if (url?.trim().length) {
                 actions.setHref(url)
-                // TODO we need to be able to handle regex values
-                actions.setHrefMatchType('exact')
+                // Auto-detect match type for replay URLs too
+                const isPattern = isUrlPattern(url)
+                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             }
         },
 
@@ -340,6 +373,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.maybeLoadTopUrls()
             if (url?.trim().length) {
                 actions.startTrackingLoading()
+
+                let normalizedUrl = url.trim()
+
+                const isPattern = isUrlPattern(normalizedUrl)
+                if (!isPattern) {
+                    const urlObj = new URL(normalizedUrl)
+                    normalizedUrl = normalizeUrlPath(urlObj)
+                }
+
+                actions.setHref(normalizedUrl)
+                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             }
         },
 
@@ -372,6 +416,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         '/heatmaps': (_, searchParams) => {
             if (searchParams.pageURL && searchParams.pageURL !== values.browserUrl) {
                 actions.setBrowserUrl(searchParams.pageURL)
+                actions.setDisplayUrl(searchParams.pageURL)
             }
             if (searchParams.heatmapFilters && !objectsEqual(searchParams.heatmapFilters, values.heatmapFilters)) {
                 actions.patchHeatmapFilters(searchParams.heatmapFilters)
@@ -398,7 +443,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        setBrowserUrl: ({ url }) => {
+        setDisplayUrl: ({ url }) => {
             const searchParams = { ...router.values.searchParams, pageURL: url }
             if (!url || url.trim() === '') {
                 delete searchParams.pageURL
@@ -422,4 +467,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up any pending error timeout to prevent memory leaks
+        if (cache.errorTimeout) {
+            clearTimeout(cache.errorTimeout)
+        }
+        if (cache.warnTimeout) {
+            clearTimeout(cache.warnTimeout)
+        }
+    }),
 ])

@@ -654,7 +654,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
@@ -679,7 +679,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()

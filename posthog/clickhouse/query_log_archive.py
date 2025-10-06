@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     query_kind                            LowCardinality(String), -- comment 'Type of the query.',
 
     exception_code                        Int32, -- comment 'Code of an exception.',
+    exception_name                        String ALIAS errorCodeToName(exception_code), -- comment 'Name of an exception.',
     exception                             String, -- comment 'Exception message.',
     stack_trace                           String, -- comment 'Stack trace. An empty string, if the query was completed successfully.',
 
@@ -147,6 +148,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     query_kind                            LowCardinality(String),
 
     exception_code                        Int32,
+    exception_name                        String ALIAS errorCodeToName(exception_code),
     exception                             String,
     stack_trace                           String,
 
@@ -365,3 +367,9 @@ def QUERY_LOG_ARCHIVE_MV_V4_SQL():
 ALTER TABLE query_log_archive_mv MODIFY QUERY
 {select_sql}
     """.format(select_sql=MV_SELECT_SQL)
+
+
+# V5 - adding exception_name
+ADD_EXCEPTION_NAME_SQL = """
+ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS exception_name String ALIAS errorCodeToName(exception_code) AFTER exception_code
+"""
