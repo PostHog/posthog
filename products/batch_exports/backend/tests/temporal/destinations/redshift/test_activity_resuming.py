@@ -7,11 +7,14 @@ import pytest
 import temporalio.common
 from temporalio import activity
 
-from posthog.batch_exports.service import BatchExportModel
+from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel
 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
+    ConnectionParameters,
     RedshiftInsertInputs,
+    TableParameters,
     insert_into_redshift_activity,
+    redshift_default_fields,
 )
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import (
     assert_clickhouse_records_in_redshift,
@@ -21,6 +24,17 @@ pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
+
+
+@pytest.fixture
+def connection_parameters(redshift_config):
+    return ConnectionParameters(
+        user=redshift_config["user"],
+        password=redshift_config["password"],
+        host=redshift_config["host"],
+        port=redshift_config["port"],
+        database=redshift_config["database"],
+    )
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -57,6 +71,7 @@ async def test_insert_into_redshift_activity_resumes_from_heartbeat(
     activity_environment,
     psycopg_connection,
     redshift_config,
+    connection_parameters,
     exclude_events,
     generate_test_data,
     data_interval_start,
@@ -74,15 +89,29 @@ async def test_insert_into_redshift_activity_resumes_from_heartbeat(
     batch_export_model = BatchExportModel(name="events", schema=None)
     properties_data_type = "varchar"
 
-    insert_inputs = RedshiftInsertInputs(
+    batch_export_inputs = BatchExportInsertInputs(
         team_id=ateam.pk,
-        table_name=f"test_insert_activity_table_{ateam.pk}",
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
+        include_events=None,
+        run_id=None,
+        backfill_details=None,
+        is_backfill=False,
         batch_export_model=batch_export_model,
+        batch_export_id=str(uuid.uuid4()),
+        destination_default_fields=redshift_default_fields(),
+    )
+    table_parameters = TableParameters(
+        schema_name=redshift_config["schema"],
+        name=f"test_insert_activity_table_{ateam.pk}",
         properties_data_type=properties_data_type,
-        **redshift_config,
+    )
+
+    insert_inputs = RedshiftInsertInputs(
+        batch_export=batch_export_inputs,
+        connection=connection_parameters,
+        table=table_parameters,
     )
 
     done_ranges = [
@@ -145,6 +174,7 @@ async def test_insert_into_redshift_activity_completes_range(
     activity_environment,
     psycopg_connection,
     redshift_config,
+    connection_parameters,
     exclude_events,
     generate_test_data,
     data_interval_start,
@@ -172,17 +202,30 @@ async def test_insert_into_redshift_activity_completes_range(
     cutoff_event = cutoff_event[0]
     cutoff_data_interval_end = dt.datetime.fromisoformat(cutoff_event["inserted_at"]).replace(tzinfo=dt.UTC)
 
-    insert_inputs = RedshiftInsertInputs(
+    batch_export_inputs = BatchExportInsertInputs(
         team_id=ateam.pk,
-        table_name=f"test_insert_activity_table_{ateam.pk}",
         data_interval_start=data_interval_start.isoformat(),
         # The extra second is because the upper range select is exclusive and
         # we want cutoff to be the last event included.
         data_interval_end=(cutoff_data_interval_end + dt.timedelta(seconds=1)).isoformat(),
         exclude_events=exclude_events,
+        include_events=None,
+        run_id=None,
+        backfill_details=None,
+        is_backfill=False,
         batch_export_model=batch_export_model,
+        destination_default_fields=redshift_default_fields(),
+    )
+    table_parameters = TableParameters(
+        schema_name=redshift_config["schema"],
+        name=f"test_insert_activity_table_{ateam.pk}",
         properties_data_type=properties_data_type,
-        **redshift_config,
+    )
+
+    insert_inputs = RedshiftInsertInputs(
+        batch_export=batch_export_inputs,
+        connection=connection_parameters,
+        table=table_parameters,
     )
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
@@ -218,15 +261,22 @@ async def test_insert_into_redshift_activity_completes_range(
 
     activity_environment.info = fake_info
 
-    insert_inputs = RedshiftInsertInputs(
+    batch_export_inputs = BatchExportInsertInputs(
         team_id=ateam.pk,
-        table_name=f"test_insert_activity_table_{ateam.pk}",
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
+        include_events=None,
+        run_id=None,
+        backfill_details=None,
+        is_backfill=False,
         batch_export_model=batch_export_model,
-        properties_data_type=properties_data_type,
-        **redshift_config,
+        destination_default_fields=redshift_default_fields(),
+    )
+    insert_inputs = RedshiftInsertInputs(
+        batch_export=batch_export_inputs,
+        connection=connection_parameters,
+        table=table_parameters,
     )
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)

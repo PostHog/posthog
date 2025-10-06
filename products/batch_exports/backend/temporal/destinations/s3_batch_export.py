@@ -205,11 +205,11 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int | None = Non
     )
 
 
-def get_manifest_key(inputs: S3InsertInputs) -> str:
-    key_prefix = get_s3_key_prefix(
-        inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
-    )
-    return posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}_manifest.json")
+def get_manifest_key(
+    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+) -> str:
+    key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
+    return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
 
 class InvalidS3Key(Exception):
@@ -252,17 +252,25 @@ class InvalidS3EndpointError(Exception):
         super().__init__(message)
 
 
-async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str], manifest_key: str):
+async def upload_manifest_file(
+    bucket: str,
+    region_name: str,
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    endpoint_url: str | None,
+    files_uploaded: list[str],
+    manifest_key: str,
+):
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        region_name=inputs.region,
-        aws_access_key_id=inputs.aws_access_key_id,
-        aws_secret_access_key=inputs.aws_secret_access_key,
-        endpoint_url=inputs.endpoint_url,
+        region_name=region_name,
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        endpoint_url=endpoint_url,
     ) as client:
         await client.put_object(
-            Bucket=inputs.bucket_name,
+            Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps({"files": files_uploaded}),
         )
@@ -477,8 +485,17 @@ class ConcurrentS3Consumer(Consumer):
         self,
         bucket: str,
         region_name: str,
+        prefix: str,
+        data_interval_start: str | None,
+        data_interval_end: str,
+        batch_export_model: BatchExportModel | None,
+        file_format: str,
         aws_access_key_id: str,
         aws_secret_access_key: str,
+        kms_key_id: str | None = None,
+        max_file_size_mb: int | None = None,
+        compression: str | None = None,
+        encryption: str | None = None,
         endpoint_url: str | None = None,
         use_virtual_style_addressing: bool = False,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
@@ -487,11 +504,23 @@ class ConcurrentS3Consumer(Consumer):
         super().__init__()
 
         self.bucket = bucket
-        self.use_virtual_style_addressing = use_virtual_style_addressing
         self.region_name = region_name
+        self.prefix = prefix
+
+        self.data_interval_start = data_interval_start
+        self.data_interval_end = data_interval_end
+        self.batch_export_model = batch_export_model
+
+        self.file_format = file_format
+        self.compression = compression
+        self.encryption = encryption
+        self.max_file_size_mb = max_file_size_mb
+
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.kms_key_id = kms_key_id
         self.endpoint_url = endpoint_url
+        self.use_virtual_style_addressing = use_virtual_style_addressing
 
         self.part_size = part_size
         self.max_concurrent_uploads = max_concurrent_uploads
@@ -522,14 +551,23 @@ class ConcurrentS3Consumer(Consumer):
         max_concurrent_uploads: int = 5,
     ):
         return cls(
-            s3_inputs.bucket_name,
-            s3_inputs.use_virtual_style_addressing,
-            s3_inputs.region,
-            s3_inputs.aws_access_key_id,
-            s3_inputs.aws_secret_access_key,
-            s3_inputs.endpoint_url,
-            part_size,
-            max_concurrent_uploads,
+            bucket=s3_inputs.bucket_name,
+            region_name=s3_inputs.region,
+            prefix=s3_inputs.prefix,
+            data_interval_start=s3_inputs.data_interval_start,
+            data_interval_end=s3_inputs.data_interval_end,
+            batch_export_model=s3_inputs.batch_export_model,
+            file_format=s3_inputs.file_format,
+            compression=s3_inputs.compression,
+            encryption=s3_inputs.encryption,
+            max_file_size_mb=s3_inputs.max_file_size_mb,
+            aws_access_key_id=s3_inputs.aws_access_key_id,
+            aws_secret_access_key=s3_inputs.aws_secret_access_key,
+            kms_key_id=s3_inputs.kms_key_id,
+            endpoint_url=s3_inputs.endpoint_url,
+            use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
+            part_size=part_size,
+            max_concurrent_uploads=max_concurrent_uploads,
         )
 
     async def _get_s3_client(self) -> "S3Client":
@@ -793,15 +831,15 @@ class ConcurrentS3Consumer(Consumer):
             raise UploadAlreadyInProgressError(self.upload_id)
 
         optional_kwargs = {}
-        if self.s3_inputs.encryption:
-            optional_kwargs["ServerSideEncryption"] = self.s3_inputs.encryption
-        if self.s3_inputs.kms_key_id:
-            optional_kwargs["SSEKMSKeyId"] = self.s3_inputs.kms_key_id
+        if self.encryption:
+            optional_kwargs["ServerSideEncryption"] = self.encryption
+        if self.kms_key_id:
+            optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
 
         current_key = self._get_current_key()
         client = await self._get_s3_client()
         response = await client.create_multipart_upload(
-            Bucket=self.s3_inputs.bucket_name,
+            Bucket=self.bucket,
             Key=current_key,
             **optional_kwargs,  # type: ignore
         )
@@ -833,10 +871,20 @@ class ConcurrentS3Consumer(Consumer):
 
         # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
         # containing the list of files.  This is used to check if the export is complete.
-        if self.s3_inputs.max_file_size_mb:
-            manifest_key = get_manifest_key(self.s3_inputs)
+        if self.max_file_size_mb:
+            manifest_key = get_manifest_key(
+                self.prefix, self.data_interval_start, self.data_interval_end, self.batch_export_model
+            )
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
-            await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
+            await upload_manifest_file(
+                self.bucket,
+                self.region_name,
+                self.aws_access_key_id,
+                self.aws_secret_access_key,
+                self.endpoint_url,
+                self.files_uploaded,
+                manifest_key,
+            )
             self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
@@ -860,7 +908,7 @@ class ConcurrentS3Consumer(Consumer):
         current_key = self._get_current_key()
         client = await self._get_s3_client()
         await client.complete_multipart_upload(
-            Bucket=self.s3_inputs.bucket_name,
+            Bucket=self.bucket,
             Key=current_key,
             UploadId=self.upload_id,
             MultipartUpload={"Parts": sorted_parts},
@@ -872,7 +920,7 @@ class ConcurrentS3Consumer(Consumer):
             try:
                 client = await self._get_s3_client()
                 await client.abort_multipart_upload(
-                    Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
+                    Bucket=self.bucket, Key=self._get_current_key(), UploadId=self.upload_id
                 )
             except Exception:
                 pass  # Best effort cleanup
