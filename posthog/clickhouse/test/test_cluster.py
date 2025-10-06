@@ -134,7 +134,7 @@ def wait_and_check_mutations_on_shards(
         assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
 
 
-@pytest.mark.flaky(reruns=2)
+@pytest.mark.flaky(max_runs=3)
 def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
@@ -185,7 +185,7 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
         assert cluster.any_host(MutationWaiter("x", {"y"}).is_done).result()
 
 
-@pytest.mark.flaky(reruns=2)
+@pytest.mark.flaky(max_runs=3)
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
@@ -338,7 +338,7 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
         assert all(result[0][0] < count for result in query_results.values())
 
 
-@pytest.mark.flaky(reruns=2)
+@pytest.mark.flaky(max_runs=3)
 def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     """Test that force=True skips checking for existing mutations"""
     table = EVENTS_DATA_TABLE()
