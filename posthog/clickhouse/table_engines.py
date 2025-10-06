@@ -1,7 +1,7 @@
 import uuid
 from enum import StrEnum
 
-from posthog import settings
+from django.conf import settings
 
 
 class ReplicationScheme(StrEnum):

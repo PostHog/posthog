@@ -6,6 +6,8 @@ from difflib import get_close_matches
 from typing import Literal, Union, cast
 from uuid import UUID
 
+from django.conf import settings
+
 from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
@@ -52,7 +54,6 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
 
-from posthog import settings
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
     TablesWithMaterializedColumns,

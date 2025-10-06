@@ -1,4 +1,5 @@
-from posthog import settings
+from django.conf import settings
+
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
