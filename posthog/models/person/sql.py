@@ -598,7 +598,13 @@ GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id =
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"
 
 
-CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY = """
+def CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY():
+    """
+    Create dictionary SQL for person_distinct_id_overrides.
+    This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime,
+    not at module import time (which causes issues in E2E tests where env vars aren't loaded yet).
+    """
+    return """
 CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLUSTER {cluster} (
     `team_id` Int64, -- team_id could be made hierarchical to save some space.
     `distinct_id` String,
@@ -613,6 +619,6 @@ LAYOUT(complex_key_hashed())
 -- ClickHouse will choose a time uniformly within 1 to 5 hours to reload the dictionary (update if necessary to meet SLAs).
 LIFETIME(MIN 3600 MAX 18000)
 """.format(
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-)
+        cluster=CLICKHOUSE_CLUSTER,
+        database=CLICKHOUSE_DATABASE,
+    )
