@@ -3,6 +3,10 @@ from typing import Optional
 
 from django.utils import timezone
 
+from posthog.api.advanced_activity_logs.constants import (
+    ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT,
+    ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 
@@ -18,7 +22,9 @@ def get_activity_log_lookback_restriction(organization: Organization) -> Optiona
     unit = audit_log_feature.get("unit")
 
     if limit is None or unit is None:
-        return None
+        # Return fallback values
+        limit = ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT
+        unit = ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT
 
     unit_lower = unit.lower()
     if unit_lower in ("day", "days"):
@@ -28,6 +34,6 @@ def get_activity_log_lookback_restriction(organization: Organization) -> Optiona
     elif unit_lower in ("year", "years"):
         delta = timedelta(days=limit * 365)
     else:
-        return None
+        raise ValueError(f"Invalid unit: {unit}")
 
     return timezone.now() - delta
