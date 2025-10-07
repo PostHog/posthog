@@ -34,7 +34,9 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    NodeKind,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -173,6 +175,7 @@ RunnableQueryNode = Union[
     WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
 ]
 
@@ -694,12 +697,25 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "MarketingAnalyticsTableQuery":
+    if kind == NodeKind.MARKETING_ANALYTICS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
             MarketingAnalyticsTableQueryRunner,
         )
 
         return MarketingAnalyticsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_analytics_aggregated_query_runner import (
+            MarketingAnalyticsAggregatedQueryRunner,
+        )
+
+        return MarketingAnalyticsAggregatedQueryRunner(
             query=query,
             team=team,
             timings=timings,
