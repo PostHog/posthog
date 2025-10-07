@@ -6,6 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from dateutil import parser
 from rest_framework.exceptions import ValidationError
 
@@ -424,9 +425,14 @@ def _recalculate_cohortpeople_for_team_hogql(
 ) -> int:
     tag_queries(name="recalculate_cohortpeople_for_team_hogql")
 
-    history = CohortCalculationHistory.objects.create(
-        team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
-    )
+    history = None
+    if posthoganalytics.feature_enabled("cohort-calculation-history", str(team.id)):
+        try:
+            history = CohortCalculationHistory.objects.create(
+                team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+            )
+        except Exception as e:
+            logger.exception("Failed to create cohort calculation history", error=str(e))
 
     cohort_params: dict[str, Any]
     # No need to do anything here, as we're only testing hogql
@@ -476,32 +482,33 @@ def _recalculate_cohortpeople_for_team_hogql(
             ch_user=ClickHouseUser.COHORTS,
         )
 
-    try:
-        result, query_stats = run_cohort_query(execute_query)
+    result, query_stats = run_cohort_query(execute_query)
 
-        history.finished_at = timezone.now()
-        if isinstance(result, list) and len(result) == 0:
-            history.count = 0
-        else:
-            history.count = result
+    if history:
+        try:
+            history.finished_at = timezone.now()
+            if isinstance(result, list) and len(result) == 0:
+                history.count = 0
+            else:
+                history.count = result
 
-        history.add_query_info(
-            query=recalculate_cohortpeople_sql,
-            query_id=query_stats.get("query_id") if query_stats else None,
-            query_ms=query_stats.get("query_duration_ms") if query_stats else None,
-            memory_mb=query_stats.get("memory_mb") if query_stats else None,
-            read_rows=query_stats.get("read_rows") if query_stats else None,
-            written_rows=query_stats.get("written_rows") if query_stats else None,
-        )
+            history.add_query_info(
+                query=recalculate_cohortpeople_sql,
+                query_id=query_stats.get("query_id") if query_stats else None,
+                query_ms=query_stats.get("query_duration_ms") if query_stats else None,
+                memory_mb=query_stats.get("memory_mb") if query_stats else None,
+                read_rows=query_stats.get("read_rows") if query_stats else None,
+                written_rows=query_stats.get("written_rows") if query_stats else None,
+            )
 
-        history.save(update_fields=["finished_at", "count", "queries"])
-        return history.count
+            history.save(update_fields=["finished_at", "count", "queries"])
+            return history.count
 
-    except Exception as e:
-        history.finished_at = timezone.now()
-        history.error = str(e)
-        history.save(update_fields=["finished_at", "error"])
-        raise
+        except Exception as e:
+            history.finished_at = timezone.now()
+            history.error = str(e)
+            history.save(update_fields=["finished_at", "error"])
+            raise
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
