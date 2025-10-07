@@ -16,11 +16,17 @@ export interface SchemaPropertyGroupProperty {
     order: number
 }
 
+export interface EventDefinitionBasic {
+    id: string
+    name: string
+}
+
 export interface SchemaPropertyGroup {
     id: string
     name: string
     description: string
     properties: SchemaPropertyGroupProperty[]
+    events: EventDefinitionBasic[]
     created_at: string
     updated_at: string
 }

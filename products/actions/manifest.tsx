@@ -65,7 +65,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Actions',
-            category: 'Definitions',
+            category: 'Schema',
             href: urls.actions(),
             iconType: 'action' as FileSystemIconType,
         },

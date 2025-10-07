@@ -53,19 +53,18 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
         <SceneSection
             title="Schema"
             description="Define which property groups this event should have. Property groups establish a schema that helps document expected properties."
+            actions={
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    onClick={() => setIsModalOpen(true)}
+                    disabled={eventSchemasLoading}
+                >
+                    Add Property Group
+                </LemonButton>
+            }
         >
             <div className="space-y-4">
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={() => setIsModalOpen(true)}
-                        disabled={eventSchemasLoading}
-                    >
-                        Add Property Group
-                    </LemonButton>
-                </div>
-
                 <SelectPropertyGroupModal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}

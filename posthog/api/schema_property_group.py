@@ -39,9 +39,15 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
         return cleaned_value
 
 
+class EventDefinitionBasicSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
 class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
     properties = SchemaPropertyGroupPropertySerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
+    events = serializers.SerializerMethodField()
 
     class Meta:
         model = SchemaPropertyGroup
@@ -50,11 +56,16 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "properties",
+            "events",
             "created_at",
             "updated_at",
             "created_by",
         )
         read_only_fields = ("id", "created_at", "updated_at", "created_by")
+
+    def get_events(self, obj):
+        event_schemas = obj.event_schemas.select_related("event_definition").all()
+        return EventDefinitionBasicSerializer([es.event_definition for es in event_schemas], many=True).data
 
     def create(self, validated_data):
         properties_data = validated_data.pop("properties", [])
@@ -105,4 +116,8 @@ class SchemaPropertyGroupViewSet(
     lookup_field = "id"
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).prefetch_related("properties").order_by("-created_at")
+        return (
+            queryset.filter(team_id=self.team_id)
+            .prefetch_related("properties", "event_schemas__event_definition")
+            .order_by("-created_at")
+        )

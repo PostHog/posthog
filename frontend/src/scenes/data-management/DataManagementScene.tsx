@@ -100,7 +100,7 @@ const tabs: Record<DataManagementTab, TabConfig> = {
     },
     [DataManagementTab.SchemaManagement]: {
         url: urls.schemaManagement(),
-        label: 'Schema Management',
+        label: 'Property Groups',
         content: <SchemaManagement />,
     },
     [DataManagementTab.Annotations]: {
