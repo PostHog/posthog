@@ -25,6 +25,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -89,6 +90,7 @@ export function FeatureFlagReleaseConditions({
     nonEmptyFeatureFlagVariants,
     showTrashIconWithOneCondition = false,
     removedLastConditionCallback,
+    evaluationRuntime,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
@@ -112,6 +114,7 @@ export function FeatureFlagReleaseConditions({
         totalUsers,
         filtersTaxonomicOptions,
         aggregationTargetName,
+        properties,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -263,6 +266,13 @@ export function FeatureFlagReleaseConditions({
                                 Learn more about how to make feature flags available instantly.
                             </Link>
                         </LemonBanner>
+                    )}
+                    {!readOnly && (
+                        <FeatureFlagConditionWarning
+                            properties={properties}
+                            evaluationRuntime={evaluationRuntime}
+                            className="mt-3 mb-3"
+                        />
                     )}
                     {readOnly ? (
                         <>
