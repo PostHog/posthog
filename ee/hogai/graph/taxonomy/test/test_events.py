@@ -1,4 +1,4 @@
-from posthog.test.base import NonAtomicBaseTest, _create_event, flush_persons_and_events
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from posthog.models import Action
 from posthog.models.property_definition import PropertyDefinition
@@ -12,9 +12,7 @@ class DummyToolkit(TaxonomyAgentToolkit):
         return self._get_default_tools()
 
 
-class TestEvents(NonAtomicBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
+class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         for i, group_type in enumerate(["organization", "project"]):
