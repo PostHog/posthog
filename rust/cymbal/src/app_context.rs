@@ -1,4 +1,3 @@
-use aws_config::{BehaviorVersion, Region};
 use common_geoip::GeoIpClient;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer,
@@ -16,7 +15,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    config::{init_global_state, Config},
+    config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
     symbol_store::{
@@ -85,21 +84,7 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
-            &config.object_storage_access_key_id,
-            &config.object_storage_secret_access_key,
-            None,
-            None,
-            "environment",
-        );
-        let aws_conf = aws_sdk_s3::config::Builder::new()
-            .region(Region::new(config.object_storage_region.clone()))
-            .endpoint_url(&config.object_storage_endpoint)
-            .credentials_provider(aws_credentials)
-            .behavior_version(BehaviorVersion::latest())
-            .force_path_style(config.object_storage_force_path_style)
-            .build();
-        let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
+        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(&config).await);
         let s3_client = S3Client::new(s3_client);
         let s3_client = Arc::new(s3_client);
 

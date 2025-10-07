@@ -3,6 +3,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use aws_config::{BehaviorVersion, Region};
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_types::error_tracking::EmbeddingModelList;
 use envconfig::Envconfig;
@@ -180,4 +181,31 @@ fn default_maxmind_db_path() -> PathBuf {
         .unwrap()
         .join("share")
         .join("GeoLite2-City.mmdb")
+}
+
+// Resolves the s3 client configuration, handling
+pub async fn get_aws_config(config: &Config) -> aws_sdk_s3::Config {
+    // If we have a role ARN and token file, we should use the standard AWS env vars, instead of the custom env credentials defined in Config.
+    if std::env::var("AWS_ROLE_ARN").is_ok() && std::env::var("AWS_WEB_IDENTITY_TOKEN_FILE").is_ok()
+    {
+        aws_sdk_s3::config::Builder::from(&aws_config::load_from_env().await)
+            .force_path_style(config.object_storage_force_path_style)
+            .build() // Use role-based credentials, assume region etc will be properly set due to SA annotation
+    } else {
+        // Fall back to building our config from the environment variables we use in local dev
+        let env_credentials = aws_sdk_s3::config::Credentials::new(
+            &config.object_storage_access_key_id,
+            &config.object_storage_secret_access_key,
+            None,
+            None,
+            "environment",
+        );
+        aws_sdk_s3::config::Builder::new()
+            .region(Region::new(config.object_storage_region.clone()))
+            .endpoint_url(&config.object_storage_endpoint)
+            .credentials_provider(env_credentials)
+            .behavior_version(BehaviorVersion::latest())
+            .force_path_style(config.object_storage_force_path_style)
+            .build()
+    }
 }
