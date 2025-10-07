@@ -23,7 +23,7 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @param resource - The API scope object to pluralize
  * @returns The pluralized resource name for display
  */
-export const pluralizeResource = (resource: AccessControlResourceType): string => {
+export const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     }

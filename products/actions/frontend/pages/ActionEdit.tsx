@@ -38,7 +38,14 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlResourceType, ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActionStepType,
+    FilterLogicalOperator,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
@@ -71,10 +78,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     // Check if user can edit this action
-    const canEdit = userHasAccess(AccessControlResourceType.Action, 'editor', action.user_access_level)
+    const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
     const cannotEditReason = getAccessControlDisabledReason(
         AccessControlResourceType.Action,
-        'editor',
+        AccessControlLevel.Editor,
         action.user_access_level
     )
 
@@ -167,7 +174,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
-                        <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel="editor">
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Action}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
                             {({ disabledReason }) => (
                                 <ButtonPrimitive
                                     onClick={() => {

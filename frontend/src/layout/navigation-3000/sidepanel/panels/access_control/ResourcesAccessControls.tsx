@@ -23,7 +23,7 @@ import {
     getMinimumAccessLevel,
     pluralizeResource,
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
-import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
+import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
 import {
     DefaultResourceAccessControls,
@@ -52,7 +52,7 @@ const SummarizeAccessLevels = ({
         <div className="flex gap-2 flex-wrap">
             {entries.map(({ resource, level }) => (
                 <LemonTag key={resource} type="default">
-                    {capitalizeFirstLetter(pluralizeResource(resource as AccessControlResourceType))}:{' '}
+                    {capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}:{' '}
                     {capitalizeFirstLetter(level)}
                 </LemonTag>
             ))}

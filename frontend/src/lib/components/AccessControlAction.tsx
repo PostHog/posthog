@@ -1,12 +1,7 @@
 import React from 'react'
 
 import { getAccessControlDisabledReason } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
-import { AccessControlResourceType } from '~/types'
-
-export type AccessControlLevelNone = 'none'
-export type AccessControlLevelMember = AccessControlLevelNone | 'member' | 'admin'
-export type AccessControlLevelResource = AccessControlLevelNone | 'viewer' | 'editor' | 'manager'
-export type AccessControlLevel = AccessControlLevelMember | AccessControlLevelResource
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 interface AccessControlActionChildrenProps {
     disabled?: boolean

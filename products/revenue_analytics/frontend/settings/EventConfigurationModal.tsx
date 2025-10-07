@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { userHasAccess } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -44,7 +44,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
     const [originalEvent] = useState<RevenueAnalyticsEventItem | null>(() => (event ? { ...event } : null))
 
     // Don't show the modal if the user doesn't have access to the revenue analytics resource
-    if (!userHasAccess(AccessControlResourceType.RevenueAnalytics, 'editor')) {
+    if (!userHasAccess(AccessControlResourceType.RevenueAnalytics, AccessControlLevel.Editor)) {
         onClose()
         return null
     }
