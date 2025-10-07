@@ -2,3 +2,4 @@
 src/taxonomy/core-filter-definitions-by-group.json
 dist/
 *LogicType.ts
+../products/mcp/
