@@ -1,4 +1,3 @@
-import json
 import asyncio
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar, cast
@@ -30,17 +29,18 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models.organization import OrganizationMembership
-from posthog.sync import database_sync_to_async
+from posthog.models import Team, User
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
+from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.graph.root.tools.todo_write import TodoWriteTool
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import MaxTool, ParallelToolExecution
+from ee.hogai.tool.base import get_assistant_tool_class
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
+from ee.hogai.utils.helpers import insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -61,6 +61,7 @@ from .prompts import (
     ROOT_GROUPS_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_SYSTEM_PROMPT,
+    ROOT_TOOL_DOES_NOT_EXIST,
 )
 
 if TYPE_CHECKING:
@@ -87,18 +88,14 @@ class RootNode(AssistantNode):
     """
     Determines the maximum number of tool calls allowed in a single generation.
     """
-    CONVERSATION_WINDOW_SIZE = 64000
-    """
-    Determines the maximum number of tokens allowed in the conversation window.
-    """
     THINKING_CONFIG = {"type": "enabled", "budget_tokens": 1024}
     """
     Determines the thinking configuration for the model.
     """
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.ROOT
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
+        self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         # Add context messages on start of the conversation.
@@ -108,13 +105,13 @@ class RootNode(AssistantNode):
             self._aget_core_memory_text(),
             self.context_manager.get_group_names(),
         )
+        model = self._get_model(state, tools)
 
         # Add context messages on start of the conversation.
         messages_to_replace: Sequence[AssistantMessageUnion] = []
         if self._is_first_turn(state) and (
-            updated_messages := await self.context_manager.aget_state_messages_with_context(state)
+            updated_messages := await self.context_manager.get_state_messages_with_context(state)
         ):
-            # Check if context was actually added by comparing lengths
             messages_to_replace = updated_messages
 
         # Calculate the initial window.
@@ -124,7 +121,9 @@ class RootNode(AssistantNode):
         window_id = state.root_conversation_start_id
 
         # Summarize the conversation if it's too long.
-        if await self._should_summarize_conversation(state, tools, langchain_messages):
+        if await self._window_manager.should_compact_conversation(
+            model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
+        ):
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
             summary = await AnthropicConversationSummarizer(self._team, self._user).summarize(messages_to_summarize)
@@ -139,7 +138,7 @@ class RootNode(AssistantNode):
             )
 
             # Update window
-            window_id = self._find_new_window_id(messages_to_replace)
+            window_id = self._window_manager.find_window_boundary(messages_to_replace)
             langchain_messages = self._construct_messages(messages_to_replace, window_id, state.root_tool_calls_count)
 
         system_prompts = ChatPromptTemplate.from_messages(
@@ -156,7 +155,7 @@ class RootNode(AssistantNode):
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
 
-        message = await self._get_model(state, tools).ainvoke(system_prompts + langchain_messages, config)
+        message = await model.ainvoke(system_prompts + langchain_messages, config)
         assistant_message = normalize_ai_anthropic_message(message)
 
         new_messages: list[AssistantMessageUnion] = [assistant_message]
@@ -174,39 +173,9 @@ class RootNode(AssistantNode):
             return ReasoningMessage(content="Calculating context")
         return None
 
-    def _find_new_window_id(
-        self, messages: list[AssistantMessageUnion], max_messages: int = 10, max_tokens: int = 1000
-    ) -> str:
-        new_window_id: str = cast(str, messages[-1].id)
-        for message in reversed(messages):
-            if message.id is not None:
-                if isinstance(message, HumanMessage):
-                    new_window_id = message.id
-                if isinstance(message, AssistantMessage):
-                    new_window_id = message.id
-
-            max_messages -= 1
-            max_tokens -= self._get_estimated_tokens(message)
-            if max_messages <= 0 or max_tokens <= 0:
-                break
-
-        return new_window_id
-
-    def _get_estimated_tokens(self, message: AssistantMessageUnion) -> int:
-        char_count = 0
-        if isinstance(message, HumanMessage):
-            char_count = len(message.content)
-        if isinstance(message, AssistantMessage):
-            char_count = len(message.content) + sum(len(json.dumps(m.args)) for m in message.tool_calls or [])
-        if isinstance(message, AssistantToolCallMessage):
-            char_count = len(message.content)
-        return round(char_count / 4)
-
-    def _is_first_turn(self, state: AssistantState) -> bool:
-        last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage):
-            return last_message == find_start_message(state.messages, start_id=state.start_id)
-        return False
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT
 
     def _has_session_summarization_feature_flag(self) -> bool:
         """
@@ -220,26 +189,13 @@ class RootNode(AssistantNode):
             send_feature_flag_events=False,
         )
 
-    @database_sync_to_async
-    def _check_user_has_billing_access(self) -> bool:
-        """
-        Check if the user has access to the billing tool.
-        """
-        return self._user.organization_memberships.get(organization=self._team.organization).level in (
-            OrganizationMembership.Level.ADMIN,
-            OrganizationMembership.Level.OWNER,
-        )
-
-    def _check_user_has_billing_context(self, config: RunnableConfig) -> bool:
-        return self.context_manager.get_billing_context() is not None
-
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
         Returns:
             str: prompt
         """
-        has_billing_context = self._check_user_has_billing_context(config)
-        has_access = await self._check_user_has_billing_access()
+        has_billing_context = self.context_manager.get_billing_context() is not None
+        has_access = await self.context_manager.check_user_has_billing_access()
 
         if has_access and not has_billing_context:
             return ROOT_BILLING_CONTEXT_ERROR_PROMPT
@@ -328,7 +284,8 @@ class RootNode(AssistantNode):
         tool_calls_count: int | None = None,
     ) -> list[BaseMessage]:
         # Filter out messages that are not part of the conversation window.
-        conversation_window = self._get_assistant_messages_in_window(messages, window_start_id)
+        filtered_messages = [message for message in messages if isinstance(message, RootMessageUnion)]
+        conversation_window = self._window_manager.get_messages_in_window(filtered_messages, window_start_id)
 
         # `assistant` messages must be contiguous with the respective `tool` messages.
         tool_result_messages = {
@@ -358,40 +315,8 @@ class RootNode(AssistantNode):
 
         return history
 
-    def _get_assistant_messages_in_window(
-        self, messages: Sequence[AssistantMessageUnion], window_start_id: str | None = None
-    ) -> list[RootMessageUnion]:
-        filtered_conversation = [message for message in messages if isinstance(message, RootMessageUnion)]
-        if window_start_id is not None:
-            filtered_conversation = self._get_conversation_window(filtered_conversation, window_start_id)
-        return filtered_conversation
-
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
-
-    async def _should_summarize_conversation(
-        self, state: AssistantState, tools: list[MaxTool], messages: list[BaseMessage]
-    ) -> bool:
-        # Avoid summarizing the conversation if there is only two human messages.
-        human_messages = [message for message in messages if isinstance(message, LangchainHumanMessage)]
-        if len(human_messages) <= 2:
-            return False
-
-        token_count = await self._get_token_count(state, messages, tools)
-        return token_count > self.CONVERSATION_WINDOW_SIZE
-
-    async def _get_token_count(self, state: AssistantState, messages: list[BaseMessage], tools: list[MaxTool]) -> int:
-        # Contains an async method in get_num_tokens_from_messages
-        model = self._get_model(state, tools)
-        return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
-            messages, thinking=self.THINKING_CONFIG
-        )
-
-    def _get_conversation_window(self, messages: list[T], start_id: str) -> list[T]:
-        for idx, message in enumerate(messages):
-            if message.id == start_id:
-                return messages[idx:]
-        return messages
 
 
 class RootNodeTools(AssistantNode):
@@ -421,14 +346,33 @@ class RootNodeTools(AssistantNode):
                     AssistantToolCallMessage(
                         content=f"Do not use the {single_tool_call.name} in combination with other tools.",
                         id=str(uuid4()),
-                        tool_call_id=single_tool_call.id,
+                        tool_call_id=tool_call.id,
                         visible=False,
                     )
+                    for tool_call in tool_calls
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )
 
         result_messages: list[AssistantMessageUnion] = []
+
+        non_existent_tool_calls = 0
+        for tool_call in tool_calls:
+            if get_assistant_tool_class(tool_call.name) is None:
+                result_messages.append(
+                    AssistantToolCallMessage(
+                        content=ROOT_TOOL_DOES_NOT_EXIST,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                )
+                non_existent_tool_calls += 1
+
+        if non_existent_tool_calls == len(tool_calls):
+            return PartialAssistantState(
+                messages=result_messages,
+                root_tool_calls_count=tool_call_count + 1,
+            )
 
         ToolExecutionClass = ParallelToolExecution(
             team=self._team, user=self._user, write_message_afunc=self._write_message

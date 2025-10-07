@@ -145,7 +145,7 @@ def sync_execute(
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
 
     # Customer is paying for API
     if (

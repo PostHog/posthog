@@ -435,6 +435,18 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 }
             ],
             "description": "The union type with all supported base queries for the assistant."
@@ -1536,7 +1548,7 @@
                 }
             ]
         },
-        "AssistantNavigateUrls": {
+        "AssistantNavigateUrl": {
             "description": "Exact possible `urls` keys for the `navigate` tool.",
             "enum": [
                 "actions",
@@ -1810,13 +1822,13 @@
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
-                "search_insights",
                 "session_summarization",
                 "create_dashboard",
                 "read_taxonomy",
                 "search",
                 "read_data",
-                "todo_write"
+                "todo_write",
+                "filter_revenue_analytics"
             ],
             "type": "string"
         },
@@ -11309,11 +11321,21 @@
             "required": ["event", "kind", "properties"],
             "type": "object"
         },
+        "ExperimentExposureConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
                 "exposure_config": {
-                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                    "$ref": "#/definitions/ExperimentExposureConfig"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
@@ -11622,7 +11644,10 @@
                     "type": ["string", "null"]
                 },
                 "filters": {
-                    "type": "object"
+                    "items": {
+                        "$ref": "#/definitions/FeatureFlagGroupType"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": ["number", "null"]
@@ -11651,6 +11676,9 @@
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11689,6 +11717,9 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -11766,6 +11797,9 @@
         "ExperimentMetricOutlierHandling": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -12494,6 +12528,33 @@
             "required": ["type"],
             "type": "object"
         },
+        "FeatureFlagGroupType": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "rollout_percentage": {
+                    "type": ["number", "null"]
+                },
+                "sort_key": {
+                    "type": ["string", "null"]
+                },
+                "users_affected": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "FeaturePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12611,7 +12672,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
-                "embedded_analytics",
+                "endpoints",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -16704,6 +16765,19 @@
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
+        "NamedQueryLastExecutionTimesRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["names"],
+            "type": "object"
+        },
         "NamedQueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -17395,6 +17469,51 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
+        },
+        "PlaywrightWorkspaceSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_name": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "PlaywrightWorkspaceSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "personal_api_key": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "organization_id",
+                "team_id",
+                "organization_name",
+                "team_name",
+                "user_id",
+                "user_email",
+                "personal_api_key"
+            ],
+            "type": "object"
         },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
@@ -22062,6 +22181,28 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsBreakdown"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties", "breakdown"],
+            "type": "object"
+        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -24983,6 +25124,38 @@
             ],
             "type": "object"
         },
+        "TestSetupRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "TestSetupResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "available_tests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "result": {},
+                "success": {
+                    "type": "boolean"
+                },
+                "test_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["success", "test_name"],
+            "type": "object"
+        },
         "TileFilters": {
             "additionalProperties": false,
             "properties": {
@@ -25207,6 +25380,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "personId": {
+                    "description": "Person who performed the event",
+                    "type": "string"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -25698,6 +25875,9 @@
                 "is_email_verified": {},
                 "last_name": {
                     "type": "string"
+                },
+                "role_at_organization": {
+                    "type": ["string", "null"]
                 },
                 "uuid": {
                     "type": "string"

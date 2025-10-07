@@ -119,17 +119,23 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
   '''
-  /* cohort_calculation: */
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 0
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.1
   '''
-  /* cohort_calculation: */
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -138,6 +144,32 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
+  '''
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -161,7 +193,7 @@
      HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -213,17 +245,23 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
-  /* cohort_calculation: */
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 0
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '''
-  /* cohort_calculation: */
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -232,6 +270,32 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
+  '''
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -288,7 +352,23 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -296,7 +376,7 @@
     AND version = 0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -334,6 +414,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -429,7 +510,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -472,6 +554,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -559,6 +642,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -841,7 +925,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -884,6 +969,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -992,6 +1078,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -1169,7 +1256,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1235,6 +1323,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -1403,7 +1492,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1526,7 +1616,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1569,6 +1660,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -1684,6 +1776,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -1915,6 +2008,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -2029,7 +2123,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2072,6 +2167,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -2173,6 +2269,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -2284,6 +2381,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -2518,7 +2616,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2641,7 +2740,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2684,6 +2784,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -2805,6 +2906,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -2997,7 +3099,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3044,6 +3147,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -3155,7 +3259,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3278,7 +3383,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3321,6 +3427,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -3436,6 +3543,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -3778,7 +3886,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3825,6 +3934,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",
@@ -4034,7 +4144,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -4123,7 +4234,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -4253,7 +4365,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -4462,6 +4575,7 @@
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
          "posthog_featureflag"."version",

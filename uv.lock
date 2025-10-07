@@ -4098,6 +4098,7 @@ version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aioboto3" },
+    { name = "aiobotocore" },
     { name = "aiohttp" },
     { name = "aiokafka" },
     { name = "anthropic" },
@@ -4315,6 +4316,7 @@ dev = [
     { name = "syrupy" },
     { name = "tach" },
     { name = "types-aioboto3", extra = ["s3"] },
+    { name = "types-aiobotocore" },
     { name = "types-boto3", extra = ["essential"] },
     { name = "types-freezegun" },
     { name = "types-markdown" },
@@ -4333,6 +4335,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aioboto3", specifier = "==12.0.0" },
+    { name = "aiobotocore", specifier = ">=2.7.0" },
     { name = "aiohttp", specifier = "==3.11.10" },
     { name = "aiokafka", specifier = ">=0.8" },
     { name = "anthropic", specifier = "==0.52.0" },
@@ -4550,6 +4553,7 @@ dev = [
     { name = "syrupy", specifier = "~=4.9.1" },
     { name = "tach", specifier = "~=0.20.0" },
     { name = "types-aioboto3", extras = ["s3"], specifier = ">=14.3.0" },
+    { name = "types-aiobotocore", specifier = ">=2.22.0" },
     { name = "types-boto3", extras = ["essential"], specifier = "==1.37.6" },
     { name = "types-freezegun", specifier = "==1.1.10" },
     { name = "types-markdown", specifier = "==3.3.9" },

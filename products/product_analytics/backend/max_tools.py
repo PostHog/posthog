@@ -35,6 +35,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
 """.strip()
 
     args_schema: type[BaseModel] = EditCurrentInsightArgs
+    show_tool_call_message: bool = False
 
     async def _arun_impl(self, query_description: str) -> ToolResult:
         result = await super()._arun_impl(query_description)

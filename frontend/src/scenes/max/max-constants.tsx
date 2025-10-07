@@ -194,12 +194,16 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
     fix_hogql_query: {
         name: 'Fix SQL',
         icon: iconForType('data_warehouse'),
-        visible: false,
     },
     edit_current_insight: {
         name: 'Edit the insight you are viewing',
         icon: iconForType('product_analytics'),
-        visible: false,
+    },
+    filter_revenue_analytics: {
+        name: 'Filter revenue analytics',
+        description: 'Filter revenue analytics to find the most impactful revenue insights',
+        product: Scene.RevenueAnalytics,
+        icon: iconForType('revenue_analytics'),
     },
 }
 

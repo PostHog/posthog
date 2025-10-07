@@ -22,15 +22,21 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 2. In your `max_tools.py`, define a new tool class inheriting from `MaxTool`:
 
     ```python
-    from ee.hogai.tool import MaxTool
     from pydantic import BaseModel, Field
-    from langchain_core.prompts import ChatPromptTemplate
+
     from ee.hogai.llm import MaxChatOpenAI
-    from ee.hogai.utils.types.base import ToolResult
+    from ee.hogai.utils.types import ToolResult
+    from ee.hogai.tool import MaxTool
+
 
     # Define your tool's arguments schema
     class YourToolArgs(BaseModel):
         parameter_name: str = Field(description="Description of the parameter")
+
+
+    class YourToolOutput(BaseModel):
+        result_data: int
+
 
     class YourTool(MaxTool):
         name: str = AssistantTool.YOUR_TOOL_NAME.value  # Must match a value in AssistantTool enum
@@ -45,11 +51,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
 
             # Optional: Use LLM to process inputs or generate structured outputs
-            model = (
-                MaxChatOpenAI(model="gpt-4o", temperature=0.2)
-                .with_structured_output(OutputType)
-                .with_retry()
-            )
+            model = MaxChatOpenAI(model="gpt-4o", temperature=0.2).with_structured_output(YourToolOutput).with_retry()
 
             response = model.ainvoke({"question": "What is PostHog?"})
 
@@ -72,6 +74,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             description: 'Do something to blah blah',
             product: Scene.YourProduct, // or null for the rare global tool
             flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+            icon: <SomeIcon />
         },
     }
     ```
@@ -114,7 +117,7 @@ When a tool is mounted, it automatically gets shown as available in the scene UI
 
 For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
-## Iterating
+### Iterating
 
 Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: prompt, description, `root_system_prompt_template`, context from the frontend.
 
@@ -122,7 +125,7 @@ When developing, get full visibility into what the tool is doing using local Pos
 
 If you've got any requests for Max, including around tools, let us know at #team-max-ai in Slack!
 
-## Best practices for LLM-based tools
+### Best practices for LLM-based tools
 
 - Provide comprehensive context about current state from the frontend
 - Test with diverse inputs and edge cases
@@ -139,8 +142,19 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 ### Adding a new query type
 
-1. **Update the query executor** (`@ee/hogai/graph/query_executor/`):
-    - Add your new query type to the `SupportedQueryTypes` union in `query_executor.py:33`:
+1. **Update the schema to include the new query types**
+    - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
+
+        ```typescript
+        AnyAssistantSupportedQuery =
+            | TrendsQuery
+            | FunnelsQuery
+            | RetentionQuery
+            | HogQLQuery
+            | YourNewQuery           // Add your query type
+        ```
+
+    - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
 
         ```python
         SupportedQueryTypes = (
@@ -156,7 +170,8 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
         )
         ```
 
-    - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
+2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
+    - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
     - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
 
         ```python
@@ -172,7 +187,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
             return YOUR_NEW_EXAMPLE_PROMPT
         ```
 
-2. **Update the root node** (`@ee/hogai/graph/root/`):
+3. **Update the root node** (`@ee/hogai/graph/root/`):
     - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
 
         ```python
@@ -185,9 +200,9 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
         }
         ```
 
-3. **Create the formatter class**:
+4. **Create the formatter class**:
 
-    Create a new formatter in `format.py` following the pattern of existing formatters:
+    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
     ```python
     class YourNewResultsFormatter:
@@ -203,9 +218,9 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
             pass
     ```
 
-4. **Add tests**:
+5. **Add tests**:
     - Add test cases in `test/test_query_executor.py` for your new query type
-    - Add test cases in `test/test_format.py` for your new formatter
+    - Add test cases in `test/format/test_format.py` for your new formatter
     - Ensure tests cover both successful execution and error handling
 
 ### Taxonomy Agent

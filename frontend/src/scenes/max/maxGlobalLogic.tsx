@@ -8,12 +8,12 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { maxLogic } from './maxLogic'
+import { buildSceneDescriptionsContext } from './utils/sceneDescriptionsContext'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -21,13 +21,15 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'navigate' as const,
         name: TOOL_DEFINITIONS['navigate'].name,
         description: TOOL_DEFINITIONS['navigate'].description,
+        context: { current_page: location.pathname, scene_descriptions: buildSceneDescriptionsContext() },
         context: { current_page: location.pathname },
         callback: async (toolOutput) => {
             const { page_key: pageKey } = toolOutput
             if (!(pageKey in urls)) {
                 throw new Error(`${pageKey} not in urls`)
             }
-            const url = urls[pageKey as AssistantNavigateUrls]()
+            // @ts-expect-error - we can ignore the error about expecting more than 0 args
+            const url = urls[pageKey as keyof typeof urls]()
             // Include the conversation ID and panel to ensure the side panel is open
             // (esp. when the navigate tool is used from the full-page Max)
             router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
@@ -114,7 +116,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             // Update navigation tool with the current page
             actions.registerTool({
                 ...values.toolMap.navigate,
-                context: { current_page: pathname },
+                context: { current_page: pathname, scene_descriptions: buildSceneDescriptionsContext() },
             })
         },
     })),

@@ -1,35 +1,41 @@
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantNavigateUrls, AssistantTool, ToolExecution
+from posthog.schema import AssistantNavigateUrl, AssistantTool
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import ToolResult
 
+NAVIGATION_TOOL_PROMPT = """
+Use the `navigate` tool to move between different pages in the PostHog application.
+These pages are tied to PostHog's products and/or functionalities and provide tools for retrieving information or performing actions.
+After navigating to a page, you can use the tools available there to retrieve information or perform actions.
+
+General rules for navigation:
+- If you don't have tools available for a specific functionality, navigate to the relevant product page to get access to its tools.
+- If a user asks to do something fun in the platform you can navigate them to the `game368hedgehogs` page.
+""".strip()
+
 
 class NavigateToolArgs(BaseModel):
-    page_key: AssistantNavigateUrls = Field(
+    page_key: AssistantNavigateUrl = Field(
         description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
     )
 
 
 class NavigateTool(MaxTool):
     name: str = AssistantTool.NAVIGATE.value
-    description: str = (
-        "Navigates to a specified, predefined page or section within the PostHog application using a specific page key. "
-        "This tool uses a fixed list of page keys and cannot navigate to arbitrary URLs or pages requiring dynamic IDs not already encoded in the page key. "
-        "After navigating, you'll be able to use that page's tools."
-        "IMPORTANT: Use this tool by itself. Do not use it in combination with other tools. First navigate, then use the tools on the new page."
-    )
+    description: str = NAVIGATION_TOOL_PROMPT
     system_prompt_template: str = (
         "You're currently on the {current_page} page. "
-        "You can navigate to one of the available pages using the 'navigate' tool. "
-        "Some of these pages have tools that you can use to get more information or perform actions. "
+        "You can navigate around the PostHog app using the 'navigate' tool.\n\n"
+        "Some of the pages in the app have helpful descriptions. Some have tools that you can use only there. See the following list:\n"
+        "{scene_descriptions}\n"
         "After navigating to a new page, you'll have access to that page's specific tools."
     )
     args_schema: type[BaseModel] = NavigateToolArgs
     send_result_to_frontend: bool = True
 
-    async def _arun_impl(self, input: ToolExecution) -> ToolResult:
+    async def _arun_impl(self, page_key: AssistantNavigateUrl) -> ToolResult:
         # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
         # but it's useful for the LLM to still have the page_key in chat history
         page_key = input.args["page_key"]

@@ -1,9 +1,11 @@
+import datetime
 from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import (
     AssistantMessage,
@@ -16,6 +18,10 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
+    MaxBillingContext,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
@@ -25,6 +31,8 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
+
+from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.utils.types import AssistantState
@@ -470,10 +478,7 @@ Query results: 42 events
         """Test extraction of contextual tools raises error for invalid type"""
         config = RunnableConfig(configurable={"contextual_tools": "invalid"})
         context_manager = AssistantContextManager(self.team, self.user, config)
-
-        with self.assertRaises(ValueError) as cm:
-            context_manager.get_contextual_tools()
-        self.assertEqual(str(cm.exception), "Contextual tools must be a dictionary of tool names to tool context")
+        self.assertEqual(context_manager.get_contextual_tools(), {})
 
     def test_format_entity_context(self):
         """Test formatting of entity context (events/actions)"""
@@ -561,7 +566,7 @@ Query results: 42 events
         self.assertFalse(result[2].visible)
         self.assertFalse(result[3].visible)
 
-    async def test_aget_state_messages_with_context(self):
+    async def test_get_state_messages_with_context(self):
         """Test that context messages are properly added to state"""
         with (
             patch.object(AssistantContextManager, "_get_context_prompts") as mock_get_prompts,
@@ -575,13 +580,14 @@ Query results: 42 events
 
             state = AssistantState(messages=[HumanMessage(content="Test")])
 
-            result = await self.context_manager.aget_state_messages_with_context(state)
+            result = await self.context_manager.get_state_messages_with_context(state)
 
             mock_get_prompts.assert_called_once_with(state)
             mock_inject.assert_called_once_with(state, ["Context prompt"])
+            assert result is not None
             self.assertEqual(len(result), 2)
 
-    async def test_aget_state_messages_with_context_no_prompts(self):
+    async def test_get_state_messages_with_context_no_prompts(self):
         """Test that original messages are returned when no context prompts"""
         with patch.object(AssistantContextManager, "_get_context_prompts") as mock_get_prompts:
             mock_get_prompts.return_value = []
@@ -589,9 +595,9 @@ Query results: 42 events
             messages = [HumanMessage(content="Test")]
             state = AssistantState(messages=messages)
 
-            result = await self.context_manager.aget_state_messages_with_context(state)
+            result = await self.context_manager.get_state_messages_with_context(state)
 
-            self.assertEqual(result, messages)
+            self.assertIsNone(result)
 
     def test_has_awaitable_context(self):
         """Test detection of awaitable context in state"""
@@ -616,3 +622,32 @@ Query results: 42 events
         with patch.object(self.context_manager, "get_ui_context", return_value=ui_context):
             result = self.context_manager.has_awaitable_context(state)
             self.assertFalse(result)
+
+    @parameterized.expand(
+        [
+            [OrganizationMembership.Level.ADMIN, True],
+            [OrganizationMembership.Level.OWNER, True],
+            [OrganizationMembership.Level.MEMBER, False],
+        ]
+    )
+    async def test_has_billing_access(self, membership_level, has_access):
+        # Set membership level
+        membership = await self.user.organization_memberships.aget(organization=self.team.organization)
+        membership.level = membership_level
+        await membership.asave()
+        self.assertEqual(await self.context_manager.check_user_has_billing_access(), has_access)
+
+    async def test_get_billing_context(self):
+        billing_context = MaxBillingContext(
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            has_active_subscription=True,
+            products=[],
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+        )
+        config = RunnableConfig(configurable={"billing_context": billing_context.model_dump()})
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        self.assertEqual(context_manager.get_billing_context(), billing_context)
+
+        context_manager = AssistantContextManager(self.team, self.user, RunnableConfig(configurable={}))
+        self.assertIsNone(context_manager.get_billing_context())
