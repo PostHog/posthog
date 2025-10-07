@@ -3,28 +3,28 @@ import { useValues } from 'kea'
 
 import { Query } from '~/queries/Query/Query'
 
-import { UsageFilters } from './UsageFilters'
-import { UsageQueryTile } from './common'
-import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
+import { EndpointsUsageFilters } from './EndpointsUsageFilters'
+import { EndpointsUsageQueryTile } from './common'
+import { endpointsUsageLogic } from './endpointsUsageLogic'
 
-export function Usage({ tabId }: { tabId: string }): JSX.Element {
-    const { tiles } = useValues(embeddedAnalyticsLogic({ tabId }))
+export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
+    const { tiles } = useValues(endpointsUsageLogic({ tabId }))
 
     return (
         <>
-            <UsageFilters tabId={tabId} />
-            <UsageTiles tiles={tiles} />
+            <EndpointsUsageFilters tabId={tabId} />
+            <EndpointsUsageTiles tiles={tiles} />
         </>
     )
 }
 
-const UsageTiles = (props: { tiles: UsageQueryTile[] }): JSX.Element => {
+const EndpointsUsageTiles = (props: { tiles: EndpointsUsageQueryTile[] }): JSX.Element => {
     const { tiles } = props
     return (
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-8">
             {tiles.map((tile, i) => {
                 if (tile.kind === 'query') {
-                    return <UsageQueryTileItem key={i} tile={tile} />
+                    return <EndpointsUsageQueryTileItem key={i} tile={tile} />
                 }
                 return null
             })}
@@ -32,7 +32,7 @@ const UsageTiles = (props: { tiles: UsageQueryTile[] }): JSX.Element => {
     )
 }
 
-const UsageQueryTileItem = ({ tile }: { tile: UsageQueryTile }): JSX.Element => {
+const EndpointsUsageQueryTileItem = ({ tile }: { tile: EndpointsUsageQueryTile }): JSX.Element => {
     const { query, title, layout } = tile
 
     return (

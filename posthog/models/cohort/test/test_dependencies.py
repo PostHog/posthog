@@ -5,11 +5,13 @@ from unittest import mock
 from django.core.cache import cache
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.models import Cohort
 from posthog.models.cohort.dependencies import (
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
+    extract_cohort_dependencies,
     get_cohort_dependencies,
     get_cohort_dependents,
     warm_team_cohort_dependency_cache,
@@ -410,3 +412,20 @@ class TestCohortDependencies(BaseTest):
         final_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss")._value._value
         self.assertEqual(final_hits, initial_hits)
         self.assertEqual(final_misses, initial_misses)
+
+    def test_invalid_cohort_properties_handles_validation_error(self):
+        cohort = self._create_cohort(name="Test Cohort")
+
+        initial_invalid = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
+            cache_type="dependencies", result="invalid"
+        )._value._value
+
+        with mock.patch.object(type(cohort), "properties", new_callable=mock.PropertyMock) as mock_properties:
+            mock_properties.side_effect = ValidationError("Invalid filters")
+            result = extract_cohort_dependencies(cohort)
+
+        self.assertEqual(result, set())
+        final_invalid = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
+            cache_type="dependencies", result="invalid"
+        )._value._value
+        self.assertEqual(final_invalid, initial_invalid + 1)
