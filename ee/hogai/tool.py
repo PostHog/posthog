@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
+from posthog.schema import AssistantContextualTool, AssistantNavigateUrl
 
 from posthog.models import Team, User
 
@@ -267,7 +267,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
 
 class NavigateToolArgs(BaseModel):
-    page_key: AssistantNavigateUrls = Field(
+    page_key: AssistantNavigateUrl = Field(
         description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
     )
 
@@ -281,14 +281,15 @@ class NavigateTool(MaxTool):
     )
     root_system_prompt_template: str = (
         "You're currently on the {current_page} page. "
-        "You can navigate to one of the available pages using the 'navigate' tool. "
-        "Some of these pages have tools that you can use to get more information or perform actions. "
+        "You can navigate around the PostHog app using the 'navigate' tool.\n\n"
+        "Some of the pages in the app have helpful descriptions. Some have tools that you can use only there. See the following list:\n"
+        "{scene_descriptions}\n"
         "After navigating to a new page, you'll have access to that page's specific tools."
     )
     thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
 
-    def _run_impl(self, page_key: AssistantNavigateUrls) -> tuple[str, Any]:
+    def _run_impl(self, page_key: AssistantNavigateUrl) -> tuple[str, Any]:
         # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
         # but it's useful for the LLM to still have the page_key in chat history
         return f"Navigated to **{page_key}**.", {"page_key": page_key}
