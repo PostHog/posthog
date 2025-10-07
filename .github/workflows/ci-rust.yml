@@ -96,7 +96,7 @@ jobs:
                     - cyclotron-node
                     - cyclotron-janitor
                     - cymbal
-                    - et-embedding-worker
+                    - embedding-worker
                     - feature-flags
                     - health
                     - hogvm

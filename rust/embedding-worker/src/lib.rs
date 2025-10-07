@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
-use common_types::error_tracking::{EmbeddingModel, EmbeddingRecord, NewFingerprintEvent};
+use common_types::{EmbeddingModel, EmbeddingRecord, EmbeddingRequest};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tiktoken_rs::CoreBPE;
@@ -15,28 +15,26 @@ pub mod config;
 pub mod metric_consts;
 
 pub async fn handle_batch(
-    fingerprints: Vec<NewFingerprintEvent>,
+    requests: Vec<EmbeddingRequest>,
     _offsets: &[Offset],
     context: Arc<AppContext>,
 ) -> Result<Vec<EmbeddingRecord>> {
     let mut handles = vec![];
     let client = Client::new();
     let api_key = context.config.openai_api_key.clone();
-    for fingerprint in fingerprints {
-        for model in &fingerprint.models {
+    for request in requests {
+        for model in &request.models {
             handles.push(generate_embedding(
                 client.clone(),
                 api_key.clone(),
                 model.clone(),
-                fingerprint.clone(),
+                request.clone(),
             ));
         }
     }
     let results = futures::future::join_all(handles).await;
     results.into_iter().collect()
 }
-
-const EMBEDDING_VERSION: i64 = 1;
 
 #[derive(Serialize)]
 struct OpenAIEmbeddingRequest {
@@ -58,17 +56,17 @@ pub async fn generate_embedding(
     client: Client,
     api_key: String,
     model: EmbeddingModel,
-    fingerprint: NewFingerprintEvent,
+    request: EmbeddingRequest,
 ) -> Result<EmbeddingRecord> {
     // TODO - once we have a larger model zoo, we'll need to select this more carefully
     let encoder = tiktoken_rs::cl100k_base()?;
 
     // Generate text representation of the exception and frames
     // TODO - as above, a larger model zoo will require more careful selection of the model
-    let text = generate_text_representation(&fingerprint, &encoder, 8192)?;
+    let text = generate_embedding_text(&request, &encoder, 8192)?;
 
     // Call OpenAI API to generate embeddings
-    let request = OpenAIEmbeddingRequest {
+    let api_request = OpenAIEmbeddingRequest {
         input: text,
         model: model.to_string(),
     };
@@ -77,7 +75,7 @@ pub async fn generate_embedding(
         .post("https://api.openai.com/v1/embeddings")
         .header("Authorization", format!("Bearer {api_key}"))
         .header("Content-Type", "application/json")
-        .json(&request)
+        .json(&api_request)
         .send()
         .await?;
 
@@ -102,83 +100,34 @@ pub async fn generate_embedding(
         }
     };
 
-    let embeddings = response_body
+    let embedding = response_body
         .data
         .first()
         .ok_or_else(|| anyhow::anyhow!("No embedding data returned from OpenAI"))?
         .embedding
         .clone();
 
-    Ok(EmbeddingRecord::new(
-        fingerprint.team_id,
-        model,
-        EMBEDDING_VERSION,
-        fingerprint.fingerprint.to_string(),
-        embeddings,
-    ))
+    Ok(EmbeddingRecord {
+        team_id: request.team_id,
+        product: request.product.clone(),
+        document_type: request.document_type.clone(),
+        model_name: model.to_string(),
+        rendering: request.rendering.to_string(),
+        document_id: request.document_id.to_string(),
+        timestamp: request.timestamp,
+        embedding,
+    })
 }
 
-fn generate_text_representation(
-    fingerprint: &NewFingerprintEvent,
+fn generate_embedding_text(
+    request: &EmbeddingRequest,
     encoder: &CoreBPE,
     max_tokens: usize,
 ) -> Result<String> {
-    let mut tokens = Vec::new();
-
-    for exception in &fingerprint.exception_list {
-        // Add exception type and value
-        let type_and_value = &format!(
-            "{}: {}\n",
-            exception.exception_type,
-            exception
-                .exception_value
-                .chars()
-                .take(300)
-                .collect::<String>()
-        );
-
-        tokens.extend(encoder.encode_with_special_tokens(type_and_value));
-
-        if tokens.len() > max_tokens {
-            tokens.truncate(max_tokens);
-            return encoder.decode(tokens);
-        }
-
-        // Add frame information
-        for frame in &exception.frames {
-            let mut frame_parts = Vec::new();
-
-            // Add resolved or mangled name
-            if let Some(resolved_name) = &frame.resolved_name {
-                frame_parts.push(resolved_name.clone());
-            } else {
-                frame_parts.push(frame.mangled_name.clone());
-            }
-
-            // Add source file if available
-            if let Some(source) = &frame.source {
-                frame_parts.push(format!("in {source}"));
-            }
-
-            // Add line number if available
-            if let Some(line) = frame.line {
-                frame_parts.push(format!("line {line}"));
-            }
-
-            if let Some(column) = frame.column {
-                frame_parts.push(format!("column {column}"));
-            }
-
-            let mut frame_str = frame_parts.join(" ");
-            frame_str.push('\n');
-            let encoded = encoder.encode_with_special_tokens(&frame_str);
-            if encoded.len() + tokens.len() > max_tokens {
-                return encoder.decode(tokens);
-            }
-
-            tokens.extend(encoded);
-        }
-    }
-
+    let tokens = encoder
+        .encode_with_special_tokens(&request.content)
+        .into_iter()
+        .take(max_tokens)
+        .collect();
     encoder.decode(tokens)
 }

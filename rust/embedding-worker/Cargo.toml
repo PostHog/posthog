@@ -1,5 +1,5 @@
 [package]
-name = "et-embedding-worker"
+name = "embedding-worker"
 version = "0.1.0"
 edition = "2021"
 publish = false
