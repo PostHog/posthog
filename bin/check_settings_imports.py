@@ -81,7 +81,8 @@ class SettingsImportChecker(ast.NodeVisitor):
 
     def _is_settings_file(self) -> bool:
         """Check if this file is part of the settings package."""
-        return "posthog/settings/" in str(self.filepath)
+        filepath_str = str(self.filepath)
+        return "posthog/settings/" in filepath_str or filepath_str.endswith("ee/settings.py")
 
 
 class SettingsImportTransformer(ast.NodeTransformer):
