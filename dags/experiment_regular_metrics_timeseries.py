@@ -35,7 +35,7 @@ from dags.common import JobOwners
 # Configuration
 # =============================================================================
 
-# Default hour (UTC) for experiment recalculation when organization has no specific time set
+# Default hour (UTC) for experiment recalculation when team has no specific time set
 DEFAULT_EXPERIMENT_RECALCULATION_HOUR = 2  # 02:00 UTC
 
 # Create dynamic partitions definition for regular metric combinations
