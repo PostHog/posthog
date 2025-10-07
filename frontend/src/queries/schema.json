@@ -1562,7 +1562,7 @@
                 }
             ]
         },
-        "AssistantNavigateUrls": {
+        "AssistantNavigateUrl": {
             "description": "Exact possible `urls` keys for the `navigate` tool.",
             "enum": [
                 "actions",
@@ -15259,7 +15259,8 @@
                 "github",
                 "meta-ads",
                 "clickup",
-                "reddit-ads"
+                "reddit-ads",
+                "databricks"
             ],
             "type": "string"
         },
