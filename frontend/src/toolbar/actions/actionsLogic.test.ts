@@ -66,9 +66,30 @@ describe('toolbar actionsLogic', () => {
             .delay(0)
             .toMatchValues({
                 sortedActions: [
-                    { created_at: '', created_by: null, id: 3, name: 'begin', pinned_at: null },
-                    { created_at: '', created_by: null, id: 2, name: 'middle', pinned_at: null },
-                    { created_at: '', created_by: null, id: 1, name: 'zoo', pinned_at: null },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 3,
+                        name: 'begin',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 2,
+                        name: 'middle',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 1,
+                        name: 'zoo',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
                 ],
                 actionCount: 3,
                 allActions: apiJson.results,
@@ -83,8 +104,22 @@ describe('toolbar actionsLogic', () => {
             .delay(0)
             .toMatchValues({
                 sortedActions: [
-                    { created_at: '', created_by: null, id: 3, name: 'begin', pinned_at: null },
-                    { created_at: '', created_by: null, id: 2, name: 'middle', pinned_at: null },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 3,
+                        name: 'begin',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 2,
+                        name: 'middle',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
                 ],
             })
     })
