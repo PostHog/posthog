@@ -41,7 +41,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     return (
-        <SceneContent className="py-2">
+        <SceneContent>
             <ErrorTrackingSetupPrompt>
                 <Header />
 
