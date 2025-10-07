@@ -161,8 +161,9 @@ def get_s3_key(
     data_interval_end: str,
     batch_export_model: BatchExportModel | None,
     file_format: str,
-    file_number: int | None = None,
     compression: str | None = None,
+    file_number: int = 0,
+    use_new_file_naming_scheme: bool = True,
 ) -> str:
     """Return an S3 key given S3InsertInputs."""
     key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
@@ -174,9 +175,7 @@ def get_s3_key(
 
     base_file_name = f"{data_interval_start}-{data_interval_end}"
 
-    if file_number is not None:
-        # For backwards compatibility, single-file batch exports do not include a file
-        # number suffix.
+    if use_new_file_naming_scheme:
         base_file_name = f"{base_file_name}-{file_number}"
 
     if compression is not None:
@@ -193,15 +192,16 @@ def get_s3_key(
     return key
 
 
-def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int | None = None) -> str:
+def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
     return get_s3_key(
         inputs.prefix,
         inputs.data_interval_start,
         inputs.data_interval_end,
         inputs.batch_export_model,
         inputs.file_format,
-        file_number,
         inputs.compression,
+        file_number,
+        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
     )
 
 
@@ -766,8 +766,9 @@ class ConcurrentS3Consumer(Consumer):
             self.data_interval_end,
             self.batch_export_model,
             self.file_format,
-            self.current_file_index,
             self.compression,
+            self.current_file_index,
+            use_new_file_naming_scheme=self.max_file_size_mb is not None,
         )
 
     async def _start_new_file(self):
