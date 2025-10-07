@@ -7,7 +7,7 @@ settings:
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
-  '@posthog/icons': 0.30.0
+  '@posthog/icons': 0.32.0
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -407,10 +407,10 @@ importers:
         version: 6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@dnd-kit/modifiers':
         specifier: ^6.0.1
-        version: 6.0.1(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)
+        version: 6.0.1(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)
       '@dnd-kit/sortable':
         specifier: ^7.0.2
-        version: 7.0.2(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)
+        version: 7.0.2(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)
       '@dnd-kit/utilities':
         specifier: ^3.2.1
         version: 3.2.1(react@18.2.0)
@@ -445,8 +445,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -1561,11 +1561,11 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1597,8 +1597,8 @@ importers:
   products/cohorts:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1624,8 +1624,8 @@ importers:
   products/customer_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1651,8 +1651,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1678,11 +1678,11 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1708,8 +1708,8 @@ importers:
   products/endpoints:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1739,22 +1739,22 @@ importers:
         version: 6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@dnd-kit/modifiers':
         specifier: '*'
-        version: 6.0.1(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)
+        version: 6.0.1(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)
       '@dnd-kit/sortable':
         specifier: '*'
-        version: 7.0.2(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)
+        version: 7.0.2(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)
       '@dnd-kit/utilities':
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/addon-actions':
         specifier: '*'
         version: 7.6.4
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/d3':
         specifier: '*'
         version: 7.4.3
@@ -1816,8 +1816,8 @@ importers:
   products/experiments:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1843,8 +1843,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1870,8 +1870,8 @@ importers:
   products/games:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1897,8 +1897,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1924,11 +1924,11 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1957,11 +1957,11 @@ importers:
   products/llm_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2012,14 +2012,14 @@ importers:
   products/logs:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2069,8 +2069,8 @@ importers:
   products/managed_migrations:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -2096,8 +2096,8 @@ importers:
   products/messaging:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2144,8 +2144,8 @@ importers:
   products/notebooks:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2171,8 +2171,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2198,8 +2198,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2225,8 +2225,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2252,11 +2252,11 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2282,8 +2282,8 @@ importers:
   products/surveys:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2313,19 +2313,19 @@ importers:
         version: 6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@dnd-kit/modifiers':
         specifier: '*'
-        version: 6.0.1(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)
+        version: 6.0.1(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)
       '@dnd-kit/sortable':
         specifier: '*'
-        version: 7.0.2(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)
+        version: 7.0.2(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)
       '@dnd-kit/utilities':
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+        version: 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2361,8 +2361,8 @@ importers:
   products/user_interviews:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2388,8 +2388,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.32.0
+        version: 0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -5766,11 +5766,11 @@ packages:
   '@posthog/core@1.2.2':
     resolution: {integrity: sha512-f16Ozx6LIigRG+HsJdt+7kgSxZTHeX5f1JlCGKI1lXcvlZgfsCR338FuMI2QRYXGl+jg/vYFzGOTQBxl90lnBg==}
 
-  '@posthog/icons@0.30.0':
-    resolution: {integrity: sha512-V3QBSLwcEeSitNetafrGYqzXG2uWXzoNAc0z6yvQ7UBMPx/DFOxTfRoIaRb1m6GnAhXzR8fbprhJDmqKZB2D6w==}
+  '@posthog/icons@0.32.0':
+    resolution: {integrity: sha512-/mjQskRb+8ylqwb7Ah9KIx2iAFo2a1Jm93QQRPRMIQtiR/kPBgiu2aGTGSTyu6zp55pLgT5rVohkv7j4KCPYGQ==}
     peerDependencies:
-      react: '>=16.14.0'
-      react-dom: '>=16.14.0'
+      react: '>=19.0.0'
+      react-dom: '>=19.0.0'
 
   '@posthog/lemon-ui@0.0.0':
     resolution: {integrity: sha512-SJaquP2UGsfOx33d7SssxNvUTfDT5VWWBEzWyHvJXaFrHNZd3ZeRrHLzsETXjhJO3ZcsVdoJD+tm27B6Qe5GuQ==}
@@ -21111,14 +21111,14 @@ snapshots:
       react-dom: 18.2.0(react@18.2.0)
       tslib: 2.8.1
 
-  '@dnd-kit/modifiers@6.0.1(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)':
+  '@dnd-kit/modifiers@6.0.1(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@dnd-kit/core': 6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@dnd-kit/utilities': 3.2.1(react@18.2.0)
       react: 18.2.0
       tslib: 2.8.1
 
-  '@dnd-kit/sortable@7.0.2(@dnd-kit/core@6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react@18.2.0)':
+  '@dnd-kit/sortable@7.0.2(@dnd-kit/core@6.0.8(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@dnd-kit/core': 6.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@dnd-kit/utilities': 3.2.1(react@18.2.0)
@@ -23619,7 +23619,7 @@ snapshots:
 
   '@posthog/core@1.2.2': {}
 
-  '@posthog/icons@0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.32.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -26211,6 +26211,37 @@ snapshots:
       - webpack-plugin-serve
 
   '@storybook/react@7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)':
+    dependencies:
+      '@storybook/client-logger': 7.6.4
+      '@storybook/core-client': 7.6.4
+      '@storybook/docs-tools': 7.6.4(encoding@0.1.13)
+      '@storybook/global': 5.0.0
+      '@storybook/preview-api': 7.6.4
+      '@storybook/react-dom-shim': 7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/types': 7.6.4
+      '@types/escodegen': 0.0.6
+      '@types/estree': 0.0.51
+      '@types/node': 18.18.4
+      acorn: 7.4.1
+      acorn-jsx: 5.3.2(acorn@7.4.1)
+      acorn-walk: 7.2.0
+      escodegen: 2.1.0
+      html-tags: 3.3.1
+      lodash: 4.17.21
+      prop-types: 15.8.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+      react-element-to-jsx-string: 15.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      ts-dedent: 2.2.0
+      type-fest: 2.19.0
+      util-deprecate: 1.0.2
+    optionalDependencies:
+      typescript: 5.2.2
+    transitivePeerDependencies:
+      - encoding
+      - supports-color
+
+  '@storybook/react@7.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)':
     dependencies:
       '@storybook/client-logger': 7.6.4
       '@storybook/core-client': 7.6.4
