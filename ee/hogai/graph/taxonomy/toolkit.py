@@ -2,11 +2,8 @@ import ast
 import asyncio
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Optional, Union, cast
-from xml.etree import ElementTree as ET
+from typing import Any, Optional, Union, cast
 
-import yaml
-from asgiref.sync import async_to_sync
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
@@ -15,10 +12,12 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
+    CacheMissResponse,
     EventTaxonomyItem,
     EventTaxonomyQuery,
     TaskExecutionItem,
     TaskExecutionStatus,
+    QueryStatusResponse,
 )
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -154,12 +153,13 @@ class TaxonomyAgentToolkit:
         return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
     @cached_property
-    def _team_group_types(self) -> list[str]:
+    async def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
-        return list(self._groups.values_list("group_type", flat=True))
+        groups = [group async for group in self._groups.further_orm_chain_if_needed()]
+        return [group.group_type for group in groups]
 
     @cached_property
-    def _entity_names(self) -> list[str]:
+    async def _entity_names(self) -> list[str]:
         """
         The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
         so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
@@ -169,54 +169,17 @@ class TaxonomyAgentToolkit:
         entities = [
             "person",
             "session",
-            *[group.group_type for group in self._groups],
+            *[group.group_type async for group in self._groups.further_orm_chain_if_needed()],
         ]
         return entities
 
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
-        enriched_props = []
-        mapping = {
-            "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
-            "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
-            "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
-        }
-        for prop_name, prop_type in props:
-            description = None
-            if entity_definition := mapping.get(entity, {}).get(prop_name):
-                if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
-                    continue
-                description = entity_definition.get("description_llm") or entity_definition.get("description")
-            enriched_props.append((prop_name, prop_type, description))
-        return enriched_props
+        return enrich_props_with_descriptions(entity, props)
 
     def _format_property_values(
         self, property_name: str, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
     ) -> str:
-        if len(sample_values) == 0 or sample_count == 0:
-            data = {
-                "property": property_name,
-                "values": [],
-                "message": f"The property does not have any values in the taxonomy.",
-            }
-            return yaml.dump(data, default_flow_style=False, sort_keys=False)
-
-        # Format values for YAML
-        formatted_sample_values: list[str] = []
-        for value in sample_values:
-            if format_as_string:
-                formatted_sample_values.append(f'"{value}"')
-            elif isinstance(value, float) and value.is_integer():
-                formatted_sample_values.append(str(int(value)))
-            else:
-                formatted_sample_values.append(str(value))
-
-        if sample_count is None:
-            formatted_sample_values.append("and many more distinct values")
-        elif sample_count > len(sample_values):
-            remaining = sample_count - len(sample_values)
-            formatted_sample_values.append(f"and {remaining} more distinct values")
-        data = {"property": property_name, "values": formatted_sample_values}
-        return yaml.dump(data, default_flow_style=False, sort_keys=False)
+        return format_property_values(property_name, sample_values, sample_count, format_as_string)
 
     def _retrieve_session_properties(self, property_name: str) -> str:
         """
@@ -277,43 +240,13 @@ class TaxonomyAgentToolkit:
         return self._format_properties_xml(props)
 
     def _format_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
-        root = ET.Element("properties")
-        property_type_to_tag = {}
-
-        for name, property_type, description in children:
-            # Do not include properties that are ambiguous.
-            if property_type is None:
-                continue
-            if property_type not in property_type_to_tag:
-                property_type_to_tag[property_type] = ET.SubElement(root, property_type)
-
-            type_tag = property_type_to_tag[property_type]
-            prop = ET.SubElement(type_tag, "prop")
-            ET.SubElement(prop, "name").text = name
-            if description:
-                ET.SubElement(prop, "description").text = description
-
-        return ET.tostring(root, encoding="unicode")
+        return format_properties_xml(children)
 
     def _format_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
-        properties_by_type: dict = {}
-
-        for name, property_type, description in children:
-            # Do not include properties that are ambiguous.
-            if property_type is None:
-                continue
-
-            if property_type not in properties_by_type:
-                properties_by_type[property_type] = []
-
-            prop_dict = {"name": name}
-            if description:
-                prop_dict["description"] = description
-
-            properties_by_type[property_type].append(prop_dict)
-
-        result = {"properties": properties_by_type}
-        return yaml.dump(result, default_flow_style=False, sort_keys=False)
+        """
+        Can be used in child classes to override the default implementation for `_format_properties` when yaml is desirable over XML
+        """
+        return format_properties_yaml(children)
 
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """
@@ -343,12 +276,79 @@ class TaxonomyAgentToolkit:
         """Get custom tools. Override in subclasses to add custom tools."""
         raise NotImplementedError("_get_custom_tools must be implemented in subclasses")
 
-    def retrieve_entity_properties_parallel(self, entities: list[str]) -> dict[str, str]:
+    async def retrieve_entity_property_values(self, entity_properties: dict[str, list[str]]) -> dict[str, list[str]]:
+        result = await self._parallel_entity_processing(entity_properties)
+        return result
+
+    async def _handle_entity_batch(self, batch: dict[str, list[str]]) -> dict[str, list[str]]:
+        entity_tasks = [
+            self._retrieve_multiple_entity_property_values(entity, property_names)
+            for entity, property_names in batch.items()
+        ]
+        batch_results = await asyncio.gather(*entity_tasks)
+        return dict(zip(batch.keys(), batch_results))
+
+    async def _parallel_entity_processing(self, entity_properties: dict[str, list[str]]) -> dict[str, list[str]]:
+        entity_items = list(entity_properties.items())
+        if len(entity_items) > self.MAX_ENTITIES_PER_BATCH:
+            # Process in batches
+            results = {}
+            for i in range(0, len(entity_items), self.MAX_ENTITIES_PER_BATCH):
+                batch = dict(entity_items[i : i + self.MAX_ENTITIES_PER_BATCH])
+                batch_results = await self._handle_entity_batch(batch)
+                results.update(batch_results)
+            return results
+        else:
+            return await self._handle_entity_batch(entity_properties)
+
+    async def _retrieve_multiple_entity_property_values(self, entity: str, property_names: list[str]) -> list[str]:
+        """Retrieve property values for multiple entities and properties efficiently."""
+        results = []
+        entity_names = await self._entity_names
+        if entity not in entity_names:
+            results.append(TaxonomyErrorMessages.entity_not_found(entity, entity_names))
+            return results
+        if entity == "session":
+            for property_name in property_names:
+                results.append(self._retrieve_session_properties(property_name))
+            return results
+        groups = [group async for group in self._groups.further_orm_chain_if_needed()]
+        query = self._build_query(entity, property_names, groups)
+        if query is None:
+            results.append(TaxonomyErrorMessages.entity_not_found(entity))
+            return results
+        property_values_response = await self._run_actors_taxonomy_query(query)
+        if not isinstance(property_values_response, CachedActorsPropertyTaxonomyQueryResponse):
+            results.append(TaxonomyErrorMessages.entity_not_found(entity))
+            return results
+
+        if not property_values_response.results:
+            for property_name in property_names:
+                results.append(TaxonomyErrorMessages.property_values_not_found(property_name, entity))
+            return results
+
+        if isinstance(property_values_response.results, list):
+            property_values_results = property_values_response.results
+        else:
+            property_values_results = [property_values_response.results]
+
+        property_definitions: dict[str, PropertyDefinition] = await self._get_definitions_for_entity(
+            entity, property_names, query
+        )
+
+        results.extend(
+            self._process_property_values(
+                property_names, property_values_results, property_definitions, entity, is_indexed=True
+            )
+        )
+        return results
+
+    async def retrieve_entity_properties_parallel(self, entities: list[str]) -> dict[str, str]:
         entity_tasks = []
         groups = []
 
         for entity in entities:
-            if entity in [group.group_type for group in self._groups]:
+            if entity in await self._entity_names:
                 groups.append(entity)
             else:
                 entity_tasks.append(
@@ -378,7 +378,7 @@ class TaxonomyAgentToolkit:
         )
         config = RunnableConfig()
         executor = TaxonomyTaskExecutorNode(self._team, self._user)
-        result = async_to_sync(executor.arun)(task_executor_state, config)
+        result = await executor.arun(task_executor_state, config)
 
         final_result = {}
         for task_result in result.task_results:
@@ -394,8 +394,8 @@ class TaxonomyAgentToolkit:
                 final_result[task_result.id] = task_result.result
         return final_result
 
-    @database_sync_to_async
-    def _handle_event_or_action_properties_task(self, input_dict: dict) -> TaskResult:
+    # @database_sync_to_async(thread_sensitive=False)
+    async def _handle_event_or_action_properties_task(self, input_dict: dict) -> TaskResult:
         """
         Retrieve properties for an event.
         """
@@ -405,7 +405,7 @@ class TaxonomyAgentToolkit:
         try:
             response, verbose_name = self._retrieve_event_or_action_taxonomy(task.prompt)
         except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
+            project_actions = await self._get_project_actions()
             if not project_actions:
                 result = TaxonomyErrorMessages.no_actions_exist()
                 return TaskResult(
@@ -445,7 +445,7 @@ class TaxonomyAgentToolkit:
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
+        property_to_type = {property_definition.name: property_definition.property_type async for property_definition in qs}
         props = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
@@ -472,8 +472,8 @@ class TaxonomyAgentToolkit:
             status=TaskExecutionStatus.COMPLETED,
         )
 
-    @database_sync_to_async
-    def _handle_group_properties_task(self, input_dict: dict) -> TaskResult:
+    # @database_sync_to_async
+    async def _handle_group_properties_task(self, input_dict: dict) -> TaskResult:
         task = cast(TaskExecutionItem, input_dict["task"])
         try:
             group_entities = ast.literal_eval(task.prompt)
@@ -482,9 +482,15 @@ class TaxonomyAgentToolkit:
         entity_to_group_index = {}
         artifacts = []
         for group_entity in group_entities:
-            group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == group_entity), None
-            )
+            # group_type_index = next(
+            #     (group.group_type_index for group in self._groups if group.group_type == group_entity), None
+            # )
+
+            group_type_index = None
+            async for group in self._groups.further_orm_chain_if_needed():
+                if group.group_type == group_entity:
+                    group_type_index = group.group_type_index
+                    break
             if group_type_index is not None:
                 entity_to_group_index[group_entity] = group_type_index
             else:
@@ -531,8 +537,8 @@ class TaxonomyAgentToolkit:
             status=TaskExecutionStatus.COMPLETED,
         )
 
-    @database_sync_to_async
-    def _handle_entity_properties_task(self, input_dict: dict) -> TaskResult:
+
+    async def _handle_entity_properties_task(self, input_dict: dict) -> TaskResult:
         task = cast(TaskExecutionItem, input_dict["task"])
         entity = task.prompt
         if entity == "person":
@@ -540,7 +546,7 @@ class TaxonomyAgentToolkit:
                 team=self._team, type=PropertyDefinition.Type.PERSON
             ).values_list("name", "property_type")
             if person_qs:
-                result = self._format_properties(self._enrich_props_with_descriptions("person", person_qs))
+                result = self._format_properties(self._enrich_props_with_descriptions("person", [prop async for prop in person_qs]))
                 status = TaskExecutionStatus.COMPLETED
             else:
                 result = TaxonomyErrorMessages.properties_not_found(entity)
@@ -606,80 +612,6 @@ class TaxonomyAgentToolkit:
         )
         return {prop.name: prop for prop in property_definitions}
 
-    def retrieve_entity_property_values(self, entity_properties: dict[str, list[str]]) -> dict[str, list[str]]:
-        result = async_to_sync(self._parallel_entity_processing)(entity_properties, self._entity_names, self._groups)
-        return result
-
-    async def _handle_entity_batch(
-        self, batch: dict[str, list[str]], entity_names: list[str], groups: list[GroupTypeMapping]
-    ) -> dict[str, list[str]]:
-        entity_tasks = [
-            self._retrieve_multiple_entity_property_values(entity, property_names, entity_names, groups)
-            for entity, property_names in batch.items()
-        ]
-        batch_results = await asyncio.gather(*entity_tasks)
-        return dict(zip(batch.keys(), batch_results))
-
-    async def _parallel_entity_processing(
-        self, entity_properties: dict[str, list[str]], entity_names: list[str], groups: list[GroupTypeMapping]
-    ) -> dict[str, list[str]]:
-        entity_items = list(entity_properties.items())
-        if len(entity_items) > self.MAX_ENTITIES_PER_BATCH:
-            # Process in batches
-            results = {}
-            for i in range(0, len(entity_items), self.MAX_ENTITIES_PER_BATCH):
-                batch = dict(entity_items[i : i + self.MAX_ENTITIES_PER_BATCH])
-                batch_results = await self._handle_entity_batch(batch, entity_names, groups)
-                results.update(batch_results)
-            return results
-        else:
-            return await self._handle_entity_batch(entity_properties, entity_names, groups)
-
-    async def _retrieve_multiple_entity_property_values(
-        self, entity: str, property_names: list[str], entity_names: list[str], groups: list[GroupTypeMapping]
-    ) -> list[str]:
-        """Retrieve property values for multiple entities and properties efficiently."""
-        results = []
-        if entity not in entity_names:
-            results.append(TaxonomyErrorMessages.entity_not_found(entity, entity_names))
-            return results
-        if entity == "session":
-            for property_name in property_names:
-                results.append(self._retrieve_session_properties(property_name))
-            return results
-
-        query = self._build_query(entity, property_names, groups)
-        if query is None:
-            results.append(TaxonomyErrorMessages.entity_not_found(entity))
-            return results
-
-        property_values_response = await database_sync_to_async(self._run_actors_taxonomy_query)(query)
-
-        if not isinstance(property_values_response, CachedActorsPropertyTaxonomyQueryResponse):
-            results.append(TaxonomyErrorMessages.entity_not_found(entity))
-            return results
-
-        if not property_values_response.results:
-            for property_name in property_names:
-                results.append(TaxonomyErrorMessages.property_values_not_found(property_name, entity))
-            return results
-
-        if isinstance(property_values_response.results, list):
-            property_values_results = property_values_response.results
-        else:
-            property_values_results = [property_values_response.results]
-
-        property_definitions: dict[str, PropertyDefinition] = await database_sync_to_async(
-            self._get_definitions_for_entity
-        )(entity, property_names, query)
-
-        results.extend(
-            self._process_property_values(
-                property_names, property_values_results, property_definitions, entity, is_indexed=True
-            )
-        )
-        return results
-
     def _build_query(
         self, entity: str, properties: list[str], groups: list[GroupTypeMapping]
     ) -> ActorsPropertyTaxonomyQuery | None:
@@ -695,16 +627,20 @@ class TaxonomyAgentToolkit:
             query = ActorsPropertyTaxonomyQuery(groupTypeIndex=group_index, properties=properties, maxPropertyValues=25)
         return query
 
-    def _run_actors_taxonomy_query(self, query):
-        """
-        Run actors taxonomy query with proper context - sync method for database_sync_to_async.
-        """
+    @database_sync_to_async(thread_sensitive=False)
+    def _run_actors_taxonomy_query(
+        self, query
+    ) -> CachedActorsPropertyTaxonomyQueryResponse | CacheMissResponse | QueryStatusResponse:
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
             return ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
 
-    def retrieve_event_or_action_properties_parallel(self, event_name_or_action_ids: list[str | int]) -> dict[str, str]:
+    @database_sync_to_async(thread_sensitive=False)
+    def _get_project_actions(self) -> list[Action]:
+        return list(Action.objects.filter(team__project_id=self._team.project_id, deleted=False))
+
+    async def retrieve_event_or_action_properties_parallel(self, event_name_or_action_ids: list[str | int]) -> dict[str, str]:
         task_executor_state = BaseStateWithTasks(
             tasks=[
                 TaskExecutionItem(
@@ -720,14 +656,14 @@ class TaxonomyAgentToolkit:
         )
         config = RunnableConfig()
         executor = TaxonomyTaskExecutorNode(self._team, self._user)
-        result = async_to_sync(executor.arun)(task_executor_state, config)
+        result = await executor.arun(task_executor_state, config)
         return {task.id: task.result for task in result.task_results}
 
-    def retrieve_event_or_action_property_values(
+    async def retrieve_event_or_action_property_values(
         self, event_properties: dict[str | int, list[str]]
     ) -> dict[str | int, list[str]]:
         """Retrieve property values for an event/action. Supports single property or list of properties."""
-        result = async_to_sync(self._parallel_event_or_action_processing)(event_properties)
+        result = await self._parallel_event_or_action_processing(event_properties)
         return result
 
     async def _parallel_event_or_action_processing(
@@ -740,7 +676,7 @@ class TaxonomyAgentToolkit:
         results = await asyncio.gather(*event_tasks)
         return dict(zip(event_properties.keys(), results))
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinition]:
         return {
             prop.name: prop
@@ -763,9 +699,7 @@ class TaxonomyAgentToolkit:
         except PropertyDefinition.DoesNotExist:
             definitions_map = {}
 
-        response, verbose_name = await database_sync_to_async(self._retrieve_event_or_action_taxonomy)(
-            event_name_or_action_id, property_names
-        )
+        response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id, property_names)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             results.append(TaxonomyErrorMessages.event_not_found(verbose_name))
@@ -825,24 +759,23 @@ class TaxonomyAgentToolkit:
 
         return results
 
-    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        # Here we handle the tool execution for base taxonomy tools.
+    async def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
         if tool_name == "retrieve_entity_property_values":
             entity = tool_input.arguments.entity  # type: ignore
             property_name = tool_input.arguments.property_name  # type: ignore
-            result = self.retrieve_entity_property_values({entity: [property_name]})[entity][0]
+            result = (await self.retrieve_entity_property_values({entity: [property_name]}))[entity][0]
         elif tool_name == "retrieve_entity_properties":
             entity = tool_input.arguments.entity  # type: ignore
-            result = self.retrieve_entity_properties_parallel([entity])[entity]
+            result = (await self.retrieve_entity_properties_parallel([entity]))[entity]
         elif tool_name == "retrieve_event_property_values":
             event_name_or_action_id = tool_input.arguments.event_name  # type: ignore
             property_name = tool_input.arguments.property_name  # type: ignore
-            result = self.retrieve_event_or_action_property_values({event_name_or_action_id: [property_name]})[
+            result = (await self.retrieve_event_or_action_property_values({event_name_or_action_id: [property_name]}))[
                 event_name_or_action_id
             ][0]
         elif tool_name == "retrieve_event_properties":
             event_name = tool_input.arguments.event_name  # type: ignore
-            result = self.retrieve_event_or_action_properties_parallel([event_name])[event_name]
+            result = (await self.retrieve_event_or_action_properties_parallel([event_name]))[event_name]
         elif tool_name == "ask_user_for_help":
             result = tool_input.arguments.request  # type: ignore
         else:
