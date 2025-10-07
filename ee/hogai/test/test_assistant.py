@@ -66,7 +66,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
-from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
+from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatOpenAI
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -745,7 +745,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -802,24 +802,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_funnel_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeChatAnthropic(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
-                        }
-                    ],
-                )
-            ]
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                    }
+                ],
+            )
         )
-        res2 = FakeChatAnthropic(
-            responses=[messages.AIMessage(content="The results indicate a great future for you.")],
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -898,7 +896,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -975,7 +973,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -1325,7 +1323,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         root_model_mock.return_value = FakeChatOpenAI(
             responses=[
-                messages.AIMessage(content="", tool_calls=[{"name": "search_documentation", "id": "1", "args": {}}])
+                messages.AIMessage(content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs"}}])
             ]
         )
         inkeep_docs_model_mock.return_value = FakeChatOpenAI(
@@ -1337,7 +1335,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output,
             [
                 ("message", HumanMessage(content="How do I use feature flags?")),
-                ("message", ReasoningMessage(content="Checking PostHog docs")),
+                ("message", ReasoningMessage(content="Searching for information")),
                 ("message", AssistantMessage(content="Here's what I found in the docs...")),
             ],
         )
