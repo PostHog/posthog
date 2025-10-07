@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 
+import { getAccessControlDisabledReason } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'

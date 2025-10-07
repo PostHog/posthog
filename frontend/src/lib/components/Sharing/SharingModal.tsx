@@ -31,6 +31,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { accessLevelSatisfied } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -40,7 +41,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { AccessControlAction, accessLevelSatisfied } from '../AccessControlAction'
+import { AccessControlAction } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SharePasswordsTable } from './SharePasswordsTable'
 import { sharingLogic } from './sharingLogic'
