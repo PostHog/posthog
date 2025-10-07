@@ -103,14 +103,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const content = (
         <BindLogic logic={maxLogic} props={{ tabId }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <div
-                    style={
-                        {
-                            // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
-                            display: 'contents',
-                        } as React.CSSProperties
-                    }
-                >
+                <>
                     {conversationHistoryVisible ? (
                         <ConversationHistory sidePanel={sidePanel} />
                     ) : !threadVisible ? (
@@ -137,7 +130,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             <SidebarQuestionInput isSticky />
                         </ThreadAutoScroller>
                     )}
-                </div>
+                </>
             </BindLogic>
         </BindLogic>
     )
