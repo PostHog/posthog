@@ -121,10 +121,14 @@ When new information is provided, follow these steps:
 Ignore phrases that:
 - Are too vague or generic without specific details (e.g., "pageview trend").
 - Do not describe actions, attributes, or implications related to the company or product.
+- EXCEPTION: Always save information when explicitly requested by the user, even if vague or not product-related.
 </instructions>
 
 <examples>
 Here are some few shot examples:
+
+Output: The user's favorite treat is chocolate.
+Reasoning: The user explicitly asked to save it.
 
 Input: Track a churn rate by using `cancel_subscription` divided by `subscription_paid` event.
 Output: To track a churn rate, use the `cancel_subscription` divided by `subscription_paid` events.

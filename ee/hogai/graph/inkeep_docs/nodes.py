@@ -79,7 +79,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     def _get_model(self, *args, **kwargs):
         return MaxChatOpenAI(
-            model="inkeep-qa-sonnet-4",
+            model="inkeep-qa-expert",
             base_url="https://api.inkeep.com/v1/",
             api_key=settings.INKEEP_API_KEY,
             streaming=True,

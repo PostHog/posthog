@@ -1,6 +1,8 @@
 import datetime
 from typing import Any
 
+from django.conf import settings
+
 import pytz
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
@@ -19,6 +21,9 @@ The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free
 The user is accessing the PostHog App from the "{{{deployment_region}}}" region, therefore all PostHog App URLs should be prefixed with the region, e.g. https://{{{deployment_region}}}.posthog.com
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
 """.strip()
+
+# https://platform.openai.com/docs/guides/flex-processing
+OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
 
 
 class MaxChatMixin(BaseModel):
@@ -95,6 +100,11 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     This subclass automatically injects project, organization, and user context as the final part of the system prompt.
     It also makes sure we retry automatically in case of an OpenAI API error.
     """
+
+    def model_post_init(self, __context: Any) -> None:
+        super().model_post_init(__context)
+        if settings.IN_EVAL_TESTING and not self.service_tier and self.model in OPENAI_FLEX_MODELS:
+            self.service_tier = "flex"  # 50% cheaper than default tier, but slower
 
     def _enrich_responses_api_model_kwargs(self, project_org_user_variables: dict[str, Any]) -> None:
         """Mutate the provided model_kwargs dict in-place, ensuring the project/org/user context is present.

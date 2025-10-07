@@ -85,9 +85,11 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
+    configurationChanged,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
+    configurationChanged: boolean
 }): JSX.Element {
     return (
         <>
@@ -223,6 +225,10 @@ export function BatchExportsEditFields({
 
                                     // Set defaults when file format changes for new destinations
                                     React.useEffect(() => {
+                                        // Only run when configuration changes
+                                        if (!configurationChanged) {
+                                            return
+                                        }
                                         if (isNew && batchExportConfigForm.file_format === 'JSONLines') {
                                             onChange(null)
                                         } else if (isNew && batchExportConfigForm.file_format === 'Parquet') {
@@ -231,7 +237,7 @@ export function BatchExportsEditFields({
                                             // if file format is changed but existing compression is not valid, set to null
                                             onChange(null)
                                         }
-                                    }, [batchExportConfigForm.file_format, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
+                                    }, [configurationChanged, batchExportConfigForm.file_format, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
 
                                     return (
                                         <LemonSelect

@@ -376,7 +376,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_plan=tool_call.args["query_description"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "session_summarization":
+        if tool_call.name == "session_summarization":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 session_summarization_query=tool_call.args["session_summarization_query"],
@@ -385,7 +385,7 @@ class RootNodeTools(AssistantNode):
                 summary_title=tool_call.args.get("summary_title"),
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "create_dashboard":
+        if tool_call.name == "create_dashboard":
             raw_queries = tool_call.args["search_insights_queries"]
             search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
 
@@ -395,83 +395,12 @@ class RootNodeTools(AssistantNode):
                 search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif ToolClass := get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(team=self._team, user=self._user, state=state, config=config)
-            try:
-                result = await tool_class.ainvoke(tool_call.model_dump(), config)
-                if not isinstance(result, LangchainToolMessage):
-                    raise ValueError(
-                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
-                    )
-            except Exception as e:
-                capture_exception(
-                    e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
-                )
-                return PartialAssistantState(
-                    messages=[
-                        AssistantToolCallMessage(
-                            content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-                            id=str(uuid4()),
-                            tool_call_id=tool_call.id,
-                            visible=False,
-                        )
-                    ],
-                    root_tool_calls_count=tool_call_count + 1,
-                )
 
-            if isinstance(result.artifact, ToolMessagesArtifact):
-                return PartialAssistantState(
-                    messages=result.artifact.messages,
-                    root_tool_calls_count=tool_call_count + 1,
-                )
+        # MaxTool flow
+        ToolClass = get_contextual_tool_class(tool_call.name)
 
-            # Handle the basic toolkit
-            if result.name == "search" and isinstance(result.artifact, dict):
-                match result.artifact.get("kind"):
-                    case "insights":
-                        return PartialAssistantState(
-                            root_tool_call_id=tool_call.id,
-                            search_insights_query=result.artifact.get("query"),
-                            root_tool_calls_count=tool_call_count + 1,
-                        )
-                    case "docs":
-                        return PartialAssistantState(
-                            root_tool_call_id=tool_call.id,
-                            root_tool_calls_count=tool_call_count + 1,
-                        )
-
-            if (
-                result.name == "read_data"
-                and isinstance(result.artifact, dict)
-                and result.artifact.get("kind") == "billing_info"
-            ):
-                return PartialAssistantState(
-                    root_tool_call_id=tool_call.id,
-                    root_tool_calls_count=tool_call_count + 1,
-                )
-
-            tool_message = AssistantToolCallMessage(
-                content=str(result.content) if result.content else "",
-                ui_payload={tool_call.name: result.artifact},
-                id=str(uuid4()),
-                tool_call_id=tool_call.id,
-                visible=tool_class.show_tool_call_message,
-            )
-
-            # If this is a navigation tool call, pause the graph execution
-            # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate":
-                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-                # surfaces the navigation confirmation to the client. The next user
-                # interaction will resume the graph with potentially different
-                # contextual tools.
-                raise NodeInterrupt(tool_message)
-
-            return PartialAssistantState(
-                messages=[tool_message],
-                root_tool_calls_count=tool_call_count + 1,
-            )
-        else:
+        # If the tool doesn't exist, return the message to the agent
+        if not ToolClass:
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
@@ -482,6 +411,83 @@ class RootNodeTools(AssistantNode):
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )
+
+        # Initialize the tool and process it
+        tool_class = ToolClass(team=self._team, user=self._user, state=state, config=config)
+        try:
+            result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            if not isinstance(result, LangchainToolMessage):
+                raise ValueError(
+                    f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                )
+        except Exception as e:
+            capture_exception(
+                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                        visible=False,
+                    )
+                ],
+                root_tool_calls_count=tool_call_count + 1,
+            )
+
+        if isinstance(result.artifact, ToolMessagesArtifact):
+            return PartialAssistantState(
+                messages=result.artifact.messages,
+                root_tool_calls_count=tool_call_count + 1,
+            )
+
+        # Handle the basic toolkit
+        if result.name == "search" and isinstance(result.artifact, dict):
+            match result.artifact.get("kind"):
+                case "insights":
+                    return PartialAssistantState(
+                        root_tool_call_id=tool_call.id,
+                        search_insights_query=result.artifact.get("query"),
+                        root_tool_calls_count=tool_call_count + 1,
+                    )
+                case "docs":
+                    return PartialAssistantState(
+                        root_tool_call_id=tool_call.id,
+                        root_tool_calls_count=tool_call_count + 1,
+                    )
+
+        if (
+            result.name == "read_data"
+            and isinstance(result.artifact, dict)
+            and result.artifact.get("kind") == "billing_info"
+        ):
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                root_tool_calls_count=tool_call_count + 1,
+            )
+
+        tool_message = AssistantToolCallMessage(
+            content=str(result.content) if result.content else "",
+            ui_payload={tool_call.name: result.artifact},
+            id=str(uuid4()),
+            tool_call_id=tool_call.id,
+            visible=tool_class.show_tool_call_message,
+        )
+
+        # If this is a navigation tool call, pause the graph execution
+        # so that the frontend can re-initialise Max with a new set of contextual tools.
+        if tool_call.name == "navigate":
+            # Raising a `NodeInterrupt` ensures the assistant graph stops here and
+            # surfaces the navigation confirmation to the client. The next user
+            # interaction will resume the graph with potentially different
+            # contextual tools.
+            raise NodeInterrupt(tool_message)
+
+        return PartialAssistantState(
+            messages=[tool_message],
+            root_tool_calls_count=tool_call_count + 1,
+        )
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]

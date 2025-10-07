@@ -40,7 +40,12 @@ export const RichContentEditor = ({
     }, [editor, disabled])
 
     return (
-        <EditorContent editor={editor} className={cn('RichContentEditor', className)} autoFocus={autoFocus}>
+        <EditorContent
+            editor={editor}
+            className={cn('RichContentEditor', className)}
+            autoFocus={autoFocus}
+            spellCheck={editor.isFocused}
+        >
             {editor && (
                 <BindLogic logic={richContentEditorLogic} props={{ logicKey, editor }}>
                     {children}
@@ -59,7 +64,7 @@ export const useRichContentEditor = ({
     onSelectionUpdate = () => {},
 }: RichContentEditorProps): TTEditor => {
     const editor = useEditor({
-        shouldRerenderOnTransaction: true,
+        shouldRerenderOnTransaction: false,
         extensions,
         editable: !disabled,
         content: initialContent,

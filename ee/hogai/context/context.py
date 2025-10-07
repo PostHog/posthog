@@ -17,6 +17,10 @@ from posthog.schema import (
     MaxInsightContext,
     MaxUIContext,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -52,6 +56,10 @@ SUPPORTED_QUERY_MODEL_BY_KIND: dict[str, type[AnyAssistantSupportedQuery]] = {
     "FunnelsQuery": FunnelsQuery,
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
+    "RevenueAnalyticsGrossRevenueQuery": RevenueAnalyticsGrossRevenueQuery,
+    "RevenueAnalyticsMetricsQuery": RevenueAnalyticsMetricsQuery,
+    "RevenueAnalyticsMRRQuery": RevenueAnalyticsMRRQuery,
+    "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
 }
 
 

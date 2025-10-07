@@ -1,5 +1,4 @@
 import datetime
-from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -706,11 +705,14 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch(
-            "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
-            return_value=("Success", {}),
+        with (
+            patch(
+                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
+                return_value=("Success", {}),
+            ),
+            self.assertRaises(NodeInterrupt) as cm,
         ):
-            result = await node.arun(
+            await node.arun(
                 state,
                 {
                     "configurable": {
@@ -721,13 +723,10 @@ class TestRootNodeTools(BaseTest):
                 },
             )
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
-        self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
-        self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
-        self.assertFalse(
-            cast(AssistantToolCallMessage, result.messages[-1]).visible
-        )  # This tool must not be visible by default
+        interrupt_value = cm.exception.args[0][0].value
+        self.assertIsInstance(interrupt_value, AssistantToolCallMessage)
+        self.assertEqual(interrupt_value.content, "Success")
+        self.assertEqual(interrupt_value.tool_call_id, "xyz")
 
     async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
@@ -825,91 +824,6 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(interrupt_data.tool_call_id, "nav-123")
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
-
-    @patch("ee.hogai.graph.root.nodes.capture_exception")
-    async def test_navigate_tool_error_does_not_raise_node_interrupt(self, mock_capture_exception):
-        """Test that navigate tool errors don't raise NodeInterrupt but return FailureMessage"""
-        node = RootNodeTools(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="I'll help you navigate to insights",
-                    id="test-id",
-                    tool_calls=[AssistantToolCall(id="nav-123", name="navigate", args={"page_key": "insights"})],
-                )
-            ]
-        )
-
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
-            # Mock the navigate tool to raise an exception
-            mock_navigate_tool = AsyncMock()
-            mock_navigate_tool.ainvoke = AsyncMock(side_effect=Exception("Navigation failed"))
-            mock_navigate_tool.show_tool_call_message = True
-            mock_navigate_tool._state = state
-            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
-
-            # The navigate tool call should NOT raise NodeInterrupt when there's an error
-            result = await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
-
-            # Verify capture_exception was called
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertIsInstance(call_args[0][0], Exception)
-            self.assertEqual(call_args[0][0].args[0], "Navigation failed")
-
-            # Verify result is a PartialAssistantState with AssistantToolCallMessage
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(len(result.messages), 1)
-            failure_message = result.messages[0]
-            assert isinstance(failure_message, AssistantToolCallMessage)
-            self.assertEqual(
-                failure_message.content,
-                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-            )
-            self.assertEqual(result.root_tool_calls_count, 1)
-
-    async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
-        """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
-        node = RootNodeTools(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Let me search for recordings",
-                    id="test-id",
-                    tool_calls=[
-                        AssistantToolCall(id="search-123", name="search_session_recordings", args={"change": "test"})
-                    ],
-                )
-            ]
-        )
-
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
-            # Mock the search_session_recordings tool
-            mock_search_session_recordings = AsyncMock()
-            mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
-                content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
-            )
-            mock_tools.return_value = lambda *args, **kwargs: mock_search_session_recordings
-
-            # This should not raise NodeInterrupt
-            result = await node.arun(
-                state,
-                {
-                    "configurable": {
-                        "team": self.team,
-                        "user": self.user,
-                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
-                    }
-                },
-            )
-
-            # Should return a normal result
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertIsNone(result.root_tool_call_id)
-            self.assertEqual(len(result.messages), 1)
-            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
     def test_billing_tool_routing(self):
         """Test that billing tool calls are routed correctly"""

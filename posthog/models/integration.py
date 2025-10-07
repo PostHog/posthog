@@ -1155,7 +1155,7 @@ class EmailIntegration:
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
         elif provider == "mailjet":
-            verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+            verification_result = self.mailjet_provider.verify_email_domain(domain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
@@ -1166,15 +1166,19 @@ class EmailIntegration:
 
         if verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
-            other_integrations = Integration.objects.filter(
+            all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,
                 kind="email",
                 config__domain=domain,
                 config__provider=provider,
             )
-            for integration in other_integrations:
+            for integration in all_integrations_for_domain:
                 integration.config["verified"] = True
                 integration.save()
+
+            reload_integrations_on_workers(
+                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            )
 
         return verification_result
 

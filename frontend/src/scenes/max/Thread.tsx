@@ -36,7 +36,7 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { NotFound } from 'lib/components/NotFound'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
@@ -66,7 +66,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { InsightShortId, ProductKey } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -122,15 +122,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
-                        <ProductIntroduction
-                            isEmpty
-                            productName="Max"
-                            productKey={ProductKey.MAX}
-                            thingName="message"
-                            titleOverride="Start chatting with Max"
-                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
-                            docsURL="https://posthog.com/docs/data/max-ai"
-                        />
+                        <NotFound object="conversation" className="m-0" />
                     </div>
                 )
             )}
@@ -809,7 +801,6 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
-                                      targetBlank
                                       tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}

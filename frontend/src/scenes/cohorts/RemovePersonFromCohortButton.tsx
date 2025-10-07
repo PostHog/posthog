@@ -11,11 +11,10 @@ import { PersonType } from '~/types'
 
 interface RemovePersonFromCohortButtonProps {
     person: PersonType
-    cohortId: number
 }
 
-export function RemovePersonFromCohortButton({ person, cohortId }: RemovePersonFromCohortButtonProps): JSX.Element {
-    const { removePersonFromCohort } = useActions(cohortEditLogic({ id: cohortId }))
+export function RemovePersonFromCohortButton({ person }: RemovePersonFromCohortButtonProps): JSX.Element {
+    const { removePersonFromCohort } = useActions(cohortEditLogic)
 
     const handleRemoveClick = (): void => {
         LemonDialog.open({

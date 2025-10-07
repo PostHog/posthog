@@ -14,6 +14,7 @@ from dagster_graphql import DagsterGraphQLClient
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
+from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
@@ -82,6 +83,24 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Create a staff user",
+        )
+        parser.add_argument(
+            "--skip-materialization",
+            action="store_true",
+            default=False,
+            help="Skip materializing common columns after data generation",
+        )
+        parser.add_argument(
+            "--skip-dagster",
+            action="store_true",
+            default=False,
+            help="Skip running dagster materializations after data generation",
+        )
+        parser.add_argument(
+            "--skip-flag-sync",
+            action="store_true",
+            default=False,
+            help="Skip syncing feature flags from API after data generation",
         )
 
     def handle(self, *args, **options):
@@ -163,11 +182,27 @@ class Command(BaseCommand):
                         f"http://localhost:8000/signup?email={user.email}\n"
                     )
                 )
-            print("Materializing common columns...")
-            self.materialize_common_columns(options["days_past"])
+            if not options.get("skip_materialization"):
+                print("Materializing common columns...")
+                self.materialize_common_columns(options["days_past"])
+            else:
+                print("Skipping materialization of common columns.")
 
-            print("Running dagster materializations...")
-            self.initialize_dagster_materialization(options["days_past"])
+            if not options.get("skip_dagster"):
+                print("Running dagster materializations...")
+                self.initialize_dagster_materialization(options["days_past"])
+            else:
+                print("Skipping dagster materializations.")
+
+            if not options.get("skip_flag_sync"):
+                print("Syncing feature flags from API...")
+                try:
+                    sync_feature_flags_from_api(distinct_id="generate_demo_data", output_fn=self.stdout.write)
+                except Exception as e:
+                    print(f"Feature flag sync failed: {e}")
+                    print("Continuing anyway...")
+            else:
+                print("Skipping feature flag sync.")
         else:
             print("Dry run - not saving results.")
 
