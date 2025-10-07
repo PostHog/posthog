@@ -20,6 +20,7 @@ export enum Scene {
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
     Cohort = 'Cohort',
+    CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
@@ -214,6 +215,10 @@ export interface SceneConfig {
 
 // Map scenes to their access control resource types
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Actions
+    [Scene.Action]: AccessControlResourceType.Action,
+    [Scene.Actions]: AccessControlResourceType.Action,
+
     // Feature flags
     [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
     [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,

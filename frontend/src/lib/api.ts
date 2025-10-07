@@ -7,6 +7,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
+import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -146,6 +147,7 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
+    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -675,6 +677,10 @@ export class ApiRequest {
 
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
+    }
+
+    public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
     }
 
     // Recordings
@@ -1511,6 +1517,11 @@ export class ApiRequest {
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
+
+    // Session summary
+    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -2275,6 +2286,9 @@ const api = {
         async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
             const payload = { person_id: personId }
             return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
+        },
+        async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
+            return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
         },
     },
 
@@ -4339,6 +4353,12 @@ const api = {
             url = next
         }
         return results
+    },
+
+    sessionSummaries: {
+        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
+            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
     },
 }
 

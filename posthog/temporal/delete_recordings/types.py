@@ -19,6 +19,7 @@ class DeleteRecordingBlocksInput:
 class RecordingsWithPersonInput:
     distinct_ids: list[str]
     team_id: int
+    batch_size: int = 100
 
 
 class DeleteRecordingError(Exception):

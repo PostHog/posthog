@@ -15,12 +15,12 @@
                    e.distinct_id AS distinct_id
             FROM events AS e
             LEFT OUTER JOIN
-              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                       person_distinct_id_overrides.distinct_id AS distinct_id
                FROM person_distinct_id_overrides
                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                GROUP BY person_distinct_id_overrides.distinct_id
-               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
             WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
@@ -40,13 +40,13 @@
                    e.distinct_id AS distinct_id
             FROM events AS e
             LEFT OUTER JOIN
-              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                       person_distinct_id_overrides.distinct_id AS distinct_id
                FROM person_distinct_id_overrides
                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                GROUP BY person_distinct_id_overrides.distinct_id
-               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-19 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -59,18 +59,18 @@
                                                                                          actor_id AS id
                                                                                   FROM
                                                                                     (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-09-19 00:00:00.000000', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
                                                                                             if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                                                                                             argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                                                                                             argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
                                                                                      FROM events AS e
                                                                                      LEFT OUTER JOIN
-                                                                                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                                                                                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                                                                                person_distinct_id_overrides.distinct_id AS distinct_id
                                                                                         FROM person_distinct_id_overrides
                                                                                         WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                         GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                                      WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
                                                                                      GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                                                                                      HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
@@ -82,7 +82,7 @@
                                                                                                          join_algorithm='auto') INTERSECT DISTINCT
                                                                               (SELECT persons.id AS id
                                                                                FROM
-                                                                                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+                                                                                 (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                                                                                          person.id AS id
                                                                                   FROM person
                                                                                   WHERE and(equals(person.team_id, 99999), in(id,
@@ -90,7 +90,7 @@
                                                                                                                                  FROM person AS where_optimization
                                                                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
                                                                                   GROUP BY person.id
-                                                                                  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                                                                                WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
                                                                                ORDER BY persons.id ASC
                                                                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -159,7 +159,23 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -167,9 +183,9 @@
     AND version = 0
   '''
 # ---
-# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.1
+# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.2
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -219,13 +235,13 @@
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
                        LEFT OUTER JOIN
-                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-09-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -248,9 +264,9 @@
                                                                allow_experimental_join_condition=1
   '''
 # ---
-# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.2
+# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.3
   '''
-  /* cohort_calculation: */
+  
   SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT person_id,
@@ -308,7 +324,23 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_extra.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -316,71 +348,24 @@
     AND version = 0
   '''
 # ---
-# name: TestCohortQuery.test_cohort_filter_with_extra.1
-  '''
-  /* cohort_calculation: */
-    (SELECT cohort_people.person_id AS id
-     FROM
-       (SELECT DISTINCT cohortpeople.person_id AS person_id,
-                        cohortpeople.cohort_id AS cohort_id,
-                        cohortpeople.team_id AS team_id
-        FROM cohortpeople
-        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
-     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 1000000000) INTERSECT DISTINCT
-    (SELECT source.id AS id
-     FROM
-       (SELECT actor_id AS actor_id,
-               count() AS event_count,
-               groupUniqArray(distinct_id) AS event_distinct_ids,
-               actor_id AS id
-        FROM
-          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.uuid AS uuid,
-                  e.distinct_id AS distinct_id
-           FROM events AS e
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
-        GROUP BY actor_id) AS source
-     ORDER BY source.id ASC
-     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                               join_algorithm='auto') SETTINGS readonly=2,
-                                                               max_execution_time=600,
-                                                               allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
-                                                               max_ast_elements=4000000,
-                                                               max_expanded_ast_elements=4000000,
-                                                               max_bytes_before_external_group_by=0,
-                                                               transform_null_in=1,
-                                                               optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
-  '''
-# ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.10
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -395,13 +380,13 @@
                                   e.distinct_id AS distinct_id
                            FROM events AS e
                            LEFT OUTER JOIN
-                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -419,7 +404,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.11
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -458,22 +443,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.12
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -488,13 +473,13 @@
                                   e.distinct_id AS distinct_id
                            FROM events AS e
                            LEFT OUTER JOIN
-                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -512,7 +497,100 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.13
   '''
-  /* cohort_calculation: */
+  
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  FROM
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 1 week
+     GROUP BY person_id) behavior_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
+  WHERE 1 = 1
+    AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
+          OR ((coalesce(performed_event_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                            join_algorithm = 'auto'
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_extra.14
+  '''
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
+  UNION DISTINCT (
+                    (SELECT source.id AS id
+                     FROM
+                       (SELECT actor_id AS actor_id,
+                               count() AS event_count,
+                               groupUniqArray(distinct_id) AS event_distinct_ids,
+                               actor_id AS id
+                        FROM
+                          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                                  e.uuid AS uuid,
+                                  e.distinct_id AS distinct_id
+                           FROM events AS e
+                           LEFT OUTER JOIN
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                     person_distinct_id_overrides.distinct_id AS distinct_id
+                              FROM person_distinct_id_overrides
+                              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                              GROUP BY person_distinct_id_overrides.distinct_id
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                        GROUP BY actor_id) AS source
+                     ORDER BY source.id ASC
+                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                               join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                max_execution_time=600,
+                                                                                allow_experimental_object_type=1,
+                                                                                format_csv_allow_double_quotes=0,
+                                                                                max_ast_elements=4000000,
+                                                                                max_expanded_ast_elements=4000000,
+                                                                                max_bytes_before_external_group_by=0,
+                                                                                transform_null_in=1,
+                                                                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_extra.15
+  '''
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -551,7 +629,54 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.2
   '''
-  /* cohort_calculation: */
+  
+    (SELECT cohort_people.person_id AS id
+     FROM
+       (SELECT DISTINCT cohortpeople.person_id AS person_id,
+                        cohortpeople.cohort_id AS cohort_id,
+                        cohortpeople.team_id AS team_id
+        FROM cohortpeople
+        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
+     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
+     LIMIT 1000000000) INTERSECT DISTINCT
+    (SELECT source.id AS id
+     FROM
+       (SELECT actor_id AS actor_id,
+               count() AS event_count,
+               groupUniqArray(distinct_id) AS event_distinct_ids,
+               actor_id AS id
+        FROM
+          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.uuid AS uuid,
+                  e.distinct_id AS distinct_id
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+        GROUP BY actor_id) AS source
+     ORDER BY source.id ASC
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_extra.3
+  '''
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -591,9 +716,25 @@
                                                                                                    join_algorithm = 'auto'
   '''
 # ---
-# name: TestCohortQuery.test_cohort_filter_with_extra.3
+# name: TestCohortQuery.test_cohort_filter_with_extra.4
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_extra.5
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -601,117 +742,24 @@
     AND version = 0
   '''
 # ---
-# name: TestCohortQuery.test_cohort_filter_with_extra.4
-  '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
-  UNION DISTINCT (
-                    (SELECT source.id AS id
-                     FROM
-                       (SELECT actor_id AS actor_id,
-                               count() AS event_count,
-                               groupUniqArray(distinct_id) AS event_distinct_ids,
-                               actor_id AS id
-                        FROM
-                          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                                  e.uuid AS uuid,
-                                  e.distinct_id AS distinct_id
-                           FROM events AS e
-                           LEFT OUTER JOIN
-                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                     person_distinct_id_overrides.distinct_id AS distinct_id
-                              FROM person_distinct_id_overrides
-                              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                              GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
-                        GROUP BY actor_id) AS source
-                     ORDER BY source.id ASC
-                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                               join_algorithm='auto')) SETTINGS readonly=2,
-                                                                                max_execution_time=600,
-                                                                                allow_experimental_object_type=1,
-                                                                                format_csv_allow_double_quotes=0,
-                                                                                max_ast_elements=4000000,
-                                                                                max_expanded_ast_elements=4000000,
-                                                                                max_bytes_before_external_group_by=0,
-                                                                                transform_null_in=1,
-                                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestCohortQuery.test_cohort_filter_with_extra.5
-  '''
-  /* cohort_calculation: */
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
-  FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
-            countIf(timestamp > now() - INTERVAL 1 week
-                    AND timestamp < now()
-                    AND event = '$pageview'
-                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 99999
-       AND event IN ['$pageview']
-       AND timestamp <= now()
-       AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
-  FULL OUTER JOIN
-    (SELECT *,
-            id AS person_id
-     FROM
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 99999
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
-  WHERE 1 = 1
-    AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
-          OR ((coalesce(performed_event_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                                            join_algorithm = 'auto'
-  '''
-# ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.6
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -726,13 +774,13 @@
                                   e.distinct_id AS distinct_id
                            FROM events AS e
                            LEFT OUTER JOIN
-                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -750,7 +798,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.7
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -789,22 +837,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.8
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -819,13 +867,13 @@
                                   e.distinct_id AS distinct_id
                            FROM events AS e
                            LEFT OUTER JOIN
-                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -843,7 +891,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.9
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -896,13 +944,13 @@
                   e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -989,13 +1037,13 @@
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
                        LEFT OUTER JOIN
-                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -1105,13 +1153,13 @@
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
                        LEFT OUTER JOIN
-                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -1130,13 +1178,13 @@
                count() AS `count()`
         FROM events
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$new_view'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$new_view'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)
         HAVING ifNull(greaterOrEquals(count(), 1), 0)
         ORDER BY count() DESC)
@@ -1244,13 +1292,13 @@
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
                        LEFT OUTER JOIN
-                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -1268,20 +1316,20 @@
                count() AS `count()`
         FROM events
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)
         HAVING ifNull(greaterOrEquals(count(), 1), 0)
         ORDER BY count() DESC)
      LIMIT 1000000000) INTERSECT DISTINCT
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
@@ -1289,7 +1337,7 @@
                                                        FROM person AS where_optimization
                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
         GROUP BY person.id
-        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
      ORDER BY persons.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1385,13 +1433,13 @@
                   e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$filter_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0), greaterOrEquals(timestamp, toDateTime64('2025-09-30 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$filter_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1451,13 +1499,13 @@
                   e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1465,7 +1513,7 @@
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$sample_field'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$sample_field`,
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$sample_field'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$sample_field`,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
@@ -1473,7 +1521,7 @@
                                                        FROM person AS where_optimization
                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$sample_field'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
         GROUP BY person.id
-        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.`properties___$sample_field`, 'test@posthog.com'), 0)
      ORDER BY persons.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1544,13 +1592,13 @@
                   e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1558,7 +1606,7 @@
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(nullIf(nullIf(person.`pmat_$sample_field`, ''), 'null')), person.version), 1) AS `properties___$sample_field`,
+       (SELECT argMax(nullIf(nullIf(person.`pmat_$sample_field`, ''), 'null'), person.version) AS `properties___$sample_field`,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
@@ -1566,7 +1614,7 @@
                                                        FROM person AS where_optimization
                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(nullIf(nullIf(where_optimization.`pmat_$sample_field`, ''), 'null'), 'test@posthog.com'), 0)))))
         GROUP BY person.id
-        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.`properties___$sample_field`, 'test@posthog.com'), 0)
      ORDER BY persons.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1637,12 +1685,12 @@
                    e.distinct_id AS distinct_id
             FROM events AS e
             LEFT OUTER JOIN
-              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                       person_distinct_id_overrides.distinct_id AS distinct_id
                FROM person_distinct_id_overrides
                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                GROUP BY person_distinct_id_overrides.distinct_id
-               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
             WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
@@ -1662,13 +1710,13 @@
                    e.distinct_id AS distinct_id
             FROM events AS e
             LEFT OUTER JOIN
-              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                       person_distinct_id_overrides.distinct_id AS distinct_id
                FROM person_distinct_id_overrides
                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                GROUP BY person_distinct_id_overrides.distinct_id
-               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-19 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1676,7 +1724,7 @@
    UNION DISTINCT
      (SELECT persons.id AS id
       FROM
-        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
                 person.id AS id
          FROM person
          WHERE and(equals(person.team_id, 99999), in(id,
@@ -1684,7 +1732,7 @@
                                                         FROM person AS where_optimization
                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'special'), 0)))))
          GROUP BY person.id
-         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___name, 'special'), 0)
       ORDER BY persons.id ASC
       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1697,18 +1745,18 @@
                                                                                          actor_id AS id
                                                                                   FROM
                                                                                     (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-09-19 00:00:00.000000', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
                                                                                             if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                                                                                             argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                                                                                             argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
                                                                                      FROM events AS e
                                                                                      LEFT OUTER JOIN
-                                                                                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                                                                                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                                                                                person_distinct_id_overrides.distinct_id AS distinct_id
                                                                                         FROM person_distinct_id_overrides
                                                                                         WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                         GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                                      WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
                                                                                      GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                                                                                      HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
@@ -1720,7 +1768,7 @@
                                                                                                          join_algorithm='auto') INTERSECT DISTINCT
                                                                               (SELECT persons.id AS id
                                                                                FROM
-                                                                                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+                                                                                 (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                                                                                          person.id AS id
                                                                                   FROM person
                                                                                   WHERE and(equals(person.team_id, 99999), in(id,
@@ -1728,7 +1776,7 @@
                                                                                                                                  FROM person AS where_optimization
                                                                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
                                                                                   GROUP BY person.id
-                                                                                  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                                                                                WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
                                                                                ORDER BY persons.id ASC
                                                                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1802,7 +1850,7 @@
   (
      (SELECT persons.id AS id
       FROM
-        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                 person.id AS id
          FROM person
          WHERE and(equals(person.team_id, 99999), in(id,
@@ -1810,7 +1858,7 @@
                                                         FROM person AS where_optimization
                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test1@posthog.com'), 0)))))
          GROUP BY person.id
-         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___email, 'test1@posthog.com'), 0)
       ORDER BY persons.id ASC
       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1818,7 +1866,7 @@
    UNION DISTINCT
      (SELECT persons.id AS id
       FROM
-        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                 person.id AS id
          FROM person
          WHERE and(equals(person.team_id, 99999), in(id,
@@ -1826,7 +1874,7 @@
                                                         FROM person AS where_optimization
                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test2@posthog.com'), 0)))))
          GROUP BY person.id
-         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___email, 'test2@posthog.com'), 0)
       ORDER BY persons.id ASC
       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1834,7 +1882,7 @@
   UNION DISTINCT (
                     (SELECT persons.id AS id
                      FROM
-                       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+                       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
                                person.id AS id
                         FROM person
                         WHERE and(equals(person.team_id, 99999), in(id,
@@ -1842,14 +1890,14 @@
                                                                        FROM person AS where_optimization
                                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test3'), 0)))))
                         GROUP BY person.id
-                        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                      WHERE ifNull(equals(persons.properties___name, 'test3'), 0)
                      ORDER BY persons.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
                                                join_algorithm='auto') INTERSECT DISTINCT
                     (SELECT persons.id AS id
                      FROM
-                       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+                       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                                person.id AS id
                         FROM person
                         WHERE and(equals(person.team_id, 99999), in(id,
@@ -1857,7 +1905,7 @@
                                                                        FROM person AS where_optimization
                                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test3@posthog.com'), 0)))))
                         GROUP BY person.id
-                        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                      WHERE ifNull(equals(persons.properties___email, 'test3@posthog.com'), 0)
                      ORDER BY persons.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1897,7 +1945,23 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -1905,48 +1969,9 @@
     AND version = 0
   '''
 # ---
-# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.1
-  '''
-  /* cohort_calculation: */
-    (SELECT cohort_people.person_id AS id
-     FROM
-       (SELECT DISTINCT cohortpeople.person_id AS person_id,
-                        cohortpeople.cohort_id AS cohort_id,
-                        cohortpeople.team_id AS team_id
-        FROM cohortpeople
-        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
-     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 1000000000)
-  UNION DISTINCT
-    (SELECT persons.id AS id
-     FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-               person.id AS id
-        FROM person
-        WHERE and(equals(person.team_id, 99999), in(id,
-                                                      (SELECT where_optimization.id AS id
-                                                       FROM person AS where_optimization
-                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0)))))
-        GROUP BY person.id
-        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-     WHERE ifNull(equals(persons.properties___name, 'test2'), 0)
-     ORDER BY persons.id ASC
-     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                               join_algorithm='auto') SETTINGS readonly=2,
-                                                               max_execution_time=600,
-                                                               allow_experimental_object_type=1,
-                                                               format_csv_allow_double_quotes=0,
-                                                               max_ast_elements=4000000,
-                                                               max_expanded_ast_elements=4000000,
-                                                               max_bytes_before_external_group_by=0,
-                                                               transform_null_in=1,
-                                                               optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
-  '''
-# ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -1959,7 +1984,7 @@
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
@@ -1967,7 +1992,7 @@
                                                        FROM person AS where_optimization
                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0)))))
         GROUP BY person.id
-        HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.properties___name, 'test2'), 0)
      ORDER BY persons.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1985,7 +2010,46 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
   '''
-  /* cohort_calculation: */
+  
+    (SELECT cohort_people.person_id AS id
+     FROM
+       (SELECT DISTINCT cohortpeople.person_id AS person_id,
+                        cohortpeople.cohort_id AS cohort_id,
+                        cohortpeople.team_id AS team_id
+        FROM cohortpeople
+        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
+     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
+     LIMIT 1000000000)
+  UNION DISTINCT
+    (SELECT persons.id AS id
+     FROM
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+               person.id AS id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(id,
+                                                      (SELECT where_optimization.id AS id
+                                                       FROM person AS where_optimization
+                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0)))))
+        GROUP BY person.id
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     WHERE ifNull(equals(persons.properties___name, 'test2'), 0)
+     ORDER BY persons.id ASC
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.4
+  '''
+  
   SELECT person.person_id AS id
   FROM
     (SELECT *,
@@ -2047,28 +2111,6 @@
                                                  join_algorithm = 'auto'
   '''
 # ---
-# name: TestCohortQuery.test_static_cohort_filter.2
-  '''
-  
-  SELECT person.person_id AS id
-  FROM
-    (SELECT *,
-            id AS person_id
-     FROM
-       (SELECT id
-        FROM person
-        WHERE team_id = 99999
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person
-  WHERE 1 = 1
-    AND (((id IN
-             (SELECT person_id as id
-              FROM person_static_cohort
-              WHERE cohort_id = 99999
-                AND team_id = 99999)))) SETTINGS optimize_aggregation_in_order = 1,
-                                                 join_algorithm = 'auto'
-  '''
-# ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
   '''
   
@@ -2089,13 +2131,13 @@
                   e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -2174,13 +2216,13 @@
                                   e.distinct_id AS distinct_id
                            FROM events AS e
                            LEFT OUTER JOIN
-                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -2238,51 +2280,25 @@
                                                                                                             join_algorithm = 'auto'
   '''
 # ---
-# name: TestCohortQuery.test_static_cohort_filter_with_extra.4
-  '''
-  
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
-  FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
-            countIf(timestamp > now() - INTERVAL 1 week
-                    AND timestamp < now()
-                    AND event = '$pageview'
-                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 99999
-       AND event IN ['$pageview']
-       AND timestamp <= now()
-       AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
-  FULL OUTER JOIN
-    (SELECT *,
-            id AS person_id
-     FROM
-       (SELECT id
-        FROM person
-        WHERE team_id = 99999
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
-  WHERE 1 = 1
-    AND ((((id IN
-              (SELECT person_id as id
-               FROM person_static_cohort
-               WHERE cohort_id = 99999
-                 AND team_id = 99999)))
-          OR ((coalesce(performed_event_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                                            join_algorithm = 'auto'
-  '''
-# ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -2290,9 +2306,9 @@
     AND version = 0
   '''
 # ---
-# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -2316,13 +2332,13 @@
                   e.distinct_id AS distinct_id
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-09-26 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -2338,51 +2354,9 @@
                                                                allow_experimental_join_condition=1
   '''
 # ---
-# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2
-  '''
-  /* cohort_calculation: */
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
-  FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
-            countIf(timestamp > now() - INTERVAL 1 week
-                    AND timestamp < now()
-                    AND event = '$pageview'
-                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 99999
-       AND event IN ['$pageview']
-       AND timestamp <= now()
-       AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
-  FULL OUTER JOIN
-    (SELECT *,
-            id AS person_id
-     FROM
-       (SELECT id
-        FROM person
-        WHERE team_id = 99999
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
-  WHERE 1 = 1
-    AND (((id IN
-             (SELECT person_id
-              FROM cohortpeople
-              WHERE cohort_id = 99999
-                AND team_id = 99999 ))
-          OR (coalesce(performed_event_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                                  join_algorithm = 'auto'
-  '''
-# ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.3
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
