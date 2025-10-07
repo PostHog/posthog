@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, TypedDict, cast
 
+from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Q
 from django.utils import timezone
@@ -695,7 +696,10 @@ def update_all_orgs_billing_quotas(
         # Check and refresh DB connections if needed on every iteration.
         # The database_sync_to_async wrapper only closes connections at start/end,
         # but this loop can run for up to 30min.
-        close_old_connections()
+        # Skip in tests to avoid breaking test transactions.
+
+        if not settings.TEST:
+            close_old_connections()
 
         try:
             org = orgs_by_id[org_id]
