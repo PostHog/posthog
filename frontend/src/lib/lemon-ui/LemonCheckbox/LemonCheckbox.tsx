@@ -18,7 +18,7 @@ export interface LemonCheckboxProps {
     className?: string
     labelClassName?: string
     fullWidth?: boolean
-    size?: 'xxsmall' | 'xsmall' | 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     bordered?: boolean
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string

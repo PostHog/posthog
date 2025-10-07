@@ -22,7 +22,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: TOOL_DEFINITIONS['navigate'].name,
         description: TOOL_DEFINITIONS['navigate'].description,
         context: { current_page: location.pathname, scene_descriptions: buildSceneDescriptionsContext() },
-        context: { current_page: location.pathname },
         callback: async (toolOutput) => {
             const { page_key: pageKey } = toolOutput
             if (!(pageKey in urls)) {

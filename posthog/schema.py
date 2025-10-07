@@ -272,13 +272,13 @@ class AssistantTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     READ_TAXONOMY = "read_taxonomy"
     SEARCH = "search"
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
+    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
 class AssistantToolCall(BaseModel):
@@ -2091,6 +2091,14 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     user_id: str
 
 
+class ProgressState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    substeps: Optional[list[str]] = None
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -2234,14 +2242,6 @@ class ReasoningMessage(BaseModel):
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
     visible: Optional[bool] = None
-
-
-class ReasoningState(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    substeps: Optional[list[str]] = None
 
 
 class RecordingDurationFilter(BaseModel):
@@ -5091,7 +5091,7 @@ class ToolExecution(BaseModel):
     args: dict[str, Any]
     description: str
     id: str
-    progress: Optional[ReasoningState] = None
+    progress: Optional[ProgressState] = None
     status: ToolExecutionStatus
     tool_name: str
 

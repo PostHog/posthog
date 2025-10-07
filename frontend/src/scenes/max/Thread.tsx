@@ -540,7 +540,7 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
 
     return (
         <>
-            <div className="flex items-center text-xs">
+            <div className="flex items-center">
                 <div className="relative flex-shrink-0 flex items-center justify-center size-7">
                     <IconNotebook />
                 </div>
@@ -569,9 +569,9 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                         const isInProgress = step.status === PlanningStepStatus.InProgress
 
                         return (
-                            <div key={index} className="flex items-start gap-2 text-xs animate-fade-in">
+                            <div key={index} className="flex items-start gap-2 animate-fade-in">
                                 <span className="flex-shrink-0 mt-0.5">
-                                    <LemonCheckbox checked={isCompleted} size="xxsmall" />
+                                    <LemonCheckbox checked={isCompleted} size="xsmall" />
                                 </span>
                                 <span
                                     className={clsx(
@@ -581,11 +581,7 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && (
-                                        <span className="text-muted ml-1">
-                                            (<ShimmeringContent>in progress</ShimmeringContent>)
-                                        </span>
-                                    )}
+                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
                                 </span>
                             </div>
                         )
@@ -604,7 +600,8 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
             <span
                 className="bg-clip-text text-transparent"
                 style={{
-                    backgroundImage: 'linear-gradient(in oklch 90deg, #666, #999, #ccc, #999, #666)',
+                    backgroundImage:
+                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
                     backgroundSize: '200% 100%',
                     animation: 'shimmer 3s linear infinite',
                 }}
@@ -626,43 +623,55 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
     )
 }
 
+function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (!content.endsWith('...') && isInProgress) {
+        return content + '...'
+    } else if (content.endsWith('...') && !isInProgress) {
+        return content.slice(0, -3)
+    }
+    return content
+}
+
 function ReasoningComponent({
     id,
     content,
     substeps,
     state,
     icon,
+    animate = true,
 }: {
     id: string
     content: string
     substeps: string[]
     state: ToolExecutionStatus
     icon?: React.ReactNode
+    animate?: boolean
 }): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
     const isPending = state === 'pending'
-    const isInProgress = state === 'in_progress'
     const isCompleted = state === 'completed'
+    const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
     const hasMultipleSteps = substeps.length > 1
+    const [isExpanded, setIsExpanded] = useState(isInProgress && hasMultipleSteps)
     const showChevron = hasMultipleSteps && !isCompleted && !isFailed
 
+    content = handleThreeDots(content, isInProgress)
     return (
-        <>
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0">
             <div
                 className={clsx(
-                    'transition-all duration-500 text-xs flex items-center',
+                    'transition-all duration-500 flex items-center',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default'
                 )}
             >
                 {icon && (
-                    <span className="flex-shrink-0">
-                        {isInProgress ? <ShimmeringContent>{icon}</ShimmeringContent> : icon}
-                    </span>
+                    <div className="relative flex-shrink-0 flex items-center justify-center size-7">
+                        {isInProgress && animate ? <ShimmeringContent>{icon}</ShimmeringContent> : icon}
+                    </div>
                 )}
                 <div className="flex items-center gap-1 flex-1 min-w-0">
-                    {isInProgress ? <ShimmeringContent>{content}</ShimmeringContent> : content}
+                    {isInProgress && animate ? <ShimmeringContent>{content}</ShimmeringContent> : content}
                     {isCompleted && <IconCheck className="text-success size-3" />}
                     {isFailed && <IconX className="text-danger size-3" />}
                     {showChevron && (
@@ -671,7 +680,7 @@ function ReasoningComponent({
                             className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0"
                             aria-label={isExpanded ? 'Collapse history' : 'Expand history'}
                         >
-                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                            <span className={clsx('transform transition-transform', isExpanded && 'rotate-90')}>
                                 <IconChevronRight />
                             </span>
                         </button>
@@ -692,7 +701,7 @@ function ReasoningComponent({
                         return (
                             <div
                                 key={substepIndex}
-                                className="animate-fade-in text-xs"
+                                className="animate-fade-in"
                                 style={{
                                     animationDelay: `${substepIndex * 50}ms`,
                                 }}
@@ -705,14 +714,14 @@ function ReasoningComponent({
                                         !isFailed && isCompletedSubstep && 'text-muted',
                                         !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
                                     )}
-                                    content={substep ?? ''}
+                                    content={handleThreeDots(substep ?? '', true)}
                                 />
                             </div>
                         )
                     })}
                 </div>
             )}
-        </>
+        </div>
     )
 }
 
@@ -729,6 +738,15 @@ function ReasoningAnswer({ message, id }: ReasoningAnswerProps): JSX.Element {
                 content={message.content}
                 substeps={message.substeps ?? []}
                 state={ToolExecutionStatus.InProgress}
+                icon={
+                    <div className="flex items-center justify-center flex-shrink-0 size-7">
+                        <img
+                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                        />
+                    </div>
+                }
+                animate={false}
             />
         </MessageTemplate>
     )
@@ -740,35 +758,28 @@ interface ToolExecutionAnswerProps {
 
 function ToolExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-1.5">
-            {message.tool_executions.map((toolExecution, index) => {
+        <div className="flex flex-col gap-1">
+            {message.tool_executions.map((execution, index) => {
                 const allSteps = [
-                    ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
-                    ...(toolExecution.progress?.substeps ?? []),
+                    ...(execution.progress?.content !== undefined ? [execution.progress.content] : []),
+                    ...(execution.progress?.substeps ?? []),
                 ]
-                let definition = TOOL_DEFINITIONS[toolExecution.tool_name as keyof typeof TOOL_DEFINITIONS]
-                if (toolExecution.args.kind && definition?.kinds) {
-                    const kind = definition.kinds[toolExecution.args.kind as keyof typeof definition.kinds]
+                let definition = TOOL_DEFINITIONS[execution.tool_name as keyof typeof TOOL_DEFINITIONS]
+                if (execution.args.kinds && definition?.kinds) {
+                    const kind = definition.kinds[execution.args.kind as keyof typeof definition.kinds]
                     if (kind) {
                         definition = kind
                     }
                 }
                 return (
-                    <div key={index} className="flex items-center rounded transition-all duration-500">
-                        <div className="flex-1 min-w-0">
-                            <ReasoningComponent
-                                id={toolExecution.id}
-                                content={toolExecution.description}
-                                substeps={allSteps}
-                                state={toolExecution.status}
-                                icon={
-                                    <div className="relative flex-shrink-0 flex items-center justify-center size-7">
-                                        {definition.icon || <IconWrench />}
-                                    </div>
-                                }
-                            />
-                        </div>
-                    </div>
+                    <ReasoningComponent
+                        key={index}
+                        id={execution.id}
+                        content={execution.description}
+                        substeps={allSteps}
+                        state={execution.status}
+                        icon={definition.icon || <IconWrench />}
+                    />
                 )
             })}
         </div>

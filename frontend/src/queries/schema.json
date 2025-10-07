@@ -17515,6 +17515,22 @@
             ],
             "type": "object"
         },
+        "ProgressState": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["content"],
+            "type": "object"
+        },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
         },
@@ -21587,22 +21603,6 @@
             "required": ["content", "type"],
             "type": "object"
         },
-        "ReasoningState": {
-            "additionalProperties": false,
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "substeps": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["content"],
-            "type": "object"
-        },
         "RecordingDurationFilter": {
             "additionalProperties": false,
             "properties": {
@@ -25226,7 +25226,7 @@
                     "type": "string"
                 },
                 "progress": {
-                    "$ref": "#/definitions/ReasoningState"
+                    "$ref": "#/definitions/ProgressState"
                 },
                 "status": {
                     "$ref": "#/definitions/ToolExecutionStatus"

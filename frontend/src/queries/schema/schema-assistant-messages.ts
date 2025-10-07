@@ -97,12 +97,12 @@ export interface AssistantMessage extends BaseAssistantMessage {
     tool_calls?: AssistantToolCall[]
 }
 
-export interface ReasoningState {
+export interface ProgressState {
     content: string
     substeps?: string[]
 }
 
-export interface ReasoningMessage extends BaseAssistantMessage, ReasoningState {
+export interface ReasoningMessage extends BaseAssistantMessage, ProgressState {
     type: AssistantMessageType.Reasoning
 }
 
@@ -188,7 +188,7 @@ export interface ToolExecution {
     id: string
     description: string
     status: ToolExecutionStatus
-    progress?: ReasoningState
+    progress?: ProgressState
     tool_name: string
     args: Record<string, unknown>
 }

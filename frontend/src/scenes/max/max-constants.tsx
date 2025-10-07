@@ -15,7 +15,6 @@ export interface ToolDefinition<N extends string = string> {
      * e.g. "Create surveys in seconds"
      */
     description?: `${N} ${string}`
-    completedDescription?: string
     /** If the tool has multiple kinds, you can specify them here
      * These will populate the tool summary list, instead of the tool itself
      */

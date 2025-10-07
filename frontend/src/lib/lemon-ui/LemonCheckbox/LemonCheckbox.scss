@@ -66,18 +66,6 @@
         --tick-length: 9;
     }
 
-    &.LemonCheckbox--xxsmall {
-        label {
-            gap: 0.25rem;
-            min-height: 1rem;
-
-            > .LemonCheckbox__box {
-                width: 0.75rem;
-                height: 0.75rem;
-            }
-        }
-    }
-
     &.LemonCheckbox--xsmall {
         label {
             gap: 0.375rem;
@@ -147,13 +135,6 @@
             label {
                 min-height: 1.625rem;
                 padding: 0 0.375rem;
-            }
-        }
-
-        &.LemonCheckbox--xxsmall {
-            label {
-                min-height: 1.25rem;
-                padding: 0 0.25rem;
             }
         }
 

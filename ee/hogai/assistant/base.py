@@ -414,6 +414,7 @@ class BaseAssistant(ABC):
                     and langchain_message.id is not None
                     and self._should_persist_stream_message(langchain_message, node_name)
                 ):
+                    # Only persist messages with IDs (i.e. not in progress messages)
                     await self._persist_stream_message(node_name, langchain_message)
             except Exception as e:
                 logger.warning("Failed to persist streamed message", error=str(e))

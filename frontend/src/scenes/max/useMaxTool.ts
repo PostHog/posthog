@@ -34,7 +34,6 @@ export interface UseMaxToolReturn {
 /** Hook for registering a MaxTool and handling Max interactions programmatically, without the full MaxTool wrapper. */
 export function useMaxTool({
     identifier,
-    icon,
     context,
     introOverride,
     callback,
@@ -63,7 +62,6 @@ export function useMaxTool({
                 identifier,
                 name: definition.name,
                 description: definition.description,
-                icon,
                 context,
                 introOverride,
                 suggestions,
@@ -76,7 +74,6 @@ export function useMaxTool({
         identifier,
         definition.name,
         definition.description,
-        icon,
         JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
         introOverride,
         suggestions,

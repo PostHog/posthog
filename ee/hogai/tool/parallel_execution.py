@@ -6,7 +6,7 @@ from typing import Any, cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCall, ReasoningState, ToolExecution, ToolExecutionMessage, ToolExecutionStatus
+from posthog.schema import AssistantToolCall, ProgressState, ToolExecution, ToolExecutionMessage, ToolExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -188,7 +188,7 @@ class ParallelToolExecution:
                     if content is None:
                         tool_execution.progress = None
                     else:
-                        tool_execution.progress = ReasoningState(content=content, substeps=substeps)
+                        tool_execution.progress = ProgressState(content=content, substeps=substeps)
                     await self._asend_tool_execution_message(items)
 
         self._tool_execution_update_callback = callback
