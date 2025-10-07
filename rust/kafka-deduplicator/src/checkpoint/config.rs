@@ -49,7 +49,7 @@ impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
             // NOTE! production & local dev defaults can be overridden in top-level config.rs
-            //or env vars; assume these defaults are only applied as-is in unit tests and CI
+            // or env vars; assume these defaults are only applied as-is in unit tests and CI
             checkpoint_interval: Duration::from_secs(300), // 5 minutes (TBD)
             cleanup_interval: Duration::from_secs(1320),   // 22 minutes (TBD)
             local_checkpoint_dir: "./checkpoints".to_string(),
@@ -58,7 +58,7 @@ impl Default for CheckpointConfig {
             full_upload_interval: 0, // TODO: always full checkpoints until we impl incremental
             aws_region: "us-east-1".to_string(),
             max_local_checkpoints: 10,
-            max_checkpoint_retention_hours: 72,
+            max_checkpoint_retention_hours: 6,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
             checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
