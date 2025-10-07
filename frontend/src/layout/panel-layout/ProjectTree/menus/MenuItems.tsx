@@ -246,7 +246,7 @@ export function MenuItems({
             {item.id.startsWith('project/') || item.id.startsWith('project://') ? (
                 <MenuItem
                     asChild
-                    onClick={(e: any) => {
+                    onClick={(e: React.MouseEvent<HTMLElement>) => {
                         e.stopPropagation()
                         if (
                             checkedItemsArray.length > 0 &&
@@ -265,7 +265,7 @@ export function MenuItems({
             {(item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.type !== 'folder' ? (
                 <MenuItem
                     asChild
-                    onClick={(e: any) => {
+                    onClick={(e: React.MouseEvent<HTMLElement>) => {
                         e.stopPropagation()
                         if (
                             checkedItemsArray.length > 0 &&

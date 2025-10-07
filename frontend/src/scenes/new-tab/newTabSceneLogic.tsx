@@ -296,6 +296,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [s.filteredItemsGrid],
             (filteredItemsGrid): NewTabTreeDataItem[] => filteredItemsGrid,
         ],
+        groupedFilteredItems: [
+            (s) => [s.filteredItemsGrid],
+            (filteredItemsGrid: NewTabTreeDataItem[]): Record<string, NewTabTreeDataItem[]> => {
+                return filteredItemsGrid.reduce(
+                    (acc: Record<string, NewTabTreeDataItem[]>, item: NewTabTreeDataItem) => {
+                        if (!acc[item.category]) {
+                            acc[item.category] = []
+                        }
+                        acc[item.category].push(item)
+                        return acc
+                    },
+                    {} as Record<string, NewTabTreeDataItem[]>
+                )
+            },
+        ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsList],
             (rawSelectedIndex, filteredItemsList): number | null => {
