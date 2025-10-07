@@ -50,9 +50,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -200,7 +199,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -274,9 +274,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -349,9 +348,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -558,7 +556,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."primary_dashboard_id" = 99999
   '''
@@ -639,7 +638,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."primary_dashboard_id" = 99999
   '''
@@ -833,7 +833,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -958,7 +959,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1040,7 +1042,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1211,7 +1214,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1293,7 +1297,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1448,7 +1453,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1530,7 +1536,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1701,7 +1708,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1877,7 +1885,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2112,7 +2121,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2176,9 +2186,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2270,9 +2279,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2341,9 +2349,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2713,7 +2720,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."project_id" = 99999
   ORDER BY "posthog_team"."id" ASC
@@ -2803,9 +2811,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2838,9 +2845,8 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."experiment_recalculation_time",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2940,7 +2946,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   '''
