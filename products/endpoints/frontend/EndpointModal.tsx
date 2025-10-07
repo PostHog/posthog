@@ -9,29 +9,27 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
 
-import { queryEndpointLogic } from './queryEndpointLogic'
+import { endpointLogic } from './endpointLogic'
 
-export interface QueryEndpointModalProps {
+export interface EndpointModalProps {
     isOpen: boolean
     closeModal: () => void
     tabId: string
     insightQuery: HogQLQuery | InsightQueryNode
 }
 
-export function QueryEndpointModal({ isOpen, closeModal, tabId, insightQuery }: QueryEndpointModalProps): JSX.Element {
-    const { createQueryEndpoint, setQueryEndpointName, setQueryEndpointDescription } = useActions(
-        queryEndpointLogic({ tabId })
-    )
-    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic({ tabId }))
+export function EndpointModal({ isOpen, closeModal, tabId, insightQuery }: EndpointModalProps): JSX.Element {
+    const { createEndpoint, setEndpointName, setEndpointDescription } = useActions(endpointLogic({ tabId }))
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
 
     const handleSubmit = (): void => {
-        if (!queryEndpointName?.trim()) {
+        if (!endpointName?.trim()) {
             return
         }
 
-        createQueryEndpoint({
-            name: queryEndpointName.trim(),
-            description: queryEndpointDescription?.trim() || undefined,
+        createEndpoint({
+            name: endpointName.trim(),
+            description: endpointDescription?.trim() || undefined,
             query: insightQuery,
         })
 
@@ -39,15 +37,15 @@ export function QueryEndpointModal({ isOpen, closeModal, tabId, insightQuery }: 
     }
 
     const handleClose = (): void => {
-        setQueryEndpointName('')
-        setQueryEndpointDescription('')
+        setEndpointName('')
+        setEndpointDescription('')
         closeModal()
     }
 
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} width={600}>
             <LemonModal.Header>
-                <h3>Create query endpoint</h3>
+                <h3>Create endpoint</h3>
             </LemonModal.Header>
 
             <LemonModal.Content>
@@ -55,9 +53,9 @@ export function QueryEndpointModal({ isOpen, closeModal, tabId, insightQuery }: 
                     <div>
                         <LemonField.Pure label="Name">
                             <LemonInput
-                                value={queryEndpointName || ''}
-                                onChange={setQueryEndpointName}
-                                placeholder="Enter query endpoint name"
+                                value={endpointName || ''}
+                                onChange={setEndpointName}
+                                placeholder="Enter endpoint name"
                                 autoFocus
                             />
                         </LemonField.Pure>
@@ -66,9 +64,9 @@ export function QueryEndpointModal({ isOpen, closeModal, tabId, insightQuery }: 
                     <div>
                         <LemonField.Pure label="Description">
                             <LemonTextArea
-                                value={queryEndpointDescription || ''}
-                                onChange={setQueryEndpointDescription}
-                                placeholder="Enter query endpoint description (optional)"
+                                value={endpointDescription || ''}
+                                onChange={setEndpointDescription}
+                                placeholder="Enter endpoint description (optional)"
                                 rows={3}
                             />
                         </LemonField.Pure>
@@ -94,9 +92,9 @@ export function QueryEndpointModal({ isOpen, closeModal, tabId, insightQuery }: 
                 <LemonButton
                     type="primary"
                     onClick={handleSubmit}
-                    disabledReason={!queryEndpointName ? 'Query endpoint name is required' : undefined}
+                    disabledReason={!endpointName ? 'Endpoint name is required' : undefined}
                 >
-                    Create query endpoint
+                    Create endpoint
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>

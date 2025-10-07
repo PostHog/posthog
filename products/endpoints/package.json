@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/products-embedded-analytics",
+    "name": "@posthog/products-endpoints",
     "dependencies": {
         "kea": "^3.1.7",
         "kea-loaders": "^3.1.1",

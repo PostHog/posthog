@@ -166,6 +166,7 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
+    "experiment_recalculation_time",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
