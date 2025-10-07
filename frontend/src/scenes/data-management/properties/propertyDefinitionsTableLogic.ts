@@ -206,7 +206,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             if (values.propertyDefinitionsLoading) {
                 return
             }
-            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
+            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(searchParams))) {
                 actions.setFilters(searchParams as Filters)
             } else if (!values.propertyDefinitions.results.length) {
                 actions.loadPropertyDefinitions()
