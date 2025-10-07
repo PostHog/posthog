@@ -114,6 +114,38 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
 
 
+class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
+    def test_action_access_level_cannot_be_below_viewer(self):
+        """Test that action access level cannot be set below minimum 'viewer'"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        from posthog.models.action import Action
+
+        action = Action.objects.create(team=self.team, name="test action")
+
+        res = self.client.put(
+            f"/api/projects/@current/actions/{action.id}/access_controls",
+            {"access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "cannot be set below the minimum 'viewer'" in res.json()["detail"]
+
+    def test_action_access_level_accepts_viewer_and_above(self):
+        """Test that action access level accepts viewer, editor, and manager"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        from posthog.models.action import Action
+
+        action = Action.objects.create(team=self.team, name="test action")
+
+        for level in ["viewer", "editor", "manager"]:
+            res = self.client.put(
+                f"/api/projects/@current/actions/{action.id}/access_controls",
+                {"access_level": level},
+            )
+            assert res.status_code == status.HTTP_200_OK, f"Failed for level {level}: {res.json()}"
+
+
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
     def setUp(self):
         super().setUp()

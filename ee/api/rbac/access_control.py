@@ -66,10 +66,18 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
     # Validate that access control is a valid option
     def validate_access_level(self, access_level):
-        if access_level and access_level not in ordered_access_levels(self.initial_data["resource"]):
-            raise serializers.ValidationError(
-                f"Invalid access level. Must be one of: {', '.join(ordered_access_levels(self.initial_data['resource']))}"
-            )
+        resource = self.initial_data["resource"]
+        levels = ordered_access_levels(resource)
+
+        if access_level and access_level not in levels:
+            raise serializers.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
+
+        if access_level:
+            min_level = minimum_access_level(resource)
+            if levels.index(access_level) < levels.index(min_level):
+                raise serializers.ValidationError(
+                    f"Access level cannot be set below the minimum '{min_level}' for {resource}."
+                )
 
         return access_level
 
