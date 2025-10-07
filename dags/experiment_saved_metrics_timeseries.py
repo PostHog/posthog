@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Any, Union
 from zoneinfo import ZoneInfo
 
+from django.db import connection
+
 import dagster
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
@@ -275,6 +277,8 @@ def experiment_saved_metrics_timeseries_discovery_sensor(context: dagster.Sensor
     experiment_saved_metrics_timeseries asset and triggers processing only for the new partitions.
     """
     try:
+        connection.close()  # Reset connection
+
         current_experiment_saved_metrics = _get_experiment_saved_metrics_timeseries(context)
         if not current_experiment_saved_metrics:
             context.log.debug("No experiment-saved metrics found for timeseries analysis")
@@ -321,7 +325,7 @@ def experiment_saved_metrics_timeseries_discovery_sensor(context: dagster.Sensor
 
     except Exception as e:
         context.log.exception("Failed to discover saved metric experiments")
-        return dagster.SkipReason(f"Failed to discover saved metric experiments: {e}")
+        raise dagster.Failure(f"Sensor failed: {e}")
 
 
 @dagster.schedule(
@@ -335,6 +339,8 @@ def experiment_saved_metrics_timeseries_refresh_schedule(context: dagster.Schedu
     This schedule runs daily and reprocesses all known experiment-saved metric combinations.
     """
     try:
+        connection.close()  # Reset connection
+
         existing_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME))
 
         if not existing_partitions:
@@ -351,4 +357,4 @@ def experiment_saved_metrics_timeseries_refresh_schedule(context: dagster.Schedu
 
     except Exception as e:
         context.log.exception("Failed to schedule saved metrics refresh")
-        return dagster.SkipReason(f"Failed to schedule saved metrics refresh: {e}")
+        raise dagster.Failure(f"Schedule failed: {e}")
