@@ -159,6 +159,7 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
+              id: setup-uv
               if: needs.changes.outputs.rust == 'true'
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
@@ -166,7 +167,7 @@ jobs:
                   version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.rust == 'true'
+              if: needs.changes.outputs.rust == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
