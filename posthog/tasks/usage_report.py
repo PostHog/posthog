@@ -574,6 +574,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-ios', 'ios_events',
                 {lib_expression} = 'posthog-go', 'go_events',
                 {lib_expression} = 'posthog-java', 'java_events',
+                {lib_expression} = 'posthog-server', 'java_events',
                 {lib_expression} = 'posthog-react-native', 'react_native_events',
                 {lib_expression} = 'posthog-ruby', 'ruby_events',
                 {lib_expression} = 'posthog-python', 'python_events',
@@ -1028,11 +1029,16 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # We are excluding "persistence.isDisabled is not a function" errors because of a bug in our own SDK
+    # Can be eventually removed once we're happy that the usage report for 3rd October 2025 does not need to be rerun
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE
+            event = '$exception' AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
+            timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

@@ -22,6 +22,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     DatabricksBatchExportInputs,
 )
+from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.tests.utils.persons import (
@@ -90,16 +91,9 @@ class DatabricksDestinationTest(BaseDestinationTest):
         return json_columns
 
     def get_destination_config(self, team_id: int) -> dict:
-        """Provide test configuration for Databricks destination.
-
-        NOTE: we're using machine-to-machine OAuth here:
-        https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
-        """
+        """Provide test configuration for Databricks destination."""
         return {
-            "server_hostname": os.getenv("DATABRICKS_SERVER_HOSTNAME"),
             "http_path": os.getenv("DATABRICKS_HTTP_PATH"),
-            "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
-            "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
             "catalog": os.getenv("DATABRICKS_CATALOG", f"batch_export_tests"),
             # use a hyphen in the schema name to test we handle it correctly
             "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema-{team_id}"),
@@ -107,30 +101,56 @@ class DatabricksDestinationTest(BaseDestinationTest):
             "table_name": f"test_workflow_table-{team_id}",
         }
 
-    def get_invalid_destination_config(self) -> tuple[dict, str]:
-        """Provide invalid test configuration for Databricks destination."""
-        return (
-            {
-                "server_hostname": "invalid",
+    async def create_integration(self, team_id: int) -> Integration | None:
+        """Create a test integration.
+
+        NOTE: we're using machine-to-machine OAuth here:
+        https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+        """
+        server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME")
+        integration = await Integration.objects.acreate(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS,
+            integration_id=server_hostname,
+            config={"server_hostname": server_hostname},
+            sensitive_config={
+                "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
+                "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
+            },
+        )
+        return integration
+
+    async def create_invalid_integration(self, team_id: int) -> tuple[Integration, str]:
+        """Create an invalid test integration, and return the expected error message."""
+        server_hostname = "invalid"
+        integration = await Integration.objects.acreate(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS,
+            integration_id=server_hostname,
+            config={"server_hostname": server_hostname},
+            sensitive_config={
                 "client_id": "invalid",
                 "client_secret": "invalid",
-                "http_path": "invalid",
-                "catalog": "invalid",
-                "schema": "invalid",
-                "table_name": "invalid",
             },
-            "DatabricksConnectionError: Invalid host: invalid",
+        )
+        return (
+            integration,
+            "DatabricksConnectionError: Failed to connect to Databricks. Please check that the server_hostname and http_path are valid.",
         )
 
     async def get_inserted_records(
         self,
         team_id: int,
         json_columns: list[str],
+        integration: Integration | None = None,
     ) -> list[dict[str, t.Any]]:
         """Get the inserted records from Databricks."""
+        if integration is None:
+            raise ValueError("Integration is required for Databricks get_inserted_records")
+
         config = self.get_destination_config(team_id)
 
-        with self.cursor(team_id) as cursor:
+        with self.cursor(team_id, integration) as cursor:
             cursor.execute(f'USE CATALOG `{config["catalog"]}`')
             cursor.execute(f'USE SCHEMA `{config["schema"]}`')
             cursor.execute(f'SELECT * FROM `{config["table_name"]}`')
@@ -166,12 +186,13 @@ class DatabricksDestinationTest(BaseDestinationTest):
         """
         return [{k: v for k, v in record.items() if k != "databricks_ingested_timestamp"} for record in records]
 
-    async def assert_no_data_in_destination(self, team_id: int) -> None:
+    async def assert_no_data_in_destination(self, team_id: int, integration: Integration | None = None) -> None:
         """Assert that no data was written to Databricks."""
         try:
             records = await self.get_inserted_records(
                 team_id=team_id,
                 json_columns=[],
+                integration=integration,
             )
             assert len(records) == 0
         except ServerOperationError as e:
@@ -180,20 +201,21 @@ class DatabricksDestinationTest(BaseDestinationTest):
             raise
 
     @contextlib.contextmanager
-    def cursor(self, team_id: int):
+    def cursor(self, team_id: int, integration: Integration):
         destination_config = self.get_destination_config(team_id)
+        databricks_config = {**destination_config, **integration.config, **integration.sensitive_config}
 
         def _get_credential_provider():
             config = Config(
-                host=f"https://{destination_config['server_hostname']}",
-                client_id=destination_config["client_id"],
-                client_secret=destination_config["client_secret"],
+                host=f"https://{databricks_config['server_hostname']}",
+                client_id=databricks_config["client_id"],
+                client_secret=databricks_config["client_secret"],
             )
             return oauth_service_principal(config)
 
         with sql.connect(
-            server_hostname=destination_config["server_hostname"],
-            http_path=destination_config["http_path"],
+            server_hostname=databricks_config["server_hostname"],
+            http_path=databricks_config["http_path"],
             credentials_provider=_get_credential_provider,
         ) as connection:
             with connection.cursor() as cursor:
@@ -218,20 +240,33 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             yield
 
     @pytest.fixture
-    def destination_test(self, ateam: Team) -> Generator[DatabricksDestinationTest, t.Any, t.Any]:
-        """Provide the Databricks-specific test implementation.
+    def destination_test(self, ateam: Team) -> DatabricksDestinationTest:
+        """Provide the Databricks-specific test implementation."""
+        return DatabricksDestinationTest()
 
-        This fixture also takes care of setting up the destination for the test.
-        We create the catalog and schema for the test, dropping them on teardown.
-        """
+    @pytest.fixture
+    async def integration(self, ateam):
+        """Create a test integration (for those destinations that require an integration)"""
+        destination_test = DatabricksDestinationTest()
+        yield await destination_test.create_integration(ateam.pk)
+
+    @pytest.fixture
+    async def invalid_integration(self, ateam):
+        """Create an invalid test integration (for those destinations that require an integration)"""
+        destination_test = DatabricksDestinationTest()
+        yield await destination_test.create_invalid_integration(ateam.pk)
+
+    @pytest.fixture
+    def setup_destination(self, ateam: Team, integration: Integration) -> Generator[None, t.Any, t.Any]:
+        """Set up and tear down the Databricks schema for tests."""
         destination_test = DatabricksDestinationTest()
         destination_config = destination_test.get_destination_config(ateam.pk)
-        with destination_test.cursor(ateam.pk) as cursor:
+        with destination_test.cursor(ateam.pk, integration) as cursor:
             cursor.execute(f'USE CATALOG `{destination_config["catalog"]}`')
             cursor.execute(f'CREATE SCHEMA IF NOT EXISTS `{destination_config["schema"]}`')
             cursor.execute(f'USE SCHEMA `{destination_config["schema"]}`')
 
-            yield destination_test
+            yield
 
             cursor.execute(f'DROP SCHEMA IF EXISTS `{destination_config["schema"]}` CASCADE')
 
@@ -255,6 +290,8 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         ateam,
         batch_export_for_destination,
         clickhouse_client,
+        integration: Integration,
+        setup_destination,
     ):
         """Test that the Databricks batch export workflow handles merging new versions of person rows.
 
@@ -267,12 +304,11 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
             batch_export_schema=None,
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
         )
 
         run = await destination_test.run_workflow(
@@ -290,6 +326,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             batch_export_model=batch_export_model,
             exclude_events=None,
             inputs=inputs,
+            integration=integration,
         )
 
         # generate new versions of persons
@@ -330,6 +367,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             batch_export_model=batch_export_model,
             exclude_events=None,
             inputs=inputs,
+            integration=integration,
         )
 
     @pytest.mark.parametrize("use_automatic_schema_evolution", [True, False])
@@ -343,6 +381,8 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         data_interval_end: dt.datetime,
         ateam,
         batch_export_for_destination,
+        integration: Integration,
+        setup_destination,
     ):
         """Test that the Databricks batch export workflow handles changes to the model schema.
 
@@ -380,19 +420,18 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         USING DELTA
         COMMENT 'PostHog generated table'
         """
-        with destination_test.cursor(ateam.pk) as cursor:
+        with destination_test.cursor(ateam.pk, integration) as cursor:
             cursor.execute(query)
 
         batch_export_model = BatchExportModel(name="persons", schema=None)
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
             batch_export_schema=None,
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
             use_automatic_schema_evolution=use_automatic_schema_evolution,
         )
 
@@ -412,6 +451,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             batch_export_model=batch_export_model,
             exclude_events=None,
             inputs=inputs,
+            integration=integration,
             # if `use_automatic_schema_evolution` is False, we expect the created_at column to be dropped
             fields_to_exclude=["created_at"] if use_automatic_schema_evolution is False else [],
         )
@@ -420,6 +460,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         records_from_destination = await destination_test.get_inserted_records(
             team_id=ateam.pk,
             json_columns=destination_test.get_json_columns(inputs),
+            integration=integration,
         )
         if use_automatic_schema_evolution is True:
             assert "created_at" in records_from_destination[0]

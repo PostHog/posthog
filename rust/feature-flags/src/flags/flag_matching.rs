@@ -1561,7 +1561,7 @@ impl FeatureFlagMatcher {
 
         if self
             .group_type_mapping_cache
-            .init(self.router.get_non_persons_reader().clone())
+            .init(self.router.get_persons_reader().clone())
             .await
             .is_err()
         {

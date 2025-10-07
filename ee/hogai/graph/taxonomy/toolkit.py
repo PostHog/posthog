@@ -2,7 +2,7 @@ import ast
 import asyncio
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Optional, Union, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
@@ -36,6 +36,13 @@ from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResu
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
+from ee.hogai.graph.taxonomy.format import (
+    enrich_props_with_descriptions,
+    format_properties_xml,
+    format_properties_yaml,
+    format_property_values,
+)
+
 from .tools import (
     TaxonomyTool,
     ask_user_for_help,
@@ -158,7 +165,7 @@ class TaxonomyAgentToolkit:
         groups = [group async for group in self._groups.further_orm_chain_if_needed()]
         return [group.group_type for group in groups]
 
-    @cached_property
+    @property
     async def _entity_names(self) -> list[str]:
         """
         The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
@@ -207,6 +214,7 @@ class TaxonomyAgentToolkit:
 
         return self._format_property_values(property_name, sample_values, sample_count, format_as_string=is_str)
 
+    @database_sync_to_async(thread_sensitive=False)
     def _retrieve_event_or_action_taxonomy(
         self, event_name_or_action_id: str | int, properties: list[str] | None = None
     ):
@@ -348,15 +356,18 @@ class TaxonomyAgentToolkit:
         groups = []
 
         for entity in entities:
-            if entity in await self._entity_names:
+            # TODO FIX THIS
+            if entity in self._groups:
+                print(f"Entity {entity} not found in groups")
                 groups.append(entity)
             else:
+                print(f"Entity {entity} found in groups")
                 entity_tasks.append(
                     TaskExecutionItem(
                         id=str(entity),
                         prompt=entity,
                         status=TaskExecutionStatus.PENDING,
-                        description=f"Retrieving entity properties",
+                        description="Retrieving entity properties",
                         progress_text=f"Retrieving properties for {entity}...",
                         task_type="retrieve_entity_properties",
                     )
@@ -587,6 +598,7 @@ class TaxonomyAgentToolkit:
                 status=TaskExecutionStatus.FAILED,
             )
 
+    @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_entity(
         self, entity: str, property_names: list[str], query: ActorsPropertyTaxonomyQuery
     ) -> dict[str, PropertyDefinition]:

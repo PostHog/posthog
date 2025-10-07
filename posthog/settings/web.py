@@ -29,12 +29,12 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
-    "products.early_access_features",
-    "products.tasks",
-    "products.links",
-    "products.revenue_analytics",
-    "products.user_interviews",
-    "products.llm_analytics",
+    "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
+    "products.tasks.backend.apps.TasksConfig",
+    "products.links.backend.apps.LinksConfig",
+    "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
+    "products.user_interviews.backend.apps.UserInterviewsConfig",
+    "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [

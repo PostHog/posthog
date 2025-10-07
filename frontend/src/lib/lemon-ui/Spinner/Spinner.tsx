@@ -87,7 +87,7 @@ export function SpinnerOverlay({
             className={twJoin(
                 'SpinnerOverlay',
                 sceneLevel && 'SpinnerOverlay--scene-level',
-                'h-[calc(100vh-var(--scene-layout-header-height))]'
+                sceneLevel && 'h-[calc(100vh-var(--scene-layout-header-height))]'
             )}
             aria-hidden={!visible}
         >

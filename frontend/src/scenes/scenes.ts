@@ -38,7 +38,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AdvancedActivityLogs]: {
         projectBased: true,
         organizationBased: false,
-        name: 'Advanced activity logs',
+        name: 'Activity logs',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -72,7 +72,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
-        activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
 
@@ -181,7 +180,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
-    [Scene.HogFunction]: { projectBased: true, name: 'Hog function' },
+    [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -201,11 +200,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true,
         name: 'Notebook',
-        layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
+        canvasBackground: true,
     },
     [Scene.Notebooks]: {
         projectBased: true,
@@ -279,7 +277,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
@@ -292,7 +289,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
         layout: 'app-full-scene-height',
     },
     [Scene.RevenueAnalytics]: {
