@@ -49,7 +49,10 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
+        # Reset the context manager on a new run
+        self._context_manager = None
         self._config = config
+
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled

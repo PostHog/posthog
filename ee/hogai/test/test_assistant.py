@@ -66,7 +66,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
-from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatOpenAI
+from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -1321,9 +1321,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        root_model_mock.return_value = FakeChatOpenAI(
+        root_model_mock.return_value = FakeChatAnthropic(
             responses=[
-                messages.AIMessage(content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs"}}])
+                messages.AIMessage(
+                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
+                )
             ]
         )
         inkeep_docs_model_mock.return_value = FakeChatOpenAI(
@@ -1684,7 +1686,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantToolCallMessage(
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
-                    ui_payload={"create_and_query_insight": query.model_dump()},
+                    ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                     visible=False,
                 ),
             ),
@@ -1713,7 +1715,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantToolCallMessage(
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
-                ui_payload={"create_and_query_insight": query.model_dump()},
+                ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                 visible=False,
             ),
             AssistantMessage(content="Everything is fine"),

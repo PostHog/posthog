@@ -1229,7 +1229,7 @@ class TestRootNodeTools(BaseTest):
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
     async def test_arun_tool_returns_wrong_type_raises(self):
-        """Test that tool returning wrong type raises TypeError"""
+        """Test that tool returning wrong type raises ValueError"""
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -1243,16 +1243,19 @@ class TestRootNodeTools(BaseTest):
 
         with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
             mock_tool = AsyncMock()
-            mock_tool.ainvoke.return_value = "Wrong type"  # Should be LangchainToolMessage or AssistantToolCallMessage
+            mock_tool.ainvoke.return_value = "Wrong type"  # Should be LangchainToolMessage
             mock_get_tool.return_value = lambda *args, **kwargs: mock_tool
 
-            with self.assertRaises(TypeError) as cm:
-                await node.arun(state, {"configurable": {"contextual_tools": {"test_tool": {}}}})
+            result = await node.arun(state, {"configurable": {"contextual_tools": {"test_tool": {}}}})
 
-            self.assertIn("Expected a", str(cm.exception))
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertEqual(len(result.messages), 1)
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
+            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+            self.assertEqual(result.root_tool_calls_count, 1)
 
-    async def test_arun_unknown_tool_raises(self):
-        """Test that unknown tool name raises ValueError"""
+    async def test_arun_unknown_tool_returns_error_message(self):
+        """Test that unknown tool name returns an error message"""
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -1265,7 +1268,10 @@ class TestRootNodeTools(BaseTest):
         )
 
         with patch("ee.hogai.tool.get_contextual_tool_class", return_value=None):
-            with self.assertRaises(ValueError) as cm:
-                await node.arun(state, {})
+            result = await node.arun(state, {})
 
-            self.assertIn("Unknown tool called", str(cm.exception))
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertEqual(len(result.messages), 1)
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
+            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+            self.assertEqual(result.root_tool_calls_count, 1)

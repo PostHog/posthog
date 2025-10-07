@@ -1,6 +1,7 @@
 import json
 import pkgutil
 import importlib
+from collections.abc import Sequence
 from typing import Any, Literal, Self
 
 from asgiref.sync import async_to_sync
@@ -17,6 +18,7 @@ import products
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
 
@@ -40,6 +42,12 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
+class ToolMessagesArtifact(BaseModel):
+    """Return messages directly. Use with `artifact`."""
+
+    messages: Sequence[AssistantMessageUnion]
+
+
 class MaxTool(AssistantContextMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
@@ -59,7 +67,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
     show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
-    _context: dict[str, Any]
     _config: RunnableConfig
     _state: AssistantState
     _context_manager: AssistantContextManager
@@ -131,9 +138,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
     @property
     def context(self) -> dict:
-        if not hasattr(self, "_context"):
-            raise AttributeError("Tool has not been run yet")
-        return self._context
+        return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
     def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {

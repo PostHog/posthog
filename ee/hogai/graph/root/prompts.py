@@ -155,3 +155,10 @@ This session continues from a prior conversation that exceeded the context windo
 ROOT_GROUPS_PROMPT = """
 The user has defined the following groups: {{{groups}}}.
 """.strip()
+
+ROOT_TOOL_DOES_NOT_EXIST = """
+This tool does not exist.
+<system_reminder>
+Only use tools that are available to you.
+</system_reminder>
+""".strip()
