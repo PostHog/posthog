@@ -143,17 +143,18 @@ const sessionReplayOnboardingToggle = (
     currentTeam: TeamType | TeamPublicType | null,
     selectedProducts: ProductKey[]
 ): ProductConfigOption => {
+    const userDecision =
+        currentTeam?.session_recording_opt_in ||
+        selectedProducts.includes(ProductKey.SESSION_REPLAY) ||
+        currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.SESSION_REPLAY)
+
     return {
         title: 'Enable session recordings',
         description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
         teamProperty: 'session_recording_opt_in',
         // TRICKY: if someone has shown secondary (or tertiary or...) product intent for replay we want to include it as enabled
         // particularly while we're not taking people through every product onboarding they showed interest in
-        value:
-            (currentTeam?.session_recording_opt_in ||
-                selectedProducts.includes(ProductKey.SESSION_REPLAY) ||
-                currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.SESSION_REPLAY)) ??
-            false,
+        value: userDecision ?? false,
         type: 'toggle',
         visible: true,
     }
