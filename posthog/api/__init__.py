@@ -39,7 +39,6 @@ from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
-    activity_log,
     advanced_activity_logs,
     alert,
     annotation,
@@ -180,7 +179,7 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
     r"activity_log",
-    activity_log.ActivityLogViewSet,
+    advanced_activity_logs.ActivityLogViewSet,
     "project_activity_log",
     ["project_id"],
 )
