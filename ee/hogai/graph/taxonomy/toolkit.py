@@ -122,8 +122,6 @@ class TaxonomyTaskExecutorNode(
     Task executor node specifically for taxonomy operations.
     """
 
-    _send_task_execution_message = True
-
     @property
     def node_name(self) -> MaxNodeName:
         return TaxonomyNodeName.TASK_EXECUTOR
@@ -662,7 +660,7 @@ class TaxonomyAgentToolkit:
                     id=str(event_name_or_action_id),
                     prompt=str(event_name_or_action_id),
                     status=TaskExecutionStatus.PENDING,
-                    description=f"Retrieving event or action properties",
+                    description="Retrieving event or action properties",
                     progress_text=f"Retrieving properties for {event_name_or_action_id}...",
                     task_type="retrieve_event_or_action_properties",
                 )
