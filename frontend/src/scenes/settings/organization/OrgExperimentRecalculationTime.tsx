@@ -7,7 +7,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { organizationLogic } from '~/scenes/organizationLogic'
 import { teamLogic } from '~/scenes/teamLogic'
 
 const DEFAULT_RECALCULATION_UTC_HOUR = 2 // 02:00 UTC default
@@ -38,9 +37,8 @@ const localHourToUtcString = (localHour: number, projectTimezone: string): strin
 }
 
 export function OrganizationExperimentRecalculationTime(): JSX.Element {
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-    const { timezone: projectTimezone } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, timezone: projectTimezone } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -49,10 +47,10 @@ export function OrganizationExperimentRecalculationTime(): JSX.Element {
     const handleChange = (value: string): void => {
         const localHour = parseInt(value, 10)
         const utcTimeString = localHourToUtcString(localHour, projectTimezone)
-        updateOrganization({ experiment_recalculation_time: utcTimeString })
+        updateCurrentTeam({ experiment_recalculation_time: utcTimeString })
     }
 
-    const currentLocalHour = utcToLocalHour(currentOrganization?.experiment_recalculation_time, projectTimezone)
+    const currentLocalHour = utcToLocalHour(currentTeam?.experiment_recalculation_time, projectTimezone)
 
     return (
         <div>
@@ -67,7 +65,7 @@ export function OrganizationExperimentRecalculationTime(): JSX.Element {
                         value={currentLocalHour.toString()}
                         onChange={handleChange}
                         options={hourOptions}
-                        disabledReason={restrictionReason || (currentOrganizationLoading ? 'Loading...' : undefined)}
+                        disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
                         data-attr="organization-experiment-recalculation-time"
                         placeholder="Select recalculation time"
                     />

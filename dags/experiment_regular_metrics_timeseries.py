@@ -26,8 +26,8 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.models import Organization
 from posthog.models.experiment import Experiment, ExperimentMetricResult
+from posthog.models.team import Team
 
 from dags.common import JobOwners
 
@@ -355,34 +355,8 @@ def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.Sens
 
 
 # =============================================================================
-# Organization Filtering
+# Helper Functions
 # =============================================================================
-
-
-def _get_organizations_for_current_hour(current_hour: int) -> set[int]:
-    """Get organization IDs that should run at this hour"""
-    target_time = time(current_hour, 0, 0)
-
-    # Build time filter
-    if current_hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = Q(experiment_recalculation_time=target_time) | Q(experiment_recalculation_time__isnull=True)
-    else:
-        time_filter = Q(experiment_recalculation_time=target_time)
-
-    # Get organizations that have active timeseries experiments AND match the time filter
-    target_org_ids = set(
-        Organization.objects.filter(
-            team__experiment__deleted=False,
-            team__experiment__stats_config__timeseries=True,
-            team__experiment__start_date__isnull=False,
-            team__experiment__end_date__isnull=True,
-        )
-        .filter(time_filter)
-        .distinct()
-        .values_list("id", flat=True)
-    )
-
-    return target_org_ids
 
 
 def _extract_experiment_id_from_partition_key(partition_key: str) -> int:
@@ -405,28 +379,33 @@ def _extract_experiment_id_from_partition_key(partition_key: str) -> int:
 def experiment_regular_metrics_timeseries_refresh_schedule(context: dagster.ScheduleEvaluationContext):
     """
     This schedule runs hourly and reprocesses experiment-regular metric combinations
-    for organizations scheduled at the current hour.
+    for teams scheduled at the current hour.
     """
     try:
         current_hour = context.scheduled_execution_time.hour
+        target_time = time(current_hour, 0, 0)
 
-        target_org_ids = _get_organizations_for_current_hour(current_hour)
+        # Build time filter for teams
+        if current_hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
+            # At default hour, include teams with NULL (not set) or explicitly set to this hour
+            time_filter = Q(experiment_recalculation_time=target_time) | Q(experiment_recalculation_time__isnull=True)
+        else:
+            # At other hours, only include teams explicitly set to this hour
+            time_filter = Q(experiment_recalculation_time=target_time)
 
-        if not target_org_ids:
-            return dagster.SkipReason(f"No organizations scheduled for {current_hour}:00 UTC")
-
+        # Get all experiments from teams scheduled at this hour
         target_experiment_ids = set(
             Experiment.objects.filter(
                 deleted=False,
                 stats_config__timeseries=True,
                 start_date__isnull=False,
                 end_date__isnull=True,
-                team__organization_id__in=target_org_ids,
+                team__in=Team.objects.filter(time_filter),
             ).values_list("id", flat=True)
         )
 
         if not target_experiment_ids:
-            return dagster.SkipReason(f"No experiments found for organizations scheduled at {current_hour}:00 UTC")
+            return dagster.SkipReason(f"No experiments found for teams scheduled at {current_hour}:00 UTC")
 
         all_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
 
@@ -445,10 +424,10 @@ def experiment_regular_metrics_timeseries_refresh_schedule(context: dagster.Sche
                 continue
 
         if not partitions_to_run:
-            return dagster.SkipReason(f"No metrics to process for organizations at {current_hour}:00 UTC")
+            return dagster.SkipReason(f"No metrics to process for teams at {current_hour}:00 UTC")
 
         context.log.info(
-            f"Scheduling refresh for {len(partitions_to_run)} partitions from {len(target_org_ids)} organizations at {current_hour}:00 UTC"
+            f"Scheduling refresh for {len(partitions_to_run)} partitions for teams at {current_hour}:00 UTC"
         )
 
         return [
