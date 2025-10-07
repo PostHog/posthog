@@ -9,8 +9,6 @@ import * as schemas from '../src/schema/tool-inputs'
 
 const outputPath = path.join(__dirname, '../../schema/tool-inputs.json')
 
-console.log('Generating JSON schema from Zod tool-inputs schemas...')
-
 try {
     // Convert all Zod schemas to JSON Schema
     const jsonSchemas = {
@@ -21,7 +19,6 @@ try {
     // Add each schema to the definitions
     for (const [schemaName, zodSchema] of Object.entries(schemas)) {
         if (schemaName.endsWith('Schema')) {
-            console.log(`Converting ${schemaName}...`)
             const jsonSchema = zodToJsonSchema(zodSchema, {
                 name: schemaName,
                 $refStrategy: 'none',
@@ -55,11 +52,6 @@ try {
     // Write the combined schema
     const schemaString = JSON.stringify(jsonSchemas, null, 2)
     fs.writeFileSync(outputPath, schemaString)
-
-    console.log(`✅ JSON schema generated successfully at: ${outputPath}`)
-    console.log(
-        `📋 Generated schemas for ${Object.keys(jsonSchemas.definitions).length} tool input types`
-    )
 } catch (err) {
     console.error('❌ Error generating schema:', err)
     process.exit(1)

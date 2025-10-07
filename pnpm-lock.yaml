@@ -2098,6 +2098,9 @@ importers:
       husky:
         specifier: ^9.1.7
         version: 9.1.7
+      oxlint:
+        specifier: ^1.8.0
+        version: 1.9.0
       prettier:
         specifier: ^3.4.2
         version: 3.6.2

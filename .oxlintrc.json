@@ -15,8 +15,7 @@
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
-        "common/hogvm/__tests__/__snapshots__/**",
-        "products/mcp/**"
+        "common/hogvm/__tests__/__snapshots__/**"
     ],
     "rules": {
         "no-constant-condition": "off",

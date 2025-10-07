@@ -294,7 +294,9 @@ export const SurveyQuestionInputSchema = z
     ])
     .superRefine((data, ctx) => {
         // Validate that branching is only used with supported question types
-        if (!('branching' in data) || !data.branching) return
+        if (!('branching' in data) || !data.branching) {
+            return
+        }
 
         const supportedTypes = ['rating', 'single_choice']
         if (!supportedTypes.includes(data.type)) {

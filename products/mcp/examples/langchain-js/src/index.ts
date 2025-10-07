@@ -5,8 +5,6 @@ import { AgentExecutor, createToolCallingAgent } from 'langchain/agents'
 import 'dotenv/config'
 
 async function analyzeProductUsage() {
-    console.log('🚀 PostHog Langchain Agent - Product Usage Analysis\n')
-
     const agentToolkit = new PostHogAgentToolkit({
         posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
         posthogApiBaseUrl: process.env.POSTHOG_API_BASE_URL || 'https://us.posthog.com',
@@ -49,11 +47,6 @@ async function analyzeProductUsage() {
         
         Keep your response focused and data-driven.`,
     })
-
-    console.log('\n📊 Analysis Complete!\n')
-    console.log('='.repeat(50))
-    console.log(result.output)
-    console.log('='.repeat(50))
 }
 
 async function main() {

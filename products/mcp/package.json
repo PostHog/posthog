@@ -12,8 +12,8 @@
         "test:integration": "cd typescript && pnpm test:integration",
         "schema:build:python": "bash python/scripts/generate-pydantic-models.sh",
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
-        "format": "prettier --write .",
-        "lint": "prettier --check .",
+        "format": "prettier --write . && oxlint --fix --fix-suggestions --quiet .",
+        "lint": "prettier --check . && oxlint .",
         "format:python": "cd python && uv run ruff format .",
         "lint:python": "cd python && uv run ruff check --fix .",
         "test:python": "cd python && uv run pytest tests/ -v",
@@ -25,6 +25,7 @@
     },
     "devDependencies": {
         "husky": "^9.1.7",
+        "oxlint": "^1.8.0",
         "prettier": "^3.4.2",
         "tsx": "^4.20.3"
     },

@@ -4,8 +4,6 @@ import { generateText, stepCountIs } from 'ai'
 import 'dotenv/config'
 
 async function analyzeProductUsage() {
-    console.log('🚀 PostHog AI Agent - Product Usage Analysis\n')
-
     const agentToolkit = new PostHogAgentToolkit({
         posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
         posthogApiBaseUrl: process.env.POSTHOG_API_BASE_URL || 'https://us.posthog.com',
@@ -25,15 +23,9 @@ async function analyzeProductUsage() {
         Keep your response focused and data-driven.`,
     })
 
-    console.log('📊 Analysis Complete!\n')
-    console.log('='.repeat(50))
-    console.log(result.text)
-    console.log('='.repeat(50))
-
     // Show tool usage summary
     const toolCalls = result.steps.flatMap((step) => step.toolCalls ?? [])
     if (toolCalls.length > 0) {
-        console.log('\n🔧 Tools Used:')
         const toolUsage = toolCalls.reduce(
             (acc, call) => {
                 acc[call.toolName] = (acc[call.toolName] || 0) + 1
@@ -43,7 +35,6 @@ async function analyzeProductUsage() {
         )
 
         for (const [tool, count] of Object.entries(toolUsage)) {
-            console.log(`  • ${tool}: ${count} call${count > 1 ? 's' : ''}`)
         }
     }
 }

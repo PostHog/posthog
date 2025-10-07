@@ -350,7 +350,9 @@ export class ApiClient {
                 const experimentDetails = await this.experiments({ projectId }).get({
                     experimentId,
                 })
-                if (!experimentDetails.success) return experimentDetails
+                if (!experimentDetails.success) {
+                    return experimentDetails
+                }
 
                 const experiment = experimentDetails.data
 
@@ -432,7 +434,9 @@ export class ApiClient {
                     experimentId,
                 })
 
-                if (!experimentDetails.success) return experimentDetails
+                if (!experimentDetails.success) {
+                    return experimentDetails
+                }
 
                 const experiment = experimentDetails.data
 
@@ -456,7 +460,9 @@ export class ApiClient {
                     experimentId,
                     refresh,
                 })
-                if (!experimentExposure.success) return experimentExposure
+                if (!experimentExposure.success) {
+                    return experimentExposure
+                }
 
                 const { exposures } = experimentExposure.data
 
@@ -985,11 +991,15 @@ export class ApiClient {
                 const validatedParams = params ? ListDashboardsSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
-                if (validatedParams?.limit)
+                if (validatedParams?.limit) {
                     searchParams.append('limit', String(validatedParams.limit))
-                if (validatedParams?.offset)
+                }
+                if (validatedParams?.offset) {
                     searchParams.append('offset', String(validatedParams.offset))
-                if (validatedParams?.search) searchParams.append('search', validatedParams.search)
+                }
+                if (validatedParams?.search) {
+                    searchParams.append('search', validatedParams.search)
+                }
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/dashboards/${searchParams.toString() ? `?${searchParams}` : ''}`
 
@@ -1166,11 +1176,15 @@ export class ApiClient {
                 const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
-                if (validatedParams?.limit)
+                if (validatedParams?.limit) {
                     searchParams.append('limit', String(validatedParams.limit))
-                if (validatedParams?.offset)
+                }
+                if (validatedParams?.offset) {
                     searchParams.append('offset', String(validatedParams.offset))
-                if (validatedParams?.search) searchParams.append('search', validatedParams.search)
+                }
+                if (validatedParams?.search) {
+                    searchParams.append('search', validatedParams.search)
+                }
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${searchParams.toString() ? `?${searchParams}` : ''}`
 

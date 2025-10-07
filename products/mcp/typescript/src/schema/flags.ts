@@ -44,7 +44,9 @@ export const PersonPropertyFilterSchema = z
     })
     .superRefine((data, ctx) => {
         const { value, operator } = data
-        if (!operator) return
+        if (!operator) {
+            return
+        }
         const isArray = Array.isArray(value)
 
         const valid =
@@ -53,17 +55,19 @@ export const PersonPropertyFilterSchema = z
             (typeof value === 'boolean' && booleanOps.includes(operator as any)) ||
             (isArray && arrayOps.includes(operator as any))
 
-        if (!valid)
+        if (!valid) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 message: `operator "${operator}" is not valid for value type "${isArray ? 'array' : typeof value}"`,
             })
+        }
 
-        if (!isArray && arrayOps.includes(operator as any))
+        if (!isArray && arrayOps.includes(operator as any)) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 message: `operator "${operator}" requires an array value`,
             })
+        }
     })
     .transform((data) => {
         // when using is_set or is_not_set, set the value the same as the operator
