@@ -34,12 +34,12 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
         recording_blocks = await workflow.execute_activity(
             load_recording_blocks,
             recording_input,
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(seconds=10),
+            heartbeat_timeout=timedelta(minutes=1),
         )
 
         if len(recording_blocks) > 0:
@@ -51,7 +51,7 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),
                 ),
-                heartbeat_timeout=timedelta(seconds=10),
+                heartbeat_timeout=timedelta(minutes=1),
             )
 
 
@@ -68,12 +68,12 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
         session_ids = await workflow.execute_activity(
             load_recordings_with_person,
             RecordingsWithPersonInput(distinct_ids=input.distinct_ids, team_id=input.team_id),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(seconds=10),
+            heartbeat_timeout=timedelta(minutes=1),
         )
 
         for batch in batched(session_ids, input.batch_size):
