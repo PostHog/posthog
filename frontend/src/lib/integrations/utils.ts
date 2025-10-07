@@ -3,6 +3,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
 
 import IconClickUp from 'public/services/clickup.svg'
+import IconDatabricks from 'public/services/databricks.png'
 import IconGitHub from 'public/services/github.png'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
@@ -39,6 +40,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
+    databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
 }
 

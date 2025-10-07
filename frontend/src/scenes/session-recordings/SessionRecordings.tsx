@@ -251,12 +251,11 @@ export function SessionRecordingsPageTabs(): JSX.Element {
 
     return (
         // TRICKY @adamleithp: since session replay doesn't want a scene title section, we need to add our SceneActions to the top of the page
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 relative">
             <LemonTabs
                 activeKey={tab}
                 className={cn('flex -mt-4')}
-                // TRICKY @adamleithp: we need to add a right padding to the tabs bar to account for the SceneActions
-                barClassName="mb-0 pr-48"
+                barClassName="mb-0"
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
                 sceneInset
                 tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
@@ -275,11 +274,8 @@ export function SessionRecordingsPageTabs(): JSX.Element {
                         'data-attr': replayTab['data-attr'],
                     }
                 })}
+                rightSlot={<Header />}
             />
-            {/* TRICKY @adamleithp: position the actions to the right of the tabs bar absolutely */}
-            <div className="absolute right-0 top-0 pt-[6px] pr-4 bg-primary flex gap-x-2 shrink-0">
-                <Header />
-            </div>
         </div>
     )
 }

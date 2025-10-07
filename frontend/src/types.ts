@@ -240,7 +240,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    EMBEDDED_ANALYTICS = 'embedded_analytics',
+    ENDPOINTS = 'endpoints',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -321,6 +321,7 @@ export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
     hedgehog_config?: MinimalHedgehogConfig
+    role_at_organization?: string | null
 }
 
 /**
@@ -676,6 +677,7 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_message: string
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    experiment_recalculation_time?: string | null
 }
 
 export interface ProductIntentType {
@@ -2110,7 +2112,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface QueryEndpointType extends WithAccessControl {
+export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
@@ -3821,7 +3823,7 @@ export interface ExperimentHoldoutType {
     id: number | null
     name: string
     description: string | null
-    filters: Record<string, any>
+    filters: FeatureFlagGroupType[]
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
@@ -4331,6 +4333,7 @@ export const INTEGRATION_KINDS = [
     'meta-ads',
     'clickup',
     'reddit-ads',
+    'databricks',
     'tiktok-ads',
 ] as const
 
@@ -4965,8 +4968,23 @@ export type BatchExportServiceRedshift = {
     }
 }
 
+export type BatchExportServiceDatabricks = {
+    type: 'Databricks'
+    integration: number
+    config: {
+        http_path: string
+        catalog: string
+        schema: string
+        table_name: string
+        use_variant_type: boolean
+        table_partition_field: string | null
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 // When adding a new option here also add a icon for it to
-// src/scenes/pipeline/icons/
+// frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'S3',
@@ -4975,6 +4993,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'BigQuery',
     'Redshift',
     'HTTP',
+    'Databricks',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
@@ -4983,6 +5002,7 @@ export type BatchExportService =
     | BatchExportServiceBigQuery
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
+    | BatchExportServiceDatabricks
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
@@ -5821,4 +5841,53 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Session Summaries
+export interface SessionSummaryResponse {
+    patterns: EnrichedSessionGroupSummaryPattern[]
+}
+
+export interface EnrichedSessionGroupSummaryPattern {
+    pattern_id: number
+    pattern_name: string
+    pattern_description: string
+    severity: 'low' | 'medium' | 'high' | 'critical'
+    indicators: string[]
+    events: PatternAssignedEventSegmentContext[]
+    stats: EnrichedSessionGroupSummaryPatternStats
+}
+
+export interface EnrichedSessionGroupSummaryPatternStats {
+    occurences: number
+    sessions_affected: number
+    sessions_affected_ratio: number
+    segments_success_ratio: number
+}
+
+export interface PatternAssignedEventSegmentContext {
+    segment_name: string
+    segment_outcome: string
+    segment_success: boolean
+    segment_index: number
+    previous_events_in_segment: EnrichedPatternAssignedEvent[]
+    target_event: EnrichedPatternAssignedEvent
+    next_events_in_segment: EnrichedPatternAssignedEvent[]
+}
+
+export interface EnrichedPatternAssignedEvent {
+    event_id: string
+    event_uuid: string
+    session_id: string
+    description: string
+    abandonment: boolean
+    confusion: boolean
+    exception: string | null
+    timestamp: string
+    milliseconds_since_start: number
+    window_id: string | null
+    current_url: string | null
+    event: string
+    event_type: string | null
+    event_index: number
 }

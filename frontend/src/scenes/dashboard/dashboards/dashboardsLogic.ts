@@ -10,8 +10,9 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectClean } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Breadcrumb, DashboardBasicType } from '~/types'
+import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
 
 import type { dashboardsLogicType } from './dashboardsLogicType'
 
@@ -130,6 +131,12 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     iconType: 'dashboard',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.DASHBOARD,
+            }),
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({
