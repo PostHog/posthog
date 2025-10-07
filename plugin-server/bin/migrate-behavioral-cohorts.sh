@@ -28,7 +28,10 @@ if [[ -n "${DB_PASS}" ]]; then
 fi
 psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres -c "CREATE DATABASE ${DB_NAME}" 2>/dev/null || true
 
+# Change to script directory to ensure correct paths
+cd "$(dirname "$0")/.."
+
 # Run migrations
-DATABASE_URL="${BEHAVIORAL_COHORTS_DB_URL}" npx node-pg-migrate up --config-file .node-pg-migrate-behavioral-cohorts.json
+DATABASE_URL="${BEHAVIORAL_COHORTS_DB_URL}" npx node-pg-migrate up
 
 echo "Behavioral cohorts migrations completed successfully"
