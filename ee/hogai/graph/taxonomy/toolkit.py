@@ -15,9 +15,9 @@ from posthog.schema import (
     CacheMissResponse,
     EventTaxonomyItem,
     EventTaxonomyQuery,
+    QueryStatusResponse,
     TaskExecutionItem,
     TaskExecutionStatus,
-    QueryStatusResponse,
 )
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -32,17 +32,16 @@ from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
-
-from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.graph.taxonomy.format import (
     enrich_props_with_descriptions,
     format_properties_xml,
     format_properties_yaml,
     format_property_values,
 )
+from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
+from ee.hogai.utils.types.composed import MaxNodeName
 
+from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from .tools import (
     TaxonomyTool,
     ask_user_for_help,
@@ -182,6 +181,10 @@ class TaxonomyAgentToolkit:
     @database_sync_to_async(thread_sensitive=False)
     def _get_entity_names(self) -> list[str]:
         return self._entity_names
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _get_team_group_types(self) -> list[str]:
+        return self._team_group_types
 
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
         return enrich_props_with_descriptions(entity, props)
@@ -359,12 +362,11 @@ class TaxonomyAgentToolkit:
         groups = []
 
         for entity in entities:
-            # TODO FIX THIS
-            if entity in self._groups:
-                print(f"Entity {entity} not found in groups")
+            group_types = [group.group_type async for group in self._groups]
+
+            if entity in group_types:
                 groups.append(entity)
             else:
-                print(f"Entity {entity} found in groups")
                 entity_tasks.append(
                     TaskExecutionItem(
                         id=str(entity),
@@ -408,7 +410,6 @@ class TaxonomyAgentToolkit:
                 final_result[task_result.id] = task_result.result
         return final_result
 
-    # @database_sync_to_async(thread_sensitive=False)
     async def _handle_event_or_action_properties_task(self, input_dict: dict) -> TaskResult:
         """
         Retrieve properties for an event.
@@ -417,7 +418,7 @@ class TaxonomyAgentToolkit:
         task = cast(TaskExecutionItem, input_dict["task"])
 
         try:
-            response, verbose_name = self._retrieve_event_or_action_taxonomy(task.prompt)
+            response, verbose_name = await self._retrieve_event_or_action_taxonomy(task.prompt)
         except Action.DoesNotExist:
             project_actions = await self._get_project_actions()
             if not project_actions:
@@ -459,7 +460,10 @@ class TaxonomyAgentToolkit:
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_to_type = {property_definition.name: property_definition.property_type async for property_definition in qs}
+        property_definitions = [prop async for prop in qs]
+        property_to_type = {
+            property_definition.name: property_definition.property_type for property_definition in property_definitions
+        }
         props = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
@@ -486,7 +490,6 @@ class TaxonomyAgentToolkit:
             status=TaskExecutionStatus.COMPLETED,
         )
 
-    # @database_sync_to_async
     async def _handle_group_properties_task(self, input_dict: dict) -> TaskResult:
         task = cast(TaskExecutionItem, input_dict["task"])
         try:
@@ -496,15 +499,8 @@ class TaxonomyAgentToolkit:
         entity_to_group_index = {}
         artifacts = []
         for group_entity in group_entities:
-            # group_type_index = next(
-            #     (group.group_type_index for group in self._groups if group.group_type == group_entity), None
-            # )
-
-            group_type_index = None
-            async for group in self._groups.further_orm_chain_if_needed():
-                if group.group_type == group_entity:
-                    group_type_index = group.group_type_index
-                    break
+            group_types = {group.group_type: group.group_type_index async for group in self._groups}
+            group_type_index = group_types.get(group_entity, None)
             if group_type_index is not None:
                 entity_to_group_index[group_entity] = group_type_index
             else:
@@ -524,12 +520,14 @@ class TaxonomyAgentToolkit:
                 type=PropertyDefinition.Type.GROUP,
                 group_type_index__in=entity_to_group_index.values(),
             ).values_list("name", "property_type", "group_type_index")[: self.MAX_PROPERTIES]
-
+            group_qs_definitions = [prop async for prop in group_qs]
             # Group results by entity
             for entity in group_entities:
                 if entity in entity_to_group_index.keys():
                     group_index = entity_to_group_index[entity]
-                    properties = [(name, prop_type) for name, prop_type, gti in group_qs if gti == group_index]
+                    properties = [
+                        (name, prop_type) for name, prop_type, gti in group_qs_definitions if gti == group_index
+                    ]
                     result = (
                         self._format_properties(self._enrich_props_with_descriptions(entity, properties))
                         if properties
@@ -551,7 +549,6 @@ class TaxonomyAgentToolkit:
             status=TaskExecutionStatus.COMPLETED,
         )
 
-
     async def _handle_entity_properties_task(self, input_dict: dict) -> TaskResult:
         task = cast(TaskExecutionItem, input_dict["task"])
         entity = task.prompt
@@ -559,8 +556,9 @@ class TaxonomyAgentToolkit:
             person_qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.PERSON
             ).values_list("name", "property_type")
-            if person_qs:
-                result = self._format_properties(self._enrich_props_with_descriptions("person", [prop async for prop in person_qs]))
+            person_definitions = [prop async for prop in person_qs]
+            if person_definitions:
+                result = self._format_properties(self._enrich_props_with_descriptions("person", person_definitions))
                 status = TaskExecutionStatus.COMPLETED
             else:
                 result = TaxonomyErrorMessages.properties_not_found(entity)
@@ -655,7 +653,9 @@ class TaxonomyAgentToolkit:
     def _get_project_actions(self) -> list[Action]:
         return list(Action.objects.filter(team__project_id=self._team.project_id, deleted=False))
 
-    async def retrieve_event_or_action_properties_parallel(self, event_name_or_action_ids: list[str | int]) -> dict[str, str]:
+    async def retrieve_event_or_action_properties_parallel(
+        self, event_name_or_action_ids: list[str | int]
+    ) -> dict[str, str]:
         task_executor_state = BaseStateWithTasks(
             tasks=[
                 TaskExecutionItem(

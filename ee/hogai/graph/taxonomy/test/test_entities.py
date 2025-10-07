@@ -56,11 +56,22 @@ class TestEntities(NonAtomicBaseTest):
 
     async def test_retrieve_entity_properties(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["person"])
-        print(result)
         assert (
             "<properties><String><prop><name>name</name></prop><prop><name>property_no_values</name></prop></String></properties>"
-            == result
+            == result["person"]
         )
+
+    async def test_retrieve_entity_properties_entity_not_found(self):
+        result = await self.toolkit.retrieve_entity_properties_parallel(["test"])
+        assert "Entity test not found. Available entities: person, session, organization, project" == result["test"]
+
+    async def test_retrieve_entity_properties_entity_with_group(self):
+        result = await self.toolkit.retrieve_entity_properties_parallel(["organization", "session"])
+        assert "session" in result
+        assert (
+            "<properties><String><prop><name>name_group</name></prop></String></properties>" == result["organization"]
+        )
+        assert "<properties>" in result["session"]
 
     async def test_person_property_values_exists(self):
         result = await self.toolkit._get_entity_names()

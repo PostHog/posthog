@@ -53,8 +53,8 @@ logger.setLevel(logging.DEBUG)
 
 
 class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
     async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
