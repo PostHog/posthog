@@ -150,9 +150,9 @@ const sessionReplayOnboardingToggle = (
         // TRICKY: if someone has shown secondary (or tertiary or...) product intent for replay we want to include it as enabled
         // particularly while we're not taking people through every product onboarding they showed interest in
         value:
-            currentTeam?.session_recording_opt_in ||
-            selectedProducts.includes(ProductKey.SESSION_REPLAY) ||
-            currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.SESSION_REPLAY) ||
+            (currentTeam?.session_recording_opt_in ||
+                selectedProducts.includes(ProductKey.SESSION_REPLAY) ||
+                currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.SESSION_REPLAY)) ??
             false,
         type: 'toggle',
         visible: true,
