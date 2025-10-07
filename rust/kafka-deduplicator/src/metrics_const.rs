@@ -87,6 +87,13 @@ pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 /// Counter for checkpoint worker status
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
+/// Counter for checkpoint worker metadata exported
+pub const CHECKPOINT_WORKER_METADATA_EXPORTED_COUNTER: &str = "checkpoint_worker_metadata_exported";
+
+/// Histogram for checkpoint metadata export duration in seconds
+pub const CHECKPOINT_WORKER_META_EXPORT_DURATION_HISTOGRAM: &str =
+    "checkpoint_worker_meta_export_duration_seconds";
+
 /// Counter for the number of checkpoint directories found
 pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
 

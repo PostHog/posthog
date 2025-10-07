@@ -96,10 +96,7 @@ impl KafkaDeduplicatorService {
         // create exporter conditionally if S3 config is populated
         let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
             let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
-            Some(Arc::new(CheckpointExporter::new(
-                checkpoint_config.clone(),
-                uploader,
-            )))
+            Some(Arc::new(CheckpointExporter::new(uploader)))
         } else {
             None
         };

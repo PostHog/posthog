@@ -1,13 +1,14 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointTarget, CheckpointUploader,
-    CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
+    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointMode, CheckpointTarget,
+    CheckpointType, CheckpointUploader, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX,
+    CHECKPOINT_TOPIC_PREFIX,
 };
 use kafka_deduplicator::checkpoint_manager::CheckpointManager;
 use kafka_deduplicator::kafka::types::Partition;
@@ -150,6 +151,24 @@ impl MockUploader {
 
         Ok(uploaded_keys)
     }
+
+    async fn upload_file(&self, local_path: &Path, s3_key: &str) -> Result<()> {
+        let target_path = self.upload_dir.join(s3_key);
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = target_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        tokio::fs::copy(&local_path, &target_path).await?;
+
+        info!(
+            "Mock uploaded file {:?} with key {} to {:?}",
+            local_path, s3_key, target_path
+        );
+
+        Ok(())
+    }
 }
 
 impl Default for MockUploader {
@@ -182,6 +201,29 @@ impl CheckpointUploader for MockUploader {
 
         info!("Mock uploaded {} files", uploaded_keys.len());
         Ok(uploaded_keys)
+    }
+
+    async fn upload_metadata_file(
+        &self,
+        local_metadata_file: &Path,
+        s3_metadata_key: &str,
+    ) -> Result<()> {
+        if !local_metadata_file.exists() {
+            return Err(anyhow::anyhow!(
+                "Local checkpoint path does not exist: {:?}",
+                local_metadata_file
+            ));
+        }
+
+        info!(
+            "Mock uploading checkpoint directory: {:?} with prefix {}",
+            local_metadata_file, s3_metadata_key
+        );
+        self.upload_file(local_metadata_file, s3_metadata_key)
+            .await?;
+        info!("Mock uploaded checkpoint metadata file");
+
+        Ok(())
     }
 
     async fn is_available(&self) -> bool {
@@ -247,19 +289,8 @@ fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
 
 #[tokio::test]
 async fn test_checkpoint_exporter_creation() {
-    let temp_dir = TempDir::new().unwrap();
-    let config = CheckpointConfig {
-        checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
-        s3_bucket: "test-bucket".to_string(),
-        s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
-        ..Default::default()
-    };
-
     let uploader = MockUploader::new().unwrap();
-    let exporter = CheckpointExporter::new(config, Box::new(uploader));
+    let exporter = CheckpointExporter::new(Box::new(uploader));
     assert!(exporter.is_available().await);
 }
 
@@ -293,14 +324,15 @@ async fn test_manual_checkpoint_export_incremental() {
     };
 
     let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Some(Arc::new(CheckpointExporter::new(
-        config.clone(),
-        uploader.clone(),
-    )));
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
 
+    let attempt_timestamp = Some(SystemTime::now());
     let partition = Partition::new(test_topic.to_string(), test_partition);
-    let target =
-        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target = CheckpointTarget::new(
+        partition.clone(),
+        attempt_timestamp,
+        Path::new(&config.local_checkpoint_dir),
+    );
 
     let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
@@ -308,23 +340,25 @@ async fn test_manual_checkpoint_export_incremental() {
     let result = worker
         .checkpoint_partition(CheckpointMode::Incremental, &store)
         .await;
-    assert!(result.is_ok());
+    assert!(
+        result.is_ok(),
+        "checkpoint should succeed: {:?}",
+        result.err()
+    );
 
     let result = result.unwrap();
     assert!(result.is_some());
 
-    // the expected remote path will include the bucket prefix
-    // and the checkpoint mode path element
-    let expected = format!("test-prefix/incremental/{}", &target.remote_path);
+    let expected_remote_checkpoint_attempt_path = target.remote_attempt_path().unwrap();
+    let got = result.unwrap().target.remote_attempt_path().unwrap();
     assert!(
-        result.as_ref().unwrap() == &expected,
-        "remote path should match {}, got: {:?}",
-        expected,
-        result.unwrap()
+        got == expected_remote_checkpoint_attempt_path,
+        "remote path should match {expected_remote_checkpoint_attempt_path}, got: {got}",
     );
 
     // there should be lots of checkpoint files collected from
-    let local_checkpoint_files = find_local_checkpoint_files(&target.local_path).unwrap();
+    let local_checkpoint_files =
+        find_local_checkpoint_files(&target.local_attempt_path().unwrap()).unwrap();
     assert!(!local_checkpoint_files.is_empty());
 
     // there should be lots of checkpoint files collected from
@@ -345,11 +379,14 @@ async fn test_manual_checkpoint_export_incremental() {
         .iter()
         .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
 
+    let expected_remote_metadata_file = target.remote_metadata_file().unwrap();
     let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!remote_checkpoint_files.is_empty());
+    // both checkpoint and metadata tracking files should be in the mock uploader at this point
     assert!(remote_checkpoint_files
         .keys()
-        .all(|k| k.contains("test-prefix/incremental/")));
+        .all(|k| k.contains(&expected_remote_checkpoint_attempt_path)
+            || k.contains(&expected_remote_metadata_file)));
 }
 
 #[tokio::test]
@@ -382,14 +419,15 @@ async fn test_checkpoint_manual_export_full() {
     };
 
     let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Some(Arc::new(CheckpointExporter::new(
-        config.clone(),
-        uploader.clone(),
-    )));
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
 
+    let attempt_timestamp = Some(SystemTime::now());
     let partition = Partition::new(test_topic.to_string(), test_partition);
-    let target =
-        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target = CheckpointTarget::new(
+        partition.clone(),
+        attempt_timestamp,
+        Path::new(&config.local_checkpoint_dir),
+    );
 
     let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
@@ -402,8 +440,19 @@ async fn test_checkpoint_manual_export_full() {
         result.err()
     );
 
+    let result = result.unwrap();
+    assert!(result.is_some());
+
+    let expected_remote_checkpoint_attempt_path = target.remote_attempt_path().unwrap();
+    let got = result.unwrap().target.remote_attempt_path().unwrap();
+    assert!(
+        got == expected_remote_checkpoint_attempt_path,
+        "remote path should match {expected_remote_checkpoint_attempt_path}, got: {got}",
+    );
+
     // there should be lots of checkpoint files collected from
-    let local_checkpoint_files = find_local_checkpoint_files(&target.local_path).unwrap();
+    let local_checkpoint_path = target.local_attempt_path().unwrap();
+    let local_checkpoint_files = find_local_checkpoint_files(&local_checkpoint_path).unwrap();
     assert!(!local_checkpoint_files.is_empty());
 
     // there should be lots of checkpoint files collected from
@@ -424,11 +473,13 @@ async fn test_checkpoint_manual_export_full() {
         .iter()
         .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
 
+    let expected_remote_metadata_file = target.remote_metadata_file().unwrap();
     let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!remote_checkpoint_files.is_empty());
     assert!(remote_checkpoint_files
         .keys()
-        .all(|k| k.contains("test-prefix/full/")));
+        .all(|k| k.contains(&expected_remote_checkpoint_attempt_path)
+            || k.contains(&expected_remote_metadata_file)));
 }
 
 // TODO: incremental snapshot and export is not implemented yet, but
@@ -465,10 +516,7 @@ async fn test_incremental_vs_full_upload_serial() {
     };
 
     let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Some(Arc::new(CheckpointExporter::new(
-        config.clone(),
-        uploader.clone(),
-    )));
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
 
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: tmp_store_dir.path().to_path_buf(),
@@ -490,22 +538,30 @@ async fn test_incremental_vs_full_upload_serial() {
     // eval if some full and incremental uploads were performed
     let stored_files = uploader.get_stored_files().await.unwrap();
 
-    // Check if this was a full upload (every 3rd checkpoint)
-    let full_upload_paths = stored_files
-        .keys()
-        .filter(|k| k.contains("test-prefix/full/"))
-        .collect::<Vec<_>>();
-    let incremental_upload_paths = stored_files
-        .keys()
-        .filter(|k| k.contains("test-prefix/incremental/"))
-        .collect::<Vec<_>>();
+    // Collect uploaded meta files and eval full vs. partial upload vs. config
+    let checkpoint_metadatas = stored_files
+        .iter()
+        .filter(|(k, _)| k.contains("metadata-") && k.ends_with(".json"))
+        .map(|(_, v)| CheckpointMetadata::from_payload(v).unwrap())
+        .collect::<Vec<CheckpointMetadata>>();
+
+    assert!(!checkpoint_metadatas.is_empty());
+
+    let full_upload_count = checkpoint_metadatas
+        .iter()
+        .filter(|m| m.checkpoint_type == CheckpointType::Full)
+        .count();
+    let incremental_upload_count = checkpoint_metadatas
+        .iter()
+        .filter(|m| m.checkpoint_type == CheckpointType::Partial)
+        .count();
 
     assert!(
-        full_upload_paths.len() >= 2,
+        full_upload_count >= 2,
         "Should have performed at least two full uploads"
     );
     assert!(
-        incremental_upload_paths.len() >= 2,
+        incremental_upload_count >= 2,
         "Should have performed at least two incremental uploads"
     );
 }
@@ -540,14 +596,15 @@ async fn test_unavailable_uploader() {
     };
 
     let uploader = Box::new(MockUploader::new_unavailable().unwrap());
-    let exporter = Some(Arc::new(CheckpointExporter::new(
-        config.clone(),
-        uploader.clone(),
-    )));
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
 
+    let attempt_timestamp = Some(SystemTime::now());
     let partition = Partition::new("test_topic".to_string(), 0);
-    let target =
-        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target = CheckpointTarget::new(
+        partition.clone(),
+        attempt_timestamp,
+        Path::new(&config.local_checkpoint_dir),
+    );
 
     let worker = CheckpointWorker::new(1, target, exporter.clone());
 
@@ -595,9 +652,13 @@ async fn test_unpopulated_exporter() {
         ..Default::default()
     };
 
+    let attempt_timestamp = Some(SystemTime::now());
     let partition = Partition::new("test_topic".to_string(), 0);
-    let target =
-        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target = CheckpointTarget::new(
+        partition.clone(),
+        attempt_timestamp,
+        Path::new(&config.local_checkpoint_dir),
+    );
 
     // without an exporter supplied to the worker, the checkpoint will
     // succeed and be created locally but never uploaded to remote storage

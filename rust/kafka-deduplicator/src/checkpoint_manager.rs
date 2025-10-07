@@ -198,9 +198,11 @@ impl CheckpointManager {
                             let worker_exporter = exporter.as_ref().map(|e| e.clone());
                             let worker_cancel_token = cancel_submit_loop_token.child_token();
                             let worker_full_checkpoint_interval = submit_loop_config.full_upload_interval;
+                            let local_base_dir = Path::new(&submit_loop_config.local_checkpoint_dir);
+                            let attempt_timestamp = Some(SystemTime::now());
 
                             // create worker with unique task ID and partition target helper
-                            let target = CheckpointTarget::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
+                            let target = CheckpointTarget::new(partition.clone(), attempt_timestamp, local_base_dir);
                             worker_task_id += 1;
                             let worker = CheckpointWorker::new(
                                 worker_task_id,
@@ -377,12 +379,17 @@ impl CheckpointManager {
             })
             .collect();
 
+        let attempt_timestamp = SystemTime::now();
+
         for (partition, store) in snapshot {
             let worker = CheckpointWorker::new(
                 partition.partition_number() as u32,
-                CheckpointTarget::new(partition, Path::new(&self.config.local_checkpoint_dir))
-                    .unwrap(),
-                None,
+                CheckpointTarget::new(
+                    partition,
+                    Some(attempt_timestamp),
+                    Path::new(&self.config.local_checkpoint_dir),
+                ),
+                self.exporter.clone(),
             );
 
             worker
@@ -642,7 +649,7 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checkpoint::worker::CheckpointTarget;
+    use crate::checkpoint::target::CheckpointTarget;
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
@@ -1253,7 +1260,7 @@ mod tests {
         // convert SystemTime timestamps back to directory names as CheckpointTarget does
         let got_ts_dirs = scan_ts_values
             .iter()
-            .map(|p| CheckpointTarget::format_checkpoint_timestamp(*p).unwrap())
+            .map(|p| CheckpointTarget::format_timestamp_dir((*p).into()))
             .collect::<HashSet<_>>();
 
         // verify the converted and regenerated directory names are

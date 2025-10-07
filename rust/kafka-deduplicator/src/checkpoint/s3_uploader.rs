@@ -68,6 +68,7 @@ impl S3Uploader {
     async fn upload_files(&self, files_to_upload: Vec<(PathBuf, String)>) -> Result<Vec<String>> {
         let mut uploaded_keys = Vec::new();
 
+        // TODO: parallelize this upload step to reduce export latency
         for (local_path, s3_key) in files_to_upload {
             match self.upload_file(&local_path, &s3_key).await {
                 Ok(()) => {
@@ -112,27 +113,50 @@ impl S3Uploader {
 
 #[async_trait]
 impl CheckpointUploader for S3Uploader {
+    /// Given local and remote base checkpoint attempt directory paths, upload all
+    /// files from local to remote. Returns a list of uploaded remote file keys
     async fn upload_checkpoint_dir(
         &self,
-        local_path: &Path,
+        local_attempt_path: &Path,
         s3_key_prefix: &str,
     ) -> Result<Vec<String>> {
-        if !local_path.exists() {
+        if !local_attempt_path.exists() {
             return Err(anyhow::anyhow!(
-                "Local checkpoint path does not exist: {local_path:?}"
+                "Local checkpoint path does not exist: {local_attempt_path:?}"
             ));
         }
 
         info!(
-            "Starting upload of checkpoint directory: {local_path:?} to s3://{}/{s3_key_prefix}",
+            "Starting upload of checkpoint directory: {local_attempt_path:?} to s3://{}/{s3_key_prefix}",
             self.config.s3_bucket
         );
 
-        let files_to_upload = self.collect_files_to_upload(local_path, s3_key_prefix)?;
-        let uploaded_keys = self.upload_files(files_to_upload).await?;
+        let files_to_upload = self.collect_files_to_upload(local_attempt_path, s3_key_prefix)?;
+        let uploaded_keys = self
+            .upload_files(files_to_upload)
+            .await
+            .context("Failed to upload checkpoint attempt files")?;
 
-        info!("Successfully uploaded {} files to S3", uploaded_keys.len());
+        info!(
+            "Successfully uploaded {} checkpoint attempt files to S3",
+            uploaded_keys.len()
+        );
         Ok(uploaded_keys)
+    }
+
+    // Given full local and remote paths to a checkpoint attempt's metadata file, upload the file
+    async fn upload_metadata_file(
+        &self,
+        local_metadata_file: &Path,
+        s3_metadata_key: &str,
+    ) -> Result<()> {
+        if !local_metadata_file.exists() {
+            return Err(anyhow::anyhow!(
+                "Local metadata file does not exist: {local_metadata_file:?}"
+            ));
+        }
+
+        self.upload_file(local_metadata_file, s3_metadata_key).await
     }
 
     async fn is_available(&self) -> bool {
