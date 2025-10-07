@@ -52,11 +52,11 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
             // Single batch UPSERT query - handles both entered and left events
             const query = `
-                INSERT INTO cohort_membership (team_id, cohort_id, person_id, "inCohort", last_updated)
+                INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, last_updated)
                 VALUES ${placeholders.join(', ')}
                 ON CONFLICT (team_id, cohort_id, person_id)
                 DO UPDATE SET 
-                    "inCohort" = EXCLUDED."inCohort",
+                    in_cohort = EXCLUDED.in_cohort,
                     last_updated = CURRENT_TIMESTAMP
             `
 
