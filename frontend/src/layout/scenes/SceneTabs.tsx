@@ -284,7 +284,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                         isSideActionRight
                         iconOnly
                         size="xs"
-                        className="group hover:bg-transparent mt-px"
+                        className="group hover:bg-transparent mt-px z-20"
                         tooltip={
                             tab.active ? (
                                 <>
