@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { accessLevelSatisfied } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { notebooksModel } from '~/models/notebooksModel'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
@@ -47,7 +47,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             !accessLevelSatisfied(
                                 AccessControlResourceType.Notebook,
                                 notebook.user_access_level,
-                                'editor'
+                                AccessControlLevel.Editor
                             )
                                 ? 'You do not have permission to delete this notebook.'
                                 : undefined,

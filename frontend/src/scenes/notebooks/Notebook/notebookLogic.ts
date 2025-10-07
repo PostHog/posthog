@@ -470,7 +470,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 (shouldBeEditable &&
                     !previewContent &&
                     !!notebook?.user_access_level &&
-                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -517,7 +521,11 @@ export const notebookLogic = kea<notebookLogicType>([
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
-                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+                !accessLevelSatisfied(
+                    AccessControlResourceType.Notebook,
+                    values.notebook.user_access_level,
+                    AccessControlLevel.Editor
+                )
             ) {
                 actions.clearLocalContent()
                 return

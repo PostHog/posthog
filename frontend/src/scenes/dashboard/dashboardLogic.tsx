@@ -53,6 +53,7 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
@@ -1150,7 +1151,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard],
             (dashboard) => {
                 return dashboard?.user_access_level
-                    ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
+                    ? accessLevelSatisfied(
+                          AccessControlResourceType.Dashboard,
+                          dashboard.user_access_level,
+                          AccessControlLevel.Editor
+                      )
                     : false
             },
         ],

@@ -34,6 +34,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import { isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     InsightLogicProps,
     InsightShortId,
@@ -382,7 +383,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.insight],
             (insight) =>
                 insight.user_access_level
-                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    ? accessLevelSatisfied(
+                          AccessControlResourceType.Insight,
+                          insight.user_access_level,
+                          AccessControlLevel.Editor
+                      )
                     : true,
         ],
         insightChanged: [
