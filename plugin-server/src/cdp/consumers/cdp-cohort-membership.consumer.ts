@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, Hub } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -29,55 +30,53 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
-    private async handleBatchJoinedCohort(changes: CohortMembershipChange[]): Promise<void> {
+    private async handleBatchCohortMembership(changes: CohortMembershipChange[]): Promise<void> {
         if (changes.length === 0) {
             return
         }
 
-        logger.info('Batch processing persons who joined cohorts', {
-            count: changes.length,
-            sample: changes.slice(0, 3).map((c) => ({
-                personId: c.personId,
-                cohortId: c.cohortId,
-                teamId: c.teamId,
-            })),
-        })
+        try {
+            // Build the VALUES clause for batch upsert
+            const values: any[] = []
+            const placeholders: string[] = []
+            let paramIndex = 1
 
-        await Promise.resolve()
+            for (const change of changes) {
+                const inCohort = change.cohort_membership_changed === 'entered'
+                placeholders.push(
+                    `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
+                )
+                values.push(change.teamId, change.cohortId, change.personId, inCohort)
+                paramIndex += 4
+            }
 
-        // TODO: Batch insert/update entries in postgres database
-        // This would typically involve:
-        // - Prepare batch insert/update query
-        // - Use ON CONFLICT to handle existing entries
-        // - Execute single query for all changes
-    }
+            // Single batch UPSERT query - handles both entered and left events
+            const query = `
+                INSERT INTO cohort_membership (team_id, cohort_id, person_id, "inCohort", last_updated)
+                VALUES ${placeholders.join(', ')}
+                ON CONFLICT (team_id, cohort_id, person_id)
+                DO UPDATE SET 
+                    "inCohort" = EXCLUDED."inCohort",
+                    last_updated = CURRENT_TIMESTAMP
+            `
 
-    private async handleBatchLeftCohort(changes: CohortMembershipChange[]): Promise<void> {
-        if (changes.length === 0) {
-            return
+            await this.hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                query,
+                values,
+                'batchUpsertCohortMembership'
+            )
+        } catch (error) {
+            logger.error('Failed to process batch cohort membership changes', {
+                error,
+                count: changes.length,
+            })
+            throw error
         }
-
-        logger.info('Batch processing persons who left cohorts', {
-            count: changes.length,
-            sample: changes.slice(0, 3).map((c) => ({
-                personId: c.personId,
-                cohortId: c.cohortId,
-                teamId: c.teamId,
-            })),
-        })
-
-        // TODO: Batch delete/update entries in postgres database
-        // This would typically involve:
-        // - Prepare batch delete query or update query (for soft deletes)
-        // - Execute single query for all changes
-        // - Handle any cascading updates if necessary
-        await Promise.resolve()
     }
 
     private async handleBatch(messages: Message[]): Promise<void> {
-        // Aggregate events by action type
-        const enteredCohort: CohortMembershipChange[] = []
-        const leftCohort: CohortMembershipChange[] = []
+        const cohortMembershipChanges: CohortMembershipChange[] = []
 
         // Process and validate all messages
         for (const message of messages) {
@@ -98,30 +97,22 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                         errors: validationResult.error.errors,
                         message: messageValue,
                     })
-                    continue
+                    throw new Error(`Invalid cohort membership change message: ${validationResult.error.message}`)
                 }
 
                 const cohortMembershipChange = validationResult.data
-
-                // Aggregate based on the cohort_membership_changed property
-                switch (cohortMembershipChange.cohort_membership_changed) {
-                    case 'entered':
-                        enteredCohort.push(cohortMembershipChange)
-                        break
-                    case 'left':
-                        leftCohort.push(cohortMembershipChange)
-                        break
-                }
+                cohortMembershipChanges.push(cohortMembershipChange)
             } catch (error) {
                 logger.error('Error processing cohort membership change message', {
                     error,
                     message: message.value?.toString(),
                 })
+                throw error
             }
         }
 
-        // Process batches
-        await Promise.all([this.handleBatchJoinedCohort(enteredCohort), this.handleBatchLeftCohort(leftCohort)])
+        // Process all changes in a single batch
+        await this.handleBatchCohortMembership(cohortMembershipChanges)
     }
 
     public async start(): Promise<void> {

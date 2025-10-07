@@ -1,7 +1,4 @@
 exports.up = (pgm) => {
-    // Create enum type for status
-    pgm.createType('membership_status', ['member', 'not_member'])
-
     // Table for tracking cohort membership - replicating ClickHouse structure
     pgm.createTable('cohort_membership', {
         id: {
@@ -20,8 +17,8 @@ exports.up = (pgm) => {
             type: 'uuid',
             notNull: true,
         },
-        status: {
-            type: 'membership_status',
+        in_cohort: {
+            type: 'boolean',
             notNull: true,
         },
         last_updated: {
@@ -42,5 +39,4 @@ exports.up = (pgm) => {
 
 exports.down = (pgm) => {
     pgm.dropTable('cohort_membership')
-    pgm.dropType('membership_status')
 }
