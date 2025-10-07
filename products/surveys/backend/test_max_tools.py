@@ -465,13 +465,17 @@ class TestSurveyAnalysisTool(BaseTest):
 
     def _setup_tool_with_context(self, context=None):
         """Helper to create a SurveyAnalysisTool instance with context"""
-        tool = SurveyAnalysisTool(team=self.team, user=self.user, config=self._config)
-
-        if context is not None:
-            tool._context = context
-        else:
-            tool._context = {}
-
+        tool = SurveyAnalysisTool(
+            team=self.team,
+            user=self.user,
+            config={
+                **self._config,
+                "configurable": {
+                    **self._config.get("configurable", {}),
+                    "contextual_tools": {"analyze_survey_responses": context},
+                },
+            },
+        )
         return tool
 
     @pytest.mark.django_db

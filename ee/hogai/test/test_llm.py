@@ -159,11 +159,11 @@ class TestMaxChatOpenAI(BaseTest):
             self.assertEqual(len(called_messages[0]), 2)
             self.assertIn("Test Project", str(called_messages[0][0].content))
 
-        llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
+        anthropic_llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
 
         with patch("langchain_anthropic.ChatAnthropic.generate", return_value=mock_result) as mock_generate:
             messages = [HumanMessage(content="Test query")]
-            llm.invoke(messages)
+            anthropic_llm.invoke(messages)
 
             called_messages = mock_generate.call_args[0][0]
             self.assertEqual(len(called_messages[0]), 2)
@@ -182,11 +182,11 @@ class TestMaxChatOpenAI(BaseTest):
             self.assertEqual(len(called_messages[0]), 2)
             self.assertIn("Test Project", str(called_messages[0][0].content))
 
-        llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
+        anthropic_llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
 
         with patch("langchain_anthropic.ChatAnthropic.agenerate", return_value=mock_result) as mock_agenerate:
             messages = [HumanMessage(content="Test query")]
-            await llm.ainvoke(messages)
+            await anthropic_llm.ainvoke(messages)
 
             called_messages = mock_agenerate.call_args[0][0]
             self.assertEqual(len(called_messages[0]), 2)
