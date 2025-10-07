@@ -47,7 +47,7 @@ class Migration(AsyncMigrationDefinition):
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
-            rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
+            rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL(),
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
@@ -79,7 +79,7 @@ class Migration(AsyncMigrationDefinition):
             """,
             rollback=f"""
                 RENAME TABLE
-                    {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
+                    {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME},
                     {settings.CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup to {settings.CLICKHOUSE_DATABASE}.person_distinct_id,
                 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
             """,
@@ -91,7 +91,7 @@ class Migration(AsyncMigrationDefinition):
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
+            sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL(),
             rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperation(fn=example_fn, rollback_fn=example_rollback_fn),
