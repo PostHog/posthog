@@ -1,0 +1,35 @@
+.scene-tab-active-indicator {
+    position: absolute;
+    right: -5px;
+    bottom: -6px;
+    z-index: 11;
+    width: calc(100% + 10px);
+    height: 7px;
+    background-color: var(--color-bg-primary);
+}
+
+.scene-tab-active-indicator::before {
+    position: absolute;
+    right: calc(100% - 6px);
+    bottom: 0.5px;
+    width: 8px;
+    height: 8px;
+    content: '';
+    background-color: var(--color-bg-surface-tertiary);
+    border-right: 1px solid var(--color-border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
+    border-radius: 0 0 100%;
+}
+
+.scene-tab-active-indicator::after {
+    position: absolute;
+    bottom: 0.5px;
+    left: calc(100% - 6px);
+    width: 8px;
+    height: 8px;
+    content: '';
+    background-color: var(--color-bg-surface-tertiary);
+    border-bottom: 1px solid var(--color-border-primary);
+    border-left: 1px solid var(--color-border-primary);
+    border-radius: 0 0 0 100%;
+}

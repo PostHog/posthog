@@ -88,6 +88,8 @@ impl AppContext {
         let s3_client = S3Client::new(s3_client);
         let s3_client = Arc::new(s3_client);
 
+        s3_client.ping_bucket(&config.object_storage_bucket).await?;
+
         let ss_cache = Arc::new(Mutex::new(SymbolSetCache::new(
             config.symbol_store_cache_max_bytes,
         )));
