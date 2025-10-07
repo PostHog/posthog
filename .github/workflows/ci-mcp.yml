@@ -126,6 +126,6 @@ jobs:
               run: cd mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
-                  TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_API_TOKEN }}
+                  TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_PERSONAL_API_KEY }}
                   TEST_ORG_ID: ${{ secrets.MCP_TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ secrets.MCP_TEST_PROJECT_ID }}
