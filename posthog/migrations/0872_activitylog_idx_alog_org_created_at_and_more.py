@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0870_move_recording_coment_to_replay"),
+        ("posthog", "0871_team_experiment_recalculation_time"),
     ]
 
     operations = [
