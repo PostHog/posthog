@@ -82,7 +82,7 @@ class EditCurrentInsightTool(MaxTool):
         "Update the insight the user is currently working on, based on the current insight's JSON schema."
     )
     thinking_message: str = "Editing your insight"
-    root_system_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+    context_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
 
 ```json
 {current_query}

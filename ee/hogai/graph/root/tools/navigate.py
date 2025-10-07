@@ -35,7 +35,7 @@ class NavigateToolArgs(BaseModel):
 class NavigateTool(MaxTool):
     name: str = "navigate"
     description: str = NAVIGATION_TOOL_PROMPT
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         "You're currently on the {current_page} page. "
         "You can navigate around the PostHog app using the `navigate` tool."
     )
