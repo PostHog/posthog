@@ -21,12 +21,7 @@ import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/iss
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
-export function IssuesList(): JSX.Element {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: 'new-ErrorTrackingQuery',
-    }
-
-    const { query } = useValues(errorTrackingSceneLogic)
+export const getQueryContext = (insightProps: InsightLogicProps): QueryContext => {
     const context: QueryContext = {
         columns: {
             error: {
@@ -44,6 +39,16 @@ export function IssuesList(): JSX.Element {
         emptyStateHeading: 'No issues found',
         emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
+    return context
+}
+
+export function IssuesList(): JSX.Element {
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: 'new-ErrorTrackingQuery',
+    }
+
+    const { query } = useValues(errorTrackingSceneLogic)
+    const context = getQueryContext(insightProps)
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
@@ -104,17 +109,18 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     )
 }
 
-const ListOptions = (): JSX.Element => {
+export const ListOptions = ({ isSticky = true }: { isSticky?: boolean }): JSX.Element => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { results } = useValues(issuesDataNodeLogic)
+    const component =
+        selectedIssueIds.length > 0 ? (
+            <IssueActions issues={results} selectedIds={selectedIssueIds} />
+        ) : (
+            <IssueQueryOptions />
+        )
 
-    return (
-        <SceneStickyBar showBorderBottom={false}>
-            {selectedIssueIds.length > 0 ? (
-                <IssueActions issues={results} selectedIds={selectedIssueIds} />
-            ) : (
-                <IssueQueryOptions />
-            )}
-        </SceneStickyBar>
-    )
+    if (isSticky) {
+        return <SceneStickyBar showBorderBottom={false}>{component}</SceneStickyBar>
+    }
+    return component
 }
