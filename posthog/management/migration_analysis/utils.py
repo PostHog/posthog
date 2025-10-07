@@ -80,6 +80,11 @@ class OperationCategorizer:
 
         sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
 
+        # Skip categorization for safe CONCURRENTLY operations
+        # These are non-blocking and don't need DDL isolation warnings
+        if "CONCURRENTLY" in sql_upper and "INDEX" in sql_upper:
+            return  # Don't categorize as DDL or DML
+
         # Use word boundaries to avoid false positives like UPDATE_TIME matching UPDATE
         for kw in self.DML_KEYWORDS:
             if re.search(r"\b" + re.escape(kw) + r"\b", sql_upper):

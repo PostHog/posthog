@@ -199,6 +199,14 @@ class RiskAnalyzer:
         if not categorizer.runsql_ops or getattr(migration, "atomic", True):
             return []
 
+        # Skip INFO warning if all RunSQL operations are safe CONCURRENTLY operations
+        all_safe_concurrent = all(
+            op_risk.score == 1 and "CONCURRENTLY" in str(op_risk.details.get("sql", "")).upper()
+            for _, op_risk in categorizer.runsql_ops
+        )
+        if all_safe_concurrent:
+            return []  # No need to warn about atomic=False for safe concurrent operations
+
         return ["⚠️  INFO: Migration is marked atomic=False. Ensure data migrations handle failures correctly."]
 
     def check_policies(self, migration) -> list[str]:

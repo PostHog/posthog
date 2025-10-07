@@ -255,6 +255,25 @@ class RunSQLAnalyzer(OperationAnalyzer):
 
     def analyze(self, op) -> OperationRisk:
         sql = str(op.sql).upper()
+
+        # Check for CONCURRENTLY operations first (these are safe)
+        # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
+        if "CONCURRENTLY" in sql:
+            if "CREATE" in sql and "INDEX" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=1,
+                    reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                )
+            elif "DROP" in sql and "INDEX" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=1,
+                    reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                )
+
         if "DROP" in sql:
             return OperationRisk(
                 type=self.operation_type,

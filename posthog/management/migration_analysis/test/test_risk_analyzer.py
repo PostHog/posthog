@@ -262,7 +262,7 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_run_sql_with_concurrent_index(self):
-        """Test CREATE INDEX CONCURRENTLY - should need review but not be high risk."""
+        """Test CREATE INDEX CONCURRENTLY - should be safe (score 1)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="CREATE INDEX CONCURRENTLY idx_foo ON users(foo);",
@@ -270,8 +270,22 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 2
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
+
+    def test_run_sql_with_drop_index_concurrent(self):
+        """Test DROP INDEX CONCURRENTLY - should be safe (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP INDEX CONCURRENTLY IF EXISTS idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
 
 class TestRunPythonOperations:
@@ -408,7 +422,24 @@ class TestCombinationRisks:
         assert any("DML" in warning for warning in combination_risks)
 
     def test_runsql_with_ddl_and_other_operations(self):
-        """Warning: RunSQL with DDL mixed with other operations"""
+        """Warning: RunSQL with DDL (non-concurrent) mixed with other operations"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql="ALTER TABLE test_table ADD COLUMN foo text;"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        assert any("WARNING" in warning or "DDL" in warning for warning in combination_risks)
+
+    def test_runsql_concurrent_index_no_ddl_warning(self):
+        """CREATE INDEX CONCURRENTLY should NOT trigger DDL isolation warning"""
         mock_migration = MagicMock()
         mock_migration.atomic = True
         mock_migration.operations = [
@@ -421,8 +452,8 @@ class TestCombinationRisks:
         operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
         combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
 
-        assert len(combination_risks) > 0
-        assert any("WARNING" in warning or "DDL" in warning for warning in combination_risks)
+        # Should NOT have DDL isolation warning for safe concurrent operations
+        assert len(combination_risks) == 0 or all("DDL" not in warning for warning in combination_risks)
 
     def test_runsql_alone_no_combination_risk(self):
         """RunSQL alone should not trigger combination warnings"""
@@ -543,3 +574,51 @@ class TestCombinationRisks:
 
         assert len(migration_risk.combination_risks) > 0
         assert any("Multiple index" in warning for warning in migration_risk.combination_risks)
+
+    def test_separate_database_and_state_with_concurrent_index(self):
+        """
+        Test the correct pattern for adding concurrent indexes using SeparateDatabaseAndState.
+
+        This pattern (from PR #39242) should NOT be blocked:
+        - SeparateDatabaseAndState with state_operations containing AddIndex
+        - database_operations containing RunSQL with CREATE INDEX CONCURRENTLY
+        - atomic = False (required for CONCURRENTLY)
+
+        This is the recommended safe pattern for adding indexes without blocking.
+        """
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0872_activitylog_idx"
+        mock_migration.atomic = False  # Required for CONCURRENTLY
+
+        # Create the SeparateDatabaseAndState operation
+        index_mock = MagicMock()
+        index_mock.name = "idx_test"
+
+        state_op = create_mock_operation(migrations.AddIndex, model_name="activitylog", index=index_mock)
+
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_test ON posthog_activitylog (team_id, scope);",
+        )
+
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[state_op], database_operations=[db_op]
+        )
+
+        mock_migration.operations = [separate_op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0872_activitylog_idx.py")
+
+        # This should NOT be blocked - concurrent index creation is safe
+        assert migration_risk.level != RiskLevel.BLOCKED, (
+            f"SeparateDatabaseAndState with CREATE INDEX CONCURRENTLY should not be blocked. "
+            f"Got level: {migration_risk.level}, combination_risks: {migration_risk.combination_risks}"
+        )
+
+        # Should be SAFE or at most NEEDS_REVIEW
+        assert migration_risk.level in (RiskLevel.SAFE, RiskLevel.NEEDS_REVIEW)
+
+        # Should not have DDL isolation combination risk for safe concurrent operations
+        ddl_warnings = [r for r in migration_risk.combination_risks if "DDL" in r and "isolation" in r]
+        assert len(ddl_warnings) == 0, f"Should not warn about DDL isolation for CONCURRENTLY: {ddl_warnings}"
