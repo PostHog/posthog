@@ -39,9 +39,9 @@ class SandboxAgent:
 
         org, repo = repository.lower().split("/")
         repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{repository}.git"
+            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
             if github_token
-            else f"https://github.com/{repository}.git"
+            else f"https://github.com/{org}/{repo}.git"
         )
 
         target_path = f"/tmp/workspace/repos/{org}/{repo}"

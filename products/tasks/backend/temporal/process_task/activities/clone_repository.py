@@ -59,4 +59,5 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
                 },
             )
 
+        # NOTE: git clone returns it's output in stderr
         return result.stderr

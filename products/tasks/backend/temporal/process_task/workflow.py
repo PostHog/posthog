@@ -213,17 +213,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
-        try:
-            cleanup_input = CleanupSandboxInput(sandbox_id=sandbox_id)
-            await workflow.execute_activity(
-                cleanup_sandbox,
-                cleanup_input,
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception as e:
-            logger.exception(f"Failed to cleanup sandbox {sandbox_id}: {e}")
-            raise RuntimeError(f"Failed to cleanup sandbox {sandbox_id}: {e}")
+        cleanup_input = CleanupSandboxInput(sandbox_id=sandbox_id)
+        await workflow.execute_activity(
+            cleanup_sandbox,
+            cleanup_input,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
     async def _setup_snapshot_with_repository(self) -> str:
         setup_sandbox_id = None
@@ -309,17 +305,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
-        try:
-            track_input = TrackWorkflowEventInput(
-                event_name=event_name,
-                distinct_id=self.task_details.distinct_id,
-                properties=properties,
-            )
-            await workflow.execute_activity(
-                track_workflow_event,
-                track_input,
-                start_to_close_timeout=timedelta(seconds=10),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        except Exception:
-            pass
+        track_input = TrackWorkflowEventInput(
+            event_name=event_name,
+            distinct_id=self.task_details.distinct_id,
+            properties=properties,
+        )
+        await workflow.execute_activity(
+            track_workflow_event,
+            track_input,
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )

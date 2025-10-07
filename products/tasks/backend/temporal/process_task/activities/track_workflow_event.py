@@ -4,6 +4,10 @@ from typing import Any
 import posthoganalytics
 from temporalio import activity
 
+from posthog.temporal.common.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class TrackWorkflowEventInput:
@@ -22,4 +26,9 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
             properties=input.properties,
         )
     except Exception:
-        pass
+        logger.exception(
+            "Failed to track workflow event",
+            event_name=input.event_name,
+            distinct_id=input.distinct_id,
+            properties=input.properties,
+        )

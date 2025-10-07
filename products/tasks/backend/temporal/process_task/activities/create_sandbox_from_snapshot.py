@@ -11,7 +11,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
-from products.tasks.backend.temporal.exceptions import SnapshotNotFoundError
+from products.tasks.backend.temporal.exceptions import SnapshotNotFoundError, SnapshotNotReadyError
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
 
@@ -38,7 +38,7 @@ async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) ->
             raise SnapshotNotFoundError(f"Snapshot {input.snapshot_id} not found", {"snapshot_id": input.snapshot_id})
 
         if snapshot.status != SandboxSnapshot.Status.COMPLETE:
-            raise SnapshotNotFoundError(
+            raise SnapshotNotReadyError(
                 f"Snapshot {input.snapshot_id} is not ready (status: {snapshot.status})",
                 {"snapshot_id": input.snapshot_id, "status": snapshot.status},
             )

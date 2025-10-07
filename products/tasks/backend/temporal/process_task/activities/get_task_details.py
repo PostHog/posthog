@@ -64,6 +64,6 @@ def get_task_details(task_id: str) -> TaskDetails:
         task_id=str(task.id),
         team_id=task.team_id,
         github_integration_id=task.github_integration_id,
-        repository=task.primary_repository["full_name"],
+        repository=task.primary_repository.get("full_name"),
         distinct_id=distinct_id,
     )

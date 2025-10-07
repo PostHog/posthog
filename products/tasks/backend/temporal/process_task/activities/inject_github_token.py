@@ -1,3 +1,4 @@
+import shlex
 from dataclasses import dataclass
 
 from temporalio import activity
@@ -36,8 +37,10 @@ async def inject_github_token(input: InjectGitHubTokenInput) -> None:
 
         sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
+        escaped_github_token = shlex.quote(github_token)
         result = await sandbox.execute(
-            f"echo 'export GITHUB_TOKEN=\"{github_token}\"' >> ~/.bash_profile && echo 'export GITHUB_TOKEN=\"{github_token}\"' >> ~/.bashrc"
+            f"echo 'export GITHUB_TOKEN={escaped_github_token}' >> ~/.bash_profile && echo 'export GITHUB_TOKEN=\"{escaped_github_token}\"' >> ~/.bashrc",
+            shell=True,
         )
 
         if result.exit_code != 0:
