@@ -5,42 +5,42 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { NamedQueryLastExecutionTimesRequest } from '~/queries/schema/schema-general'
-import { QueryEndpointType } from '~/types'
+import { EndpointType } from '~/types'
 
-import type { queryEndpointsLogicType } from './queryEndpointsLogicType'
+import type { endpointsLogicType } from './endpointsLogicType'
 
-export interface QueryEndpointsFilters {
+export interface EndpointsFilters {
     search: string
 }
 
-export const DEFAULT_FILTERS: QueryEndpointsFilters = {
+export const DEFAULT_FILTERS: EndpointsFilters = {
     search: '',
 }
 
-export interface QueryEndpointsLogicProps {
+export interface EndpointsLogicProps {
     tabId: string
 }
 
-export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
-    path(['products', 'embedded_analytics', 'frontend', 'queryEndpointsLogic']),
-    props({} as QueryEndpointsLogicProps),
+export const endpointsLogic = kea<endpointsLogicType>([
+    path(['products', 'endpoints', 'frontend', 'endpointsLogic']),
+    props({} as EndpointsLogicProps),
     key((props) => props.tabId),
     actions({
-        setFilters: (filters: Partial<QueryEndpointsFilters>) => ({ filters }),
+        setFilters: (filters: Partial<EndpointsFilters>) => ({ filters }),
     }),
     loaders(() => ({
-        allQueryEndpoints: [
-            [] as QueryEndpointType[],
+        allEndpoints: [
+            [] as EndpointType[],
             {
-                loadQueryEndpoints: async () => {
-                    const response = await api.queryEndpoint.list()
-                    let haystack: QueryEndpointType[] = response.results || []
+                loadEndpoints: async () => {
+                    const response = await api.endpoint.list()
+                    let haystack: EndpointType[] = response.results || []
 
                     if (haystack.length > 0) {
                         const names: NamedQueryLastExecutionTimesRequest = {
                             names: haystack.map((endpoint) => endpoint.name),
                         }
-                        const lastExecutionTimes = await api.queryEndpoint.getLastExecutionTimes(names)
+                        const lastExecutionTimes = await api.endpoint.getLastExecutionTimes(names)
 
                         haystack = haystack.map((endpoint) => ({
                             ...endpoint,
@@ -55,21 +55,21 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
     })),
     reducers({
         filters: [
-            DEFAULT_FILTERS as QueryEndpointsFilters,
+            DEFAULT_FILTERS as EndpointsFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
     }),
     selectors({
-        queryEndpoints: [
-            (s) => [s.allQueryEndpoints, s.filters],
-            (allQueryEndpoints, filters) => {
+        endpoints: [
+            (s) => [s.allEndpoints, s.filters],
+            (allEndpoints, filters) => {
                 if (!filters.search) {
-                    return allQueryEndpoints
+                    return allEndpoints
                 }
 
-                const fuse = new Fuse<QueryEndpointType>(allQueryEndpoints, {
+                const fuse = new Fuse<EndpointType>(allEndpoints, {
                     keys: ['name', 'description', 'query.query'],
                     threshold: 0.3,
                 })
@@ -78,6 +78,6 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadQueryEndpoints()
+        actions.loadEndpoints()
     }),
 ])
