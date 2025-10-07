@@ -27,7 +27,7 @@ pub async fn handle_batch(
             handles.push(generate_embedding(
                 client.clone(),
                 api_key.clone(),
-                model.clone(),
+                *model,
                 request.clone(),
             ));
         }
