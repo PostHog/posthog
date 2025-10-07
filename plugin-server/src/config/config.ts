@@ -40,6 +40,12 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               : '',
+        BEHAVIORAL_COHORTS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
+              : '',
+        PERSONS_READONLY_DATABASE_URL: '',
         PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
             : isDevEnv()
@@ -56,9 +62,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        POSTGRES_COUNTERS_HOST: 'localhost',
-        POSTGRES_COUNTERS_USER: 'postgres',
-        POSTGRES_COUNTERS_PASSWORD: '',
+        POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
+        POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
+        POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -389,6 +395,18 @@ export function overrideWithEnv(
             ).join(', ')}`
         )
     }
+
+    if (
+        !newConfig.BEHAVIORAL_COHORTS_DATABASE_URL &&
+        newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST &&
+        newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER &&
+        newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD
+    ) {
+        const encodedUser = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER)
+        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD)
+        newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST}:5432/behavioral_cohorts`
+    }
+
     return newConfig
 }
 
