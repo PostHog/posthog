@@ -38,7 +38,6 @@ jobs:
                         - 'common/esbuilder/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
-                        - '!products/mcp/**'
                         - 'playwright/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml

@@ -27,7 +27,6 @@ jobs:
                         - 'frontend/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
-                        - '!products/mcp/**'
                         - 'products/**/frontend/**'
                         - 'common/**'
                         - 'ee/frontend/**'
