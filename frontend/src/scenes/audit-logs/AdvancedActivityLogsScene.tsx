@@ -47,7 +47,6 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
         <SceneContent>
             <SceneTitleSection
                 name="Activity logs"
-                description="Track all changes and activities in your organization with detailed filtering and export capabilities."
                 resourceType={{
                     type: 'team_activity',
                     forceIcon: <IconActivity />,
