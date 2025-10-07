@@ -195,7 +195,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
                 if task.id == task_id:
                     if self._send_task_execution_message:
                         # For multiple tasks, update the task's progress text
-                        task.progress = ProgressState(content=progress_text)
+                        task.progress = ProgressState(content=progress_text) if progress_text else None
                         await self._asend_task_execution_message(tasks)
                     elif progress_text:
                         # For single task, send detailed reasoning message
