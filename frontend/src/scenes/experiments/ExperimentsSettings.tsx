@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { OrganizationExperimentRecalculationTime } from 'scenes/settings/organization/OrgExperimentRecalculationTime'
+import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { OrganizationExperimentStatsMethod } from 'scenes/settings/organization/OrgExperimentStatsMethod'
 
 import { experimentLogic } from './experimentLogic'
@@ -17,7 +17,7 @@ export function ExperimentsSettings(): JSX.Element {
     return (
         <div className="space-y-8">
             <OrganizationExperimentStatsMethod />
-            {timeseriesEnabled && <OrganizationExperimentRecalculationTime />}
+            {timeseriesEnabled && <ExperimentRecalculationTime />}
         </div>
     )
 }

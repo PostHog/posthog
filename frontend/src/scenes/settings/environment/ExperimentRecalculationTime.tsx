@@ -36,7 +36,7 @@ const localHourToUtcString = (localHour: number, projectTimezone: string): strin
     return localTime.utc().format('HH:mm:ss')
 }
 
-export function OrganizationExperimentRecalculationTime(): JSX.Element {
+export function ExperimentRecalculationTime(): JSX.Element {
     const { currentTeam, currentTeamLoading, timezone: projectTimezone } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
@@ -66,7 +66,7 @@ export function OrganizationExperimentRecalculationTime(): JSX.Element {
                         onChange={handleChange}
                         options={hourOptions}
                         disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
-                        data-attr="organization-experiment-recalculation-time"
+                        data-attr="team-experiment-recalculation-time"
                         placeholder="Select recalculation time"
                     />
                 </div>
