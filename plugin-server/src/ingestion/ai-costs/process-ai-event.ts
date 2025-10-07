@@ -3,7 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
-import { findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
+import { CostModelSource, findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
 import { calculateInputCost } from './input-costs'
 import { calculateOutputCost } from './output-costs'
 import { ModelRow } from './providers/types'
@@ -111,7 +111,7 @@ const processCost = (event: PluginEvent) => {
         setCostsOnEvent(event, customCost)
 
         event.properties['$ai_model_cost_used'] = 'custom'
-        event.properties['$ai_cost_model_source'] = 'custom'
+        event.properties['$ai_cost_model_source'] = CostModelSource.Custom
 
         return event
     }

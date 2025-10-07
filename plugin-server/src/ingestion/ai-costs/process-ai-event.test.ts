@@ -454,7 +454,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
             expect(result.properties!.$ai_model_cost_used).toBe('custom')
-            expect(result.properties!.$ai_cost_model_source).toBe('custom')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Custom)
         })
 
         it('uses custom pricing even when model is unknown', () => {
