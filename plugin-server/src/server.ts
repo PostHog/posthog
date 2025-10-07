@@ -60,6 +60,7 @@ export class PluginServer {
     hub?: Hub
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
+    private podTerminationTimer?: NodeJS.Timeout
 
     constructor(
         config: Partial<PluginsServerConfig> = {},
@@ -74,6 +75,23 @@ export class PluginServer {
 
         this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
+    }
+
+    private setupPodTermination(): void {
+        // Base timeout: 1 hour (3600000 ms)
+        const baseTimeoutMs = 60 * 60 * 1000
+
+        // Add jitter: random value between 0-15 minutes (0-900000 ms)
+        const jitterMs = Math.random() * 15 * 60 * 1000
+
+        const totalTimeoutMs = baseTimeoutMs + jitterMs
+
+        logger.info('⏰', `Pod termination scheduled in ${Math.round(totalTimeoutMs / 1000 / 60)} minutes`)
+
+        this.podTerminationTimer = setTimeout(() => {
+            logger.info('⏰', 'Pod termination timeout reached, shutting down gracefully...')
+            void this.stop()
+        }, totalTimeoutMs)
     }
 
     async start(): Promise<void> {
@@ -269,6 +287,11 @@ export class PluginServer {
 
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+
+            // Setup pod termination if enabled
+            if (this.config.POD_TERMINATION_ENABLED) {
+                this.setupPodTermination()
+            }
         } catch (error) {
             captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
@@ -311,6 +334,12 @@ export class PluginServer {
         }
 
         this.stopping = true
+
+        // Clear pod termination timer if it exists
+        if (this.podTerminationTimer) {
+            clearTimeout(this.podTerminationTimer)
+            this.podTerminationTimer = undefined
+        }
 
         this.nodeInstrumentation.cleanup()
 

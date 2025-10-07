@@ -23,7 +23,7 @@ from rest_framework import status
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
+from posthog.constants import SESSION_REPLAY_TASK_QUEUE
 from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
@@ -408,7 +408,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=SESSION_REPLAY_TASK_QUEUE,
                 )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
@@ -442,7 +442,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=SESSION_REPLAY_TASK_QUEUE,
                 )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
