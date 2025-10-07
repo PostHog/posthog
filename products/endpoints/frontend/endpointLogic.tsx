@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
@@ -6,7 +7,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
-import { EndpointRequest } from '~/queries/schema/schema-general'
+import { EndpointRequest, HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
@@ -15,6 +17,15 @@ export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
 export interface EndpointLogicProps {
     tabId: string
+}
+
+const NEW_ENDPOINT: Partial<EndpointType> = {
+    name: 'new-endpoint',
+    description: 'New endpoint returns this and that',
+    query: {
+        kind: NodeKind.HogQLQuery,
+        query: 'select * from events limit 1',
+    } as HogQLQuery | InsightQueryNode,
 }
 
 export const endpointLogic = kea<endpointLogicType>([
@@ -31,6 +42,9 @@ export const endpointLogic = kea<endpointLogicType>([
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: (error: any) => ({ error }),
+        updateEndpoint: (name: string, request: Partial<EndpointRequest>) => ({ name, request }),
+        updateEndpointSuccess: (response: any) => ({ response }),
+        updateEndpointFailure: (error: any) => ({ error }),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         deleteEndpointFailure: (error: any) => ({ error }),
@@ -46,6 +60,19 @@ export const endpointLogic = kea<endpointLogicType>([
         ],
         activeCodeExampleTab: ['terminal' as CodeExampleTab, { setActiveCodeExampleTab: (_, { tab }) => tab }],
     }),
+    loaders(() => ({
+        endpoint: [
+            null as EndpointType | null,
+            {
+                loadEndpoint: async (name: string) => {
+                    if (!name || name === 'new') {
+                        return { ...NEW_ENDPOINT } as EndpointType
+                    }
+                    return api.endpoint.get(name)
+                },
+            },
+        ],
+    })),
     listeners(({ actions }) => ({
         createEndpoint: async ({ request }) => {
             try {
@@ -56,18 +83,18 @@ export const endpointLogic = kea<endpointLogicType>([
                 actions.createEndpointFailure(error)
             }
         },
-        createEndpointSuccess: () => {
+        createEndpointSuccess: ({ response }) => {
             actions.setEndpointName('')
             actions.setEndpointDescription('')
             lemonToast.success(
                 <>
                     Endpoint created successfully!
                     <br />
-                    You will be redirected to the endpoints page.
+                    You will be redirected to the endpoint page.
                 </>,
                 {
                     onClose: () => {
-                        router.actions.push(urls.endpoints())
+                        router.actions.push(urls.endpoint(response.name))
                     },
                 }
             )
@@ -75,6 +102,23 @@ export const endpointLogic = kea<endpointLogicType>([
         createEndpointFailure: ({ error }) => {
             console.error('Failed to create endpoint:', error)
             lemonToast.error('Failed to create endpoint')
+        },
+        updateEndpoint: async ({ name, request }) => {
+            try {
+                const response = await api.endpoint.update(name, request)
+                actions.updateEndpointSuccess(response)
+            } catch (error) {
+                console.error('Failed to update endpoint:', error)
+                actions.updateEndpointFailure(error)
+            }
+        },
+        updateEndpointSuccess: ({ response }) => {
+            lemonToast.success('Endpoint updated successfully')
+            actions.loadEndpoint(response.name)
+        },
+        updateEndpointFailure: ({ error }) => {
+            console.error('Failed to update endpoint:', error)
+            lemonToast.error('Failed to update endpoint')
         },
         deleteEndpoint: async ({ name }) => {
             try {

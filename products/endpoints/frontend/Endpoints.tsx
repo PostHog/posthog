@@ -48,8 +48,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             render: function Render(_, record) {
                 return (
                     <LemonTableLink
-                        // TODO: Add link to endpoint modal
-                        // to={urls.endpointsEndpoint(record.name)}
+                        to={urls.endpoint(record.name)}
                         title={record.name}
                         description={record.description}
                     />
@@ -80,6 +79,14 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                     {record.endpoint_path}
                 </LemonButton>
             ),
+        },
+        {
+            title: 'Query type',
+            key: 'query_type',
+            render: function Render(_, record) {
+                return <LemonTag type="option">{record.query?.kind}</LemonTag>
+            },
+            sorter: (a: EndpointType, b: EndpointType) => a.query?.kind.localeCompare(b.query?.kind),
         },
         {
             title: 'Status',

@@ -101,6 +101,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return Response({"results": results})
 
+    def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Retrieve an endpoint."""
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        return Response(
+            {
+                "id": str(endpoint.id),
+                "name": endpoint.name,
+                "description": endpoint.description,
+                "query": endpoint.query,
+                "parameters": endpoint.parameters,
+                "is_active": endpoint.is_active,
+                "endpoint_path": endpoint.endpoint_path,
+                "created_at": endpoint.created_at,
+                "updated_at": endpoint.updated_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
