@@ -725,6 +725,18 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
+            title: 'Last viewed',
+            sorter: true,
+            dataIndex: 'last_viewed_at',
+            render: function renderLastViewed(last_viewed_at: string | null) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {last_viewed_at ? <TZLabel time={last_viewed_at} /> : <span className="text-muted">Never</span>}
+                    </div>
+                )
+            },
+        },
+        {
             width: 0,
             render: function Render(_, insight) {
                 return (
@@ -803,7 +815,6 @@ export function SavedInsights(): JSX.Element {
         <SceneContent className={cn('saved-insights')}>
             <SceneTitleSection
                 name="Product analytics"
-                description="Track, analyze, and experiment with user behavior."
                 resourceType={{
                     type: 'product_analytics',
                 }}

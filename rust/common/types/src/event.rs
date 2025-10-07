@@ -7,6 +7,13 @@ use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+/// Information about the library/SDK that sent an event
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
+
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
     #[serde(
@@ -237,6 +244,24 @@ impl RawEvent {
         if let Some(value) = self.properties.get_mut(key) {
             *value = f(value.take());
         }
+    }
+
+    /// Extract library information from the event properties
+    /// Returns None if $lib property is not present
+    pub fn extract_library_info(&self) -> Option<LibraryInfo> {
+        let name = self
+            .properties
+            .get("$lib")
+            .and_then(|v| v.as_str())
+            .map(String::from)?;
+
+        let version = self
+            .properties
+            .get("$lib_version")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        Some(LibraryInfo { name, version })
     }
 }
 

@@ -208,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrls(StrEnum):
+class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -1260,6 +1260,7 @@ class ExternalDataSourceType(StrEnum):
     DO_IT = "DoIt"
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
+    TIK_TOK_ADS = "TikTokAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1323,7 +1324,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
-    EMBEDDED_ANALYTICS = "embedded_analytics"
+    ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -1662,6 +1663,8 @@ class IntegrationKind(StrEnum):
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
+    DATABRICKS = "databricks"
+    TIKTOK_ADS = "tiktok-ads"
 
 
 class IntervalType(StrEnum):
@@ -2810,6 +2813,7 @@ class UserBasicType(BaseModel):
     id: float
     is_email_verified: Optional[Any] = None
     last_name: Optional[str] = None
+    role_at_organization: Optional[str] = None
     uuid: str
 
 
@@ -3842,19 +3846,6 @@ class ExperimentExposureQueryResponse(BaseModel):
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
-
-
-class ExperimentHoldoutType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: Optional[str] = None
-    created_by: Optional[UserBasicType] = None
-    description: Optional[str] = None
-    filters: dict[str, Any]
-    id: Optional[float] = None
-    name: str
-    updated_at: Optional[str] = None
 
 
 class ExperimentMetricBaseProperties(BaseModel):
@@ -8618,33 +8609,39 @@ class ExperimentEventExposureConfig(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentExposureCriteria(BaseModel):
+class FeatureFlagGroupType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    exposure_config: Optional[ExperimentEventExposureConfig] = None
-    filterTestAccounts: Optional[bool] = None
-    multiple_variant_handling: Optional[MultipleVariantHandling] = None
-
-
-class ExperimentExposureQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    end_date: Optional[str] = None
-    experiment_id: Optional[int] = None
-    experiment_name: str
-    exposure_criteria: Optional[ExperimentExposureCriteria] = None
-    feature_flag: dict[str, Any]
-    holdout: Optional[ExperimentHoldoutType] = None
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentExposureQueryResponse] = None
-    start_date: Optional[str] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    description: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    rollout_percentage: Optional[float] = None
+    sort_key: Optional[str] = None
+    users_affected: Optional[float] = None
+    variant: Optional[str] = None
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -11044,6 +11041,7 @@ class TracesQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    personId: Optional[str] = Field(default=None, description="Person who performed the event")
     properties: Optional[
         list[
             Union[
@@ -11821,6 +11819,15 @@ class EventTaxonomyQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[Union[ExperimentEventExposureConfig, ActionsNode]] = None
+    filterTestAccounts: Optional[bool] = None
+    multiple_variant_handling: Optional[MultipleVariantHandling] = None
+
+
 class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11828,6 +11835,19 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     funnel_order_type: Optional[StepOrderValue] = None
     metric_type: Literal["funnel"] = "funnel"
     series: list[Union[EventsNode, ActionsNode]]
+
+
+class ExperimentHoldoutType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    description: Optional[str] = None
+    filters: list[FeatureFlagGroupType]
+    id: Optional[float] = None
+    name: str
+    updated_at: Optional[str] = None
 
 
 class ExperimentRatioMetric(BaseModel):
@@ -12696,6 +12716,26 @@ class ErrorTrackingQuery(BaseModel):
     withAggregations: Optional[bool] = None
     withFirstEvent: Optional[bool] = None
     withLastEvent: Optional[bool] = None
+
+
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end_date: Optional[str] = None
+    experiment_id: Optional[int] = None
+    experiment_name: str
+    exposure_criteria: Optional[ExperimentExposureCriteria] = None
+    feature_flag: dict[str, Any]
+    holdout: Optional[ExperimentHoldoutType] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentExposureQueryResponse] = None
+    start_date: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentFunnelMetric(BaseModel):
@@ -13834,7 +13874,16 @@ class VisualizationItem(BaseModel):
     )
     answer: Union[
         Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
     ]
     initiator: Optional[str] = None
     plan: Optional[str] = None
@@ -13847,7 +13896,16 @@ class VisualizationMessage(BaseModel):
     )
     answer: Union[
         Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
     ]
     id: Optional[str] = None
     initiator: Optional[str] = None

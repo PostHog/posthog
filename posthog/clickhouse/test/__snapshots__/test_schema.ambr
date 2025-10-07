@@ -2625,7 +2625,16 @@
   CREATE TABLE IF NOT EXISTS raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -2711,7 +2720,7 @@
   WITH parsed_events AS (
       SELECT
           team_id,
-          `$session_id`,
+          `$session_id_uuid` AS session_id_v7,
           distinct_id AS _distinct_id,
           person_id,
           timestamp,
@@ -2841,8 +2850,8 @@
   )
   
   SELECT
-     team_id,
-      toUUID(`$session_id`) as session_id_v7,
+      team_id,
+      session_id_v7,
   
       initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
       initializeAggregation('argMaxState', person_id, timestamp) as person_id,
@@ -3346,7 +3355,7 @@
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
   PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date)
+  ORDER BY (team_id, cohort_id, condition, date, person_id)
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -3675,7 +3684,16 @@
   CREATE TABLE IF NOT EXISTS sharded_raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -3749,15 +3767,10 @@
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
-  PARTITION BY toYYYYMM(UUIDv7ToDateTime(session_id_v7))
+  PARTITION BY toYYYYMM(session_timestamp)
   ORDER BY (
       team_id,
-  
-      -- sadly we need to include this as clickhouse UUIDs have insane ordering
-      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
-      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      UUIDv7ToDateTime(session_id_v7),
-  
+      session_timestamp,
       session_id_v7
   )
   
@@ -4661,7 +4674,16 @@
   CREATE TABLE IF NOT EXISTS writable_raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -5597,7 +5619,7 @@
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
   PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date)
+  ORDER BY (team_id, cohort_id, condition, date, person_id)
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -5926,7 +5948,16 @@
   CREATE TABLE IF NOT EXISTS sharded_raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -6000,15 +6031,10 @@
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
-  PARTITION BY toYYYYMM(UUIDv7ToDateTime(session_id_v7))
+  PARTITION BY toYYYYMM(session_timestamp)
   ORDER BY (
       team_id,
-  
-      -- sadly we need to include this as clickhouse UUIDs have insane ordering
-      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
-      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      UUIDv7ToDateTime(session_id_v7),
-  
+      session_timestamp,
       session_id_v7
   )
   

@@ -493,7 +493,11 @@ def login_from_new_device_notification(
     geoip_properties = get_geoip_properties(ip_address)
     country = geoip_properties.get("$geoip_country_name", "Unknown")
     city = geoip_properties.get("$geoip_city_name", "Unknown")
-    login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
+
+    if backend_name == "email_password":
+        login_method = "Email/password"
+    else:
+        login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:

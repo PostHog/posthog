@@ -33,6 +33,10 @@ from posthog.schema import (
     MaxUIContext,
     ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -75,6 +79,10 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "FunnelsQuery": FunnelsQuery,
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
+    "RevenueAnalyticsGrossRevenueQuery": RevenueAnalyticsGrossRevenueQuery,
+    "RevenueAnalyticsMetricsQuery": RevenueAnalyticsMetricsQuery,
+    "RevenueAnalyticsMRRQuery": RevenueAnalyticsMRRQuery,
+    "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
 }
 
 SLASH_COMMAND_INIT = "/init"
@@ -750,30 +758,20 @@ class RootNodeTools(AssistantNode):
                 capture_exception(
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
                 )
-                result = AssistantToolCallMessage(
-                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=False,
+                # Return without a NodeInterrupt
+                return PartialAssistantState(
+                    messages=[
+                        AssistantToolCallMessage(
+                            content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=False,
+                        )
+                    ],
+                    root_tool_calls_count=tool_call_count + 1,
                 )
             if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
-
-            # If this is a navigation tool call, pause the graph execution
-            # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate" and not isinstance(result, AssistantToolCallMessage):
-                navigate_message = AssistantToolCallMessage(
-                    content=str(result.content) if result.content else "",
-                    ui_payload={tool_call.name: result.artifact},
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=True,
-                )
-                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-                # surfaces the navigation confirmation to the client. The next user
-                # interaction will resume the graph with potentially different
-                # contextual tools.
-                raise NodeInterrupt(navigate_message)
 
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]
@@ -784,20 +782,21 @@ class RootNodeTools(AssistantNode):
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
-            return PartialAssistantState(
-                messages=[
+            # Convert result to AssistantToolCallMessage and return it
+            if isinstance(result, AssistantToolCallMessage):
+                # Result is already an AssistantToolCallMessage (e.g., from exception handler)
+                raise NodeInterrupt(result)
+            else:
+                # Convert LangchainToolMessage to AssistantToolCallMessage
+                raise NodeInterrupt(
                     AssistantToolCallMessage(
                         content=str(result.content) if result.content else "",
-                        ui_payload={tool_call.name: result.artifact},
+                        ui_payload={tool_call.name: getattr(result, "artifact", None)},
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
                         visible=tool_class.show_tool_call_message,
                     )
-                    if not isinstance(result, AssistantToolCallMessage)
-                    else result
-                ],
-                root_tool_calls_count=tool_call_count + 1,
-            )
+                )
         else:
             raise ValueError(f"Unknown tool called: {tool_call.name}")
 
