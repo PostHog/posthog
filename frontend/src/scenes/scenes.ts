@@ -59,13 +59,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
         description: 'A catalog of identified persons and your created cohorts.',
         defaultDocsPath: '/docs/data/cohorts',
     },
-    [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
@@ -538,6 +538,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
+    [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],

@@ -93,6 +93,8 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         results = [row[2:-1] for row in results]
 
         assert results == [
+            # This is an important case, it's got a value in the DB but discounts bring it to 0
+            (Decimal("0"), "USD", Decimal("0"), "GBP"),
             (Decimal("0.12"), "USD", Decimal("0.09564"), "GBP"),
             (Decimal("0.43"), "USD", Decimal("0.34271"), "GBP"),
             (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
@@ -105,16 +107,15 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             (Decimal("1.23"), "EUR", Decimal("1.0189273464"), "GBP"),
             (Decimal("3.43"), "USD", Decimal("1.366855"), "GBP"),
             (Decimal("3.43"), "USD", Decimal("1.366855"), "GBP"),
-            (Decimal("12.23"), "USD", Decimal("9.74731"), "GBP"),
             (Decimal("14.45"), "USD", Decimal("5.758325"), "GBP"),
             (Decimal("14.45"), "USD", Decimal("5.758325"), "GBP"),
             (Decimal("24.5"), "GBP", Decimal("24.5"), "GBP"),
             (Decimal("46.66"), "USD", Decimal("18.59401"), "GBP"),
             (Decimal("46.66"), "USD", Decimal("18.59401"), "GBP"),
+            (Decimal("54.99"), "USD", Decimal("43.82703"), "GBP"),
             (Decimal("88.88"), "USD", Decimal("70.83736"), "GBP"),
             (Decimal("90.7"), "USD", Decimal("72.2879"), "GBP"),
             (Decimal("90.7"), "USD", Decimal("72.2879"), "GBP"),
-            (Decimal("99.99"), "USD", Decimal("79.69203"), "GBP"),
             (Decimal("104.35"), "USD", Decimal("83.16695"), "GBP"),
             (Decimal("145.5"), "BRL", Decimal("18.8234100573"), "GBP"),
             (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
@@ -164,17 +165,18 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             (Decimal("1344.64"), "USD", Decimal("1071.67808"), "GBP"),
             (Decimal("1454.64"), "USD", Decimal("1159.34808"), "GBP"),
             # This is an important case to test since JPY's lowest denomination is 1 yen
-            # and this verifies we're handling this as 12350 yen instead of 123.50 yen
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
-            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            # and this verifies we're handling this as 9764 yen instead of 97.64 yen
+            # NOTE: This is 12350 yen in the file but there's a discount that brings it to 9764 yen
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
+            (Decimal("9764"), "JPY", Decimal("4.1397346665"), "GBP"),
         ]
