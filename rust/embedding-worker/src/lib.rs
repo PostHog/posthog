@@ -68,7 +68,7 @@ pub async fn generate_embedding(
     // Call OpenAI API to generate embeddings
     let api_request = OpenAIEmbeddingRequest {
         input: text,
-        model: model.to_string(),
+        model: model.name().to_string(),
     };
 
     let response = client
@@ -111,7 +111,7 @@ pub async fn generate_embedding(
         team_id: request.team_id,
         product: request.product.clone(),
         document_type: request.document_type.clone(),
-        model_name: model.to_string(),
+        model_name: model,
         rendering: request.rendering.to_string(),
         document_id: request.document_id.to_string(),
         timestamp: request.timestamp,
