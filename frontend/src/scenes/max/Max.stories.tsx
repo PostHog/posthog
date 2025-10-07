@@ -889,8 +889,35 @@ export const SingleToolExecutionComponent: StoryFn = () => {
 }
 
 export const MultiToolExecutionComponent: StoryFn = () => {
+    const planningMessage: PlanningMessage = {
+        type: AssistantMessageType.Planning,
+        id: 'planning-1',
+        steps: [
+            {
+                description: 'Analyze user engagement metrics',
+                status: PlanningStepStatus.Completed,
+            },
+            {
+                description: 'Create conversion funnel visualization',
+                status: PlanningStepStatus.Completed,
+            },
+            {
+                description: 'Generate retention cohort analysis',
+                status: PlanningStepStatus.InProgress,
+            },
+            {
+                description: 'Compile comprehensive report',
+                status: PlanningStepStatus.Pending,
+            },
+            {
+                description: 'Export data to dashboard',
+                status: PlanningStepStatus.Pending,
+            },
+        ],
+    }
     const toolExecutionMessage: ToolExecutionMessage = {
         type: AssistantMessageType.ToolExecution,
+        id: 'tool-execution-1',
         tool_executions: [
             {
                 id: 'task_1',
@@ -950,6 +977,8 @@ export const MultiToolExecutionComponent: StoryFn = () => {
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
                             `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(planningMessage)}`,
                             'event: message',
                             `data: ${JSON.stringify(toolExecutionMessage)}`,
                         ])

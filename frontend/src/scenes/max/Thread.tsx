@@ -24,6 +24,7 @@ import {
 import {
     LemonButton,
     LemonButtonPropsBase,
+    LemonCheckbox,
     LemonDialog,
     LemonInput,
     LemonSkeleton,
@@ -546,13 +547,13 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
     const hasMultipleSteps = message.steps.length > 1
 
     return (
-        <MessageTemplate type="ai">
-            <div className="flex items-center gap-1.5 text-xs">
-                <span className="flex-shrink-0">
+        <>
+            <div className="flex items-center text-xs">
+                <div className="relative flex-shrink-0 flex items-center justify-center size-7">
                     <IconNotebook />
-                </span>
+                </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <span className="font-medium">Planning</span>
+                    <span>Planning</span>
                     <span className="text-muted">
                         ({completedCount}/{totalCount})
                     </span>
@@ -570,7 +571,7 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3 ml-[calc(1em+0.375rem)]">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
                     {message.steps.map((step, index) => {
                         const isCompleted = step.status === PlanningStepStatus.Completed
                         const isInProgress = step.status === PlanningStepStatus.InProgress
@@ -578,11 +579,7 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                         return (
                             <div key={index} className="flex items-start gap-2 text-xs animate-fade-in">
                                 <span className="flex-shrink-0 mt-0.5">
-                                    {isCompleted ? (
-                                        <IconCheck className="text-success" />
-                                    ) : (
-                                        <span className="w-4 h-4 rounded-full border-2 border-border-secondary inline-block" />
-                                    )}
+                                    <LemonCheckbox checked={isCompleted} size="xxsmall" />
                                 </span>
                                 <span
                                     className={clsx(
@@ -592,14 +589,18 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && <span className="text-warning ml-1">(in progress)</span>}
+                                    {isInProgress && (
+                                        <span className="text-muted ml-1">
+                                            (<ShimmeringContent>in progress</ShimmeringContent>)
+                                        </span>
+                                    )}
                                 </span>
                             </div>
                         )
                     })}
                 </div>
             )}
-        </MessageTemplate>
+        </>
     )
 }
 
@@ -687,8 +688,10 @@ function ReasoningComponent({
             </div>
             {isExpanded && (
                 <div
-                    className={clsx('mt-1 space-y-1 border-l-2 border-border-secondary', icon && 'pl-3.5')}
-                    style={{ marginLeft: icon ? 'calc(0.775rem)' : '0' }}
+                    className={clsx(
+                        'mt-1 space-y-1 border-l-2 border-border-secondary',
+                        icon && 'pl-3.5 ml-[calc(0.775rem)]'
+                    )}
                 >
                     {substeps?.map((substep, substepIndex) => {
                         const isCurrentSubstep = substepIndex === substeps.length - 1
@@ -745,7 +748,7 @@ interface ToolExecutionAnswerProps {
 
 function ToolExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
             {message.tool_executions.map((toolExecution, index) => {
                 const allSteps = [
                     ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
@@ -759,7 +762,7 @@ function ToolExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element
                     }
                 }
                 return (
-                    <div key={index} className="flex items-center rounded transition-all duration-500 py-1">
+                    <div key={index} className="flex items-center rounded transition-all duration-500">
                         <div className="flex-1 min-w-0">
                             <ReasoningComponent
                                 id={toolExecution.id}
