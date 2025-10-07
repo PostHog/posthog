@@ -16,7 +16,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -32,7 +32,7 @@ from .utils import convert_team_conversion_goals_to_objects
 logger = structlog.get_logger(__name__)
 
 # Generic type for the response
-ResponseType = TypeVar("ResponseType")
+ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
@@ -303,7 +303,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 return None
 
             # Build select columns for aggregated conversion goals
-            select_columns = []
+            select_columns: list[ast.Expr] = []
 
             for processor in processors:
                 # For aggregated queries, create a simple COUNT expression from events table

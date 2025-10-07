@@ -97,7 +97,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
 
     def _build_aggregated_columns(self, columns_mapping: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
         """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip cost per conversion"""
-        aggregated_columns = {}
+        aggregated_columns: dict[str, ast.Expr] = {}
 
         for column_name, column_expr in columns_mapping.items():
             # Skip cost per conversion columns - we'll recalculate them later
