@@ -84,7 +84,7 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
-        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(&config).await);
+        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
         let s3_client = S3Client::new(s3_client);
         let s3_client = Arc::new(s3_client);
 
