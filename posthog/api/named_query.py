@@ -281,7 +281,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             raise ValidationError("Query override is not supported for HogQL queries")
 
     @extend_schema(
-        description="Get the last execution times in the past 6 monthsfor multiple named queries.",
+        description="Get the last execution times in the past 6 months for multiple named queries.",
         request=EndpointLastExecutionTimesRequest,
         responses={200: QueryStatusResponse},
     )
