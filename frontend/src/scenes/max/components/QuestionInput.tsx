@@ -95,7 +95,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
                             'hover:border-border-bold focus-within:border-border-bold',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[8px]' : 'rounded-lg'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
