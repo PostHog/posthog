@@ -49,7 +49,6 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
             [PostgresUse.PERSONS_WRITE, commonClient],
-            [PostgresUse.PERSONS_READ, commonClient],
             [PostgresUse.COUNTERS_RW, commonClient],
         ])
 
