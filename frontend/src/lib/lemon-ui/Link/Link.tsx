@@ -1,5 +1,6 @@
 import './Link.scss'
 
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useContext } from 'react'
 
@@ -12,6 +13,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -129,6 +131,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
     ) => {
         const externalLink = isExternalLink(to)
         const withinSidePanel = useContext(WithinSidePanelContext)
+        const { activeTab } = useValues(sceneLogic)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
@@ -186,10 +189,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     }
                 }
             } else if (target === '_blank' && !externalLink && to && typeof to === 'string') {
-                // For internal links, open in new PostHog tab
+                // For internal links, open in new PostHog tab with parent tab tracking
                 event.preventDefault()
                 event.stopPropagation()
-                newInternalTab(to)
+                newInternalTab(to, activeTab?.id)
             }
         }
 
