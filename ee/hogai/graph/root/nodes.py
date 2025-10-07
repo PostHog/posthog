@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
@@ -31,7 +31,6 @@ from posthog.models import Team, User
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
 from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
-from ee.hogai.graph.root.tools.todo_write import TodoWriteTool
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, ToolMessagesArtifact
@@ -64,6 +63,7 @@ from .tools import (
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
+    TodoWriteTool,
     create_and_query_insight,
     create_dashboard,
     session_summarization,
@@ -239,22 +239,23 @@ class RootNode(AssistantNode):
         return base_model.bind_tools(tools, parallel_tool_calls=False)
 
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
-        from ee.hogai.tool import MaxTool, get_contextual_tool_class
+        from ee.hogai.tool import get_contextual_tool_class
 
-        available_tools: list[type[BaseModel] | MaxTool] = []
+        available_tools: list[RootTool] = []
 
-        # Dynamically initialize some tools based on conditions
-        dynamic_tools = await asyncio.gather(
-            ReadTaxonomyTool.create_tool_class(team=self._team, user=self._user, state=state, config=config),
-            ReadDataTool.create_tool_class(team=self._team, user=self._user, state=state, config=config),
+        # Initialize the static toolkit
+        dynamic_tools = (
+            initialize_tool(tool, team=self._team, user=self._user, state=state, config=config)
+            for tool in (
+                ReadTaxonomyTool,
+                ReadDataTool,
+                SearchTool,
+                TodoWriteTool,
+            )
         )
-        available_tools.extend(dynamic_tools)
+        available_tools.extend(await asyncio.gather(*dynamic_tools))
 
-        # Add the static toolkit
-        toolkit = (SearchTool, TodoWriteTool)
-        for StaticMaxToolClass in toolkit:
-            available_tools.append(StaticMaxToolClass(team=self._team, user=self._user, state=state, config=config))
-
+        # Insights tool
         tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         if not is_editing_insight:
@@ -265,14 +266,20 @@ class RootNode(AssistantNode):
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
 
+        # Dashboard creation tool
         available_tools.append(create_dashboard)
 
         # Inject contextual tools
+        awaited_contextual_tools: list[Awaitable[RootTool]] = []
         for tool_name in tool_names:
             ContextualMaxToolClass = get_contextual_tool_class(tool_name)
             if ContextualMaxToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ContextualMaxToolClass(team=self._team, user=self._user, state=state, config=config))
+            awaited_contextual_tools.append(
+                initialize_tool(ContextualMaxToolClass, team=self._team, user=self._user, state=state, config=config)
+            )
+
+        available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
 
         return available_tools
 
@@ -343,12 +350,12 @@ class RootNodeTools(AssistantNode):
         else:
             # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
             # when the tool has been removed from the backend since the user's frontend was loaded
-            ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
-            content = (
-                ToolClass(team=self._team, user=self._user).thinking_message
-                if ToolClass
-                else f"Running tool {tool_call.name}"
-            )
+            try:
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[tool_call.name]  # type: ignore
+                tool = await initialize_tool(ToolClass, team=self._team, user=self._user)
+                content = tool.thinking_message
+            except KeyError:
+                content = f"Running tool {tool_call.name}"
 
         return ReasoningMessage(content=content) if content else None
 
@@ -413,7 +420,7 @@ class RootNodeTools(AssistantNode):
             )
 
         # Initialize the tool and process it
-        tool_class = ToolClass(team=self._team, user=self._user, state=state, config=config)
+        tool_class = await initialize_tool(ToolClass, team=self._team, user=self._user, state=state, config=config)
         try:
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
@@ -512,3 +519,21 @@ class RootNodeTools(AssistantNode):
             else:
                 return "search_documentation"
         return "end"
+
+
+ToolClass = TypeVar("ToolClass", bound="MaxTool")
+
+
+async def initialize_tool(
+    tool_class: type[ToolClass],
+    *,
+    team: Team,
+    user: User,
+    state: AssistantState | None = None,
+    config: RunnableConfig | None = None,
+) -> ToolClass:
+    try:
+        return await tool_class.create_tool_class(team=team, user=user, state=state, config=config)
+    except NotImplementedError:
+        pass
+    return tool_class(team=team, user=user, state=state, config=config)
