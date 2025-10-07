@@ -1,0 +1,62 @@
+name: 'MCP Publish'
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+permissions:
+    contents: read
+
+jobs:
+    check-package-version:
+        name: Check package version and detect an update
+        runs-on: ubuntu-24.04
+        outputs:
+            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+
+            - name: Check package version and detect an update
+              id: check-package-version
+              uses: PostHog/check-package-version@v2
+              with:
+                  path: mcp/typescript/
+
+    release:
+        name: Publish release if new version
+        runs-on: ubuntu-24.04
+        needs: check-package-version
+        if: needs.check-package-version.outputs.is-new-version == 'true'
+        env:
+            COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Set up Node 18
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 18
+                  registry-url: https://registry.npmjs.org
+
+            - name: Install pnpm
+              run: npm install -g pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: cd mcp/typescript && pnpm install
+
+            - name: Build the package
+              run: cd mcp/typescript && pnpm build
+
+            - name: Publish the package in the npm registry
+              run: cd mcp/typescript && pnpm publish --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

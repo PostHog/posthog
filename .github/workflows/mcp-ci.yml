@@ -1,0 +1,106 @@
+name: MCP CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    lint-and-format:
+        name: Lint, Format, and Type Check
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install && cd mcp/typescript && pnpm install
+
+            - name: Run linter
+              run: pnpm run lint
+
+            - name: Run formatter
+              run: pnpm run format
+
+            - name: Run type check
+              run: cd mcp/typescript && pnpm run typecheck
+
+            - name: Check for changes
+              run: |
+                  if [ -n "$(git status --porcelain)" ]; then
+                    echo "Code formatting or linting changes detected!"
+                    git diff
+                    exit 1
+                  fi
+
+    unit-tests:
+        name: Unit Tests
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        concurrency:
+            group: ${{ github.workflow }}-unit-${{ github.head_ref || github.ref }}
+            cancel-in-progress: true
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install && cd mcp && pnpm install && cd typescript && pnpm install
+
+            - name: Run unit tests
+              run: cd mcp/typescript && pnpm run test
+
+    integration-tests:
+        name: Integration Tests
+        runs-on: ubuntu-latest
+        needs: unit-tests
+        permissions:
+            contents: read
+        concurrency:
+            group: ${{ github.workflow }}-integration-${{ github.head_ref || github.ref }}
+            cancel-in-progress: true
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install && cd mcp && pnpm install && cd typescript && pnpm install
+
+            - name: Run integration tests
+              run: cd mcp && pnpm run test:integration
+              env:
+                  TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
+                  TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_API_TOKEN }}
+                  TEST_ORG_ID: ${{ secrets.MCP_TEST_ORG_ID }}
+                  TEST_PROJECT_ID: ${{ secrets.MCP_TEST_PROJECT_ID }}
