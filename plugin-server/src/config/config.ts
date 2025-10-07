@@ -330,6 +330,8 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,
+        POD_TERMINATION_BASE_TIMEOUT_MINUTES: 60, // Default: 1 hour
+        POD_TERMINATION_JITTER_MINUTES: 15, // Default: 15 minutes
     }
 }
 
