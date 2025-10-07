@@ -51,6 +51,24 @@ AppStateItem.args = {
         stateEvent: {
             prevState: { user: null },
             payload: { user: { id: 1, name: 'John Doe' } },
+            changedState: { user: { id: 1, name: 'John Doe' } },
+        },
+        key: 'id',
+    },
+}
+
+/** keep support for these until Oct 2026 */
+export const OGFormatAppStateItem: Story = BasicTemplate.bind({})
+AppStateItem.args = {
+    item: {
+        timestamp: dayjs('2019-01-30'),
+        timeInRecording: 123,
+        search: 'some text',
+        type: 'app-state',
+        action: 'USER_LOGGED_IN',
+        stateEvent: {
+            prevState: { user: null },
+            payload: { user: { id: 1, name: 'John Doe' } },
             nextState: { user: { id: 1, name: 'John Doe' } },
         },
         key: 'id',

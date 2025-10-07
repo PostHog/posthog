@@ -85,6 +85,7 @@ export function ItemAppStateDetail({ item }: ItemAppStateProps): JSX.Element {
                         'prev state': item.stateEvent?.prevState,
                         'action payload': item.stateEvent?.payload,
                         'next state': item.stateEvent?.nextState,
+                        'changed state': item.stateEvent?.changedState,
                     }}
                     header={<strong>{item.action}</strong>}
                     sortItems={false}
