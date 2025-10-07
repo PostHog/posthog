@@ -1,13 +1,13 @@
 import logging
 from typing import Any
 
+import requests
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.feature_flag_providers import provider_registry
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
 logger = logging.getLogger(__name__)
@@ -19,140 +19,61 @@ class FeatureFlagMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False)
     def fetch_external_flags(self, request: Request) -> Response:
         """Fetch feature flags from external providers"""
-        provider_name = request.data.get("provider")
+        provider = request.data.get("provider")
         api_key = request.data.get("api_key")
-        project_key = request.data.get("project_key", "")
-        environment = request.data.get("environment", "production")
 
-        if not provider_name or not api_key:
+        if not provider or not api_key:
             return Response({"error": "Provider and API key are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get provider instance
-        provider = provider_registry.get_provider(provider_name, rate_limiter=getattr(self, 'rate_limiter', None))
-        if not provider:
-            return Response(
-                {"error": f"Provider '{provider_name}' is not supported"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
-            # Use the provider to fetch flags
-            return provider.fetch_flags(api_key, project_key, environment)
+            if provider == "amplitude":
+                flags = self._fetch_amplitude_flags(api_key)
+            else:
+                return Response(
+                    {"error": f"Provider '{provider}' is not supported yet"}, status=status.HTTP_400_BAD_REQUEST
+                )
 
-        except Exception as e:
-            logger.exception(f"Error fetching flags from {provider_name}: {e}")
+            # Filter flags to only show those with single conditions
+            importable_flags = []
+            non_importable_flags = []
+
+            for flag in flags:
+                if self._is_single_condition_flag(flag):
+                    importable_flags.append({**flag, "importable": True, "import_issues": []})
+                else:
+                    non_importable_flags.append(
+                        {**flag, "importable": False, "import_issues": ["Multiple conditions not supported yet"]}
+                    )
+
             return Response(
-                {"error": f"Failed to fetch flags: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(methods=["POST"], detail=False)
-    def extract_field_mappings(self, request: Request) -> Response:
-        """Extract unique fields from selected flags for mapping to PostHog fields"""
-        provider_name = request.data.get("provider")
-        selected_flags = request.data.get("selected_flags", [])
-
-        if not provider_name or not selected_flags:
-            return Response(
-                {"error": "Provider and selected flags are required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get provider instance
-        provider = provider_registry.get_provider(provider_name)
-        if not provider:
-            return Response(
-                {"error": f"Provider '{provider_name}' is not supported"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            # Extract unique fields from all selected flags
-            unique_fields = set()
-
-            for flag in selected_flags:
-                # Use provider-specific field extraction
-                field_infos = provider.extract_fields_from_flag(flag)
-                for field_info in field_infos:
-                    unique_fields.add(field_info)
-
-                # Also check transformed conditions as backup
-                conditions = flag.get("conditions", [])
-                for condition in conditions:
-                    properties = condition.get("properties", [])
-                    for prop in properties:
-                        if prop.get("type") == "cohort":
-                            continue
-
-                        field_info = provider.extract_field_info_from_property(prop)
-                        if field_info:
-                            unique_fields.add(field_info)
-
-            # Create field mapping suggestions
-            field_mappings = []
-            for field_info in sorted(unique_fields, key=lambda x: x.display_name.lower()):
-                # Get default PostHog mapping for known fields
-                default_posthog_field = self._get_default_posthog_mapping(field_info.field_type, field_info.key)
-                auto_selected = default_posthog_field is not None
-
-                mapping = {
-                    "external_key": field_info.key,
-                    "external_type": field_info.field_type,
-                    "display_name": field_info.display_name,
-                    "posthog_field": default_posthog_field,
-                    "posthog_type": self._get_posthog_field_type(default_posthog_field),
-                    "auto_selected": auto_selected,
-                    "options": self._get_posthog_field_options(field_info.field_type),
+                {
+                    "importable_flags": importable_flags,
+                    "non_importable_flags": non_importable_flags,
+                    "total_flags": len(flags),
+                    "importable_count": len(importable_flags),
+                    "non_importable_count": len(non_importable_flags),
                 }
-                field_mappings.append(mapping)
-
-            return Response({
-                "field_mappings": field_mappings,
-                "total_fields": len(field_mappings)
-            })
+            )
 
         except Exception as e:
-            logger.exception(f"Error extracting field mappings for {provider_name}: {e}")
-            return Response(
-                {"error": f"Failed to extract field mappings: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            logger.exception(f"Error fetching flags from {provider}: {e}")
+            return Response({"error": f"Failed to fetch flags: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(methods=["POST"], detail=False)
     def import_flags(self, request: Request) -> Response:
         """Import selected feature flags to PostHog"""
-        provider_name = request.data.get("provider")
+        provider = request.data.get("provider")
         selected_flags = request.data.get("selected_flags", [])
         field_mappings = request.data.get("field_mappings", {})
-        environment = request.data.get("environment", "production")
 
-        if not provider_name or not selected_flags:
-            return Response(
-                {"error": "Provider and selected flags are required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get provider instance
-        provider = provider_registry.get_provider(provider_name)
-        if not provider:
-            return Response(
-                {"error": f"Provider '{provider_name}' is not supported"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not provider or not selected_flags:
+            return Response({"error": "Provider and selected flags are required"}, status=status.HTTP_400_BAD_REQUEST)
 
         imported_flags = []
         failed_imports = []
 
         for flag_data in selected_flags:
             try:
-                # Validate flag has proper field mappings
-                validation_result, error_message = self._validate_flag_field_mappings(
-                    flag_data, field_mappings, provider
-                )
-                if not validation_result:
-                    failed_imports.append({"flag": flag_data, "error": error_message})
-                    continue
-
                 # Convert external flag to PostHog format
                 posthog_flag_data = self._convert_to_posthog_format(flag_data, field_mappings)
 
@@ -199,37 +120,139 @@ class FeatureFlagMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             }
         )
 
-    def _validate_flag_field_mappings(self, flag_data, field_mappings, provider):
-        """Validate that all required fields in a flag have proper mappings."""
-        unmapped_fields = []
+    def _fetch_amplitude_flags(self, api_key: str) -> list[dict[str, Any]]:
+        """Fetch feature flags from Amplitude API"""
+        # Note: This is a simplified implementation. In practice, you'd need to:
+        # 1. Understand Amplitude's actual API structure for feature flags
+        # 2. Handle pagination
+        # 3. Handle different project/environment structures
 
-        # Check all conditions for unmapped fields
-        conditions = flag_data.get("conditions", [])
-        for condition in conditions:
-            properties = condition.get("properties", [])
-            for prop in properties:
-                # Skip cohort properties - they're handled separately
-                if prop.get("type") == "cohort":
-                    continue
+        # For now, we'll simulate the API call structure
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-                # Get the external key that would be used
-                external_key = provider.get_external_key_from_property(prop)
-                if external_key:
-                    # Check if this field has a mapping
-                    field_mapping = field_mappings.get(external_key)
-                    if not field_mapping or not field_mapping.get("posthog_field"):
-                        unmapped_fields.append(external_key)
+        try:
+            # This would be the actual Amplitude API endpoint
+            # Note: The actual endpoint might be different - this is a placeholder
+            response = requests.get(
+                "https://amplitude.com/api/2/feature-flags",  # Placeholder URL
+                headers=headers,
+                timeout=30,
+            )
 
-        if unmapped_fields:
-            return False, f"Flag contains unmapped fields: {', '.join(unmapped_fields)}. All fields used in flag conditions must be mapped to PostHog properties."
+            if response.status_code == 200:
+                data = response.json()
+                # Process Amplitude response format and convert to our standard format
+                return self._normalize_amplitude_flags(data)
+            else:
+                raise Exception(f"Amplitude API returned status {response.status_code}: {response.text}")
 
-        return True, None
+        except requests.RequestException as e:
+            raise Exception(f"Failed to connect to Amplitude API: {str(e)}")
 
-    def _convert_to_posthog_format(self, external_flag: dict[str, Any], field_mappings: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_amplitude_flags(self, amplitude_data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convert Amplitude API response to normalized flag format"""
+        # This is a placeholder implementation based on expected Amplitude structure
+        # You would need to adjust this based on Amplitude's actual API response format
+
+        flags = []
+        flag_list = amplitude_data.get("feature_flags", [])
+
+        for flag in flag_list:
+            normalized_flag = {
+                "key": flag.get("key", ""),
+                "name": flag.get("name", flag.get("key", "")),
+                "description": flag.get("description", ""),
+                "enabled": flag.get("enabled", False),
+                "conditions": self._extract_amplitude_conditions(flag),
+                "variants": self._extract_amplitude_variants(flag),
+                "metadata": {
+                    "provider": "amplitude",
+                    "original_id": flag.get("id"),
+                    "created_at": flag.get("created_at"),
+                    "updated_at": flag.get("updated_at"),
+                },
+            }
+            flags.append(normalized_flag)
+
+        return flags
+
+    def _extract_amplitude_conditions(self, amplitude_flag: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract targeting conditions from Amplitude flag"""
+        conditions = []
+
+        # This is a placeholder - you'd need to understand Amplitude's condition structure
+        targeting = amplitude_flag.get("targeting", {})
+        rules = targeting.get("rules", [])
+
+        for rule in rules:
+            condition = {
+                "properties": self._convert_amplitude_properties(rule.get("conditions", [])),
+                "rollout_percentage": rule.get("rollout_percentage", 100),
+                "variant": rule.get("variant"),
+            }
+            conditions.append(condition)
+
+        return conditions
+
+    def _extract_amplitude_variants(self, amplitude_flag: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract variants from Amplitude flag"""
+        variants = []
+        amplitude_variants = amplitude_flag.get("variants", [])
+
+        for variant in amplitude_variants:
+            variants.append(
+                {
+                    "key": variant.get("key", ""),
+                    "name": variant.get("name", ""),
+                    "rollout_percentage": variant.get("rollout_percentage", 0),
+                    "value": variant.get("value"),
+                }
+            )
+
+        return variants
+
+    def _convert_amplitude_properties(self, amplitude_conditions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert Amplitude conditions to PostHog property format"""
+        properties = []
+
+        for condition in amplitude_conditions:
+            # This is a basic mapping - you'd need to handle all Amplitude condition types
+            prop = {
+                "key": condition.get("property", ""),
+                "operator": self._map_amplitude_operator(condition.get("operator", "")),
+                "value": condition.get("value", ""),
+                "type": "person",  # Assuming person properties for now
+            }
+            properties.append(prop)
+
+        return properties
+
+    def _map_amplitude_operator(self, amplitude_operator: str) -> str:
+        """Map Amplitude operators to PostHog operators"""
+        operator_mapping = {
+            "equals": "exact",
+            "not_equals": "not_equal",
+            "contains": "icontains",
+            "not_contains": "not_icontains",
+            "greater_than": "gt",
+            "less_than": "lt",
+            "greater_than_or_equal": "gte",
+            "less_than_or_equal": "lte",
+        }
+        return operator_mapping.get(amplitude_operator, "exact")
+
+    def _is_single_condition_flag(self, flag: dict[str, Any]) -> bool:
+        """Check if flag has only single condition (importable)"""
+        conditions = flag.get("conditions", [])
+        return len(conditions) <= 1
+
+    def _convert_to_posthog_format(
+        self, external_flag: dict[str, Any], field_mappings: dict[str, Any]
+    ) -> dict[str, Any]:
         """Convert external flag format to PostHog FeatureFlag format"""
         # Apply field mappings if provided
-        key = field_mappings.get("key", {}).get("posthog_field") or external_flag.get("key", "")
-        name = field_mappings.get("name", {}).get("posthog_field") or external_flag.get("name", external_flag.get("key", ""))
+        key = field_mappings.get("key", external_flag.get("key", ""))
+        name = field_mappings.get("name", external_flag.get("name", external_flag.get("key", "")))
 
         # Build filters structure for PostHog
         filters = {"groups": []}
@@ -287,61 +310,6 @@ class FeatureFlagMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if counter > 1000:
                 # Fallback with timestamp if somehow we have 1000+ duplicate keys
                 import time
+
                 timestamp = int(time.time())
                 return f"{original_key}_{timestamp}"
-
-    def _get_default_posthog_mapping(self, field_type: str, external_key: str) -> str:
-        """Get default PostHog field mapping for known field keys/criteria"""
-        # Segments should not be auto-mapped - they need manual handling
-        if field_type == "segment":
-            return None
-
-        # Map external field keys/names to PostHog properties
-        mapping = {
-            # Identity fields
-            "email": "email",
-            "user_id": "distinct_id",
-            "distinct_id": "distinct_id",
-            "key": "distinct_id",  # LaunchDarkly uses "key" for user ID
-            # Geographic fields
-            "country": "$geoip_country_code",
-            "region": "$geoip_subdivision_1_code",
-            "city": "$geoip_city_name",
-            "ip": "$ip",
-            # Device/Browser fields
-            "browser_name": "$browser",
-            "browser_version": "$browser_version",
-            "os_name": "$os",
-            "os_version": "$os_version",
-            "device": "$device_type",
-            "device_model": "$device_type",
-        }
-
-        return mapping.get(external_key.lower())
-
-    def _get_posthog_field_type(self, posthog_field: str) -> str:
-        """Get the PostHog field type based on the field name"""
-        if not posthog_field:
-            return "person"
-
-        # System properties start with $
-        if posthog_field.startswith("$"):
-            return "event"
-
-        # Default to person properties
-        return "person"
-
-    def _get_posthog_field_options(self, field_type: str) -> list:
-        """Get available PostHog field options for the dropdown"""
-        # This could be expanded to return actual available properties from the team
-        common_options = [
-            {"key": "email", "label": "Email", "type": "person"},
-            {"key": "distinct_id", "label": "Distinct ID", "type": "person"},
-            {"key": "$geoip_country_code", "label": "Country", "type": "event"},
-            {"key": "$geoip_city_name", "label": "City", "type": "event"},
-            {"key": "$browser", "label": "Browser", "type": "event"},
-            {"key": "$os", "label": "Operating System", "type": "event"},
-            {"key": "$device_type", "label": "Device Type", "type": "event"},
-        ]
-
-        return common_options

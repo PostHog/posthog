@@ -11,37 +11,36 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useState } from 'react'
 
 import { ExternalFeatureFlag } from 'lib/api/featureFlagMigration'
-import { ExternalProvider, externalProviderImportWizardLogic } from './externalProviderImportWizardLogic'
+import { MigrationProvider, featureFlagMigrationWizardLogic } from './featureFlagMigrationWizardLogic'
 
 import IconStatsig from 'public/services/statsig.com.png'
 import IconLaunchDarkly from 'public/services/launchdarkly.com.png'
 
 // Provider logos
-const getProviderLogo = (provider: ExternalProvider): string => {
+const getProviderLogo = (provider: MigrationProvider): string => {
     switch (provider) {
-        case ExternalProvider.STATSIG:
+        case MigrationProvider.STATSIG:
             return IconStatsig
-        case ExternalProvider.LAUNCHDARKLY:
+        case MigrationProvider.LAUNCHDARKLY:
             return IconLaunchDarkly
         default:
             return ''
     }
 }
 
-interface ExternalProviderImportWizardProps {
+interface FeatureFlagMigrationWizardProps {
     onComplete?: () => void
-    importType: 'feature-flags' | 'experiments' | 'events'
 }
 
-export function ExternalProviderImportWizard({ onComplete, importType }: ExternalProviderImportWizardProps): JSX.Element {
+export function FeatureFlagMigrationWizard({ onComplete }: FeatureFlagMigrationWizardProps): JSX.Element {
     return (
-        <BindLogic logic={externalProviderImportWizardLogic} props={{ onComplete, importType }}>
-            <InternalExternalProviderImportWizard onComplete={onComplete} importType={importType} />
+        <BindLogic logic={featureFlagMigrationWizardLogic} props={{ onComplete }}>
+            <InternalFeatureFlagMigrationWizard onComplete={onComplete} />
         </BindLogic>
     )
 }
 
-function InternalExternalProviderImportWizard({ onComplete, importType }: ExternalProviderImportWizardProps): JSX.Element {
+function InternalFeatureFlagMigrationWizard({ onComplete }: FeatureFlagMigrationWizardProps): JSX.Element {
     const {
         currentStep,
         isLoading,
@@ -51,11 +50,10 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
         stepTitle,
         stepDescription,
         selectedProvider,
-    } = useValues(externalProviderImportWizardLogic)
-    const { onBack, onNext, onClear, startNewImport, fetchExternalResources, extractFieldMappings, executeImport } = useActions(externalProviderImportWizardLogic)
+    } = useValues(featureFlagMigrationWizardLogic)
+    const { onBack, onNext, onClear, startNewImport, fetchExternalFlags, extractFieldMappings, executeImport } = useActions(featureFlagMigrationWizardLogic)
 
     useEffect(() => onClear, [onClear])
-
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -69,7 +67,7 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
                     <LemonButton
                         type="secondary"
                         center
-                        data-attr="import-start-new"
+                        data-attr="migration-start-new"
                         onClick={startNewImport}
                     >
                         Start New Import
@@ -81,12 +79,11 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
                             if (onComplete) {
                                 onComplete()
                             } else {
-                                // Navigate to the appropriate page based on import type
-                                const targetUrl = importType === 'feature-flags' ? '/feature_flags' : '/insights'
-                                window.location.href = targetUrl
+                                // Navigate to feature flags page
+                                window.location.href = '/feature_flags'
                             }
                         }}
-                        data-attr="import-go-to-destination"
+                        data-attr="migration-go-to-flags"
                     >
                         {nextButtonText}
                     </LemonButton>
@@ -99,7 +96,7 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
                 <LemonButton
                     type="secondary"
                     center
-                    data-attr="import-back-button"
+                    data-attr="migration-back-button"
                     onClick={onBack}
                     disabledReason={!canGoBack ? 'You cant go back from here' : undefined}
                 >
@@ -112,10 +109,10 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
                     center
                     onClick={() => {
                         if (currentStep === 2) {
-                            // Authentication step - fetch data
-                            fetchExternalResources()
+                            // Authentication step - fetch flags
+                            fetchExternalFlags()
                         } else if (currentStep === 3) {
-                            // Selection step - extract field mappings
+                            // Flag selection step - extract field mappings
                             extractFieldMappings()
                         } else if (currentStep === 4) {
                             // Field mapping step - execute import
@@ -125,13 +122,13 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
                             onNext()
                         }
                     }}
-                    data-attr="import-next"
+                    data-attr="migration-next"
                 >
                     {nextButtonText}
                 </LemonButton>
             </div>
         )
-    }, [currentStep, canGoBack, onBack, isLoading, canGoNext, nextButtonText, onNext, onComplete, startNewImport, importType])
+    }, [currentStep, canGoBack, onBack, isLoading, canGoNext, nextButtonText, onNext, onComplete, startNewImport])
 
     return (
         <div className="space-y-6">
@@ -146,15 +143,15 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
             )}
 
             {currentStep === 1 ? (
-                <ProviderSelectionStep importType={importType} />
+                <ProviderSelectionStep />
             ) : currentStep === 2 ? (
                 <AuthenticationStep />
             ) : currentStep === 3 ? (
-                <SelectionStep importType={importType} />
+                <FlagSelectionStep />
             ) : currentStep === 4 ? (
                 <FieldMappingStep />
             ) : currentStep === 5 ? (
-                <ImportResultsStep importType={importType} />
+                <ImportResultsStep />
             ) : (
                 <div>Something went wrong...</div>
             )}
@@ -164,7 +161,7 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
     )
 }
 
-function ProviderIcon({ provider, size = 'medium' }: { provider: ExternalProvider; size?: 'small' | 'medium' }): JSX.Element {
+function ProviderIcon({ provider, size = 'medium' }: { provider: MigrationProvider; size?: 'small' | 'medium' }): JSX.Element {
     const sizePx = size === 'small' ? 30 : 60
     const logo = getProviderLogo(provider)
 
@@ -179,68 +176,27 @@ function ProviderIcon({ provider, size = 'medium' }: { provider: ExternalProvide
     )
 }
 
-function ProviderSelectionStep({ importType }: { importType: string }): JSX.Element {
-    const { selectProvider } = useActions(externalProviderImportWizardLogic)
-
-    const getProviderDescription = (providerKey: ExternalProvider) => {
-        switch (importType) {
-            case 'feature-flags':
-                return providerKey === ExternalProvider.STATSIG
-                    ? 'Import Feature Gates and Dynamic Configs'
-                    : 'Import feature flags from LaunchDarkly'
-            case 'experiments':
-                return providerKey === ExternalProvider.STATSIG
-                    ? 'Import experiments and variants'
-                    : 'Import experiments from LaunchDarkly'
-            default:
-                return 'Import data from external provider'
-        }
-    }
+function ProviderSelectionStep(): JSX.Element {
+    const { selectProvider } = useActions(featureFlagMigrationWizardLogic)
 
     const providers = [
         {
-            key: ExternalProvider.STATSIG,
+            key: MigrationProvider.STATSIG,
             name: 'Statsig',
-            description: getProviderDescription(ExternalProvider.STATSIG),
+            description: 'Import Feature Gates and Dynamic Configs',
         },
         {
-            key: ExternalProvider.LAUNCHDARKLY,
+            key: MigrationProvider.LAUNCHDARKLY,
             name: 'LaunchDarkly',
-            description: getProviderDescription(ExternalProvider.LAUNCHDARKLY),
+            description: 'Import feature flags from LaunchDarkly',
         },
     ]
-
-    const getTitle = () => {
-        switch (importType) {
-            case 'feature-flags':
-                return 'Import feature flags'
-            case 'experiments':
-                return 'Import experiments'
-            case 'events':
-                return 'Import events'
-            default:
-                return 'Import data'
-        }
-    }
-
-    const getDescription = () => {
-        switch (importType) {
-            case 'feature-flags':
-                return 'Choose the external service you want to import feature flags from.'
-            case 'experiments':
-                return 'Choose the external service you want to import experiments from.'
-            case 'events':
-                return 'Choose the external service you want to import events from.'
-            default:
-                return 'Choose the external service you want to import data from.'
-        }
-    }
 
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="text-xl font-semibold mb-2">{getTitle()}</h3>
-                <p className="text-muted">{getDescription()}</p>
+                <h3 className="text-xl font-semibold mb-2">Import feature flags</h3>
+                <p className="text-muted">Choose the external service you want to import feature flags from.</p>
             </div>
 
             <LemonTable
@@ -284,14 +240,13 @@ function ProviderSelectionStep({ importType }: { importType: string }): JSX.Elem
     )
 }
 
-// Keep the rest of the components for now - they'll be updated to be more generic later
 function AuthenticationStep(): JSX.Element {
-    const { selectedProvider, apiKey, projectKey, environment } = useValues(externalProviderImportWizardLogic)
-    const { setApiKey, setProjectKey, setEnvironment } = useActions(externalProviderImportWizardLogic)
+    const { selectedProvider, apiKey, projectKey, environment } = useValues(featureFlagMigrationWizardLogic)
+    const { setApiKey, setProjectKey, setEnvironment } = useActions(featureFlagMigrationWizardLogic)
 
     const getProviderInstructions = (): JSX.Element => {
         switch (selectedProvider) {
-            case ExternalProvider.LAUNCHDARKLY:
+            case MigrationProvider.LAUNCHDARKLY:
                 return (
                     <div className="bg-side border rounded p-4">
                         <h5 className="font-semibold mb-2">How to get your LaunchDarkly API token:</h5>
@@ -306,7 +261,7 @@ function AuthenticationStep(): JSX.Element {
                         </ol>
                     </div>
                 )
-            case ExternalProvider.STATSIG:
+            case MigrationProvider.STATSIG:
                 return (
                     <div className="bg-side border rounded p-4">
                         <h5 className="font-semibold mb-2">How to get your Statsig Console API Key:</h5>
@@ -334,22 +289,22 @@ function AuthenticationStep(): JSX.Element {
             <div className="space-y-4">
                 <div className="space-y-2">
                     <label className="font-medium">
-                        {selectedProvider === ExternalProvider.STATSIG ? 'Console API Key' : 'API Key'}
+                        {selectedProvider === MigrationProvider.STATSIG ? 'Console API Key' : 'API Key'}
                     </label>
                     <LemonInput
                         type="password"
                         value={apiKey}
                         onChange={setApiKey}
                         placeholder={
-                            selectedProvider === ExternalProvider.STATSIG
+                            selectedProvider === MigrationProvider.STATSIG
                                 ? 'Enter your Statsig Console API Key'
                                 : 'Enter your LaunchDarkly API token'
                         }
-                        data-attr="import-api-key-input"
+                        data-attr="migration-api-key-input"
                     />
                 </div>
 
-                {selectedProvider === ExternalProvider.LAUNCHDARKLY && (
+                {selectedProvider === MigrationProvider.LAUNCHDARKLY && (
                     <>
                         <div className="space-y-2">
                             <label className="font-medium">Project Key (optional)</label>
@@ -357,7 +312,7 @@ function AuthenticationStep(): JSX.Element {
                                 value={projectKey}
                                 onChange={setProjectKey}
                                 placeholder="Enter your project key (defaults to 'default')"
-                                data-attr="import-project-key-input"
+                                data-attr="migration-project-key-input"
                             />
                             <div className="text-xs text-muted">
                                 Leave empty to use the default project.
@@ -375,10 +330,10 @@ function AuthenticationStep(): JSX.Element {
                                     { value: 'staging', label: 'Staging' },
                                     { value: 'development', label: 'Development' },
                                 ]}
-                                data-attr="import-environment-select"
+                                data-attr="migration-environment-select"
                             />
                             <div className="text-xs text-muted">
-                                Select which LaunchDarkly environment to import from.
+                                Select which LaunchDarkly environment to import flags from.
                             </div>
                         </div>
                     </>
@@ -388,33 +343,20 @@ function AuthenticationStep(): JSX.Element {
     )
 }
 
-function SelectionStep({ importType }: { importType: string }): JSX.Element {
-    const { fetchedResources, selectedResources, selectedProvider, isLoading } = useValues(externalProviderImportWizardLogic)
-    const { toggleResourceSelection } = useActions(externalProviderImportWizardLogic)
+function FlagSelectionStep(): JSX.Element {
+    const { fetchedFlags, selectedFlags, selectedProvider, isLoading } = useValues(featureFlagMigrationWizardLogic)
+    const { toggleFlagSelection } = useActions(featureFlagMigrationWizardLogic)
     const [activeTab, setActiveTab] = useState<'importable' | 'not-supported' | 'feature-gates' | 'dynamic-configs'>(
-        selectedProvider === ExternalProvider.STATSIG ? 'feature-gates' : 'importable'
+        selectedProvider === MigrationProvider.STATSIG ? 'feature-gates' : 'importable'
     )
-
-    const getLoadingText = () => {
-        switch (importType) {
-            case 'feature-flags':
-                return 'Fetching feature flags'
-            case 'experiments':
-                return 'Fetching experiments'
-            case 'events':
-                return 'Fetching events'
-            default:
-                return 'Fetching data'
-        }
-    }
 
     if (isLoading) {
         return (
             <div className="space-y-6">
                 <div>
-                    <h4 className="text-lg font-semibold mb-2">{getLoadingText()}</h4>
+                    <h4 className="text-lg font-semibold mb-2">Fetching feature flags</h4>
                     <p className="text-muted">
-                        Please wait while we fetch your data from {selectedProvider}...
+                        Please wait while we fetch your feature flags from {selectedProvider}...
                     </p>
                 </div>
 
@@ -426,65 +368,62 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
         )
     }
 
-    if (!fetchedResources) {
+    if (!fetchedFlags) {
         return (
             <div className="space-y-6">
                 <div className="text-center py-8">
-                    <div className="text-muted">No data available. Please go back and try again.</div>
+                    <div className="text-muted">No flags data available. Please go back and try again.</div>
                 </div>
             </div>
         )
     }
 
-    // For now, keep the existing feature flag selection UI
-    // This can be made more generic later when we add other import types
     const getCurrentFlags = () => {
-        if (selectedProvider === ExternalProvider.STATSIG) {
+        if (selectedProvider === MigrationProvider.STATSIG) {
             return activeTab === 'feature-gates'
-                ? fetchedResources.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'feature_gate')
-                : fetchedResources.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'dynamic_config')
+                ? fetchedFlags.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'feature_gate')
+                : fetchedFlags.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'dynamic_config')
         } else {
-            return activeTab === 'importable' ? fetchedResources.importable_flags : []
+            return activeTab === 'importable' ? fetchedFlags.importable_flags : []
         }
     }
 
     const currentFlags = getCurrentFlags()
-    const allCurrentFlagsSelected = currentFlags.length > 0 && currentFlags.every((flag: ExternalFeatureFlag) => selectedResources.some((selected: ExternalFeatureFlag) => selected.key === flag.key))
+    const allCurrentFlagsSelected = currentFlags.length > 0 && currentFlags.every((flag: ExternalFeatureFlag) => selectedFlags.some((selected: ExternalFeatureFlag) => selected.key === flag.key))
 
     const handleSelectAll = () => {
         if (allCurrentFlagsSelected) {
             // Deselect all current flags
             currentFlags.forEach((flag: ExternalFeatureFlag) => {
-                if (selectedResources.some((selected: ExternalFeatureFlag) => selected.key === flag.key)) {
-                    toggleResourceSelection(flag)
+                if (selectedFlags.some((selected: ExternalFeatureFlag) => selected.key === flag.key)) {
+                    toggleFlagSelection(flag)
                 }
             })
         } else {
             // Select all current flags
             currentFlags.forEach((flag: ExternalFeatureFlag) => {
-                if (!selectedResources.some((selected: ExternalFeatureFlag) => selected.key === flag.key)) {
-                    toggleResourceSelection(flag)
+                if (!selectedFlags.some((selected: ExternalFeatureFlag) => selected.key === flag.key)) {
+                    toggleFlagSelection(flag)
                 }
             })
         }
     }
 
-    // Rest of the selection UI remains the same for now...
     return (
         <div className="space-y-6">
-            {selectedProvider === ExternalProvider.STATSIG ? (
+            {selectedProvider === MigrationProvider.STATSIG ? (
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as any)}
                     tabs={[
                         {
                             key: 'feature-gates',
-                            label: `Feature Gates (${fetchedResources.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'feature_gate').length})`,
+                            label: `Feature Gates (${fetchedFlags.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'feature_gate').length})`,
                             content: (
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <div className="text-sm text-muted">
-                                            {selectedResources.length} of {fetchedResources.importable_flags.length} selected
+                                            {selectedFlags.length} of {fetchedFlags.importable_flags.length} selected
                                         </div>
                                         <LemonButton
                                             type="secondary"
@@ -495,22 +434,22 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
                                             {allCurrentFlagsSelected ? 'Deselect All' : 'Select All'}
                                         </LemonButton>
                                     </div>
-                                    <SelectionTable
+                                    <FlagSelectionTable
                                         flags={currentFlags}
-                                        selectedFlags={selectedResources}
-                                        onToggleSelection={toggleResourceSelection}
+                                        selectedFlags={selectedFlags}
+                                        onToggleSelection={toggleFlagSelection}
                                     />
                                 </div>
                             ),
                         },
                         {
                             key: 'dynamic-configs',
-                            label: `Dynamic Configs (${fetchedResources.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'dynamic_config').length})`,
+                            label: `Dynamic Configs (${fetchedFlags.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'dynamic_config').length})`,
                             content: (
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <div className="text-sm text-muted">
-                                            {selectedResources.length} of {fetchedResources.importable_flags.length} selected
+                                            {selectedFlags.length} of {fetchedFlags.importable_flags.length} selected
                                         </div>
                                         <LemonButton
                                             type="secondary"
@@ -521,10 +460,10 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
                                             {allCurrentFlagsSelected ? 'Deselect All' : 'Select All'}
                                         </LemonButton>
                                     </div>
-                                    <SelectionTable
+                                    <FlagSelectionTable
                                         flags={currentFlags}
-                                        selectedFlags={selectedResources}
-                                        onToggleSelection={toggleResourceSelection}
+                                        selectedFlags={selectedFlags}
+                                        onToggleSelection={toggleFlagSelection}
                                     />
                                 </div>
                             ),
@@ -538,36 +477,36 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
                     tabs={[
                         {
                             key: 'importable',
-                            label: `Importable (${fetchedResources.importable_count})`,
+                            label: `Importable (${fetchedFlags.importable_count})`,
                             content: (
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <div className="text-sm text-muted">
-                                            {selectedResources.length} of {fetchedResources.importable_flags.length} selected
+                                            {selectedFlags.length} of {fetchedFlags.importable_flags.length} selected
                                         </div>
                                         <LemonButton
                                             type="secondary"
                                             size="small"
                                             onClick={handleSelectAll}
-                                            disabled={fetchedResources.importable_flags.length === 0}
+                                            disabled={fetchedFlags.importable_flags.length === 0}
                                         >
                                             {allCurrentFlagsSelected ? 'Deselect All' : 'Select All'}
                                         </LemonButton>
                                     </div>
-                                    <SelectionTable
-                                        flags={fetchedResources.importable_flags}
-                                        selectedFlags={selectedResources}
-                                        onToggleSelection={toggleResourceSelection}
+                                    <FlagSelectionTable
+                                        flags={fetchedFlags.importable_flags}
+                                        selectedFlags={selectedFlags}
+                                        onToggleSelection={toggleFlagSelection}
                                     />
                                 </div>
                             ),
                         },
                         {
                             key: 'not-supported',
-                            label: `Not supported (${fetchedResources.non_importable_count})`,
+                            label: `Not supported (${fetchedFlags.non_importable_count})`,
                             content: (
-                                <SelectionTable
-                                    flags={fetchedResources.non_importable_flags}
+                                <FlagSelectionTable
+                                    flags={fetchedFlags.non_importable_flags}
                                     selectedFlags={[]}
                                     onToggleSelection={() => {}} // Disabled
                                     disabled={true}
@@ -582,17 +521,18 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
 }
 
 function FieldMappingStep(): JSX.Element {
-    const { fieldMappings, originalFieldMappings, selectedMappingsCount, isLoading } = useValues(externalProviderImportWizardLogic)
-    const { updateFieldMapping, resetFieldMappings } = useActions(externalProviderImportWizardLogic)
+    const { fieldMappings, originalFieldMappings, selectedMappingsCount, isLoading } = useValues(featureFlagMigrationWizardLogic)
+    const { updateFieldMapping, resetFieldMappings } = useActions(featureFlagMigrationWizardLogic)
 
     if (isLoading) {
         return (
             <div className="flex items-center justify-center p-8">
                 <Spinner className="mr-3" />
-                <span>Extracting field mappings from selected items...</span>
+                <span>Extracting field mappings from selected flags...</span>
             </div>
         )
     }
+
 
     return (
         <div className="space-y-6">
@@ -695,28 +635,15 @@ function FieldMappingStep(): JSX.Element {
     )
 }
 
-function ImportResultsStep({ importType }: { importType: string }): JSX.Element {
-    const { importResults } = useValues(externalProviderImportWizardLogic)
-
-    const getDestinationText = () => {
-        switch (importType) {
-            case 'feature-flags':
-                return 'feature flags'
-            case 'experiments':
-                return 'experiments'
-            case 'events':
-                return 'events'
-            default:
-                return 'items'
-        }
-    }
+function ImportResultsStep(): JSX.Element {
+    const { importResults } = useValues(featureFlagMigrationWizardLogic)
 
     if (!importResults) {
         return (
             <div className="space-y-6">
                 <div>
                     <h4 className="text-lg font-semibold mb-2">Ready to import</h4>
-                    <p className="text-muted">Click the button to start importing your selected {getDestinationText()}.</p>
+                    <p className="text-muted">Click the button to start importing your selected feature flags.</p>
                 </div>
             </div>
         )
@@ -724,9 +651,10 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
 
     return (
         <div className="space-y-6">
+
             {importResults.imported_flags && importResults.imported_flags.length > 0 && (
                 <div>
-                    <h5 className="font-medium mb-3 text-success">Successfully Imported {getDestinationText()}</h5>
+                    <h5 className="font-medium mb-3 text-success">Successfully Imported Flags</h5>
                     <LemonTable
                         dataSource={importResults.imported_flags}
                         columns={[
@@ -762,12 +690,9 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
                                         <LemonButton
                                             type="primary"
                                             size="small"
-                                            onClick={() => {
-                                                const baseUrl = importType === 'feature-flags' ? '/feature_flags' : '/insights'
-                                                window.open(`${baseUrl}/${item.posthog_flag.id}`, '_blank')
-                                            }}
+                                            onClick={() => window.open(`/feature_flags/${item.posthog_flag.id}`, '_blank')}
                                         >
-                                            View {importType === 'feature-flags' ? 'Flag' : 'Item'}
+                                                View Flag
                                         </LemonButton>
                                     </div>
                                 ),
@@ -775,7 +700,7 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
                         ]}
                         pagination={undefined}
                         size="small"
-                        className="border border-success/20"
+                        className="border border-danger/20"
                     />
                 </div>
             )}
@@ -901,7 +826,7 @@ function PropertySelector({
     )
 }
 
-function SelectionTable({
+function FlagSelectionTable({
     flags,
     selectedFlags,
     onToggleSelection,
@@ -992,12 +917,12 @@ function SelectionTable({
                 },
             ]}
             expandable={{
-                expandedRowRender: function RenderDetails(flag) {
+                expandedRowRender: function RenderFlagDetails(flag) {
                     return (
                         <div className="p-4 bg-side border rounded">
                             <div className="space-y-3">
                                 <div>
-                                    <h5 className="font-medium mb-2">Details</h5>
+                                    <h5 className="font-medium mb-2">Flag Details</h5>
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
                                             <span className="text-muted">Key:</span> <code>{flag.key}</code>

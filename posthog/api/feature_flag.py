@@ -1929,7 +1929,7 @@ class FeatureFlagViewSet(
         if not provider or not selected_flags:
             return Response({"error": "Provider and selected flags are required"}, status=400)
 
-        if provider not in ["launchdarkly", "statsig"]:
+        if provider not in ["amplitude", "launchdarkly", "statsig"]:
             return Response({"error": f"Provider {provider} is not supported"}, status=400)
 
         imported_flags = []
@@ -2501,6 +2501,95 @@ class FeatureFlagViewSet(
             "active": enabled,
             "version": 1,
         }
+
+    def _check_amplitude_flag_importable(self, flag):
+        """Check if an Amplitude flag can be imported to PostHog"""
+        # Multiple variants beyond on/off not supported
+        if flag.get("variants") and len(flag["variants"]) > 2:
+            return False
+
+        # Custom bucketing keys not supported
+        if flag.get("bucketingKey") and flag["bucketingKey"] != "amplitude_id":
+            return False
+
+        # Remote evaluation mode not supported
+        if flag.get("evaluationMode") == "remote":
+            return False
+
+        return True
+
+    def _transform_amplitude_conditions(self, flag):
+        """Transform Amplitude targeting rules to PostHog condition format"""
+        rules = flag.get("rules", [])
+        if not rules:
+            return [{"properties": [], "rollout_percentage": flag.get("rolloutPercentage", 100)}]
+
+        conditions = []
+        for rule in rules:
+            condition = {
+                "properties": [],
+                "rollout_percentage": rule.get("rolloutPercentage", rule.get("percentage", 100)),
+            }
+
+            if rule.get("variant"):
+                condition["variant"] = rule["variant"]
+
+            # Transform rule conditions to properties
+            if rule.get("conditions"):
+                for amp_condition in rule["conditions"]:
+                    prop = {
+                        "key": amp_condition.get("prop") or amp_condition.get("property", ""),
+                        "operator": self._map_amplitude_operator(
+                            amp_condition.get("op") or amp_condition.get("operator", "is")
+                        ),
+                        "value": (amp_condition.get("values") or [amp_condition.get("value")])[0]
+                        if amp_condition.get("values") or amp_condition.get("value")
+                        else "",
+                        "type": self._infer_property_type(
+                            (amp_condition.get("values") or [amp_condition.get("value")])[0]
+                            if amp_condition.get("values") or amp_condition.get("value")
+                            else ""
+                        ),
+                    }
+                    condition["properties"].append(prop)
+
+            conditions.append(condition)
+
+        return conditions
+
+    def _transform_amplitude_variants(self, flag):
+        """Transform Amplitude variants to PostHog format"""
+        variants = flag.get("variants", [])
+        if not variants or len(variants) <= 2:
+            return []
+
+        transformed_variants = []
+        for variant in variants:
+            transformed_variant = {
+                "key": variant.get("key") or variant.get("value", ""),
+                "name": variant.get("name") or variant.get("value", ""),
+                "rollout_percentage": variant.get("rolloutWeight", variant.get("percentage", 0)),
+                "value": variant.get("payload") or variant.get("value"),
+            }
+            transformed_variants.append(transformed_variant)
+
+        return transformed_variants
+
+    def _map_amplitude_operator(self, amplitude_op):
+        """Map Amplitude operators to PostHog operators"""
+        operator_map = {
+            "is": "equals",
+            "is not": "not_equals",
+            "contains": "icontains",
+            "does not contain": "not_icontains",
+            "is set": "is_set",
+            "is not set": "is_not_set",
+            "greater than": "gt",
+            "less than": "lt",
+            "greater than or equal": "gte",
+            "less than or equal": "lte",
+        }
+        return operator_map.get(amplitude_op, "equals")
 
     def _infer_property_type(self, value):
         """Infer property type from value"""
@@ -3601,6 +3690,47 @@ class FeatureFlagViewSet(
         logger.info(f"LaunchDarkly: Returning {len(external_flags)} flags after processing")
         return external_flags
 
+    def _fetch_amplitude_flags(self, api_key: str):
+        """Fetch flags from Amplitude API"""
+        import requests
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        list_endpoint = "https://experiment.amplitude.com/api/738782/flags"
+        response = requests.get(list_endpoint, headers=headers, timeout=30)
+
+        if response.status_code == 401:
+            return Response({"error": "Invalid API key. Please check your Amplitude API key."}, status=401)
+        elif response.status_code == 403:
+            return Response(
+                {"error": "Access denied. Please ensure your API key has the required permissions."}, status=403
+            )
+        elif response.status_code != 200:
+            return Response(
+                {"error": f"Failed to fetch flags list: {response.status_code} {response.reason}"}, status=400
+            )
+
+        flags_list = response.json()
+
+        # Step 2: Fetch detailed information for each flag
+        external_flags = []
+        for flag_summary in flags_list:
+            flag_id = flag_summary.get("id")
+            if not flag_id:
+                continue
+
+            detail_endpoint = f"https://experiment.amplitude.com/api/1/flags/{flag_id}"
+            detail_response = requests.get(detail_endpoint, headers=headers, timeout=30)
+
+            if detail_response.status_code == 200:
+                flag_detail = detail_response.json()
+                external_flags.append(flag_detail)
+            else:
+                # If we can't get details for a flag, use the summary info
+                external_flags.append(flag_summary)
+
+        return external_flags
+
     def _transform_launchdarkly_flag_for_response(
         self, raw_flag, environment="production", api_key=None, project_key=None
     ):
@@ -3856,6 +3986,36 @@ class FeatureFlagViewSet(
             }
 
         return environments_data
+
+    def _transform_amplitude_flag_for_response(self, flag):
+        """Transform Amplitude flag to PostHog response format"""
+        is_importable = self._check_amplitude_flag_importable(flag)
+        import_issues = []
+
+        if not is_importable:
+            if flag.get("variants") and len(flag["variants"]) > 2:
+                import_issues.append("Multiple variants not supported")
+            if flag.get("bucketingKey") and flag["bucketingKey"] != "amplitude_id":
+                import_issues.append("Custom bucketing keys not supported")
+            if flag.get("evaluationMode") == "remote":
+                import_issues.append("Remote evaluation mode not supported")
+
+        return {
+            "key": flag.get("key", ""),
+            "name": flag.get("name") or flag.get("key", ""),
+            "description": flag.get("description", ""),
+            "enabled": bool(flag.get("enabled")),
+            "conditions": self._transform_amplitude_conditions(flag),
+            "variants": self._transform_amplitude_variants(flag),
+            "metadata": {
+                "provider": "amplitude",
+                "original_id": str(flag.get("id", "")),
+                "created_at": flag.get("createdAt"),
+                "updated_at": flag.get("updatedAt"),
+            },
+            "importable": is_importable,
+            "import_issues": import_issues,
+        }
 
     def _fetch_statsig_flags(self, api_key: str):
         """Fetch both feature gates and dynamic configs from Statsig API"""
