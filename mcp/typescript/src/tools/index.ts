@@ -153,8 +153,11 @@ export const getToolsFromContext = async (
 		// Special handling for docs-search which requires API key
 		if (toolName === "docs-search" && context.env.INKEEP_API_KEY) {
 			toolBases.push(searchDocs());
-		} else if (TOOL_MAP[toolName]) {
-			toolBases.push(TOOL_MAP[toolName]());
+		} else {
+			const toolFactory = TOOL_MAP[toolName];
+			if (toolFactory) {
+				toolBases.push(toolFactory());
+			}
 		}
 	}
 
