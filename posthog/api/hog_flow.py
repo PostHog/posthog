@@ -242,7 +242,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
             posthoganalytics.capture(
                 distinct_id=str(serializer.context["request"].user.distinct_id),
-                event="hog_flow_started",
+                event="hog_flow_created",
                 properties={
                     "workflow_id": str(serializer.instance.id),
                     "workflow_name": serializer.instance.name,
