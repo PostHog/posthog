@@ -1,8 +1,9 @@
+from django.conf import settings
+
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES_V2_TEST
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 # NOTE: This module contains tables that are temporary and used for testing Mr Blobby V2.
 # They will be removed once Mr Blobby V2 is fully deployed.
@@ -83,8 +84,8 @@ def LOG_ENTRIES_V2_TABLE_MV_SQL(on_cluster=True):
         FROM {database}.kafka_{table_name}
     """.format(
         table_name=LOG_ENTRIES_V2_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
-        database=CLICKHOUSE_DATABASE,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
     )
 
 

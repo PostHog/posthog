@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -6,30 +8,22 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     web_preaggregated_base_fields,
 )
 
-from posthog.settings.base_variables import DEBUG
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
-    OBJECT_STORAGE_REGION,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
-
 
 def get_s3_function_args(s3_path: str) -> str:
-    if DEBUG:
-        return f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
+    if settings.DEBUG:
+        return f"'{s3_path}', '{settings.OBJECT_STORAGE_ACCESS_KEY_ID}', '{settings.OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
     else:
         return f"'{s3_path}', 'Native'"
 
 
 def get_s3_url(table_name: str, team_id: int) -> str:
-    if DEBUG:
+    if settings.DEBUG:
         s3_endpoint = "http://objectstorage:19000"
         bucket = "posthog"
         key = f"{table_name}/{team_id}/data.native"
         return f"{s3_endpoint}/{bucket}/{key}"
 
-    base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{OBJECT_STORAGE_REGION}.amazonaws.com"
+    base_url = f"https://{settings.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{settings.OBJECT_STORAGE_REGION}.amazonaws.com"
 
     return f"{base_url}/{table_name}/{team_id}/data.native"
 
@@ -77,8 +71,8 @@ WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
 
 
 def _get_s3_credentials() -> tuple[str | None, str | None]:
-    if DEBUG:
-        return OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+    if settings.DEBUG:
+        return settings.OBJECT_STORAGE_ACCESS_KEY_ID, settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
     return None, None
 
 

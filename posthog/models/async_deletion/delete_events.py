@@ -1,12 +1,13 @@
 from typing import Any
 
+from django.conf import settings
+
 from clickhouse_driver.errors import SocketTimeoutError
 from prometheus_client import Counter
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 logger.setLevel("DEBUG")
 
@@ -59,7 +60,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
             # Get estimated  byte size of the query
             str_predicate = " OR ".join(conditions)
-            query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
+            query = f"DELETE FROM sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
             query_size = len(query.encode("utf-8"))
 
             logger.debug(f"Query size: {query_size}")
@@ -109,7 +110,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         )
         conditions, args = self._conditions(team_deletions)
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
-            query = f"""DELETE FROM {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {" OR ".join(conditions)}"""
+            query = (
+                f"""DELETE FROM {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE {" OR ".join(conditions)}"""
+            )
             sync_execute(
                 query,
                 args,

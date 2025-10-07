@@ -3,6 +3,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -13,8 +14,6 @@ from rest_framework.response import Response
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 
 class DebugCHQueries(viewsets.ViewSet):
@@ -33,7 +32,7 @@ class DebugCHQueries(viewsets.ViewSet):
             "insight_id": insight_id,
             "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
             "not_query": "%request:_api_debug_ch_queries_%",
-            "cluster": CLICKHOUSE_CLUSTER,
+            "cluster": settings.CLICKHOUSE_CLUSTER,
         }
 
         sql_query = """
@@ -84,7 +83,7 @@ class DebugCHQueries(viewsets.ViewSet):
         params = {
             "insight_id": insight_id,
             "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
-            "cluster": CLICKHOUSE_CLUSTER,
+            "cluster": settings.CLICKHOUSE_CLUSTER,
         }
 
         sql_query = """
@@ -120,7 +119,7 @@ class DebugCHQueries(viewsets.ViewSet):
     def queries(self, request: Request, insight_id: Optional[str] = None):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
-            "cluster": CLICKHOUSE_CLUSTER,
+            "cluster": settings.CLICKHOUSE_CLUSTER,
         }
         limit_clause = ""
 
@@ -180,7 +179,7 @@ class DebugCHQueries(viewsets.ViewSet):
         ]
 
     def list(self, request):
-        if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
+        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request) or not is_cloud()):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         insight_id = request.query_params.get("insight_id")

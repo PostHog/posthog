@@ -1,9 +1,9 @@
-from posthog.settings.data_stores import READ_REPLICA_OPT_IN
+from django.conf import settings
 
 
 class ReplicaRouter:
     def __init__(self, opt_in=None):
-        self.opt_in = opt_in if opt_in else READ_REPLICA_OPT_IN
+        self.opt_in = opt_in if opt_in else settings.READ_REPLICA_OPT_IN
 
     """
     A database router to route reads to a separate Aurora endpoint

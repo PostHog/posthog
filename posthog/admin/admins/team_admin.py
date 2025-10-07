@@ -139,7 +139,8 @@ class TeamAdmin(admin.ModelAdmin):
 
     @admin.display(description="PostHog system internal properties")
     def internal_properties(self, team: Team):
-        from posthog import settings
+        from django.conf import settings
+
         from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
         props: list[str] = []

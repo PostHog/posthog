@@ -1,18 +1,12 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 import snappy
 from botocore.client import Config
 
-from posthog.settings.session_replay_v2 import (
-    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-    SESSION_RECORDING_V2_S3_BUCKET,
-    SESSION_RECORDING_V2_S3_ENDPOINT,
-    SESSION_RECORDING_V2_S3_REGION,
-    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
-)
 from posthog.storage.session_recording_v2_object_storage import (
     AsyncSessionRecordingV2ObjectStorage,
     BlockFetchError,
@@ -47,10 +41,10 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         assert call_args == ("s3",)
 
         # Check kwargs except config
-        assert call_kwargs["endpoint_url"] == SESSION_RECORDING_V2_S3_ENDPOINT
-        assert call_kwargs["aws_access_key_id"] == SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
-        assert call_kwargs["aws_secret_access_key"] == SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
-        assert call_kwargs["region_name"] == SESSION_RECORDING_V2_S3_REGION
+        assert call_kwargs["endpoint_url"] == settings.SESSION_RECORDING_V2_S3_ENDPOINT
+        assert call_kwargs["aws_access_key_id"] == settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+        assert call_kwargs["aws_secret_access_key"] == settings.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+        assert call_kwargs["region_name"] == settings.SESSION_RECORDING_V2_S3_REGION
 
         # Check config parameters separately
         config = call_kwargs["config"]
@@ -61,18 +55,18 @@ class TestSessionRecordingV2Storage(APIBaseTest):
 
         # Check the returned client
         assert isinstance(storage_client, SessionRecordingV2ObjectStorage)
-        assert storage_client.bucket == SESSION_RECORDING_V2_S3_BUCKET
+        assert storage_client.bucket == settings.SESSION_RECORDING_V2_S3_BUCKET
 
     @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
     def test_does_not_create_client_if_required_settings_missing(self, patched_s3_client) -> None:
         test_cases = [
-            {"SESSION_RECORDING_V2_S3_BUCKET": ""},
-            {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
-            {"SESSION_RECORDING_V2_S3_REGION": ""},
+            {"settings.SESSION_RECORDING_V2_S3_BUCKET": ""},
+            {"settings.SESSION_RECORDING_V2_S3_ENDPOINT": ""},
+            {"settings.SESSION_RECORDING_V2_S3_REGION": ""},
             {
-                "SESSION_RECORDING_V2_S3_BUCKET": "",
-                "SESSION_RECORDING_V2_S3_ENDPOINT": "",
-                "SESSION_RECORDING_V2_S3_REGION": "",
+                "settings.SESSION_RECORDING_V2_S3_BUCKET": "",
+                "settings.SESSION_RECORDING_V2_S3_ENDPOINT": "",
+                "settings.SESSION_RECORDING_V2_S3_REGION": "",
             },
         ]
 
@@ -230,10 +224,10 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             call_kwargs = create_client_mock.call_args[1]
 
             assert call_args == ("s3",)
-            assert call_kwargs["endpoint_url"] == SESSION_RECORDING_V2_S3_ENDPOINT
-            assert call_kwargs["aws_access_key_id"] == SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
-            assert call_kwargs["aws_secret_access_key"] == SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
-            assert call_kwargs["region_name"] == SESSION_RECORDING_V2_S3_REGION
+            assert call_kwargs["endpoint_url"] == settings.SESSION_RECORDING_V2_S3_ENDPOINT
+            assert call_kwargs["aws_access_key_id"] == settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+            assert call_kwargs["aws_secret_access_key"] == settings.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+            assert call_kwargs["region_name"] == settings.SESSION_RECORDING_V2_S3_REGION
 
             config = call_kwargs["config"]
             assert isinstance(config, Config)
@@ -242,18 +236,18 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             assert config.retries == {"max_attempts": 1}  # type: ignore[attr-defined]
 
             assert isinstance(client, AsyncSessionRecordingV2ObjectStorage)
-            assert client.bucket == SESSION_RECORDING_V2_S3_BUCKET
+            assert client.bucket == settings.SESSION_RECORDING_V2_S3_BUCKET
 
     @patch("posthog.storage.session_recording_v2_object_storage.get_session")
     async def test_throws_runtimeerror_if_required_settings_missing(self, patched_aiobotocore_get_session) -> None:
         test_cases = [
-            {"SESSION_RECORDING_V2_S3_BUCKET": ""},
-            {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
-            {"SESSION_RECORDING_V2_S3_REGION": ""},
+            {"settings.SESSION_RECORDING_V2_S3_BUCKET": ""},
+            {"settings.SESSION_RECORDING_V2_S3_ENDPOINT": ""},
+            {"settings.SESSION_RECORDING_V2_S3_REGION": ""},
             {
-                "SESSION_RECORDING_V2_S3_BUCKET": "",
-                "SESSION_RECORDING_V2_S3_ENDPOINT": "",
-                "SESSION_RECORDING_V2_S3_REGION": "",
+                "settings.SESSION_RECORDING_V2_S3_BUCKET": "",
+                "settings.SESSION_RECORDING_V2_S3_ENDPOINT": "",
+                "settings.SESSION_RECORDING_V2_S3_REGION": "",
             },
         ]
 

@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
 from kafka import KafkaProducer
 
 from posthog.clickhouse.client import sync_execute
@@ -14,7 +16,6 @@ from posthog.clickhouse.dead_letter_queue import (
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-from posthog.settings import KAFKA_HOSTS
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 
@@ -98,7 +99,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         new_error = "cannot reach db to fetch team"
         inserted_dlq_event["error"] = new_error
 
-        kafka_producer = KafkaProducer(bootstrap_servers=KAFKA_HOSTS)
+        kafka_producer = KafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS)
 
         kafka_producer.send(
             topic=KAFKA_DEAD_LETTER_QUEUE,

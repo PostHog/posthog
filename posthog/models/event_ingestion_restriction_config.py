@@ -1,5 +1,6 @@
 import json
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -7,7 +8,6 @@ from django.dispatch import receiver
 
 from posthog.models.utils import UUIDTModel
 from posthog.redis import get_client
-from posthog.settings import PLUGINS_RELOAD_REDIS_URL
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 
@@ -39,7 +39,7 @@ class EventIngestionRestrictionConfig(UUIDTModel):
 
 @receiver(post_save, sender=EventIngestionRestrictionConfig)
 def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
-    redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
+    redis_client = get_client(settings.PLUGINS_RELOAD_REDIS_URL)
     redis_key = instance.get_redis_key()
 
     existing_config = redis_client.get(redis_key)
@@ -58,7 +58,7 @@ def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
 
 @receiver(post_delete, sender=EventIngestionRestrictionConfig)
 def delete_redis_cache_with_config(sender, instance, **kwargs):
-    redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
+    redis_client = get_client(settings.PLUGINS_RELOAD_REDIS_URL)
     redis_key = instance.get_redis_key()
 
     existing_data = redis_client.get(redis_key)

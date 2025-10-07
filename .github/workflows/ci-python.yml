@@ -94,6 +94,12 @@ jobs:
               run: |
                   ruff check .
 
+            - name: Check settings imports
+              if: needs.changes.outputs.python == 'true'
+              shell: bash
+              run: |
+                  python3 bin/check_settings_imports.py .
+
             - name: Check formatting
               if: needs.changes.outputs.python == 'true'
               shell: bash

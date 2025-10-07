@@ -4,12 +4,13 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from typing import ClassVar, TypeVar, cast
 
+from django.conf import settings
+
 import dagster
 import pydantic
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 
-from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
 
 from dags.common import JobOwners

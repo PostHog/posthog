@@ -1,0 +1,9 @@
+repos:
+    - repo: local
+      hooks:
+          - id: check-settings-imports
+            name: Check posthog.settings imports
+            entry: python3 bin/check_settings_imports.py --fix
+            language: system
+            types: [python]
+            pass_filenames: true

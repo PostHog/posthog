@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
@@ -7,7 +9,6 @@ from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
-from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
     data_warehouse,
@@ -540,7 +541,7 @@ register_grandfathered_environment_nested_viewset(
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
-if EE_AVAILABLE:
+if settings.EE_AVAILABLE:
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
     from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet

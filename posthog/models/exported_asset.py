@@ -15,7 +15,6 @@ from rest_framework.exceptions import NotFound
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDT
-from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
@@ -168,7 +167,7 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
     if download:
         res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
 
-    if not DEBUG:
+    if not settings.DEBUG:
         res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
 
     return res

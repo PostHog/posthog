@@ -9,6 +9,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.conf import settings
+
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
@@ -17,7 +19,6 @@ from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
-from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
@@ -86,8 +87,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         super().tearDown()
 
     def recreate_database(self):
-        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
-        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
+        sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
+        sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         create_clickhouse_tables()
 
     def test_get_columns_default(self):
@@ -263,7 +264,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
               AND column = %(column)s
         """,
             {
-                "database": CLICKHOUSE_DATABASE,
+                "database": settings.CLICKHOUSE_DATABASE,
                 "table": EVENTS_DATA_TABLE(),
                 "column": column,
             },
@@ -286,7 +287,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,
             {
-                "database": CLICKHOUSE_DATABASE,
+                "database": settings.CLICKHOUSE_DATABASE,
                 "table": EVENTS_DATA_TABLE(),
                 "column": column,
             },

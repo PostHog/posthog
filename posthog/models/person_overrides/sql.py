@@ -2,14 +2,15 @@
 # `person_distinct_id_overrides` in `posthog.models.person.sql` for its replacement tables, or
 # https://github.com/PostHog/posthog/pull/23616 for additional context.
 
+from django.conf import settings
+
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE, KAFKA_HOSTS
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     lambda on_cluster=True: f"""
-    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
+    CREATE TABLE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.`person_overrides`
     {ON_CLUSTER_CLAUSE(on_cluster)} (
         team_id INT NOT NULL,
 
@@ -76,11 +77,11 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = (
 # Materialized View from a Kafka topic and insert the messages into the
 # ClickHouse MergeTree table `person_overrides`
 KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
-    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
+    CREATE TABLE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
     {ON_CLUSTER_CLAUSE()}
 
     ENGINE = Kafka(
-        '{",".join(KAFKA_HOSTS)}', -- Kafka hosts
+        '{",".join(settings.KAFKA_HOSTS)}', -- Kafka hosts
         '{KAFKA_PERSON_OVERRIDE}', -- Kafka topic
         'clickhouse-person-overrides', -- Kafka consumer group id
         'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
@@ -101,11 +102,11 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
         -- set as a default value in the `person_overrides` table.
         -- created_at,
         version
-    FROM `{CLICKHOUSE_DATABASE}`.`person_overrides`
+    FROM `{settings.CLICKHOUSE_DATABASE}`.`person_overrides`
 """
 
 DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
-    DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
+    DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
     {ON_CLUSTER_CLAUSE()}
     SYNC
 """
@@ -113,9 +114,9 @@ DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
 # Materialized View that watches the Kafka table for data and inserts into the
 # `person_overrides` table.
 PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
-    CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
+    CREATE MATERIALIZED VIEW IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.`person_overrides_mv`
     {ON_CLUSTER_CLAUSE()}
-    TO `{CLICKHOUSE_DATABASE}`.`person_overrides`
+    TO `{settings.CLICKHOUSE_DATABASE}`.`person_overrides`
     AS SELECT
         team_id,
         old_person_id,
@@ -126,11 +127,11 @@ PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
         -- set as a default value in the `person_overrides` table.
         -- created_at,
         version
-    FROM `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
+    FROM `{settings.CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
 """
 
 DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
-    DROP VIEW IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
+    DROP VIEW IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`person_overrides_mv`
     {ON_CLUSTER_CLAUSE()}
     SYNC
 """
@@ -141,7 +142,7 @@ SELECT
     old_person_id,
     argMax(override_person_id, version)
 FROM
-    `{CLICKHOUSE_DATABASE}`.`person_overrides` AS overrides
+    `{settings.CLICKHOUSE_DATABASE}`.`person_overrides` AS overrides
 GROUP BY
     team_id,
     old_person_id
@@ -149,7 +150,7 @@ GROUP BY
 
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
-    CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    CREATE DICTIONARY IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.`person_overrides_dict`
     {ON_CLUSTER_CLAUSE()} (
         team_id INT,
         old_person_id UUID,
@@ -166,6 +167,6 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
 """
 
 DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
-    DROP DICTIONARY IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    DROP DICTIONARY IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`person_overrides_dict`
     {ON_CLUSTER_CLAUSE()}
 """

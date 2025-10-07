@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Optional, TypedDict
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
 from django.utils import timezone
@@ -13,7 +14,6 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer
-from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -416,8 +416,8 @@ class User(AbstractUser, UUIDTClassicModel):
             "has_password_set": self.has_usable_password(),
             "has_social_auth": self.social_auth.exists(),
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),
-            "instance_url": SITE_URL,
-            "instance_tag": INSTANCE_TAG,
+            "instance_url": settings.SITE_URL,
+            "instance_tag": settings.INSTANCE_TAG,
             "is_email_verified": self.is_email_verified,
             "has_seen_product_intro_for": self.has_seen_product_intro_for,
             "strapi_id": self.strapi_id,

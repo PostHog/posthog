@@ -1056,10 +1056,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             f"Should use custom field 'my_campaign_field', got {campaign_name}. "
             f"If this fails, schema_map logic is broken!"
         )
-        assert source_name == "custom_source_test", (
-            f"Should use custom field 'my_source_field', got {source_name}. "
-            f"If this fails, schema_map logic is broken!"
-        )
+        assert (
+            source_name == "custom_source_test"
+        ), f"Should use custom field 'my_source_field', got {source_name}. If this fails, schema_map logic is broken!"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         # Verify it did NOT use the default field values

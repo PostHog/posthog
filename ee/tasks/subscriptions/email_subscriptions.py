@@ -40,7 +40,7 @@ def send_email_subscription_report(
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
     if is_invite:
-        invite_summary = f"This subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+        invite_summary = f"This subscription is {subscription.summary}. The next subscription will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_info.kind}"
         else:

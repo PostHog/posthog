@@ -1,14 +1,15 @@
 # Note: These tables are not (yet) created automatically, as they're considered experimental on cloud and exact schema is in flux.
 
+from django.conf import settings
+
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import MergeTreeEngine
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 METRICS_TIME_TO_SEE_ENGINE = lambda: MergeTreeEngine("metrics_time_to_see_data", force_unique_zk_path=True)
 CREATE_METRICS_TIME_TO_SEE = (
     lambda: f"""
-CREATE TABLE metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+CREATE TABLE metrics_time_to_see_data ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' (
     `team_events_last_month` UInt64,
     `query_id` String,
     `primary_interaction_id` String,
@@ -38,11 +39,13 @@ ORDER BY (team_id, toDate(timestamp), session_id, user_id)
 """
 )
 
-DROP_METRICS_TIME_TO_SEE_TABLE = lambda: f"DROP TABLE metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_METRICS_TIME_TO_SEE_TABLE = (
+    lambda: f"DROP TABLE metrics_time_to_see_data ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+)
 
 CREATE_KAFKA_METRICS_TIME_TO_SEE = (
     lambda: f"""
-CREATE TABLE kafka_metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+CREATE TABLE kafka_metrics_time_to_see_data ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' (
     `team_events_last_month` UInt64,
     `query_id` String,
     `team_id` UInt64,
@@ -70,13 +73,13 @@ SETTINGS kafka_skip_broken_messages = 9999
 """
 )
 DROP_KAFKA_METRICS_TIME_TO_SEE = (
-    lambda: f"DROP TABLE kafka_metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+    lambda: f"DROP TABLE kafka_metrics_time_to_see_data ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
 )
 
 CREATE_METRICS_TIME_TO_SEE_MV = (
     lambda: f"""
-CREATE MATERIALIZED VIEW metrics_time_to_see_data_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-TO {CLICKHOUSE_DATABASE}.metrics_time_to_see_data
+CREATE MATERIALIZED VIEW metrics_time_to_see_data_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+TO {settings.CLICKHOUSE_DATABASE}.metrics_time_to_see_data
 AS SELECT
 dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
 query_id,
@@ -102,16 +105,18 @@ max_last_refresh,
 _timestamp,
 _offset,
 _partition
-FROM {CLICKHOUSE_DATABASE}.kafka_metrics_time_to_see_data
+FROM {settings.CLICKHOUSE_DATABASE}.kafka_metrics_time_to_see_data
 """
 )
-DROP_METRICS_TIME_TO_SEE_MV = lambda: f"DROP TABLE metrics_time_to_see_data_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_METRICS_TIME_TO_SEE_MV = (
+    lambda: f"DROP TABLE metrics_time_to_see_data_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+)
 
 METRICS_QUERY_LOG_TABLE_ENGINE = lambda: MergeTreeEngine("metrics_query_log", force_unique_zk_path=True)
 
 CREATE_METRICS_QUERY_LOG = (
     lambda: f"""
-CREATE TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE TABLE metrics_query_log ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     `host` String,
     `timestamp` DateTime,
@@ -154,7 +159,7 @@ SETTINGS index_granularity = 8192
 
 CREATE_METRICS_QUERY_LOG_MV = (
     lambda: f"""
-CREATE MATERIALIZED VIEW metrics_query_log_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE MATERIALIZED VIEW metrics_query_log_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 TO metrics_query_log
 AS
 SELECT
@@ -197,8 +202,8 @@ WHERE JSONHas(log_comment, 'team_id')
 """
 )
 
-DROP_METRICS_QUERY_LOG = lambda: f"DROP TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
-DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_query_log_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_METRICS_QUERY_LOG = lambda: f"DROP TABLE metrics_query_log ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_query_log_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
 
 # NOTE Tim May 2024: removed this as it was doing a bunch of queries. Should move this to schema migration if we want to keep it.
 # :KLUDGE: Temporary tooling to make (re)creating this schema easier

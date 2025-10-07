@@ -1,12 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from django.conf import settings
+
 from clickhouse_driver.errors import ServerException
 from opentelemetry.trace import Status, StatusCode
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HOST
 
 
 class TestTraceClickhouseQueryDecorator:
@@ -47,10 +48,10 @@ class TestTraceClickhouseQueryDecorator:
 
             # Verify span attributes were set correctly
             mock_span.set_attribute.assert_any_call("db.system", "clickhouse")
-            mock_span.set_attribute.assert_any_call("db.name", CLICKHOUSE_DATABASE)
+            mock_span.set_attribute.assert_any_call("db.name", settings.CLICKHOUSE_DATABASE)
             mock_span.set_attribute.assert_any_call("db.user", ClickHouseUser.APP.value)
             mock_span.set_attribute.assert_any_call("db.statement", "SELECT 1")
-            mock_span.set_attribute.assert_any_call("net.peer.name", CLICKHOUSE_HOST)
+            mock_span.set_attribute.assert_any_call("net.peer.name", settings.CLICKHOUSE_HOST)
             mock_span.set_attribute.assert_any_call("net.peer.port", 9000)
             mock_span.set_attribute.assert_any_call("span.kind", "client")
             mock_span.set_attribute.assert_any_call("clickhouse.initial_workload", Workload.ONLINE.value)

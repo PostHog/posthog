@@ -1,8 +1,9 @@
+from django.conf import settings
+
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 # We pipe our Kafka dead letter queue into CH for easier analysis and longer retention
 # This allows us to explore errors and replay events with ease
@@ -41,7 +42,7 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=DEAD_LETTER_QUEUE_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    cluster=settings.CLICKHOUSE_CLUSTER,
     extra_fields=f"""
     {KAFKA_COLUMNS}
     , {index_by_kafka_timestamp(DEAD_LETTER_QUEUE_TABLE)}
@@ -57,7 +58,7 @@ KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
     DEAD_LETTER_QUEUE_TABLE_BASE_SQL + " SETTINGS kafka_skip_broken_messages=1000"
 ).format(
     table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
     extra_fields="",
 )
@@ -87,8 +88,8 @@ _offset
 FROM {database}.kafka_{table_name}
 """.format(
     table_name=DEAD_LETTER_QUEUE_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
 
@@ -116,8 +117,8 @@ now()
 """
 
 TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = (
-    f"DROP TABLE IF EXISTS kafka_{DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"DROP TABLE IF EXISTS kafka_{DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )

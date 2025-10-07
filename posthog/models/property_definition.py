@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models.expressions import F
@@ -6,7 +7,6 @@ from django.db.models.functions import Coalesce
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 
 class PropertyType(models.TextChoices):
@@ -135,7 +135,7 @@ class PropertyDefinition(UUIDTModel):
 
 PROPERTY_DEFINITIONS_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`
+CREATE TABLE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.`property_definitions`
 (
     -- Team and project relationships
     team_id UInt32,
@@ -163,4 +163,6 @@ SETTINGS index_granularity = 8192
 """
 )
 
-DROP_PROPERTY_DEFINITIONS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`"
+DROP_PROPERTY_DEFINITIONS_TABLE_SQL = (
+    lambda: f"DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`property_definitions`"
+)

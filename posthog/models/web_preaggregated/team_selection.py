@@ -1,6 +1,7 @@
+from django.conf import settings
+
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 
 WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME = "web_pre_aggregated_teams"
 WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME = "web_pre_aggregated_teams_dict"
@@ -73,7 +74,7 @@ def WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY():
 SELECT
     team_id
 FROM
-    `{CLICKHOUSE_DATABASE}`.`{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
+    `{settings.CLICKHOUSE_DATABASE}`.`{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
 FINAL
 WHERE version > 0
 """.replace("\n", " ").strip()
@@ -91,8 +92,8 @@ LAYOUT(HASHED())""".format(
         dictionary_name=f"`{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         query=WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY(),
-        clickhouse_user=CLICKHOUSE_USER,
-        clickhouse_password=CLICKHOUSE_PASSWORD,
+        clickhouse_user=settings.CLICKHOUSE_USER,
+        clickhouse_password=settings.CLICKHOUSE_PASSWORD,
     )
 
 

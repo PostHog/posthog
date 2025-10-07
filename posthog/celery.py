@@ -84,10 +84,10 @@ task_timings: dict[str, float] = {}
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
     from logging import config as logging_config
 
-    from posthog.settings import logs
+    from django.conf import settings
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
-    logging_config.dictConfig(logs.LOGGING)
+    logging_config.dictConfig(settings.logs.LOGGING)
 
 
 @receiver(signals.bind_extra_task_metadata)

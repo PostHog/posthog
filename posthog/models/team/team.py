@@ -39,7 +39,6 @@ from posthog.models.utils import (
 )
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
@@ -416,7 +415,7 @@ class Team(UUIDTClassicModel):
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
     def aggregate_users_by_distinct_id(self) -> bool:
-        return str(self.pk) in get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
+        return str(self.pk) in settings.get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config
@@ -563,7 +562,7 @@ class Team(UUIDTClassicModel):
 
     @property
     def strict_caching_enabled(self) -> bool:
-        enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
+        enabled_teams = settings.get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     @cached_property

@@ -3,12 +3,13 @@ import math
 from itertools import groupby
 from typing import Any, Optional
 
+from django.conf import settings
+
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.utils import UUID_REGEX
 
 logger = get_logger(__name__)
@@ -52,7 +53,10 @@ def get_query_results() -> list[Any]:
         """
 
     raw_results = sync_execute(
-        SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS
+        SYSTEM_PROCESSES_SQL,
+        {"cluster": settings.CLICKHOUSE_CLUSTER},
+        workload=Workload.ONLINE,
+        ch_user=ClickHouseUser.OPS,
     )
 
     noNaNInt = lambda num: 0 if math.isnan(num) else int(num)

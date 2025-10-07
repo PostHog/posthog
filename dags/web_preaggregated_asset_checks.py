@@ -2,6 +2,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.conf import settings
+
 import chdb
 import dagster
 import structlog
@@ -22,7 +24,6 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Team
-from posthog.settings.base_variables import DEBUG
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
@@ -100,7 +101,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
 
             passed = row_count > 0
-            env_type = "Minio" if DEBUG else "S3"
+            env_type = "Minio" if settings.DEBUG else "S3"
             logger.info(log_event_name, export_path=export_path, row_count=row_count, queryable=True, env=env_type)
 
             return AssetCheckResult(
@@ -122,7 +123,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
         except FileNotFoundError as e:
             # File doesn't exist yet - this is expected for new exports
             error_msg = str(e)
-            env_type = "Minio" if DEBUG else "S3"
+            env_type = "Minio" if settings.DEBUG else "S3"
 
             logger.info(
                 log_event_name, export_path=export_path, status="file_not_found", error=error_msg[:100], env=env_type
@@ -142,7 +143,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
         except ValueError as e:
             # Handle parsing/format issues
             error_msg = str(e)
-            env_type = "Minio" if DEBUG else "S3"
+            env_type = "Minio" if settings.DEBUG else "S3"
 
             if "table structure cannot be extracted" in error_msg.lower():
                 status = "format_issue"
@@ -167,7 +168,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
         except Exception as e:
             # Handle other unexpected errors
             error_msg = str(e)
-            env_type = "Minio" if DEBUG else "S3"
+            env_type = "Minio" if settings.DEBUG else "S3"
 
             # Check for common ClickHouse/S3 errors
             if "CANNOT_STAT" in error_msg or "Cannot stat file" in error_msg:

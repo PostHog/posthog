@@ -489,7 +489,7 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
             f"""
             SELECT count(*)
             FROM writable_events
-            WHERE team_id IN ({', '.join(str(t) for t in team_ids)})
+            WHERE team_id IN ({", ".join(str(t) for t in team_ids)})
             AND age('month', timestamp, now()) >= 13
             """
         )
@@ -497,7 +497,7 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
             f"""
             SELECT count(*)
             FROM writable_events
-            WHERE team_id IN ({', '.join(str(t) for t in team_ids)})
+            WHERE team_id IN ({", ".join(str(t) for t in team_ids)})
             AND age('month', timestamp, now()) < 13
             """
         )
@@ -603,7 +603,7 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
             f"""
             SELECT count(*)
             FROM writable_events
-            WHERE team_id IN ({', '.join(str(t) for t in team_ids)})
+            WHERE team_id IN ({", ".join(str(t) for t in team_ids)})
             """
         )
         return result[0][0]

@@ -20,7 +20,7 @@ async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id:
     import logging
 
     # Use high-resolution timestamp + random suffix to avoid collisions when re-triggering within the same second
-    workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
+    workflow_id = f"task-processing-{task_id}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
 
     logging.getLogger(__name__).info(f"Starting workflow {workflow_id} for task {task_id}")
 

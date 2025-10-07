@@ -1,6 +1,7 @@
 import json
 from typing import Any, Literal, Optional, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Manager
 
@@ -20,7 +21,6 @@ from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.settings import EE_AVAILABLE
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -153,7 +153,7 @@ class EventDefinitionViewSet(
         order_expressions = self._ordering_params_from_request()
 
         ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
+        is_enterprise = settings.EE_AVAILABLE and ingestion_taxonomy_is_available
 
         event_definition_object_manager: Manager
         if is_enterprise:
@@ -209,7 +209,7 @@ class EventDefinitionViewSet(
 
     def dangerously_get_object(self):
         id = self.kwargs["id"]
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
+        if settings.EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
             AvailableFeature.INGESTION_TAXONOMY
         ):
             from ee.models.event_definition import EnterpriseEventDefinition
@@ -230,7 +230,7 @@ class EventDefinitionViewSet(
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
+        if settings.EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
             AvailableFeature.INGESTION_TAXONOMY
         ):
             from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer

@@ -1,6 +1,7 @@
 from time import perf_counter
 from typing import Optional
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -11,7 +12,6 @@ from prometheus_client import Counter, Histogram
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -53,8 +53,8 @@ EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
     # we let the hogql query run for HOGQL_INCREASED_MAX_EXECUTION_TIME, give this some breathing room
     # soft time limit throws an error and lets us clean up
     # hard time limit kills without a word
-    soft_time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 60,
-    time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 120,
+    soft_time_limit=settings.HOGQL_INCREASED_MAX_EXECUTION_TIME + 60,
+    time_limit=settings.HOGQL_INCREASED_MAX_EXECUTION_TIME + 120,
     queue=CeleryQueue.EXPORTS.value,
     autoretry_for=EXCEPTIONS_TO_RETRY,
     retry_backoff=2,

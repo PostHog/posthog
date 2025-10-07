@@ -8,6 +8,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.conf import settings
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
@@ -17,7 +18,6 @@ from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition, GroupTypeMapping
-from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
@@ -164,27 +164,27 @@ class TestGeneralUtils(TestCase):
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_int(self, mock_env):
         mock_env.return_value = ""
-        self.assertEqual(get_from_env("test_key", optional=True, type_cast=int), None)
+        self.assertEqual(settings.get_from_env("test_key", optional=True, type_cast=int), None)
 
         mock_env.return_value = "4"
-        self.assertEqual(get_from_env("test_key", type_cast=int), 4)
+        self.assertEqual(settings.get_from_env("test_key", type_cast=int), 4)
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_float(self, mock_env):
         mock_env.return_value = ""
-        self.assertEqual(get_from_env("test_key", optional=True, type_cast=float, default=0.0), None)
+        self.assertEqual(settings.get_from_env("test_key", optional=True, type_cast=float, default=0.0), None)
 
         mock_env.return_value = ""
-        self.assertEqual(get_from_env("test_key", type_cast=float, default=0.0), 0.0)
+        self.assertEqual(settings.get_from_env("test_key", type_cast=float, default=0.0), 0.0)
 
         mock_env.return_value = "4"
-        self.assertEqual(get_from_env("test_key", type_cast=float), 4.0)
+        self.assertEqual(settings.get_from_env("test_key", type_cast=float), 4.0)
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_float_from_nonsense_input(self, mock_env):
         with pytest.raises(ValueError):
             mock_env.return_value = "wat"
-            get_from_env("test_key", type_cast=float)
+            settings.get_from_env("test_key", type_cast=float)
 
 
 class TestRelativeDateParse(TestCase):

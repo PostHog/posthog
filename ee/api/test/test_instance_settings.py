@@ -1,12 +1,13 @@
 # TODO: Once Clickhouse is moved out of EE, move test cases to posthog/api/test/test_instance_settings.py
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
 
+from django.conf import settings
+
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.performance.sql import PERFORMANCE_EVENT_DATA_TABLE
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from ee.api.test.base import APILicensedTest
 
@@ -34,6 +35,6 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
 
         table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(table)s",
-            {"database": CLICKHOUSE_DATABASE, "table": PERFORMANCE_EVENT_DATA_TABLE()},
+            {"database": settings.CLICKHOUSE_DATABASE, "table": PERFORMANCE_EVENT_DATA_TABLE()},
         )
         self.assertIn("TTL toDate(timestamp) + toIntervalWeek(5)", table_engine[0][0])

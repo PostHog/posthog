@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.db import transaction
 from django.test import override_settings
 
@@ -26,12 +27,6 @@ from posthog.session_recordings.models.session_recording_playlist import (
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -44,13 +39,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
     def _create_playlist(

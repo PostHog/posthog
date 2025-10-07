@@ -7,13 +7,14 @@ from functools import wraps
 from time import sleep
 from typing import Optional
 
+from django.conf import settings
+
 from celery import current_task
 from prometheus_client import Counter
 
-from posthog import redis, settings
+from posthog import redis
 from posthog.clickhouse.cluster import ExponentialBackoff
 from posthog.constants import AvailableFeature
-from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
 # Default concurrency limits
@@ -195,7 +196,7 @@ def get_api_team_rate_limiter():
         **kwargs,
     ) -> bool:
         return bool(
-            not TEST
+            not settings.TEST
             and is_api
             and team_id
             and (
@@ -234,7 +235,7 @@ def get_app_org_rate_limiter():
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
             max_concurrency=DEFAULT_APP_ORG_CONCURRENT_QUERIES,
             applicable=lambda *args, **kwargs: (
-                not TEST
+                not settings.TEST
                 and kwargs.get("org_id")
                 and not kwargs.get("is_api")
                 # if running in celery, we don't want rate limit to apply
@@ -258,7 +259,7 @@ def get_app_dashboard_queries_rate_limiter():
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
             max_concurrency=DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES,
             applicable=(
-                lambda *args, **kwargs: not TEST
+                lambda *args, **kwargs: not settings.TEST
                 and not kwargs.get("is_api")
                 and kwargs.get("dashboard_id") is not None
                 # if running in celery, we don't want rate limit to apply
@@ -284,7 +285,7 @@ def get_web_analytics_api_rate_limiter():
         team_id: Optional[int] = None,
         **kwargs,
     ) -> bool:
-        return bool(not TEST and team_id)
+        return bool(not settings.TEST and team_id)
 
     if __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM is None:
         __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM = RateLimit(

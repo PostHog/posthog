@@ -81,9 +81,9 @@ def fetch_app_metrics_trends(
         AND app_source_id = %(app_source_id)s
         AND timestamp >= toDateTime64(%(after)s, 6)
         AND timestamp <= toDateTime64(%(before)s, 6)
-        {'AND instance_id = %(instance_id)s' if instance_id else ''}
-        {'AND metric_name IN %(name)s' if name else ''}
-        {'AND metric_kind IN %(kind)s' if kind else ''}
+        {"AND instance_id = %(instance_id)s" if instance_id else ""}
+        {"AND metric_name IN %(name)s" if name else ""}
+        {"AND metric_kind IN %(kind)s" if kind else ""}
         GROUP BY timestamp, breakdown
         ORDER BY timestamp ASC
     """
@@ -185,11 +185,11 @@ def fetch_app_metric_totals(
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
         AND app_source_id = %(app_source_id)s
-        {'AND timestamp >= toDateTime64(%(after)s, 6)' if after else ''}
-        {'AND timestamp <= toDateTime64(%(before)s, 6)' if before else ''}
-        {'AND instance_id = %(instance_id)s' if instance_id else ''}
-        {'AND metric_name IN %(name)s' if name else ''}
-        {'AND metric_kind IN %(kind)s' if kind else ''}
+        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {"AND instance_id = %(instance_id)s" if instance_id else ""}
+        {"AND metric_name IN %(name)s" if name else ""}
+        {"AND metric_kind IN %(kind)s" if kind else ""}
         GROUP BY breakdown
     """
 

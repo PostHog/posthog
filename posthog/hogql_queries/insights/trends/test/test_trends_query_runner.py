@@ -18,6 +18,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from pydantic import ValidationError
@@ -69,7 +70,6 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
@@ -1227,7 +1227,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 2)
         for mock_execute_call_args in mock_sync_execute.call_args_list:
-            self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
+            self.assertIn(
+                f" max_execution_time={settings.HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0]
+            )
 
     def test_trends_compare(self):
         self._create_test_events()
@@ -2987,7 +2989,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(
+            f" max_execution_time={settings.HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0]
+        )
 
     def test_actors_query_explicit_dates(self):
         self._create_test_events()

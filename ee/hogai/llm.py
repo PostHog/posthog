@@ -10,8 +10,6 @@ from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 
-from posthog.settings import CLOUD_DEPLOYMENT
-
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -49,7 +47,7 @@ class MaxChatOpenAI(ChatOpenAI):
         project_timezone = self._team.timezone
         project_datetime = datetime.datetime.now(tz=pytz.timezone(project_timezone))
 
-        region = CLOUD_DEPLOYMENT or "US"
+        region = settings.CLOUD_DEPLOYMENT or "US"
         if region in ["US", "EU"]:
             region = region.lower()
         else:

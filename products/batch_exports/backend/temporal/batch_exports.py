@@ -32,7 +32,6 @@ from posthog.batch_exports.service import (
 )
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
-from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
@@ -902,7 +901,7 @@ async def execute_batch_export_insert_activity(
     """
     get_export_started_metric().add(1)
 
-    if TEST:
+    if settings.TEST:
         maximum_attempts = 1
 
     if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):

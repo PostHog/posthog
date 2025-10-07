@@ -2,12 +2,13 @@ from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Optional
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter
 
-from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.subscription import Subscription

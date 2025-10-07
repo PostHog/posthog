@@ -4,13 +4,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Generic, ParamSpec, TypeVar
 
+from django.conf import settings
 from django.utils.timezone import now
 
 import orjson
 from django_redis.serializers.base import BaseSerializer
 from rest_framework.utils.encoders import JSONEncoder
-
-from posthog.settings import TEST
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -27,7 +26,7 @@ class CachedFunction(Generic[P, R]):
     _cache: dict[CacheKey, tuple[datetime, R]] = field(default_factory=dict, init=False, repr=False)
     _refreshing: dict[CacheKey, datetime | None] = field(default_factory=dict, init=False, repr=False)
 
-    def __call__(self, *args: P.args, use_cache: bool = not TEST, **kwargs: P.kwargs) -> R:
+    def __call__(self, *args: P.args, use_cache: bool = not settings.TEST, **kwargs: P.kwargs) -> R:
         if not use_cache:
             return self._fn(*args, **kwargs)
 

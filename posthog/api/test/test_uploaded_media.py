@@ -5,6 +5,7 @@ import tempfile
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
@@ -14,12 +15,6 @@ from rest_framework import status
 
 from posthog.models import UploadedMedia
 from posthog.models.utils import UUIDT
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 
 MEDIA_ROOT = tempfile.mkdtemp()
 
@@ -39,13 +34,13 @@ class TestMediaAPI(APIBaseTest):
         # delete s3 files
         s3 = resource(
             "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
         super().tearDownClass()

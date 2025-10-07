@@ -45,7 +45,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     ) -> dict[str, Any]:
         return {
             "action_id": None,
-            "name": f"Completed {step.index+1} step{'s' if step.index != 0 else ''}",
+            "name": f"Completed {step.index + 1} step{'s' if step.index != 0 else ''}",
             "custom_name": None,
             "order": step.index,
             "people": people if people else [],
@@ -65,7 +65,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
-        ) {'GROUP BY prop' if breakdown_clause != '' else ''}
+        ) {"GROUP BY prop" if breakdown_clause != "" else ""}
         """
 
     def get_step_counts_query(self):
@@ -109,7 +109,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
                 SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_person_and_group_properties()} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1
-                    {'AND exclusion = 0' if exclusion_clause else ''}
+                    {"AND exclusion = 0" if exclusion_clause else ""}
                     """
 
             #  rotate entities by 1 to get new first event
@@ -129,8 +129,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
-                f"dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+                f"if(isNotNull(conversion_times[{i + 1}]) AND conversion_times[{i + 1}] <= conversion_times[{i}] + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
+                f"dateDiff('second', conversion_times[{i}], conversion_times[{i + 1}]), NULL) step_{i}_conversion_time"
             )
             # array indices in ClickHouse are 1-based :shrug:
 

@@ -20,6 +20,7 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -46,7 +47,6 @@ from posthog.schema import (
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge

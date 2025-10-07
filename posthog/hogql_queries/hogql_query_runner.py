@@ -2,6 +2,8 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional, cast
 
+from django.conf import settings
+
 from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
@@ -21,7 +23,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
 
-from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -90,8 +91,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         if (
             self.is_query_service
-            and app_settings.API_QUERIES_LEGACY_TEAM_LIST
-            and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
+            and settings.API_QUERIES_LEGACY_TEAM_LIST
+            and self.team.pk not in settings.API_QUERIES_LEGACY_TEAM_LIST
         ):
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)

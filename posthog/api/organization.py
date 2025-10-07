@@ -3,6 +3,7 @@ import dataclasses
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
+from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
@@ -14,7 +15,6 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication

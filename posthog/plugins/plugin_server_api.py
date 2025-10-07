@@ -1,12 +1,13 @@
 import json
 from typing import Union
 
+from django.conf import settings
+
 import requests
 import structlog
 
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
-from posthog.settings import CDP_API_URL, PLUGINS_RELOAD_REDIS_URL
 
 logger = structlog.get_logger(__name__)
 
@@ -15,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 def publish_message(channel: str, payload: Union[dict, str]):
     message = json.dumps(payload) if not isinstance(payload, str) else payload
-    get_client(PLUGINS_RELOAD_REDIS_URL).publish(channel, message)
+    get_client(settings.PLUGINS_RELOAD_REDIS_URL).publish(channel, message)
 
 
 def reload_plugins_on_workers():
@@ -61,7 +62,7 @@ def populate_plugin_capabilities_on_workers(plugin_id: str):
 def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:
     logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
     return requests.post(
-        CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
+        settings.CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
         json=payload,
     )
 
@@ -69,37 +70,37 @@ def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict
 def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
     logger.info(f"Creating hog flow invocation test for hog flow {hog_flow_id} on workers")
     return requests.post(
-        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations",
+        settings.CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations",
         json=payload,
     )
 
 
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
-    return requests.get(CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status")
+    return requests.get(settings.CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status")
 
 
 def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) -> requests.Response:
     return requests.patch(
-        CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
+        settings.CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         json={"state": state},
     )
 
 
 def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
     payload = {"team_id": team_id, "identifier": identifier}
-    response = requests.post(CDP_API_URL + "/api/messaging/generate_preferences_token", json=payload)
+    response = requests.post(settings.CDP_API_URL + "/api/messaging/generate_preferences_token", json=payload)
     if response.status_code == 200:
         return response.json().get("token")
     return ""
 
 
 def validate_messaging_preferences_token(token: str) -> requests.Response:
-    return requests.get(CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
+    return requests.get(settings.CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
 
 
 def get_hog_function_templates() -> requests.Response:
-    return requests.get(CDP_API_URL + f"/api/hog_function_templates")
+    return requests.get(settings.CDP_API_URL + f"/api/hog_function_templates")
 
 
 def get_plugin_server_status() -> requests.Response:
-    return requests.get(CDP_API_URL + f"/_health")
+    return requests.get(settings.CDP_API_URL + f"/_health")

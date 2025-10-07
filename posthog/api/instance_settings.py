@@ -1,6 +1,8 @@
 import re
 from typing import Any, Optional, Union
 
+from django.conf import settings
+
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.cloud_utils import is_cloud
@@ -9,12 +11,6 @@ from posthog.models.instance_setting import (
     set_instance_setting as set_instance_setting_raw,
 )
 from posthog.permissions import IsStaffUser
-from posthog.settings import (
-    CONSTANCE_CONFIG,
-    SECRET_SETTINGS,
-    SETTINGS_ALLOWING_API_OVERRIDE,
-    SKIP_ASYNC_MIGRATIONS_SETUP,
-)
 from posthog.utils import str_to_bool
 
 
@@ -49,8 +45,8 @@ class InstanceSettingHelper:
 
 
 def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> InstanceSettingHelper:
-    setting_config = setting_config or CONSTANCE_CONFIG[key]
-    is_secret = key in SECRET_SETTINGS
+    setting_config = setting_config or settings.CONSTANCE_CONFIG[key]
+    is_secret = key in settings.SECRET_SETTINGS
     value = get_instance_setting_raw(key)
 
     return InstanceSettingHelper(
@@ -58,7 +54,7 @@ def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> In
         value=value if not is_secret or not value else "*****",
         value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
         description=setting_config[1],
-        editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
+        editable=key in settings.SETTINGS_ALLOWING_API_OVERRIDE,
         is_secret=is_secret,
     )
 
@@ -72,13 +68,13 @@ class InstanceSettingsSerializer(serializers.Serializer):
     is_secret = serializers.BooleanField(read_only=True)
 
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
-        if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
+        if instance.key not in settings.SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
 
         if validated_data["value"] is None:
             raise serializers.ValidationError({"value": "This field is required."}, code="required")
 
-        target_type: type = CONSTANCE_CONFIG[instance.key][2]
+        target_type: type = settings.CONSTANCE_CONFIG[instance.key][2]
         if target_type is bool and isinstance(validated_data["value"], bool):
             new_value_parsed = validated_data["value"]
         else:
@@ -118,7 +114,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
         elif instance.key.startswith("ASYNC_MIGRATION"):
             from posthog.async_migrations.setup import setup_async_migrations
 
-            if not SKIP_ASYNC_MIGRATIONS_SETUP:
+            if not settings.SKIP_ASYNC_MIGRATIONS_SETUP:
                 setup_async_migrations()
 
         return instance
@@ -136,7 +132,7 @@ class InstanceSettingsViewset(
 
     def get_queryset(self):
         output = []
-        for key, setting_config in CONSTANCE_CONFIG.items():
+        for key, setting_config in settings.CONSTANCE_CONFIG.items():
             output.append(get_instance_setting(key, setting_config))
         return output
 
@@ -145,7 +141,7 @@ class InstanceSettingsViewset(
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         key = self.kwargs[lookup_url_kwarg]
 
-        if key not in CONSTANCE_CONFIG:
+        if key not in settings.CONSTANCE_CONFIG:
             raise exceptions.NotFound(f"Setting with key `{key}` does not exist.")
 
         return get_instance_setting(key)

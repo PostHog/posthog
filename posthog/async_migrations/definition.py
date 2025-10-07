@@ -1,9 +1,10 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional, Union
 
+from django.conf import settings
+
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
-from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
 from posthog.version_requirement import ServiceVersionRequirement
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         rollback: Optional[str],
         rollback_settings: Optional[dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
-        timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+        timeout_seconds: int = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
         per_shard: bool = False,
     ):
         self.sql = sql

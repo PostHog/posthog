@@ -2,19 +2,14 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+from django.conf import settings
+
 import structlog
 from prometheus_client import Counter
 from requests import Response, Session
 from requests.adapters import HTTPAdapter, Retry
 
 from posthog.logging.timing import timed
-from posthog.settings.ingestion import (
-    CAPTURE_INTERNAL_MAX_WORKERS,
-    CAPTURE_INTERNAL_URL,
-    CAPTURE_REPLAY_INTERNAL_URL,
-    NEW_ANALYTICS_CAPTURE_ENDPOINT,
-    REPLAY_CAPTURE_ENDPOINT,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -84,9 +79,9 @@ def capture_internal(
     )
 
     # determine if this is a recordings or events type, route to correct capture endpoint
-    resolved_capture_url = f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}"
+    resolved_capture_url = f"{settings.CAPTURE_INTERNAL_URL}{settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}"
     if event_name in SESSION_RECORDING_EVENT_NAMES:
-        resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
+        resolved_capture_url = f"{settings.CAPTURE_REPLAY_INTERNAL_URL}{settings.REPLAY_CAPTURE_ENDPOINT}"
 
     with Session() as s:
         s.mount(
@@ -140,7 +135,7 @@ def capture_batch_internal(
 
     futures: list[Future] = []
 
-    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=settings.CAPTURE_INTERNAL_MAX_WORKERS) as executor:
         # Note:
         # 1. token should be supplied by caller, and be consistent per batch submitted.
         #    new capture_internal will attempt to extract from each event if missing

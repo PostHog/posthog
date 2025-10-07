@@ -1,8 +1,9 @@
+from django.conf import settings
+
 from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.sql.session_recording_event_sql import MATERIALIZED_COLUMNS
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 
 def create_events_summary_mat_columns(database):
@@ -22,7 +23,7 @@ def create_events_summary_mat_columns(database):
         sync_execute(
             f"""
             ALTER TABLE sharded_session_recording_events
-            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
             ADD COLUMN IF NOT EXISTS
             {column} {data["schema"]} {data["materializer"]}
         """
@@ -30,7 +31,7 @@ def create_events_summary_mat_columns(database):
         sync_execute(
             f"""
             ALTER TABLE session_recording_events
-            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
             ADD COLUMN IF NOT EXISTS
             {column} {data["schema"]}
         """
@@ -39,7 +40,7 @@ def create_events_summary_mat_columns(database):
         sync_execute(
             f"""
                 ALTER TABLE session_recording_events
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
                 COMMENT COLUMN {column} 'column_materializer::{column}'
             """
         )

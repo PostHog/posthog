@@ -3,6 +3,7 @@ import logging
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, QuerySet
 from django.db.models.query_utils import Q
@@ -92,7 +93,6 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -1161,7 +1161,9 @@ When set, the specified dashboard's filters and date range override will be appl
             renderer.header = csvexport[0].keys()
             export = renderer.render(csvexport)
             if request.GET.get("export_insight_id"):
-                export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
+                export = (
+                    "{}/insights/{}/\n".format(settings.SITE_URL, request.GET["export_insight_id"]).encode() + export
+                )
 
             response = HttpResponse(export)
             response["Content-Disposition"] = (
@@ -1348,7 +1350,7 @@ When set, the specified dashboard's filters and date range override will be appl
         from posthog.models.event.util import format_clickhouse_timestamp
         from posthog.utils import cast_timestamp_or_now
 
-        if CAPTURE_TIME_TO_SEE_DATA:
+        if settings.CAPTURE_TIME_TO_SEE_DATA:
             payload = {
                 **request.data,
                 "team_id": self.team_id,

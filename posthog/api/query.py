@@ -1,5 +1,6 @@
 import re
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
@@ -24,7 +25,6 @@ from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
-from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor

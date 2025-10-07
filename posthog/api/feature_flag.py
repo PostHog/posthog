@@ -72,7 +72,6 @@ from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -97,7 +96,7 @@ class LocalEvaluationThrottle(BurstRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             try:
-                custom_rate = LOCAL_EVAL_RATE_LIMITS.get(team_id)
+                custom_rate = settings.LOCAL_EVAL_RATE_LIMITS.get(team_id)
                 if custom_rate:
                     self.rate = custom_rate
                     self.num_requests, self.duration = self.parse_rate(self.rate)
@@ -117,7 +116,7 @@ class RemoteConfigThrottle(BurstRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+                custom_rate = settings.REMOTE_CONFIG_RATE_LIMITS.get(team_id)
                 if custom_rate:
                     self.rate = custom_rate
                     self.num_requests, self.duration = self.parse_rate(self.rate)

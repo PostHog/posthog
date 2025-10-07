@@ -1,11 +1,11 @@
-from posthog import settings
+from django.conf import settings
+
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person {ON_CLUSTER_CLAUSE()}"
 
@@ -187,8 +187,8 @@ _offset
 FROM {database}.kafka_{table_name}
 """.format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
 #
@@ -371,7 +371,7 @@ def PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE_SQL():
 
 
 TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 #
@@ -411,7 +411,7 @@ def PERSON_STATIC_COHORT_TABLE_SQL(on_cluster=True):
 
 
 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 INSERT_PERSON_STATIC_COHORT = (
@@ -613,6 +613,6 @@ LAYOUT(complex_key_hashed())
 -- ClickHouse will choose a time uniformly within 1 to 5 hours to reload the dictionary (update if necessary to meet SLAs).
 LIFETIME(MIN 3600 MAX 18000)
 """.format(
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )

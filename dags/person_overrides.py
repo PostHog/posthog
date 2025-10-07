@@ -4,11 +4,12 @@ import datetime
 from dataclasses import dataclass
 from functools import partial
 
+from django.conf import settings
+
 import dagster
 import pydantic
 from clickhouse_driver import Client
 
-from posthog import settings
 from posthog.clickhouse.cluster import (
     AlterTableMutationRunner,
     ClickhouseCluster,

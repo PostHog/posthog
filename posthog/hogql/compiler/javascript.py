@@ -415,7 +415,7 @@ class JavaScriptCompiler(Visitor):
                 )
             else:
                 has_catch_all = True
-                code += f"if (true) {{ let {_sanitize_identifier(catch_var)} = __error;\n" f"{catch_code}\n" f"}}\n"
+                code += f"if (true) {{ let {_sanitize_identifier(catch_var)} = __error;\n{catch_code}\n}}\n"
             self._end_scope()
         if not has_catch_all:
             code += " else { throw __error; }"
@@ -586,12 +586,12 @@ class JavaScriptCompiler(Visitor):
             attrs = []
             for attr in node.attributes:
                 attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
-            return f'{self.visit_field(ast.Field(chain=[node.kind]))}({{{", ".join(attrs)}}})'
+            return f"{self.visit_field(ast.Field(chain=[node.kind]))}({{{', '.join(attrs)}}})"
         else:
             attrs = [f'"__hx_tag": {json.dumps(node.kind)}']
             for attr in node.attributes:
                 attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
-            return f'{{{", ".join(attrs)}}}'
+            return f"{{{', '.join(attrs)}}}"
 
     def _visit_hogqlx_value(self, value: Any) -> str:
         if isinstance(value, AST):

@@ -3,11 +3,12 @@ import logging
 from functools import wraps
 from time import perf_counter
 
+from django.conf import settings
+
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HOST
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +54,10 @@ def trace_clickhouse_query_decorator(func):
 
             # Set standard database attributes
             span.set_attribute("db.system", "clickhouse")
-            span.set_attribute("db.name", CLICKHOUSE_DATABASE)
+            span.set_attribute("db.name", settings.CLICKHOUSE_DATABASE)
             span.set_attribute("db.user", ch_user.value)
             span.set_attribute("db.statement", query)
-            span.set_attribute("net.peer.name", CLICKHOUSE_HOST)
+            span.set_attribute("net.peer.name", settings.CLICKHOUSE_HOST)
             span.set_attribute("net.peer.port", 9000)  # Default ClickHouse port
             span.set_attribute("span.kind", "client")
             span.set_attribute("clickhouse.initial_workload", initial_workload.value)

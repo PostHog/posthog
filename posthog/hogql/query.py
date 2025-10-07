@@ -33,7 +33,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
 
@@ -186,7 +185,9 @@ class HogQLQueryExecutor:
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
         ):
-            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+            settings.max_execution_time = max(
+                settings.max_execution_time or 0, settings.HOGQL_INCREASED_MAX_EXECUTION_TIME
+            )
 
         if self.query_modifiers.formatCsvAllowDoubleQuotes is not None:
             settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes

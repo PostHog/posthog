@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -11,21 +13,20 @@ from posthog.models.kafka_partition_stats.sql import (
     PartitionStatsV2MaterializedView as MaterializedView,
     PartitionStatsV2Table as Table,
 )
-from posthog.settings.data_stores import KAFKA_HOSTS, SESSION_RECORDING_KAFKA_HOSTS
 
 table = Table()
 
 existing_kafka_tables = [
     # 0041 added KAFKA_EVENTS_PLUGIN_INGESTION
-    KafkaTable(KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION),
+    KafkaTable(settings.KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION),
     # 0042 added KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW (and KAFKA_SESSION_RECORDING_EVENTS, now unused)
-    KafkaTable(KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW),
+    KafkaTable(settings.KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW),
 ]
 
 new_kafka_tables = [
-    KafkaTable(KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL),
-    KafkaTable(SESSION_RECORDING_KAFKA_HOSTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS),
-    KafkaTable(SESSION_RECORDING_KAFKA_HOSTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW),
+    KafkaTable(settings.KAFKA_HOSTS, KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL),
+    KafkaTable(settings.SESSION_RECORDING_KAFKA_HOSTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS),
+    KafkaTable(settings.SESSION_RECORDING_KAFKA_HOSTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW),
 ]
 
 operations = [

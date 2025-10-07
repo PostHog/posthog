@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_
 from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -21,12 +22,6 @@ from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
@@ -122,13 +117,13 @@ class TestCSVExporter(APIBaseTest):
     def teardown_method(self, method):
         s3 = resource(
             "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
     def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:

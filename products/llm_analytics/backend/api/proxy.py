@@ -13,6 +13,7 @@ import logging
 from collections.abc import Callable, Generator
 from typing import Any, TypedDict, TypeGuard
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 
 import posthoganalytics
@@ -26,7 +27,6 @@ from rest_framework.response import Response
 from posthog.auth import SessionAuthentication
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
-from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
@@ -117,7 +117,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
     def _create_streaming_response(self, stream: Generator[bytes, None, None]) -> StreamingHttpResponse:
         """Creates a properly configured SSE streaming response"""
-        if SERVER_GATEWAY_INTERFACE == "ASGI":
+        if settings.SERVER_GATEWAY_INTERFACE == "ASGI":
             astream = SyncIterableToAsync(stream)
             response = StreamingHttpResponse(streaming_content=astream, content_type=ServerSentEventRenderer.media_type)
         else:

@@ -1,8 +1,9 @@
 from typing import Protocol
 
+from django.conf import settings
+
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.settings import EE_AVAILABLE
 
 ColumnName = str
 TablesWithMaterializedColumns = TableWithProperties
@@ -13,7 +14,7 @@ class MaterializedColumn(Protocol):
     is_nullable: bool
 
 
-if EE_AVAILABLE:
+if settings.EE_AVAILABLE:
     from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns
 
     def get_materialized_column_for_property(

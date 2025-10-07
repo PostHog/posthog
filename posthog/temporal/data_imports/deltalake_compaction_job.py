@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 
+from django.conf import settings
 from django.db import close_old_connections
 
 from structlog.contextvars import bind_contextvars
@@ -14,7 +15,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.exceptions_capture import capture_exception
-from posthog.settings import DEBUG, TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -45,7 +45,7 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema, log
             )
         )
 
-        if not DEBUG and not TEST:
+        if not settings.DEBUG and not settings.TEST:
             # Wait for the compaction to complete before continuing
             try:
                 asyncio.run(handle.result())

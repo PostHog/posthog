@@ -1,8 +1,9 @@
+from django.conf import settings
+
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 LOG_ENTRIES_TABLE = "log_entries"
 LOG_ENTRIES_DISTRIBUTED_TABLE = "distributed_log_entries"
@@ -82,8 +83,8 @@ _offset
 FROM {database}.kafka_{table_name}
 """.format(
     table_name=LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
 
@@ -117,7 +118,9 @@ def LOG_ENTRIES_DISTRIBUTED_TABLE_SQL():
         table_name=LOG_ENTRIES_DISTRIBUTED_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         extra_fields=KAFKA_COLUMNS,
-        engine=Distributed(data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"),
+        engine=Distributed(
+            data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="rand()"
+        ),
     )
 
 
@@ -126,7 +129,9 @@ def LOG_ENTRIES_WRITABLE_TABLE_SQL():
         table_name=LOG_ENTRIES_WRITABLE_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         extra_fields=KAFKA_COLUMNS,
-        engine=Distributed(data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"),
+        engine=Distributed(
+            data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="rand()"
+        ),
     )
 
 
@@ -164,5 +169,5 @@ def LOG_ENTRIES_V3_TABLE_MV_SQL():
         table_name=LOG_ENTRIES_TABLE,
         to_table=LOG_ENTRIES_WRITABLE_TABLE,
         from_table=f"kafka_{LOG_ENTRIES_TABLE}_v3",
-        database=CLICKHOUSE_DATABASE,
+        database=settings.CLICKHOUSE_DATABASE,
     )

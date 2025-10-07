@@ -1373,7 +1373,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_control_{i}",
-                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                     properties={feature_flag_property: "control"},
                 )
 
@@ -1397,7 +1397,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_test_{i}",
-                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                     properties={feature_flag_property: "test"},
                 )
 
@@ -1520,7 +1520,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_control_only_{i}",
-                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                     properties={feature_flag_property: "control"},
                 )
 
@@ -1544,7 +1544,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_test_only_{i}",
-                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                     properties={feature_flag_property: "test"},
                 )
 
@@ -2062,7 +2062,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="purchase",
                     distinct_id=f"user_control_{i}",
-                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
+                    timestamp=f"2020-01-0{2 + j}T12:01:00Z",  # Different timestamps
                     properties={
                         feature_flag_property: "control",
                         "price": 50 + (i * 10) + j,
@@ -2091,7 +2091,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     team=self.team,
                     event="purchase",
                     distinct_id=f"user_test_{i}",
-                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
+                    timestamp=f"2020-01-0{2 + j}T12:01:00Z",  # Different timestamps
                     properties={
                         feature_flag_property: "test",
                         "price": 60 + (i * 10) + j,

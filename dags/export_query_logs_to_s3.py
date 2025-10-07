@@ -1,18 +1,13 @@
 import datetime
 from typing import ClassVar
 
+from django.conf import settings
+
 import dagster
 import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.settings.base_variables import DEBUG
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 
 from dags.common import ClickhouseClusterResource, settings_with_log_comment
 
@@ -81,16 +76,18 @@ def export_query_logs(
             for is_initial_query in [0, 1]:
                 date_s3_filename = f"{config.s3_path}/event_date={current_date.strftime('%Y-%m-%d')}/is_initial_query={is_initial_query}/{hostname}_{context.run.run_id}.parquet"
 
-                if DEBUG:
-                    date_s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{DAGSTER_DATA_EXPORT_S3_BUCKET}/{date_s3_filename}"
+                if settings.DEBUG:
+                    date_s3_path = f"{settings.OBJECT_STORAGE_ENDPOINT}/{settings.DAGSTER_DATA_EXPORT_S3_BUCKET}/{date_s3_filename}"
                     date_s3_function_args = (
                         f"'{date_s3_path}', "
-                        f"'{OBJECT_STORAGE_ACCESS_KEY_ID}', "
-                        f"'{OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
+                        f"'{settings.OBJECT_STORAGE_ACCESS_KEY_ID}', "
+                        f"'{settings.OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
                         f"'Parquet'"
                     )
                 else:
-                    date_s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{date_s3_filename}"
+                    date_s3_path = (
+                        f"https://{settings.DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{date_s3_filename}"
+                    )
                     date_s3_function_args = f"'{date_s3_path}', 'Parquet'"
 
                 # Construct the export query for this specific date

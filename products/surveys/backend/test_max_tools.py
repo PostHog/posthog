@@ -428,7 +428,7 @@ class TestSurveyLoopNode(BaseTest):
         # Create 6 surveys
         survey_names = []
         for i in range(6):
-            name = f"Survey {i+1}"
+            name = f"Survey {i + 1}"
             survey_names.append(name)
             await sync_to_async(Survey.objects.create)(
                 team=self.team,

@@ -11,20 +11,19 @@ from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
 
+from django.conf import settings
+
 import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
-from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 logger = dagster.get_dagster_logger("clickhouse")
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
-    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    return f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
 
 K = TypeVar("K")
@@ -110,7 +109,9 @@ class ClickhouseCluster:
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
 
-        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, cluster or settings.CLICKHOUSE_CLUSTER, retry_policy)
+        cluster_hosts = self.__get_cluster_hosts(
+            bootstrap_client, cluster or settings.settings.CLICKHOUSE_CLUSTER, retry_policy
+        )
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
@@ -415,7 +416,7 @@ def get_cluster(
     host: str = settings.CLICKHOUSE_HOST,
 ) -> ClickhouseCluster:
     extra_hosts = []
-    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
+    for host_config in map(copy, settings.CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(

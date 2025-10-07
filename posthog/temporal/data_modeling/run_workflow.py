@@ -34,8 +34,6 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -647,7 +645,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     query_node = parse_select(count_query)
 
     settings = HogQLGlobalSettings()
-    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+    settings.max_execution_time = settings.HOGQL_INCREASED_MAX_EXECUTION_TIME
 
     context = HogQLContext(
         team=team,
@@ -691,7 +689,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     assert query_node is not None
 
     settings = HogQLGlobalSettings()
-    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+    settings.max_execution_time = settings.HOGQL_INCREASED_MAX_EXECUTION_TIME
 
     context = HogQLContext(
         team=team,
@@ -951,7 +949,7 @@ def _get_credentials():
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
-    if TEST:
+    if settings.TEST:
         return {
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,

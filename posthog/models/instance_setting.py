@@ -3,9 +3,8 @@ from contextlib import contextmanager
 from functools import lru_cache
 from typing import Any
 
+from django.conf import settings
 from django.db import models
-
-from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
 
 
 class InstanceSetting(models.Model):
@@ -22,24 +21,26 @@ class InstanceSetting(models.Model):
 
 @lru_cache
 def get_instance_setting(key: str) -> Any:
-    assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
+    assert key in settings.CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
-    saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    saved_setting = InstanceSetting.objects.filter(key=settings.CONSTANCE_DATABASE_PREFIX + key).first()
     if saved_setting is not None:
         return saved_setting.value
     else:
-        return CONSTANCE_CONFIG[key][0]  # Get the default value
+        return settings.CONSTANCE_CONFIG[key][0]  # Get the default value
 
 
 def get_instance_settings(keys: list[str]) -> Any:
     for key in keys:
-        assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
+        assert key in settings.CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
-    saved_settings = InstanceSetting.objects.filter(key__in=[CONSTANCE_DATABASE_PREFIX + key for key in keys]).all()
-    response = {key: CONSTANCE_CONFIG[key][0] for key in keys}
+    saved_settings = InstanceSetting.objects.filter(
+        key__in=[settings.CONSTANCE_DATABASE_PREFIX + key for key in keys]
+    ).all()
+    response = {key: settings.CONSTANCE_CONFIG[key][0] for key in keys}
 
     for setting in saved_settings:
-        key = setting.key.replace(CONSTANCE_DATABASE_PREFIX, "")
+        key = setting.key.replace(settings.CONSTANCE_DATABASE_PREFIX, "")
         response[key] = setting.value
 
     return response
@@ -47,7 +48,7 @@ def get_instance_settings(keys: list[str]) -> Any:
 
 def set_instance_setting(key: str, value: Any):
     InstanceSetting.objects.update_or_create(
-        key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)}
+        key=settings.CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)}
     )
     get_instance_setting.cache_clear()
 

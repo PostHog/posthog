@@ -1,12 +1,12 @@
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core import mail
 
 from rest_framework import status
 
 from posthog.api.instance_settings import get_instance_setting as get_instance_setting_helper
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
-from posthog.settings import CONSTANCE_CONFIG
 
 
 class TestInstanceSettings(APIBaseTest):
@@ -20,7 +20,7 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
 
-        self.assertEqual(json_response["count"], len(CONSTANCE_CONFIG))
+        self.assertEqual(json_response["count"], len(settings.CONSTANCE_CONFIG))
 
         # Check an example attribute
         self.assertEqual(json_response["results"][0]["key"], "RECORDINGS_TTL_WEEKS")

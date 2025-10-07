@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.timezone import now
 
@@ -22,13 +23,6 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
-from posthog.settings import (
-    HOGQL_INCREASED_MAX_EXECUTION_TIME,
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 from posthog.tasks import exporter
 from posthog.tasks.exports.image_exporter import export_image
 
@@ -44,13 +38,13 @@ class TestExports(APIBaseTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
 
     insight_filter_dict = {
@@ -496,7 +490,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 2)
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with freeze_time(now() - timedelta(seconds=2 * settings.HOGQL_INCREASED_MAX_EXECUTION_TIME)):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -514,7 +508,7 @@ class TestExports(APIBaseTest):
                 dashboard_id=self.dashboard.id,
                 export_format="image/png",
                 created_by=self.user,
-                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                created_at=now() - timedelta(seconds=settings.HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
                 content=b"some content",
                 exception=None,
             )
@@ -525,7 +519,7 @@ class TestExports(APIBaseTest):
                 dashboard_id=self.dashboard.id,
                 export_format="image/png",
                 created_by=self.user,
-                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                created_at=now() - timedelta(seconds=settings.HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
                 content=None,
                 exception="exception",
             )
@@ -569,14 +563,14 @@ class TestExports(APIBaseTest):
         self.assertIsNone(completed_export.exception)
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with freeze_time(now() - timedelta(seconds=2 * settings.HOGQL_INCREASED_MAX_EXECUTION_TIME)):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
                 dashboard_id=self.dashboard.id,
                 export_format="image/png",
                 created_by=self.user,
-                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                created_at=now() - timedelta(seconds=settings.HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
                 content=None,
                 content_location=None,
                 exception=None,

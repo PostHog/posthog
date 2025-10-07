@@ -602,7 +602,7 @@ class FunnelBase(ABC):
 
             if self._query_has_array_breakdown():
                 assert isinstance(breakdown, list)
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
+                default_breakdown_value = f"""[{",".join(["''" for _ in range(len(breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = parse_expr(
                     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
@@ -872,11 +872,11 @@ class FunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> list[ast.Expr]:
@@ -1012,7 +1012,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i - 1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
                 ),
             )
 

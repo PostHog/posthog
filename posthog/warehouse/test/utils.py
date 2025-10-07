@@ -2,17 +2,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
 
+from django.conf import settings
+
 import s3fs
 import pandas as pd
 
 from posthog.models.team import Team
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    XDIST_SUFFIX,
-)
 from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -35,15 +30,15 @@ def create_data_warehouse_table_from_csv(
         raise FileNotFoundError(f"Test data file not found at {csv_path}")
 
     # Initialize S3 filesystem
-    if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+    if not settings.OBJECT_STORAGE_ACCESS_KEY_ID or not settings.OBJECT_STORAGE_SECRET_ACCESS_KEY:
         raise Exception("Missing S3 credentials")
 
     fs = s3fs.S3FileSystem(
         client_kwargs={
             "region_name": "us-east-1",
-            "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-            "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
     )
 
@@ -51,7 +46,7 @@ def create_data_warehouse_table_from_csv(
     df = pd.read_csv(csv_path)
 
     # Append XDIST_SUFFIX to test bucket if it exists
-    test_bucket = test_bucket + XDIST_SUFFIX
+    test_bucket = test_bucket + settings.XDIST_SUFFIX
 
     # Guarantee prefix is valid
     if source_prefix is None:
@@ -59,7 +54,7 @@ def create_data_warehouse_table_from_csv(
     table_name = f"{source_prefix}{table_name}"
 
     # Write CSV directly to S3
-    folder = f"{OBJECT_STORAGE_BUCKET}/{test_bucket}/{table_name}"
+    folder = f"{settings.OBJECT_STORAGE_BUCKET}/{test_bucket}/{table_name}"
     path_to_s3_object = f"{folder}/data.csv"
     with fs.open(path_to_s3_object, "wb", blocksize=None) as f:
         df.to_csv(f, index=False)
@@ -77,8 +72,8 @@ def create_data_warehouse_table_from_csv(
     if credential is None:
         credential = DataWarehouseCredential.objects.create(
             team=team,
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         )
 
     if any(isinstance(value, str) for value in table_columns.values()):

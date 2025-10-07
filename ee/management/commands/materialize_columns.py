@@ -1,14 +1,8 @@
 import logging
 import argparse
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
-
-from posthog.settings import (
-    MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
-    MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
-    MATERIALIZE_COLUMNS_MAX_AT_ONCE,
-    MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
-)
 
 from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
 from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
@@ -46,21 +40,21 @@ class Command(BaseCommand):
         parser.add_argument(
             "--backfill-period",
             type=int,
-            default=MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
-            help="How many days worth of data to backfill. 0 to disable. Same as MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS env variable.",
+            default=settings.MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
+            help="How many days worth of data to backfill. 0 to disable. Same as settings.MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS env variable.",
         )
 
         parser.add_argument(
             "--min-query-time",
             type=int,
-            default=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
-            help="Minimum query time (ms) before a query if considered for optimization. Same as MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME env variable.",
+            default=settings.MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
+            help="Minimum query time (ms) before a query if considered for optimization. Same as settings.MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME env variable.",
         )
         parser.add_argument(
             "--analyze-period",
             type=int,
-            default=MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
-            help="How long of a time period to analyze. Same as MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS env variable.",
+            default=settings.MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
+            help="How long of a time period to analyze. Same as settings.MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS env variable.",
         )
         parser.add_argument(
             "--analyze-team-id",
@@ -71,8 +65,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--max-columns",
             type=int,
-            default=MATERIALIZE_COLUMNS_MAX_AT_ONCE,
-            help="Max number of columns to materialize via single invocation. Same as MATERIALIZE_COLUMNS_MAX_AT_ONCE env variable.",
+            default=settings.MATERIALIZE_COLUMNS_MAX_AT_ONCE,
+            help="Max number of columns to materialize via single invocation. Same as settings.MATERIALIZE_COLUMNS_MAX_AT_ONCE env variable.",
         )
         parser.add_argument(
             "--nullable",

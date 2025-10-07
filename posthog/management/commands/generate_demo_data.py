@@ -6,6 +6,7 @@ import datetime as dt
 from time import monotonic
 from typing import Optional
 
+from django.conf import settings
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
@@ -17,7 +18,6 @@ from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
@@ -332,7 +332,7 @@ class Command(BaseCommand):
         # I tried some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
         # up a new instance of the Dagster code server for each request, which is not what we want. This API returns
         # immediately and is non-blocking.
-        client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
+        client = DagsterGraphQLClient(settings.DAGSTER_UI_HOST, port_number=settings.DAGSTER_UI_PORT)
 
         # Launch the hourly job (non-partitioned)
         client.submit_job_execution(

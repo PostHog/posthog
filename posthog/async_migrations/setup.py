@@ -1,5 +1,6 @@
 from typing import Optional
 
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from infi.clickhouse_orm.utils import import_submodules
@@ -9,7 +10,6 @@ from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
-from posthog.settings import TEST
 
 
 def reload_migration_definitions():
@@ -89,7 +89,7 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
 
 
 def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinition:
-    if TEST:
+    if settings.TEST:
         test_migrations = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
         if migration_name in test_migrations:
             return test_migrations[migration_name].Migration(migration_name)
@@ -101,7 +101,7 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
 
 
 def get_async_migration_dependency(migration_name: str) -> Optional[str]:
-    if TEST:
+    if settings.TEST:
         return None
 
     if len(ASYNC_MIGRATION_TO_DEPENDENCY) == 0:

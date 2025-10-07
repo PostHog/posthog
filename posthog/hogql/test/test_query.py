@@ -8,6 +8,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -29,7 +30,6 @@ from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -59,7 +59,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         return random_uuid
 
     def test_extended_query_time(self):
-        self.assertEqual(HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)
+        self.assertEqual(settings.HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query(self):

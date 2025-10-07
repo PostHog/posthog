@@ -182,7 +182,7 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
             )
             workflows_scheduled += 1
 
-            workflow_logger.info(f"Scheduled child workflow {i+1} for conditions {offset}-{offset+limit-1}")
+            workflow_logger.info(f"Scheduled child workflow {i + 1} for conditions {offset}-{offset + limit - 1}")
 
         workflow_logger.info(f"Coordinator completed: scheduled {workflows_scheduled} child workflows")
         return

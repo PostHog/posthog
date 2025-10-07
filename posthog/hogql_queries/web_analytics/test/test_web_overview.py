@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
@@ -37,7 +39,6 @@ from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRun
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 @snapshot_clickhouse_queries
@@ -891,7 +892,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._run_web_overview_query("2023-12-01", "2023-12-03", limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(
+            f" max_execution_time={settings.HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0]
+        )
 
     def test_no_previous_when_comparison_disabled_but_conversion_goal_enabled(self):
         # See: https://posthoghelp.zendesk.com/agent/tickets/29100

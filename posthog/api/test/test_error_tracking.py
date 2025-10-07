@@ -4,6 +4,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
@@ -19,12 +20,6 @@ from posthog.models import (
     ErrorTrackingSymbolSet,
 )
 from posthog.models.utils import uuid7
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 
 from ee.models.rbac.role import Role
 
@@ -47,13 +42,13 @@ class TestErrorTracking(APIBaseTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket = s3.Bucket(settings.OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
     def test_issue_not_found_fingerprint_redirect(self):

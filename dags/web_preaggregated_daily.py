@@ -2,6 +2,8 @@ import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from django.conf import settings
+
 import dagster
 import structlog
 from dagster import BackfillPolicy, DailyPartitionsDefinition
@@ -17,8 +19,6 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME
-from posthog.settings.base_variables import DEBUG
-from posthog.settings.object_storage import OBJECT_STORAGE_ENDPOINT, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
@@ -199,10 +199,10 @@ def export_web_analytics_data_by_team(
     failed_team_ids = []
 
     for team_id in team_ids:
-        if DEBUG:
-            team_s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{export_prefix}/{team_id}/data.native"
+        if settings.DEBUG:
+            team_s3_path = f"{settings.OBJECT_STORAGE_ENDPOINT}/{settings.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{export_prefix}/{team_id}/data.native"
         else:
-            team_s3_path = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com/{export_prefix}/{team_id}/data.native"
+            team_s3_path = f"https://{settings.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com/{export_prefix}/{team_id}/data.native"
 
         export_query = sql_generator(
             date_start="2020-01-01",

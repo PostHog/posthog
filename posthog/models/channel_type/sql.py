@@ -1,10 +1,11 @@
 import os
 import json
 
+from django.conf import settings
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
 
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
@@ -28,12 +29,12 @@ ORDER BY (domain, kind);
 
 
 DROP_CHANNEL_DEFINITION_TABLE_SQL = (
-    f"DROP TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"DROP TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 
 TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 with open(os.path.join(os.path.dirname(__file__), "channel_definitions.json")) as f:
@@ -53,8 +54,9 @@ CHANNEL_DEFINITION_DATA_SQL = (
     lambda channel_definitions=CHANNEL_DEFINITIONS: f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
-''',
-'''.join(f'({" ,".join(map(format_value, x[:5]))})' for x in channel_definitions)},
+        ''',
+'''.join(f"({' ,'.join(map(format_value, x[:5]))})" for x in channel_definitions)
+    },
 ;
 """
 )
@@ -70,14 +72,14 @@ CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER
     type_if_organic Nullable(String)
 )
 PRIMARY KEY domain, kind
-SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' PASSWORD '{CLICKHOUSE_PASSWORD}'))
+SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' PASSWORD '{settings.CLICKHOUSE_PASSWORD}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """
 )
 
 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL = (
-    f"DROP DICTIONARY IF EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"DROP DICTIONARY IF EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 SELECT_CHANNEL_DEFINITION_SQL = f"SELECT domain, kind, domain_type, type_if_paid, type_if_organic FROM {CHANNEL_DEFINITION_TABLE_NAME} ORDER BY domain, kind"

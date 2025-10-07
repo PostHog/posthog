@@ -1,16 +1,10 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args, get_s3_url
-
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
-    OBJECT_STORAGE_REGION,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 
 
 class TestWebAnalyticsS3(BaseTest):
@@ -22,7 +16,7 @@ class TestWebAnalyticsS3(BaseTest):
         url = get_s3_url(table_name=table_name, team_id=team_id)
 
         # Use actual environment values for the expected URL
-        expected_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{OBJECT_STORAGE_REGION}.amazonaws.com/web_stats_daily_export/2/data.native"
+        expected_url = f"https://{settings.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{settings.OBJECT_STORAGE_REGION}.amazonaws.com/web_stats_daily_export/2/data.native"
 
         assert url == expected_url
 
@@ -32,7 +26,7 @@ class TestWebAnalyticsS3(BaseTest):
         team_id = 123
 
         url = get_s3_url(table_name=table_name, team_id=team_id)
-        expected_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{OBJECT_STORAGE_REGION}.amazonaws.com/web_bounces_daily_export/123/data.native"
+        expected_url = f"https://{settings.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{settings.OBJECT_STORAGE_REGION}.amazonaws.com/web_bounces_daily_export/123/data.native"
 
         assert url == expected_url
 
@@ -78,5 +72,5 @@ class TestWebAnalyticsS3(BaseTest):
         args = get_s3_function_args(s3_path)
 
         # Use actual environment values for expected args
-        expected_args = f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
+        expected_args = f"'{s3_path}', '{settings.OBJECT_STORAGE_ACCESS_KEY_ID}', '{settings.OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
         assert args == expected_args

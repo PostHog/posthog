@@ -2,11 +2,12 @@ from collections import defaultdict
 from datetime import timedelta
 from typing import Optional
 
+from django.conf import settings
+
 import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
@@ -79,7 +80,7 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
             since=since_hours_ago,
             min_query_time=min_query_time,
             team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
-            cluster=CLICKHOUSE_CLUSTER,
+            cluster=settings.CLICKHOUSE_CLUSTER,
         ),
     )
 

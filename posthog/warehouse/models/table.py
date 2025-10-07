@@ -5,6 +5,7 @@ from io import StringIO
 from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 from uuid import UUID
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -26,7 +27,6 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_er
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
-from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -178,7 +178,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         )
         try:
             # chdb hangs in CI during tests
-            if TEST:
+            if settings.TEST:
                 raise Exception()
 
             quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
@@ -268,7 +268,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         )
         try:
             # chdb hangs in CI during tests
-            if TEST:
+            if settings.TEST:
                 raise Exception()
 
             quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}

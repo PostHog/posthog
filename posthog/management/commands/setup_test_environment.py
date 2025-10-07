@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.test.runner import DiscoverRunner as TestRunner
 
@@ -13,15 +14,6 @@ from posthog.clickhouse.schema import (
     CREATE_VIEW_QUERIES,
     build_query,
 )
-from posthog.settings import (
-    CLICKHOUSE_CLUSTER,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_VERIFY,
-    TEST,
-)
 
 
 class Command(BaseCommand):
@@ -34,8 +26,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if not TEST:
-            raise ValueError("TEST environment variable needs to be set for this command to function")
+        if not settings.TEST:
+            raise ValueError("settings.TEST environment variable needs to be set for this command to function")
 
         disable_migrations()
 
@@ -49,18 +41,18 @@ class Command(BaseCommand):
 
         print("\nCreating test ClickHouse database...")  # noqa: T201
         database = Database(
-            CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
-            username=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            cluster=CLICKHOUSE_CLUSTER,
-            verify_ssl_cert=CLICKHOUSE_VERIFY,
+            settings.CLICKHOUSE_DATABASE,
+            db_url=settings.CLICKHOUSE_HTTP_URL,
+            username=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            cluster=settings.CLICKHOUSE_CLUSTER,
+            verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
             autocreate=False,
             randomize_replica_paths=True,
         )
         if database.db_exists:
             print(  # noqa: T201
-                f'Got an error creating the test ClickHouse database: database "{CLICKHOUSE_DATABASE}" already exists\n'
+                f'Got an error creating the test ClickHouse database: database "{settings.CLICKHOUSE_DATABASE}" already exists\n'
             )
             print("Destroying old test ClickHouse database...")  # noqa: T201
             database.drop_database()

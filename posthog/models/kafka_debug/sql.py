@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 
+from django.conf import settings
+
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import MergeTreeEngine
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 
 @dataclass
@@ -18,22 +19,26 @@ class KafkaDebugKafkaTable:
 
     def get_create_table_sql(self) -> str:
         return f"""
-      CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+      CREATE TABLE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{
+            settings.CLICKHOUSE_CLUSTER
+        }'
       (
         payload String
       )
-      ENGINE={kafka_engine(
-          kafka_host=",".join(self.brokers),
-          topic=self.topic,
-          group=self.consumer_group,
-          serialization=self.serialization
-          )}
+      ENGINE={
+            kafka_engine(
+                kafka_host=",".join(self.brokers),
+                topic=self.topic,
+                group=self.consumer_group,
+                serialization=self.serialization,
+            )
+        }
       SETTINGS input_format_values_interpret_expressions=0, kafka_handle_error_mode='stream'
     """
 
     def get_drop_table_sql(self) -> str:
         return f"""
-      DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+      DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
     """
 
 
@@ -48,7 +53,7 @@ class KafkaDebugTable:
     def get_create_table_sql(self) -> str:
         engine = MergeTreeEngine(self.table_name)
         return f"""
-      CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+      CREATE TABLE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' (
         payload String,
         _timestamp DateTime,
         _timestamp_ms Nullable(DateTime64(3)),
@@ -65,7 +70,7 @@ class KafkaDebugTable:
 
     def get_drop_table_sql(self) -> str:
         return f"""
-      DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC
+      DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC
     """
 
 
@@ -80,7 +85,7 @@ class KafkaDebugMaterializedView:
 
     def get_create_view_sql(self) -> str:
         return f"""
-      CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.view_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' TO {self.to_table.table_name}
+      CREATE MATERIALIZED VIEW IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`.{self.view_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' TO {self.to_table.table_name}
       AS SELECT
         payload,
         _timestamp,
@@ -89,10 +94,10 @@ class KafkaDebugMaterializedView:
         _offset,
         _error,
         _raw_message
-      FROM `{CLICKHOUSE_DATABASE}`.{self.from_table.table_name}
+      FROM `{settings.CLICKHOUSE_DATABASE}`.{self.from_table.table_name}
     """
 
     def get_drop_view_sql(self) -> str:
         return f"""
-      DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.view_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC
+      DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.{self.view_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC
     """

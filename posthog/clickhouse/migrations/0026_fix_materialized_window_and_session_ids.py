@@ -1,8 +1,9 @@
+from django.conf import settings
+
 from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 
 def does_column_exist(database, table_name, column_name):
@@ -22,7 +23,7 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
         sync_execute(
             f"""
                 ALTER TABLE {table_name}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
                 DROP COLUMN IF EXISTS {old_column_name}
             """
         )
@@ -31,7 +32,7 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
         sync_execute(
             f"""
                 ALTER TABLE {table_name}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
                 RENAME COLUMN IF EXISTS {old_column_name} TO {new_column_name}
             """
         )

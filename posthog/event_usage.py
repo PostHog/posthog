@@ -4,11 +4,12 @@ Module to centralize event reporting on the server-side.
 
 from typing import Optional
 
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.models import Organization, User
 from posthog.models.team import Team
-from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
 
 
@@ -279,7 +280,7 @@ def report_organization_deleted(user: User, organization: Organization):
 
 
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
-    result = {"instance": SITE_URL}
+    result = {"instance": settings.SITE_URL}
     if organization is not None:
         result["organization"] = str(organization.pk)
         if organization.customer_id:

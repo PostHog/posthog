@@ -5,6 +5,7 @@ from typing import Optional, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -26,9 +27,8 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.settings import TEST
 
-if TEST:
+if settings.TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
 
     @mutable_receiver(post_save, sender=Person)

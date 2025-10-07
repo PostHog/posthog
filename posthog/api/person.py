@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
+from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
@@ -61,7 +62,6 @@ from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrottle, ClickHouseBurstRateThrottle
 from posthog.renderers import SafeJSONRenderer
-from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
@@ -187,8 +187,8 @@ class MinimalPersonSerializer(PersonSerializer):
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: type[ActorBaseQuery]
 
-    if filter.correlation_person_entity and EE_AVAILABLE:
-        if EE_AVAILABLE:
+    if filter.correlation_person_entity and settings.EE_AVAILABLE:
+        if settings.EE_AVAILABLE:
             from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
             funnel_actor_class = FunnelCorrelationActors

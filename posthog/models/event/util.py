@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.utils import timezone
 
 from dateutil.parser import isoparse
@@ -17,7 +18,6 @@ from posthog.models.element.element import Element, chain_to_elements, elements_
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.settings import TEST
 
 ZERO_DATE = datetime(1970, 1, 1)
 
@@ -107,7 +107,7 @@ def bulk_create_events(
     person_mapping: Optional[dict[str, Person]] = None,
 ) -> None:
     """
-    TEST ONLY
+    settings.TEST ONLY
     Insert events in bulk. List of dicts:
     bulk_create_events([{
         "event": "user signed up",
@@ -116,7 +116,7 @@ def bulk_create_events(
         "timestamp": "2022-01-01T12:00:00"
     }])
     """
-    if not TEST:
+    if not settings.TEST:
         raise Exception("This function is only meant for setting up tests")
     inserts = []
     params: dict[str, Any] = {}

@@ -1,5 +1,6 @@
+from django.conf import settings
+
 from posthog.clickhouse.client import sync_execute
-from posthog.settings import CLICKHOUSE_DATABASE
 
 
 def analyze_enough_disk_space_free_for_table(table_name: str, required_ratio: float):
@@ -28,7 +29,7 @@ def analyze_enough_disk_space_free_for_table(table_name: str, required_ratio: fl
             formatReadableSize(required)
         """,
         {
-            "database": CLICKHOUSE_DATABASE,
+            "database": settings.CLICKHOUSE_DATABASE,
             "table_name": table_name,
             "ratio": required_ratio,
         },

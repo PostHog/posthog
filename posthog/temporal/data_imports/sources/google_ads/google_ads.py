@@ -167,17 +167,41 @@ def _resolve_protobuf_message_type_url(type_url: str) -> type:
     match type_url.split("."):
         case (
             ["google", "ads", "googleads", "v19", "common", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "common", *rest]
+            | [
+                "com",
+                "google",
+                "ads",
+                "googleads",
+                "v19",
+                "common",
+                *rest,
+            ]
         ):
             return _traverse_attributes(ga_common, *rest)
         case (
             ["google", "ads", "googleads", "v19", "enums", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "enums", *rest]
+            | [
+                "com",
+                "google",
+                "ads",
+                "googleads",
+                "v19",
+                "enums",
+                *rest,
+            ]
         ):
             return _traverse_attributes(ga_enums, *rest)
         case (
             ["google", "ads", "googleads", "v19", "resources", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "resources", *rest]
+            | [
+                "com",
+                "google",
+                "ads",
+                "googleads",
+                "v19",
+                "resources",
+                *rest,
+            ]
         ):
             return _traverse_attributes(ga_resources, *rest)
         case _:

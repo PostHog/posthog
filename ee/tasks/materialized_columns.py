@@ -1,10 +1,11 @@
 from collections.abc import Iterator
 
+from django.conf import settings
+
 from celery.utils.log import get_task_logger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
-from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 
@@ -28,6 +29,6 @@ def is_default_expression(table: str, column_name: ColumnName) -> bool:
     updated_table = "sharded_events" if table == "events" else table
     column_query = sync_execute(
         "SELECT default_kind FROM system.columns WHERE table = %(table)s AND name = %(name)s AND database = %(database)s",
-        {"table": updated_table, "name": column_name, "database": CLICKHOUSE_DATABASE},
+        {"table": updated_table, "name": column_name, "database": settings.CLICKHOUSE_DATABASE},
     )
     return len(column_query) > 0 and column_query[0][0] == "DEFAULT"

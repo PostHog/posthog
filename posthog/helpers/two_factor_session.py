@@ -8,8 +8,6 @@ from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
-from posthog.settings.web import AUTHENTICATION_BACKENDS
-
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)
 
@@ -153,9 +151,9 @@ def is_sso_authentication_backend(request: HttpRequest):
     try:
         from ee import settings
 
-        SSO_AUTHENTICATION_BACKENDS = settings.AUTHENTICATION_BACKENDS
+        SSO_AUTHENTICATION_BACKENDS = settings.settings.AUTHENTICATION_BACKENDS
     except ImportError:
-        SSO_AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS
+        SSO_AUTHENTICATION_BACKENDS = settings.AUTHENTICATION_BACKENDS
 
     # Remove the non-SSO backends from the list
     SSO_AUTHENTICATION_BACKENDS = list(set(SSO_AUTHENTICATION_BACKENDS) - set(NON_SSO_AUTHENTICATION_BACKENDS))

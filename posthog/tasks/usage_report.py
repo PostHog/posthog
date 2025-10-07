@@ -44,7 +44,6 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
@@ -263,7 +262,7 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
         table_sizes=None,
         plugins_installed=None,
         plugins_enabled=None,
-        instance_tag=INSTANCE_TAG,
+        instance_tag=settings.INSTANCE_TAG,
     )
 
     if realm != "cloud":
@@ -761,7 +760,7 @@ def get_teams_with_api_queries_metrics(
     # the former is part of primary key, the latter not.
     query = f"""
         SELECT JSONExtractInt(log_comment, 'team_id') team_id, count(1) cnt, sum(read_bytes) read_bytes
-        FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
+        FROM clusterAllReplicas({settings.CLICKHOUSE_CLUSTER}, system.query_log)
         WHERE type = 'QueryFinish'
         AND is_initial_query
         AND event_time >= %(begin)s AND event_time < %(end)s
@@ -807,7 +806,7 @@ def get_teams_with_query_metric(
             JSONExtractString(log_comment, 'query_type') as query_type,
             JSONExtractString(log_comment, 'access_method') as access_method
         SELECT team_id, sum({metric}) as count
-        FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
+        FROM clusterAllReplicas({settings.CLICKHOUSE_CLUSTER}, system.query_log)
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
         AND is_initial_query = 1
         {query_types_clause}

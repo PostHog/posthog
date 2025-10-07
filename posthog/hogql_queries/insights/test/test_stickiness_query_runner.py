@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from posthog.schema import (
@@ -43,7 +44,6 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
@@ -792,7 +792,9 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._run_query(limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(
+            f" max_execution_time={settings.HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0]
+        )
 
     def test_cumulative_stickiness(self):
         self._create_events(

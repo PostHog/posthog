@@ -671,7 +671,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         org = Organization.objects.create(name=f"Test Org {description}")
         teams = []
         for i in range(max(1, num_teams)):  # Create at least 1 team even if user has no keys
-            team = Team.objects.create(organization=org, name=f"Team {i+1}")
+            team = Team.objects.create(organization=org, name=f"Team {i + 1}")
             teams.append(team)
 
         user = User.objects.create(email=f"test_{description}@example.com", is_active=True)
