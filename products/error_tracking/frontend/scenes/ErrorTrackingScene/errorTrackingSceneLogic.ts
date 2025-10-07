@@ -55,6 +55,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.filterGroup,
                 s.searchQuery,
                 s.orderDirection,
+                (_, props) => props.personId,
             ],
             (
                 orderBy,
@@ -64,7 +65,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterTestAccounts,
                 filterGroup,
                 searchQuery,
-                orderDirection
+                orderDirection,
+                personId
             ): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
@@ -77,6 +79,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
+                    personId,
                 }),
         ],
         breadcrumbs: [

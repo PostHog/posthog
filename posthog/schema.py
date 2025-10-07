@@ -12707,6 +12707,7 @@ class ErrorTrackingQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: Optional[OrderBy] = None
     orderDirection: Optional[OrderDirection] = None
+    personId: Optional[str] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status2] = None

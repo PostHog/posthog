@@ -71,6 +71,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         exception_list=None,
         additional_properties=None,
         issue_name=None,
+        person_id=None,
     ):
         if timestamp:
             with freeze_time(timestamp):
@@ -89,6 +90,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={**event_properties, **additional_properties} if additional_properties else event_properties,
                 timestamp=timestamp,
+                person_id=person_id,
             )
 
     def setUp(self):
@@ -146,6 +148,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         volumeResolution=1,
         withAggregations=False,
         withFirstEvent=False,
+        personId=None,
     ):
         return (
             ErrorTrackingQueryRunner(
@@ -163,6 +166,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
+                    personId=personId,
                 ),
             )
             .calculate()
@@ -510,6 +514,33 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )["results"]
         self.assertEqual(len(results), 1)
+
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_person_id_filter(self):
+        person = _create_person(
+            team=self.team,
+            properties={"email": "arthur@posthog.com"},
+            is_identified=True,
+        )
+        issue_id = "684bd8ae-498f-4548-bc05-e621b5b5b9ab"
+        self.create_events_and_issue(
+            issue_id=issue_id,
+            fingerprint="fingerprint_DatabaseNotFound1",
+            distinct_ids=["arthur@posthog.com"],
+            person_id=str(person.uuid),
+        )
+        self.create_events_and_issue(
+            issue_id="684bd8ae-498f-4548-bc05-e621b5b5b9ac",
+            fingerprint="fingerprint_DatabaseNotFound2",
+            distinct_ids=["foo@bar.com"],
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(personId=str(person.uuid))["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], issue_id)
 
     @freeze_time("2020-01-10T12:11:00")
     @snapshot_clickhouse_queries
