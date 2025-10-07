@@ -75,7 +75,7 @@ jobs:
               run: npm install -g pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: cd mcp && pnpm install && cd typescript && pnpm install
+              run: pnpm install
 
             - name: Build the package
               run: cd mcp/typescript && pnpm build
