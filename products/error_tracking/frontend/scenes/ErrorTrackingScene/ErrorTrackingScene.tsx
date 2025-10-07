@@ -99,7 +99,6 @@ const Header = (): JSX.Element => {
         <>
             <SceneTitleSection
                 name="Error tracking"
-                description="Track and analyze errors in your website or application to understand and fix issues."
                 resourceType={{
                     type: 'error_tracking',
                 }}
