@@ -53,5 +53,11 @@ class ConversationSerializer(serializers.ModelSerializer):
         except Exception as e:
             # Broad exception handler to gracefully degrade UI instead of 500s
             # Captures all errors (context access, graph compilation, validation, etc.) to Sentry
-            capture_exception(e)
+            capture_exception(
+                e,
+                additional_properties={
+                    "tag": "max_ai",
+                    "exception_type": type(e).__name__,
+                },
+            )
             return []
