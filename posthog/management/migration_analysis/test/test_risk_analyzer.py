@@ -261,11 +261,11 @@ class TestRunSQLOperations:
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
-    def test_run_sql_with_concurrent_index(self):
-        """Test CREATE INDEX CONCURRENTLY - should be safe (score 1)."""
+    def test_run_sql_with_concurrent_index_with_if_not_exists(self):
+        """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (SAFE)."""
         op = create_mock_operation(
             migrations.RunSQL,
-            sql="CREATE INDEX CONCURRENTLY idx_foo ON users(foo);",
+            sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON users(foo);",
         )
 
         risk = self.analyzer.analyze_operation(op)
@@ -274,8 +274,21 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.SAFE
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
-    def test_run_sql_with_drop_index_concurrent(self):
-        """Test DROP INDEX CONCURRENTLY - should be safe (score 1)."""
+    def test_run_sql_with_concurrent_index_without_if_not_exists(self):
+        """Test CREATE INDEX CONCURRENTLY without IF NOT EXISTS - score 2 (NEEDS_REVIEW)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX CONCURRENTLY idx_foo ON users(foo);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.guidance and "if not exists" in risk.guidance.lower()
+
+    def test_run_sql_with_drop_index_concurrent_with_if_exists(self):
+        """Test DROP INDEX CONCURRENTLY with IF EXISTS - score 1 (SAFE)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="DROP INDEX CONCURRENTLY IF EXISTS idx_foo;",
@@ -286,6 +299,19 @@ class TestRunSQLOperations:
         assert risk.score == 1
         assert risk.level == RiskLevel.SAFE
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
+
+    def test_run_sql_with_drop_index_concurrent_without_if_exists(self):
+        """Test DROP INDEX CONCURRENTLY without IF EXISTS - score 2 (NEEDS_REVIEW)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP INDEX CONCURRENTLY idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.guidance and "if exists" in risk.guidance.lower()
 
     def test_run_sql_with_reindex_concurrent(self):
         """Test REINDEX CONCURRENTLY - should be safe (score 1)."""
@@ -379,7 +405,7 @@ class TestRunSQLOperations:
         assert "metadata" in risk.reason.lower()
 
     def test_run_sql_create_index_with_if_not_exists(self):
-        """Test CREATE INDEX without CONCURRENTLY but with IF NOT EXISTS - still risky but idempotent."""
+        """Test CREATE INDEX with IF NOT EXISTS - lower score within NEEDS_REVIEW."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="CREATE INDEX IF NOT EXISTS idx_foo ON users(email);",
@@ -387,11 +413,23 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        # Still gets higher score (not CONCURRENTLY), but IF NOT EXISTS is noted
-        assert risk.score >= 3
+        # Score 2 when IF NOT EXISTS is present
+        assert risk.score == 2
         assert risk.level == RiskLevel.NEEDS_REVIEW
-        # Should mention that IF NOT EXISTS makes it idempotent
-        assert risk.guidance is not None or "if not exists" in risk.reason.lower()
+
+    def test_run_sql_create_index_without_if_not_exists(self):
+        """Test CREATE INDEX missing IF NOT EXISTS - higher score within NEEDS_REVIEW."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX idx_foo ON users(email);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Score 3 when IF NOT EXISTS is missing (still NEEDS_REVIEW, not BLOCKED)
+        assert risk.score == 3
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "if not exists" in risk.guidance.lower()
 
     def test_run_sql_drop_index_with_if_exists(self):
         """Test DROP INDEX without CONCURRENTLY but with IF EXISTS - still risky but idempotent."""

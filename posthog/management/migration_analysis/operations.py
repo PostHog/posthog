@@ -260,18 +260,34 @@ class RunSQLAnalyzer(OperationAnalyzer):
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
         if "CONCURRENTLY" in sql:
             if "CREATE" in sql and "INDEX" in sql:
+                if "IF NOT EXISTS" in sql:
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=1,
+                        reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
+                        details={"sql": sql},
+                    )
                 return OperationRisk(
                     type=self.operation_type,
-                    score=1,
+                    score=2,
                     reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
                     details={"sql": sql},
+                    guidance="Add IF NOT EXISTS for idempotency: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
                 )
             elif "DROP" in sql and "INDEX" in sql:
+                if "IF EXISTS" in sql:
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=1,
+                        reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
+                        details={"sql": sql},
+                    )
                 return OperationRisk(
                     type=self.operation_type,
-                    score=1,
+                    score=2,
                     reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
                     details={"sql": sql},
+                    guidance="Add IF EXISTS for idempotency: DROP INDEX CONCURRENTLY IF EXISTS",
                 )
             elif "REINDEX" in sql:
                 return OperationRisk(
@@ -374,17 +390,18 @@ class RunSQLAnalyzer(OperationAnalyzer):
             if "IF NOT EXISTS" in sql:
                 return OperationRisk(
                     type=self.operation_type,
-                    score=3,
+                    score=2,
                     reason="CREATE INDEX without CONCURRENTLY locks table",
                     details={"sql": sql},
-                    guidance="Good: using IF NOT EXISTS makes this idempotent. Use CONCURRENTLY to avoid table locks: CREATE INDEX CONCURRENTLY",
+                    guidance="Use CONCURRENTLY to avoid table locks: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
                 )
+            # Missing IF NOT EXISTS - slightly higher score within NEEDS_REVIEW range
             return OperationRisk(
                 type=self.operation_type,
                 score=3,
                 reason="CREATE INDEX without CONCURRENTLY locks table",
                 details={"sql": sql},
-                guidance="Use CREATE INDEX CONCURRENTLY to avoid table locks. Add IF NOT EXISTS for idempotency.",
+                guidance="Use CREATE INDEX CONCURRENTLY to avoid table locks. Add IF NOT EXISTS for idempotency and safer retries.",
             )
         else:
             return OperationRisk(
