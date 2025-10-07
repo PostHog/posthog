@@ -79,9 +79,12 @@ export const PlayerFrame = (): JSX.Element => {
     }, [containerDimensions, windowResize])
 
     return (
-        <div ref={containerRef} className="PlayerFrame ph-no-capture">
+        <div ref={containerRef} className="PlayerFrame">
             <div
-                className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
+                className={clsx(
+                    'PlayerFrame__content ph-no-capture',
+                    maskingWindow && 'PlayerFrame__content--masking-window'
+                )}
                 ref={frameRef}
             />
         </div>
