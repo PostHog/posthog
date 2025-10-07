@@ -52,7 +52,7 @@ class ConversationSerializer(serializers.ModelSerializer):
             return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]
         except Exception as e:
             # Broad exception handler to gracefully degrade UI instead of 500s
-            # Captures all errors (context access, graph compilation, validation, etc.) to Sentry
+            # Captures all errors (context access, graph compilation, validation, etc.) to PostHog
             capture_exception(
                 e,
                 additional_properties={
