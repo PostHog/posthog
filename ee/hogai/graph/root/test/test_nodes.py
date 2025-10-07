@@ -1,4 +1,5 @@
 import datetime
+from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -705,28 +706,24 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with (
-            patch(
-                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
-                return_value=("Success", {}),
-            ),
-            self.assertRaises(NodeInterrupt) as cm,
-        ):
-            await node.arun(
-                state,
-                {
-                    "configurable": {
-                        "team": self.team,
-                        "user": self.user,
-                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
-                    }
-                },
-            )
+        result = await node.arun(
+            state,
+            {
+                "configurable": {
+                    "team": self.team,
+                    "user": self.user,
+                    "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                }
+            },
+        )
 
-        interrupt_value = cm.exception.args[0][0].value
-        self.assertIsInstance(interrupt_value, AssistantToolCallMessage)
-        self.assertEqual(interrupt_value.content, "Success")
-        self.assertEqual(interrupt_value.tool_call_id, "xyz")
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
+        self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
+        self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
+        self.assertFalse(
+            cast(AssistantToolCallMessage, result.messages[-1]).visible
+        )  # This tool must not be visible by default
 
     async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
