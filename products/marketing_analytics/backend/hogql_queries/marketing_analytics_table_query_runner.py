@@ -42,10 +42,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
     # Implementation of abstract methods from base class
 
-    def _get_group_by_expressions(self) -> list[ast.Expr]:
-        """Get GROUP BY expressions for table queries - group by campaign and source"""
-        return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
-
     def _build_main_select_query(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> ast.SelectQuery:

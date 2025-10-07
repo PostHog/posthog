@@ -81,7 +81,6 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
 
                 const tiles: QueryTile[] = [
-                    // Marketing Analytics Overview - aggregated metrics
                     {
                         kind: 'query',
                         tileId: TileId.MARKETING_OVERVIEW,

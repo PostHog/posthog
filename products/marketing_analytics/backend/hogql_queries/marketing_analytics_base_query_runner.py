@@ -33,7 +33,6 @@ from .utils import convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
 
-# Generic type for the response
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 
 
@@ -55,7 +54,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _factory(self, date_range: QueryDateRange):
         """Create factory instance for the given date range"""
-        # Create query context for all adapters
         context = QueryContext(
             date_range=date_range,
             team=self.team,
@@ -95,7 +93,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 ]
             )
 
-        # Always include the aggregated metric columns
         select_columns.extend(
             [
                 ast.Alias(
@@ -363,19 +360,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # If we can't generate aggregated conversion goals, don't create the CTE
             return None
 
+    def _get_group_by_expressions(self) -> list[ast.Expr]:
+        """Get GROUP BY expressions"""
+        return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+
     # Abstract methods that subclasses must implement
 
     @abstractmethod
-    def _get_group_by_expressions(self) -> list[ast.Expr]:
-        """Get GROUP BY expressions - different for table vs aggregated queries"""
-        pass
-
-    @abstractmethod
     def _build_main_select_query(self, conversion_aggregator) -> ast.SelectQuery:
-        """Build the main SELECT query - different structure for table vs aggregated"""
+        """Build the main SELECT query"""
         pass
 
     @abstractmethod
     def _calculate(self) -> ResponseType:
-        """Execute the query and return results - different response types"""
+        """Execute the query and return results"""
         pass

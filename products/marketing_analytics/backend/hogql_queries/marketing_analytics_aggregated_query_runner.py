@@ -27,10 +27,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
     query: MarketingAnalyticsAggregatedQuery
     cached_response: CachedMarketingAnalyticsAggregatedQueryResponse
 
-    def _get_group_by_expressions(self) -> list[ast.Expr]:
-        """Get GROUP BY expressions for aggregated queries."""
-        return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
-
     def _build_main_select_query(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> ast.SelectQuery:
@@ -72,10 +68,10 @@ class MarketingAnalyticsAggregatedQueryRunner(
             from_clause.next_join = unified_join
 
         # Convert all columns to aggregated versions
-        aggregated_columns = self._build_aggregated_columns(conversion_columns_mapping)
+        summed_columns = self._build_basic_summed_columns(conversion_columns_mapping)
 
         return ast.SelectQuery(
-            select=list(aggregated_columns.values()),
+            select=list(summed_columns.values()),
             select_from=from_clause,
         )
 
@@ -83,51 +79,49 @@ class MarketingAnalyticsAggregatedQueryRunner(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
         """Build column mappings excluding Campaign and Source columns for aggregated queries"""
-        # Start with base columns but exclude Campaign and Source
+        # Start with base columns but exclude Campaign, Source and rate metrics
         all_columns: dict[str, ast.Expr] = {
             str(k): v
             for k, v in BASE_COLUMN_MAPPING.items()
-            if k not in (MarketingAnalyticsBaseColumns.CAMPAIGN, MarketingAnalyticsBaseColumns.SOURCE)
+            if k
+            not in (
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+                MarketingAnalyticsBaseColumns.CPC,
+                MarketingAnalyticsBaseColumns.CTR,
+            )
         }
 
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
+            # We exclude the `Cost per` conversion goal columns from the mapping because we'll recalculate them later
+            conversion_columns = {
+                k: v
+                for k, v in conversion_columns.items()
+                if not k.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER)
+            }
             all_columns.update(conversion_columns)
 
         return all_columns
 
-    def _build_aggregated_columns(self, columns_mapping: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
+    def _build_basic_summed_columns(self, basic_summed_columns: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
         """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip rate metrics and cost per conversion"""
-        aggregated_columns: dict[str, ast.Expr] = {}
+        summed_columns: dict[str, ast.Expr] = {}
 
-        # Rate metrics that need to be recalculated from base values, not summed
-        rate_metrics = {
-            MarketingAnalyticsBaseColumns.CPC.value,
-            MarketingAnalyticsBaseColumns.CTR.value,
-        }
-
-        for column_name, column_expr in columns_mapping.items():
-            # Skip cost per conversion columns - we'll recalculate them later
-            if column_name.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
-                continue
-
-            # Skip rate metrics - we'll recalculate them from summed base values
-            if column_name in rate_metrics:
-                continue
-
+        for column_name, column_expr in basic_summed_columns.items():
             # For all other columns, wrap in SUM()
             if isinstance(column_expr, ast.Alias):
-                aggregated_columns[column_name] = ast.Alias(
+                summed_columns[column_name] = ast.Alias(
                     alias=column_expr.alias, expr=ast.Call(name="sum", args=[column_expr.expr])
                 )
             else:
-                aggregated_columns[column_name] = ast.Call(name="sum", args=[column_expr])
+                summed_columns[column_name] = ast.Call(name="sum", args=[column_expr])
 
-        return aggregated_columns
+        return summed_columns
 
     def _calculate(self) -> MarketingAnalyticsAggregatedQueryResponse:
-        """Execute the query and return aggregated results - adapted from table query runner"""
+        """Execute the query and return aggregated results"""
 
         query: ast.SelectQuery
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
@@ -258,6 +252,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
     def _transform_results_to_dict(
         self, results: list, columns: list, has_comparison: bool
     ) -> dict[str, MarketingAnalyticsItem]:
+        """Transform results to dictionary of MarketingAnalyticsItem objects"""
         results_dict = {}
 
         if results and len(results) > 0:
@@ -266,7 +261,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 transformed_item = self._transform_cell_to_marketing_analytics_item(row, i, column_name, has_comparison)
                 results_dict[column_name] = transformed_item
 
-        # Recalculate rate metrics and cost per conversion metrics after aggregation
+        # Recalculate rate metrics and cost per conversion metrics after summing
         self._add_rate_metrics(results_dict, has_comparison)
         self._add_cost_per_conversion_metrics(results_dict, has_comparison)
 
