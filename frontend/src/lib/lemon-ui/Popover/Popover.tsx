@@ -124,6 +124,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }
 
     const arrowRef = useRef<HTMLDivElement>(null)
+    const nodeRef = useRef<HTMLDivElement>(null)
     const {
         x,
         y,
@@ -263,6 +264,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         appear
                         mountOnEnter
                         unmountOnExit
+                        nodeRef={nodeRef}
                     >
                         <PopoverReferenceContext.Provider
                             value={null /* Resetting the reference, since there's none */}
@@ -279,6 +281,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                     )}
                                     data-placement={effectivePlacement}
                                     ref={(el) => {
+                                        nodeRef.current = el
                                         setFloatingElement(el)
                                         floatingRef.current = el
                                         if (extraFloatingRef) {

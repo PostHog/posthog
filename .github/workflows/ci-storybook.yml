@@ -83,7 +83,7 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
-                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Upload Storybook build artifact
@@ -133,7 +133,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/storybook... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm turbo --filter=@posthog/storybook prepare
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic

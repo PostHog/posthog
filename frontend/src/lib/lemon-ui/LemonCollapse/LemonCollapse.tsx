@@ -1,7 +1,7 @@
 import './LemonCollapse.scss'
 
 import clsx from 'clsx'
-import React, { ReactNode, useEffect, useState } from 'react'
+import React, { ReactNode, useEffect, useRef, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
@@ -126,6 +126,7 @@ function LemonCollapsePanel({
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
+    const nodeRef = useRef<HTMLDivElement>(null)
 
     const headerProps: LemonButtonProps = React.isValidElement(header)
         ? { children: header }
@@ -160,9 +161,10 @@ function LemonCollapsePanel({
                     {header}
                 </LemonButton>
             )}
-            <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
+            <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit nodeRef={nodeRef}>
                 {(status) => (
                     <div
+                        ref={nodeRef}
                         className="LemonCollapsePanel__body"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={
