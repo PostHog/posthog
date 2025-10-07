@@ -1,6 +1,6 @@
 {
     "migrationsTable": "pgmigrations",
-    "dir": "src/migrations/behavioral-cohorts",
+    "dir": "migrations",
     "checkOrder": true,
     "migrationFilenameFormat": "utc",
     "createMigrationsSchema": false,
