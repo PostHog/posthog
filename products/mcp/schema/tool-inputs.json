@@ -1229,7 +1229,10 @@
                                                                         "properties": {
                                                                             "type": {
                                                                                 "type": "string",
-                                                                                "enum": ["AND", "OR"]
+                                                                                "enum": [
+                                                                                    "AND",
+                                                                                    "OR"
+                                                                                ]
                                                                             },
                                                                             "values": {
                                                                                 "type": "array",
@@ -1275,12 +1278,17 @@
                                                                                             "type": "string"
                                                                                         }
                                                                                     },
-                                                                                    "required": ["key"],
+                                                                                    "required": [
+                                                                                        "key"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             }
                                                                         },
-                                                                        "required": ["type", "values"],
+                                                                        "required": [
+                                                                            "type",
+                                                                            "values"
+                                                                        ],
                                                                         "additionalProperties": false
                                                                     }
                                                                 ]
@@ -1438,7 +1446,9 @@
                                                                                             "type": "string"
                                                                                         }
                                                                                     },
-                                                                                    "required": ["key"],
+                                                                                    "required": [
+                                                                                        "key"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 },
                                                                                 {
@@ -1446,7 +1456,10 @@
                                                                                     "properties": {
                                                                                         "type": {
                                                                                             "type": "string",
-                                                                                            "enum": ["AND", "OR"]
+                                                                                            "enum": [
+                                                                                                "AND",
+                                                                                                "OR"
+                                                                                            ]
                                                                                         },
                                                                                         "values": {
                                                                                             "type": "array",
@@ -1492,12 +1505,17 @@
                                                                                                         "type": "string"
                                                                                                     }
                                                                                                 },
-                                                                                                "required": ["key"],
+                                                                                                "required": [
+                                                                                                    "key"
+                                                                                                ],
                                                                                                 "additionalProperties": false
                                                                                             }
                                                                                         }
                                                                                     },
-                                                                                    "required": ["type", "values"],
+                                                                                    "required": [
+                                                                                        "type",
+                                                                                        "values"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             ]
@@ -1508,7 +1526,10 @@
                                                                         "properties": {
                                                                             "type": {
                                                                                 "type": "string",
-                                                                                "enum": ["AND", "OR"]
+                                                                                "enum": [
+                                                                                    "AND",
+                                                                                    "OR"
+                                                                                ]
                                                                             },
                                                                             "values": {
                                                                                 "type": "array",
@@ -1554,12 +1575,17 @@
                                                                                             "type": "string"
                                                                                         }
                                                                                     },
-                                                                                    "required": ["key"],
+                                                                                    "required": [
+                                                                                        "key"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             }
                                                                         },
-                                                                        "required": ["type", "values"],
+                                                                        "required": [
+                                                                            "type",
+                                                                            "values"
+                                                                        ],
                                                                         "additionalProperties": false
                                                                     }
                                                                 ]
@@ -1633,7 +1659,10 @@
                                                                         {
                                                                             "type": "array",
                                                                             "items": {
-                                                                                "type": ["string", "number"]
+                                                                                "type": [
+                                                                                    "string",
+                                                                                    "number"
+                                                                                ]
                                                                             }
                                                                         }
                                                                     ]
@@ -1749,7 +1778,10 @@
                                                                         "properties": {
                                                                             "type": {
                                                                                 "type": "string",
-                                                                                "enum": ["AND", "OR"]
+                                                                                "enum": [
+                                                                                    "AND",
+                                                                                    "OR"
+                                                                                ]
                                                                             },
                                                                             "values": {
                                                                                 "type": "array",
@@ -1795,12 +1827,17 @@
                                                                                             "type": "string"
                                                                                         }
                                                                                     },
-                                                                                    "required": ["key"],
+                                                                                    "required": [
+                                                                                        "key"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             }
                                                                         },
-                                                                        "required": ["type", "values"],
+                                                                        "required": [
+                                                                            "type",
+                                                                            "values"
+                                                                        ],
                                                                         "additionalProperties": false
                                                                     }
                                                                 ]
@@ -1957,7 +1994,9 @@
                                                                                             "type": "string"
                                                                                         }
                                                                                     },
-                                                                                    "required": ["key"],
+                                                                                    "required": [
+                                                                                        "key"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 },
                                                                                 {
@@ -1965,7 +2004,10 @@
                                                                                     "properties": {
                                                                                         "type": {
                                                                                             "type": "string",
-                                                                                            "enum": ["AND", "OR"]
+                                                                                            "enum": [
+                                                                                                "AND",
+                                                                                                "OR"
+                                                                                            ]
                                                                                         },
                                                                                         "values": {
                                                                                             "type": "array",
@@ -2011,12 +2053,17 @@
                                                                                                         "type": "string"
                                                                                                     }
                                                                                                 },
-                                                                                                "required": ["key"],
+                                                                                                "required": [
+                                                                                                    "key"
+                                                                                                ],
                                                                                                 "additionalProperties": false
                                                                                             }
                                                                                         }
                                                                                     },
-                                                                                    "required": ["type", "values"],
+                                                                                    "required": [
+                                                                                        "type",
+                                                                                        "values"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             ]
@@ -2027,7 +2074,10 @@
                                                                         "properties": {
                                                                             "type": {
                                                                                 "type": "string",
-                                                                                "enum": ["AND", "OR"]
+                                                                                "enum": [
+                                                                                    "AND",
+                                                                                    "OR"
+                                                                                ]
                                                                             },
                                                                             "values": {
                                                                                 "type": "array",
@@ -2073,12 +2123,17 @@
                                                                                             "type": "string"
                                                                                         }
                                                                                     },
-                                                                                    "required": ["key"],
+                                                                                    "required": [
+                                                                                        "key"
+                                                                                    ],
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             }
                                                                         },
-                                                                        "required": ["type", "values"],
+                                                                        "required": [
+                                                                            "type",
+                                                                            "values"
+                                                                        ],
                                                                         "additionalProperties": false
                                                                     }
                                                                 ]
@@ -2108,7 +2163,11 @@
                                                         },
                                                         "breakdownAttributionType": {
                                                             "type": "string",
-                                                            "enum": ["first_touch", "last_touch", "all_events"]
+                                                            "enum": [
+                                                                "first_touch",
+                                                                "last_touch",
+                                                                "all_events"
+                                                            ]
                                                         },
                                                         "breakdownAttributionValue": {
                                                             "type": "number"
@@ -2121,11 +2180,19 @@
                                                         },
                                                         "funnelOrderType": {
                                                             "type": "string",
-                                                            "enum": ["ordered", "unordered", "strict"]
+                                                            "enum": [
+                                                                "ordered",
+                                                                "unordered",
+                                                                "strict"
+                                                            ]
                                                         },
                                                         "funnelVizType": {
                                                             "type": "string",
-                                                            "enum": ["steps", "time_to_convert", "trends"]
+                                                            "enum": [
+                                                                "steps",
+                                                                "time_to_convert",
+                                                                "trends"
+                                                            ]
                                                         },
                                                         "funnelWindowInterval": {
                                                             "type": "number",
@@ -2133,7 +2200,13 @@
                                                         },
                                                         "funnelWindowIntervalUnit": {
                                                             "type": "string",
-                                                            "enum": ["minute", "hour", "day", "week", "month"],
+                                                            "enum": [
+                                                                "minute",
+                                                                "hour",
+                                                                "day",
+                                                                "week",
+                                                                "month"
+                                                            ],
                                                             "default": "day"
                                                         },
                                                         "funnelStepReference": {
@@ -2174,7 +2247,10 @@
                                                                         {
                                                                             "type": "array",
                                                                             "items": {
-                                                                                "type": ["string", "number"]
+                                                                                "type": [
+                                                                                    "string",
+                                                                                    "number"
+                                                                                ]
                                                                             }
                                                                         }
                                                                     ]
@@ -2525,7 +2601,11 @@
                                                             ]
                                                         },
                                                         "propertyNames": {
-                                                            "enum": ["negative", "neutral", "positive"]
+                                                            "enum": [
+                                                                "negative",
+                                                                "neutral",
+                                                                "positive"
+                                                            ]
                                                         },
                                                         "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
@@ -2640,7 +2720,11 @@
                                                             ]
                                                         },
                                                         "propertyNames": {
-                                                            "enum": ["detractors", "passives", "promoters"]
+                                                            "enum": [
+                                                                "detractors",
+                                                                "passives",
+                                                                "promoters"
+                                                            ]
                                                         },
                                                         "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
@@ -3314,7 +3398,11 @@
                                                             ]
                                                         },
                                                         "propertyNames": {
-                                                            "enum": ["negative", "neutral", "positive"]
+                                                            "enum": [
+                                                                "negative",
+                                                                "neutral",
+                                                                "positive"
+                                                            ]
                                                         },
                                                         "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
@@ -3429,7 +3517,11 @@
                                                             ]
                                                         },
                                                         "propertyNames": {
-                                                            "enum": ["detractors", "passives", "promoters"]
+                                                            "enum": [
+                                                                "detractors",
+                                                                "passives",
+                                                                "promoters"
+                                                            ]
                                                         },
                                                         "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
@@ -3634,7 +3726,14 @@
                         },
                         "urlMatchType": {
                             "type": "string",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "enum": [
+                                "regex",
+                                "not_regex",
+                                "exact",
+                                "is_not",
+                                "icontains",
+                                "not_icontains"
+                            ],
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)"
                         },
                         "events": {
@@ -3670,7 +3769,14 @@
                         },
                         "deviceTypesMatchType": {
                             "type": "string",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "enum": [
+                                "regex",
+                                "not_regex",
+                                "exact",
+                                "is_not",
+                                "icontains",
+                                "not_icontains"
+                            ],
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)"
                         },
                         "linkedFlagVariant": {
