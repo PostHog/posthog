@@ -70,6 +70,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             description: 'Do something to blah blah',
             product: Scene.YourProduct, // or null for the rare global tool
             flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+            icon: <SomeIcon />
         },
     }
     ```
