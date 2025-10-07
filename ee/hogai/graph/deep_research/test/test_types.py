@@ -160,6 +160,51 @@ class TestTaskResult(BaseTest):
         self.assertEqual(original.status, deserialized.status)
         self.assertEqual(original.artifacts, deserialized.artifacts)
 
+    @parameterized.expand(
+        [
+            (
+                {"id": "legacy-1", "description": "desc from description"},
+                "legacy-1",
+                "desc from description",
+            ),
+            (
+                {"id": "legacy-2", "result": "desc from result"},
+                "legacy-2",
+                "desc from result",
+            ),
+            (
+                {"query": {"id": "q-123", "name": "Query name"}},
+                "q-123",
+                "Query name",
+            ),
+            (
+                {"name": "fallback-name"},
+                "fallback-name",
+                "",
+            ),
+            (
+                {"query": {"query": "SELECT 1"}},
+                "legacy",
+                "SELECT 1",
+            ),
+        ]
+    )
+    def test_legacy_artifact_coercion(self, legacy_artifact_dict, expected_task_id, expected_content):
+        """Legacy artifact dicts should be coerced by TaskArtifact pre-validator when validating TaskResult."""
+        result = TaskResult.model_validate(
+            {
+                "id": "task-x",
+                "description": "d",
+                "result": "r",
+                "status": "completed",
+                "artifacts": [legacy_artifact_dict],
+            }
+        )
+        self.assertEqual(len(result.artifacts), 1)
+        artifact = result.artifacts[0]
+        self.assertEqual(artifact.task_id, expected_task_id)
+        self.assertEqual(artifact.content, expected_content)
+
 
 class TestDeepResearchIntermediateResult(BaseTest):
     """Test DeepResearchIntermediateResult class validation."""
