@@ -2,13 +2,33 @@ name: MCP CI
 
 on:
     push:
-        branches: [main]
+        branches: [master]
     pull_request:
 
 jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run MCP checks
+        outputs:
+            mcp: ${{ steps.filter.outputs.mcp }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      mcp:
+                        - 'mcp/**'
+                        - '.github/workflows/mcp-ci.yml'
+                        - '.github/workflows/mcp-publish.yml'
+
     lint-and-format:
         name: Lint, Format, and Type Check
         runs-on: ubuntu-latest
+        needs: changes
+        if: needs.changes.outputs.mcp == 'true'
 
         steps:
             - name: Checkout code
@@ -20,7 +40,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: '20'
+                  node-version: 22
                   cache: 'pnpm'
 
             - name: Install dependencies
@@ -46,6 +66,8 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
+        needs: changes
+        if: needs.changes.outputs.mcp == 'true'
         permissions:
             contents: read
         concurrency:
@@ -62,7 +84,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: '20'
+                  node-version: 22
                   cache: 'pnpm'
 
             - name: Install dependencies
@@ -74,7 +96,8 @@ jobs:
     integration-tests:
         name: Integration Tests
         runs-on: ubuntu-latest
-        needs: unit-tests
+        needs: [changes, unit-tests]
+        if: needs.changes.outputs.mcp == 'true'
         permissions:
             contents: read
         concurrency:
@@ -91,7 +114,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: '20'
+                  node-version: 22
                   cache: 'pnpm'
 
             - name: Install dependencies
