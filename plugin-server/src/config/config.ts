@@ -119,6 +119,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
+        EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
@@ -325,6 +327,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: 'us-east-1',
+
+        // Pod termination
+        POD_TERMINATION_ENABLED: false,
+        POD_TERMINATION_BASE_TIMEOUT_MINUTES: 60, // Default: 1 hour
+        POD_TERMINATION_JITTER_MINUTES: 15, // Default: 15 minutes
     }
 }
 

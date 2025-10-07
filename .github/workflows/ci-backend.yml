@@ -49,6 +49,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            tasks_temporal: ${{ steps.filter.outputs.tasks_temporal }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -96,6 +97,8 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      tasks_temporal:
+                        - 'products/tasks/backend/temporal/**/*'
 
     check-migrations:
         needs: [changes]
@@ -722,9 +725,10 @@ jobs:
               shell: bash
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  RUNLOOP_API_KEY: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.RUNLOOP_API_KEY || '' }}
               run: |
                   set +e
-                  pytest posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
+                  pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
