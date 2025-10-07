@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
@@ -49,6 +50,9 @@ export const endpointLogic = kea<endpointLogicType>([
     listeners(({ actions }) => ({
         createEndpoint: async ({ request }) => {
             try {
+                if (request.name) {
+                    request.name = slugify(request.name)
+                }
                 const response = await api.endpoint.create(request)
                 actions.createEndpointSuccess(response)
             } catch (error) {
