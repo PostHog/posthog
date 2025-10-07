@@ -677,6 +677,7 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_message: string
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    experiment_recalculation_time?: string | null
 }
 
 export interface ProductIntentType {
