@@ -121,7 +121,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'loadConversationHistory',
                 'setThreadKey',
                 'prependOrReplaceConversation as updateGlobalConversationCache',
-                'setActiveStreamingThreads',
+                'incrActiveStreamingThreads',
+                'decrActiveStreamingThreads',
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
@@ -267,7 +268,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
             // Set active streaming threads, so we know streaming is active
-            actions.setActiveStreamingThreads(1)
+            actions.incrActiveStreamingThreads()
 
             if (generationAttempt === 0 && streamData.content) {
                 const message: ThreadMessage = {
@@ -366,13 +367,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
+            actions.decrActiveStreamingThreads()
             if (values.isAnotherAgenticIterationScheduled) {
                 // Continue generation after applying tool - null message in askMax "just resume generation with current context"
                 actions.askMax(null)
             } else {
                 // Otherwise wrap things up
                 actions.completeThreadGeneration()
-                actions.setActiveStreamingThreads(-1)
             }
             cache.generationController = undefined
         },
