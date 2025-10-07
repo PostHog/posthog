@@ -4,10 +4,20 @@ import {
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsQuery,
+    InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
-import { AnyPropertyFilter, ProductKey, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    ProductKey,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
@@ -178,4 +188,56 @@ export const errorTrackingIssueFingerprintsQuery = (
                 FROM events
                 WHERE event = '$exception' and issue_id = ${issue_id} and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${first_seen})
                 GROUP BY properties.$exception_fingerprint`
+}
+
+export const errorTrackingIssueBreakdownQuery = ({
+    breakdownProperty,
+    dateRange,
+    filterTestAccounts,
+    filterGroup,
+    issueId,
+}: {
+    breakdownProperty: string
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    filterGroup: UniversalFiltersGroup
+    issueId: string
+}): InsightVizNode => {
+    const group = filterGroup.values[0] as UniversalFiltersGroup
+    const properties = [...group.values] as AnyPropertyFilter[]
+
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsBarValue,
+            },
+            breakdownFilter: {
+                breakdown_type: 'event',
+                breakdown: breakdownProperty,
+                breakdown_limit: 10,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$exception',
+                    math: BaseMathType.TotalCount,
+                    properties: [
+                        {
+                            key: '$exception_issue_id',
+                            type: PropertyFilterType.Event,
+                            value: issueId,
+                            operator: PropertyOperator.Exact,
+                        },
+                        ...properties,
+                    ],
+                },
+            ],
+            dateRange: dateRange,
+            filterTestAccounts,
+        },
+    }
+
+    return query
 }
