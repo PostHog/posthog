@@ -3,6 +3,7 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
+from posthog.hogql.parser import parse_expr
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -297,7 +298,29 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                             ),
                         ),
                         ast.Alias(alias="invoice_item_id", expr=extract_json_string("data", "id")),
-                        ast.Alias(alias="amount_captured", expr=extract_json_string("data", "amount")),
+                        # Make sure we're considering discounts here
+                        ast.Alias(alias="amount_before_discount", expr=extract_json_uint("data", "amount")),
+                        ast.Alias(
+                            alias="discount_amount",
+                            expr=parse_expr(
+                                # `data.discount_amounts` looks like `[{"amount": 100, ...}, {"amount": 200, ...}, ...]`, sum all amounts
+                                "coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0)"
+                            ),
+                        ),
+                        ast.Alias(
+                            alias="amount_captured",
+                            expr=ast.Call(
+                                name="greatest",
+                                args=[
+                                    ast.ArithmeticOperation(
+                                        op=ast.ArithmeticOperationOp.Sub,
+                                        left=ast.Field(chain=["amount_before_discount"]),
+                                        right=ast.Field(chain=["discount_amount"]),
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            ),
+                        ),
                         ast.Alias(alias="currency", expr=extract_json_string("data", "currency")),
                         ast.Alias(alias="product_id", expr=extract_json_string("data", "price", "product")),
                         # Extract period information for revenue recognition

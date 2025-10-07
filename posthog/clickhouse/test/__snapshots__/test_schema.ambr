@@ -90,6 +90,22 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_embeddings
+  (
+      team_id Int64,
+      model_name LowCardinality(String),
+      embedding_version Int64, -- This is the given iteration of the embedding approach - it will /probably/ always be 0, but we want to be able to iterate on e.g. what we feed the model, so we'll leave that door open for now
+      fingerprint VARCHAR,
+      inserted_at DateTime64(3, 'UTC'),
+      embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
+       -- Unused, I think, but the above has it, so
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -745,6 +761,51 @@
       
   '''
 # ---
+# name: test_create_table_query[error_tracking_issue_fingerprint_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_embeddings
+  (
+      team_id Int64,
+      model_name LowCardinality(String),
+      embedding_version Int64, -- This is the given iteration of the embedding approach - it will /probably/ always be 0, but we want to be able to iterate on e.g. what we feed the model, so we'll leave that door open for now
+      fingerprint VARCHAR,
+      inserted_at DateTime64(3, 'UTC'),
+      embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_embeddings _timestamp TYPE minmax GRANULARITY 3
+       -- Unused, I think, but the above has it, so
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.error_tracking_issue_fingerprint_embeddings', '{replica}-{shard}', inserted_at)
+  
+      ORDER BY (team_id, model_name, embedding_version, fingerprint)
+      SETTINGS index_granularity = 512
+      
+  '''
+# ---
+# name: test_create_table_query[error_tracking_issue_fingerprint_embeddings_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_embeddings_mv
+  TO writable_error_tracking_issue_fingerprint_embeddings
+  AS SELECT
+  team_id,
+  model_name,
+  embedding_version,
+  fingerprint,
+  _timestamp as inserted_at,
+  embeddings,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_error_tracking_issue_fingerprint_embeddings
+  
+  '''
+# ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -1218,6 +1279,22 @@
       latest_event_is_match UInt8
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_behavioral_cohorts_matches', 'clickhouse_behavioral_cohorts_matches', 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_error_tracking_issue_fingerprint_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_embeddings
+  (
+      team_id Int64,
+      model_name LowCardinality(String),
+      embedding_version Int64, -- This is the given iteration of the embedding approach - it will /probably/ always be 0, but we want to be able to iterate on e.g. what we feed the model, so we'll leave that door open for now
+      fingerprint VARCHAR,
+      inserted_at DateTime64(3, 'UTC'),
+      embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
+       -- Unused, I think, but the above has it, so
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
   
   '''
 # ---
@@ -2548,7 +2625,16 @@
   CREATE TABLE IF NOT EXISTS raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -2634,7 +2720,7 @@
   WITH parsed_events AS (
       SELECT
           team_id,
-          `$session_id`,
+          `$session_id_uuid` AS session_id_v7,
           distinct_id AS _distinct_id,
           person_id,
           timestamp,
@@ -2764,8 +2850,8 @@
   )
   
   SELECT
-     team_id,
-      toUUID(`$session_id`) as session_id_v7,
+      team_id,
+      session_id_v7,
   
       initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
       initializeAggregation('argMaxState', person_id, timestamp) as person_id,
@@ -3269,7 +3355,7 @@
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
   PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date)
+  ORDER BY (team_id, cohort_id, condition, date, person_id)
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -3598,7 +3684,16 @@
   CREATE TABLE IF NOT EXISTS sharded_raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -3672,15 +3767,10 @@
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
-  PARTITION BY toYYYYMM(UUIDv7ToDateTime(session_id_v7))
+  PARTITION BY toYYYYMM(session_timestamp)
   ORDER BY (
       team_id,
-  
-      -- sadly we need to include this as clickhouse UUIDs have insane ordering
-      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
-      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      UUIDv7ToDateTime(session_id_v7),
-  
+      session_timestamp,
       session_id_v7
   )
   
@@ -4358,6 +4448,24 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_groups]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_groups 
+  (
+      group_type_index UInt8,
+      group_key VARCHAR,
+      created_at DateTime64,
+      team_id Int64,
+      group_properties VARCHAR
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'groups')
+  
+  '''
+# ---
 # name: test_create_table_query[writable_heatmaps]
   '''
   
@@ -4383,6 +4491,90 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person 
+  (
+      id UUID,
+      created_at DateTime64,
+      team_id Int64,
+      properties VARCHAR,
+      is_identified Int8,
+      is_deleted Int8,
+      version UInt64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person_distinct_id2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_distinct_id2 
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id2')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person_distinct_id_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_distinct_id_overrides 
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id_overrides')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_plugin_log_entries]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_plugin_log_entries 
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'plugin_log_entries')
   
   '''
 # ---
@@ -4482,7 +4674,16 @@
   CREATE TABLE IF NOT EXISTS writable_raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -4808,6 +5009,32 @@
   Order By (team_id, cohort_id, person_id, version)
   
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_embeddings
+  (
+      team_id Int64,
+      model_name LowCardinality(String),
+      embedding_version Int64, -- This is the given iteration of the embedding approach - it will /probably/ always be 0, but we want to be able to iterate on e.g. what we feed the model, so we'll leave that door open for now
+      fingerprint VARCHAR,
+      inserted_at DateTime64(3, 'UTC'),
+      embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_embeddings _timestamp TYPE minmax GRANULARITY 3
+       -- Unused, I think, but the above has it, so
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.error_tracking_issue_fingerprint_embeddings', '{replica}-{shard}', inserted_at)
+  
+      ORDER BY (team_id, model_name, embedding_version, fingerprint)
+      SETTINGS index_granularity = 512
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_overrides]
@@ -5392,7 +5619,7 @@
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
   PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date)
+  ORDER BY (team_id, cohort_id, condition, date, person_id)
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -5721,7 +5948,16 @@
   CREATE TABLE IF NOT EXISTS sharded_raw_sessions_v3
   (
       team_id Int64,
-      session_id_v7 UUID,
+  
+      -- Both UInt128 and UUID are imperfect choices here
+      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      session_id_v7 UInt128,
+      -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+      -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+      -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -5795,15 +6031,10 @@
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
-  PARTITION BY toYYYYMM(UUIDv7ToDateTime(session_id_v7))
+  PARTITION BY toYYYYMM(session_timestamp)
   ORDER BY (
       team_id,
-  
-      -- sadly we need to include this as clickhouse UUIDs have insane ordering
-      -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
-      -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      UUIDv7ToDateTime(session_id_v7),
-  
+      session_timestamp,
       session_id_v7
   )
   
