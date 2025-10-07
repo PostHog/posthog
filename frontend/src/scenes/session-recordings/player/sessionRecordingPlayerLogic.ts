@@ -24,7 +24,6 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -33,21 +32,14 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
-    SessionRecordingDataLogicProps,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+    SessionRecordingDataCoordinatorLogicProps,
+    sessionRecordingDataCoordinatorLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AvailableFeature,
-    ExporterFormat,
-    RecordingSegment,
-    SessionPlayerData,
-    SessionPlayerState,
-    SessionRecordingType,
-} from '~/types'
+import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -112,9 +104,9 @@ export enum SessionRecordingPlayerMode {
     Video = 'video',
 }
 
-const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
+export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCoordinatorLogicProps {
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -344,7 +336,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values: [
             snapshotDataLogic(props),
             ['snapshotsLoaded', 'snapshotsLoading'],
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
                 'sessionPlayerData',
@@ -367,8 +359,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions: [
             snapshotDataLogic(props),
             ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
-            sessionRecordingDataLogic(props),
-            ['maybeLoadRecordingMeta', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
+            sessionRecordingDataCoordinatorLogic(props),
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -436,13 +428,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
-        loadSimilarRecordings: true,
-        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
-        showNextRecordingConfirmation: true,
-        hideNextRecordingConfirmation: true,
-        confirmNextRecording: true,
-        loadRecordingMeta: true,
-        setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
         schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
@@ -692,26 +677,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
             },
         ],
-        showingNextRecordingConfirmation: [
-            false,
-            {
-                showNextRecordingConfirmation: () => true,
-                hideNextRecordingConfirmation: () => false,
-                confirmNextRecording: () => false,
-            },
-        ],
-        similarRecordingsCount: [
-            0,
-            {
-                loadSimilarRecordingsSuccess: (_, { count }) => count,
-            },
-        ],
-        similarRecordings: [
-            [] as string[],
-            {
-                setSimilarRecordings: (_, { results }) => results,
-            },
-        ],
         isHovering: [
             false,
             {
@@ -722,10 +687,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             true,
             {
                 setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
-                allowPlayerChromeToHide: () => {
-                    return false
-                    return false
-                },
+                allowPlayerChromeToHide: () => false,
             },
         ],
     })),
@@ -859,6 +821,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (currentTimestamp, sessionPlayerData) => {
                 return Math.max(0, (currentTimestamp ?? 0) - (sessionPlayerData?.start?.valueOf() ?? 0))
             },
+        ],
+
+        currentPlayerTimeSeconds: [
+            (s) => [s.currentPlayerTime],
+            (currentPlayerTime) => Math.floor(currentPlayerTime / 1000),
         ],
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
@@ -1002,18 +969,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
-        hoverFlagIsEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
-            },
-        ],
         hoverModeIsEnabled: [
-            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
-            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
+            (logicProps, isCommenting, showingClipParams): boolean => {
                 return (
-                    hoverFlagIsEnabled &&
-                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
+                    !!logicProps.mode &&
+                    ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
                     !showingClipParams
                 )
@@ -1368,7 +1329,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 props.playerKey?.startsWith('file-') ||
                 values.wasMarkedViewed ||
-                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+                (props.mode && !ModesWithInteractions.includes(props.mode))
             ) {
                 return
             }
@@ -1392,15 +1353,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
-        setEndReached: async ({ reached }) => {
+        setEndReached: ({ reached }) => {
             if (reached) {
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
                     actions.markViewed(0)
-                }
-                if (values.similarRecordingsCount > 0) {
-                    actions.showNextRecordingConfirmation()
                 }
             }
         },
@@ -1724,51 +1682,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
-        showNextRecordingConfirmation: () => {
-            if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNext()
-            }
-        },
-        confirmNextRecording: async () => {
-            // Mark all similar recordings as viewed
-            await Promise.all(
-                values.similarRecordings.map((recordingId: SessionRecordingType['id']) =>
-                    api.recordings.update(recordingId, {
-                        viewed: true,
-                    })
-                )
-            )
-            actions.hideNextRecordingConfirmation()
-            if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNext()
-            }
-        },
-        loadSimilarRecordings: async () => {
-            if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_SIMILAR_RECORDINGS]) {
-                const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
-                actions.loadSimilarRecordingsSuccess(response.count)
-                actions.setSimilarRecordings(response.results)
-            }
-        },
-        maybeLoadRecordingMeta: async (_, breakpoint) => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-
-            breakpoint()
-
-            try {
-                actions.loadSimilarRecordings()
-            } catch (e) {
-                console.error('Failed to load recording meta', e)
-                actions.setPlayerError('Failed to load recording meta')
-            }
-        },
-        loadRecordingMeta: async () => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-        },
         schedulePlayerTimeTracking: () => {
             const currentState = values.playingTimeTracking.state
             const interval = currentState === 'playing' ? 5000 : 30000
@@ -1888,7 +1801,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         document.addEventListener('fullscreenchange', cache.fullScreenListener)
 
         if (props.sessionRecordingId) {
-            actions.maybeLoadRecordingMeta()
+            actions.loadRecordingData()
         }
 
         cache.openTime = performance.now()

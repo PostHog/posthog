@@ -19,7 +19,7 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
-    def test_node_handles_plain_response(self):
+    async def test_node_handles_plain_response(self):
         test_tool_call_id = str(uuid4())
         with patch(
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
@@ -32,7 +32,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 messages=[HumanMessage(content="How do I use feature flags?")],
                 root_tool_call_id=test_tool_call_id,
             )
-            next_state = node.run(state, {})
+            next_state = await node.arun(state, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             assert next_state is not None
             messages = cast(list, next_state.messages)
@@ -49,7 +49,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertIsInstance(second_message, AssistantMessage)
             self.assertEqual(second_message.content, "Here's what I found in the documentation...")
 
-    def test_node_handles_response_with_data_continuation(self):
+    async def test_node_handles_response_with_data_continuation(self):
         test_tool_call_id = str(uuid4())
         response_with_continuation = f"Here's what I found... {INKEEP_DATA_CONTINUATION_PHRASE}"
         with patch(
@@ -61,7 +61,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 messages=[HumanMessage(content="Show me user stats")],
                 root_tool_call_id=test_tool_call_id,
             )
-            next_state = node.run(state, {})
+            next_state = await node.arun(state, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             assert next_state is not None
             messages = cast(list, next_state.messages)
@@ -110,7 +110,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(node.router(state), "end")  # Ending
 
-    def test_tool_call_id_handling(self):
+    async def test_tool_call_id_handling(self):
         """Test that tool_call_id is properly handled in both input and output states."""
         test_tool_call_id = str(uuid4())
         with patch(
@@ -122,7 +122,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 messages=[HumanMessage(content="Question")],
                 root_tool_call_id=test_tool_call_id,
             )
-            next_state = node.run(state, {})
+            next_state = await node.arun(state, {})
             assert next_state is not None
 
             # Check that the tool call message uses the input tool_call_id
@@ -133,7 +133,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             # Check that the output state resets tool_call_id
             self.assertEqual(next_state.root_tool_call_id, None)
 
-    def test_message_id_generation(self):
+    async def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
         with patch(
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
@@ -144,7 +144,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 messages=[HumanMessage(content="Question")],
                 root_tool_call_id="test-id",
             )
-            next_state = node.run(state, {})
+            next_state = await node.arun(state, {})
             assert next_state is not None
             messages = cast(list, next_state.messages)
 

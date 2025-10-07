@@ -130,7 +130,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         expect(mockFetch.mock.calls).toMatchInlineSnapshot(`
             [
@@ -161,7 +161,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        await expect(hogFunctionHandler.execute(invocation, action, invocationResult)).rejects.toThrow(
+        await expect(hogFunctionHandler.execute({ invocation, action, result: invocationResult })).rejects.toThrow(
             "Template 'template_123' not found"
         )
     })
@@ -172,7 +172,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        await hogFunctionHandler.execute(invocation, action, invocationResult)
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
         expect(callArgs[0]).toBeTruthy()
@@ -187,7 +187,7 @@ describe('HogFunctionHandler', () => {
             queuePriority: 0,
         })
 
-        const handlerResult = await hogFunctionHandler.execute(invocation, action, invocationResult)
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
         expect(callArgs[0]).toBeTruthy()

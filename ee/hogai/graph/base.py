@@ -33,7 +33,7 @@ from ee.models import Conversation
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
     _writer: StreamWriter | None = None
-    config: RunnableConfig | None = None
+    _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
 
     def __init__(self, team: Team, user: User):
@@ -49,7 +49,10 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
-        self.config = config
+        # Reset the context manager on a new run
+        self._context_manager = None
+        self._config = config
+
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
@@ -84,14 +87,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
     @property
     def context_manager(self) -> AssistantContextManager:
         if self._context_manager is None:
-            if self.config is None:
+            if self._config is None:
                 # Only allow default config in test environments
                 if settings.TEST:
                     config = RunnableConfig(configurable={})
                 else:
                     raise ValueError("Config is required to create AssistantContextManager")
             else:
-                config = self.config
+                config = self._config
             self._context_manager = AssistantContextManager(self._team, self._user, config)
         return self._context_manager
 

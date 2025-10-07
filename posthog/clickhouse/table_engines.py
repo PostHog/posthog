@@ -80,12 +80,18 @@ class AggregatingMergeTree(MergeTreeEngine):
 
 
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: str, cluster: str = settings.CLICKHOUSE_CLUSTER):
+    def __init__(self, data_table: str, sharding_key: Optional[str] = None, cluster: Optional[str] = None):
         self.data_table = data_table
         self.sharding_key = sharding_key
         self.cluster = cluster
 
     def __str__(self):
-        return (
-            f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
-        )
+        # Evaluate cluster and database at call time, not at module import time
+        # This is critical for test environments where settings are loaded after module imports
+        cluster = self.cluster if self.cluster is not None else settings.CLICKHOUSE_CLUSTER
+        database = settings.CLICKHOUSE_DATABASE
+
+        if not self.sharding_key:
+            return f"Distributed('{cluster}', '{database}', '{self.data_table}')"
+
+        return f"Distributed('{cluster}', '{database}', '{self.data_table}', {self.sharding_key})"

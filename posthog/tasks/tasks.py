@@ -16,7 +16,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
@@ -67,6 +67,7 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
+    query_tags: dict,
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
@@ -75,6 +76,10 @@ def process_query_task(
     Once complete save results to redis
     """
     from posthog.clickhouse.client import execute_process_query
+
+    existing_query_tags = get_query_tags()
+    all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
+    tag_queries(**all_query_tags)
 
     if is_query_service:
         tag_queries(chargeable=1)
@@ -867,7 +872,7 @@ def background_delete_model_task(
             records_to_delete = total_count
 
         # At this point, records_to_delete is guaranteed to be an int
-        records_to_delete_int: int = records_to_delete  # type: ignore
+        records_to_delete_int: int = records_to_delete
 
         deleted_count = 0
         batch_num = 0
@@ -926,17 +931,64 @@ def background_delete_model_task(
 
 
 @shared_task(ignore_result=True, time_limit=7200)
-def refresh_activity_log_fields_cache() -> None:
-    """Refresh fields cache for large organizations every 12 hours"""
+def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14) -> None:
+    """
+    Refresh fields cache for large organizations.
+
+    Args:
+        flush: If True, delete existing cache and rebuild from scratch
+        hours_back: Number of hours to look back (default: 14 = 12h schedule + 2h buffer)
+    """
+
+    from uuid import UUID
+
     from django.db.models import Count
 
     from posthog.api.advanced_activity_logs.constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
     from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery
+    from posthog.api.advanced_activity_logs.fields_cache import delete_cached_fields
     from posthog.exceptions_capture import capture_exception
     from posthog.models import Organization
     from posthog.models.activity_logging.activity_log import ActivityLog
 
-    logger.info("[refresh_activity_log_fields_cache] running task")
+    def _process_org_with_flush(discovery: AdvancedActivityLogFieldDiscovery, org_id: UUID) -> None:
+        """Rebuild cache from scratch with sampling."""
+        deleted = delete_cached_fields(str(org_id))
+        logger.info(f"Flushed cache for org {org_id}: {deleted}")
+
+        record_count = discovery._get_org_record_count()
+        estimated_sampled_records = int(record_count * (SAMPLING_PERCENTAGE / 100))
+        total_batches = (estimated_sampled_records + BATCH_SIZE - 1) // BATCH_SIZE
+
+        logger.info(
+            f"Rebuilding cache for org {org_id} from scratch: "
+            f"{record_count} total records, sampling {estimated_sampled_records} records"
+        )
+
+        for batch_num in range(total_batches):
+            offset = batch_num * BATCH_SIZE
+            records = discovery.get_sampled_records(limit=BATCH_SIZE, offset=offset)
+            discovery.process_batch_for_large_org(records)
+
+    def _process_org_incremental(discovery: AdvancedActivityLogFieldDiscovery, org_id: UUID, hours_back: int) -> int:
+        """Process recent records with 100% coverage."""
+        recent_queryset = discovery.get_activity_logs_queryset(hours_back=hours_back)
+        recent_count = recent_queryset.count()
+
+        logger.info(f"Processing {recent_count} records from last {hours_back}h for org {org_id} (100% coverage)")
+
+        for batch_num in range(0, recent_count, BATCH_SIZE):
+            records = [
+                {"scope": record["scope"], "detail": record["detail"]}
+                for record in recent_queryset.values("scope", "detail")[batch_num : batch_num + BATCH_SIZE]
+            ]
+            if records:
+                discovery.process_batch_for_large_org(records, hours_back=hours_back)
+
+        return recent_count
+
+    mode = "FLUSH" if flush else f"INCREMENTAL (last {hours_back}h, 100% coverage)"
+    logger.info(f"[refresh_activity_log_fields_cache] running task in {mode} mode")
 
     large_org_data = (
         ActivityLog.objects.values("organization_id")
@@ -951,24 +1003,37 @@ def refresh_activity_log_fields_cache() -> None:
     org_count = len(large_orgs)
     logger.info(f"[refresh_activity_log_fields_cache] processing {org_count} large organizations")
 
+    processed_orgs = 0
+    total_recent_records = 0
+
     for org in large_orgs:
         try:
             discovery = AdvancedActivityLogFieldDiscovery(org.id)
-            record_count = discovery._get_org_record_count()
 
-            estimated_sampled_records = int(record_count * (SAMPLING_PERCENTAGE / 100))
-            total_batches = (estimated_sampled_records + BATCH_SIZE - 1) // BATCH_SIZE
+            if flush:
+                _process_org_with_flush(discovery, org.id)
+            else:
+                recent_count = _process_org_incremental(discovery, org.id, hours_back)
+                total_recent_records += recent_count
 
-            for batch_num in range(total_batches):
-                offset = batch_num * BATCH_SIZE
-                discovery.process_batch_for_large_org(offset, BATCH_SIZE)
+            processed_orgs += 1
 
         except Exception as e:
             logger.exception(
                 "Failed to refresh activity log fields cache for org",
                 org_id=org.id,
+                mode=mode,
                 error=e,
             )
             capture_exception(e)
 
-    logger.info(f"[refresh_activity_log_fields_cache] completed for {org_count} organizations")
+    if not flush:
+        logger.info(
+            f"[refresh_activity_log_fields_cache] completed for {processed_orgs}/{org_count} organizations "
+            f"in {mode} mode. Total recent records processed: {total_recent_records}"
+        )
+    else:
+        logger.info(
+            f"[refresh_activity_log_fields_cache] completed flush and rebuild for "
+            f"{processed_orgs}/{org_count} organizations"
+        )

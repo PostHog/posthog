@@ -601,4 +601,76 @@ describe('parseEventHeaders', () => {
             timestamp: '1234567890',
         })
     })
+
+    it('should parse event header', () => {
+        const headers: MessageHeader[] = [{ event: Buffer.from('$pageview') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            event: '$pageview',
+        })
+    })
+
+    it('should parse uuid header', () => {
+        const headers: MessageHeader[] = [{ uuid: Buffer.from('123e4567-e89b-12d3-a456-426614174000') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+        })
+    })
+
+    it('should parse all headers including new event and uuid', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                distinct_id: Buffer.from('user-123'),
+                timestamp: Buffer.from('1234567890'),
+                event: Buffer.from('$pageview'),
+                uuid: Buffer.from('123e4567-e89b-12d3-a456-426614174000'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            timestamp: '1234567890',
+            event: '$pageview',
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+        })
+    })
+
+    it('should ignore unsupported headers but include event and uuid', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                custom_header: Buffer.from('ignored'),
+                event: Buffer.from('custom_event'),
+                another_key: Buffer.from('also-ignored'),
+                uuid: Buffer.from('uuid-value'),
+                distinct_id: Buffer.from('user-123'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            event: 'custom_event',
+            uuid: 'uuid-value',
+        })
+    })
+
+    it('should handle empty event and uuid headers', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                event: Buffer.from(''),
+                uuid: Buffer.from(''),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            event: '',
+            uuid: '',
+        })
+    })
 })

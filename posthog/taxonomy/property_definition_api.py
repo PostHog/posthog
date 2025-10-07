@@ -689,7 +689,7 @@ class PropertyDefinitionViewSet(
                     EnterprisePropertyDefinition.objects.alias(
                         effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                     )
-                    .filter(id=id, effective_project_id=self.project_id)  # type: ignore
+                    .filter(id=id, effective_project_id=self.project_id)
                     .first()
                 )
                 if enterprise_property:
@@ -800,7 +800,7 @@ class PropertyDefinitionViewSet(
         matches = EventProperty.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=self.project_id,  # type: ignore
+            effective_project_id=self.project_id,
             event__in=serializer.validated_data["event_names"],
             property=serializer.validated_data["property_name"],
         )
