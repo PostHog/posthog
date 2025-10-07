@@ -34,8 +34,9 @@ BASE_APP_METRICS2_COLUMNS = """
 # we need to revisit producers (e.g. the webhook service currently known as rusty-hook or pgqueue).
 APP_METRICS2_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
-APP_METRICS2_DATA_TABLE_SQL = (
-    lambda: f"""
+
+def APP_METRICS2_DATA_TABLE_SQL():
+    return f"""
 CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS2_COLUMNS}
@@ -46,10 +47,10 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTAMP_TRUNCATION}, metric_kind, metric_name)
 {ttl_period("timestamp", APP_METRICS2_TTL_DAYS, unit="DAY")}
 """
-)
 
-DISTRIBUTED_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
+
+def DISTRIBUTED_APP_METRICS2_TABLE_SQL():
+    return f"""
 CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS2_COLUMNS}
@@ -57,10 +58,10 @@ CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER
 )
 ENGINE={Distributed(data_table="sharded_app_metrics2", sharding_key="rand()")}
 """
-)
 
-KAFKA_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
+
+def KAFKA_APP_METRICS2_TABLE_SQL():
+    return f"""
 CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     team_id Int64,
@@ -74,10 +75,10 @@ CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_C
 )
 ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2)}
 """
-)
 
-APP_METRICS2_MV_TABLE_SQL = (
-    lambda: f"""
+
+def APP_METRICS2_MV_TABLE_SQL():
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 TO {settings.CLICKHOUSE_DATABASE}.sharded_app_metrics2
 AS SELECT
@@ -91,7 +92,7 @@ metric_name,
 count
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics2
 """
-)
+
 
 TRUNCATE_APP_METRICS2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS sharded_app_metrics2"
 

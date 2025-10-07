@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
@@ -966,7 +966,7 @@ class SerializedField:
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = (
+type DatabaseSchemaTable = (
     DatabaseSchemaPostHogTable
     | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
