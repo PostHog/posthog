@@ -5,7 +5,6 @@ from django.test import TransactionTestCase
 from posthog.models import (
     Annotation,
     Dashboard,
-    EarlyAccessFeature,
     EventDefinition,
     FeatureFlag,
     Insight,
@@ -17,6 +16,8 @@ from posthog.models import (
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 class TestEnvironmentsRollbackTask(TransactionTestCase):

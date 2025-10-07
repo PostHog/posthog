@@ -42,14 +42,27 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+    tabId?: string
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        if (props.id === 'new' || !props.id) {
+            if (props.tabId == null) {
+                return 'new'
+            }
+            return `new-${props.tabId}`
+        }
+        if (props.tabId == null) {
+            return props.id
+        }
+        return `${props.id}-${props.tabId}`
+    }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
+        logic: [cohortsModel],
     })),
 
     actions({
@@ -473,7 +486,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
     listeners(({ actions, values }) => ({
         deleteCohort: () => {
-            cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
+            cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
         submitCohortFailure: () => {
