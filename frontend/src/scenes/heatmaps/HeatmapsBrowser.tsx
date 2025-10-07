@@ -37,7 +37,7 @@ function ExportButton({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl } = useValues(logic)
+    const { dataUrl } = useValues(logic)
     const { startHeatmapExport } = useActions(exportsLogic)
 
     const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters } = useValues(
@@ -47,16 +47,16 @@ function ExportButton({
     const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
 
     const handleExport = (): void => {
-        if (browserUrl) {
+        if (dataUrl) {
             startHeatmapExport({
-                heatmap_url: browserUrl,
+                heatmap_url: dataUrl,
                 width: iframeWidth,
                 height: iframeHeight,
                 heatmap_color_palette: heatmapColorPalette,
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
                 heatmap_filters: heatmapFilters,
-                filename: `heatmap-${new URL(browserUrl).hostname}/${new URL(browserUrl).pathname.slice(1, 11)}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+                filename: `heatmap-${new URL(dataUrl).hostname}/${new URL(dataUrl).pathname.slice(1, 11)}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         }
     }
@@ -70,7 +70,7 @@ function ExportButton({
                 icon={<IconDownload />}
                 tooltip="Export heatmap as PNG"
                 data-attr="export-heatmap"
-                disabledReason={!browserUrl ? 'We can export only the URL with heatmaps' : undefined}
+                disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
             >
                 <div className="flex w-full gap-x-2 justify-between items-center">
                     Export{' '}
@@ -86,14 +86,14 @@ function ExportButton({
 function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTMLIFrameElement | null> }): JSX.Element {
     const {
         browserUrlSearchOptions,
-        browserUrl,
+        dataUrl,
         isBrowserUrlValid,
         replayIframeData,
         hasValidReplayIframeData,
         browserSearchTerm,
         displayUrl,
     } = useValues(heatmapsBrowserLogic)
-    const { setBrowserSearch, setBrowserUrl, setReplayIframeData, setReplayIframeDataURL, setDisplayUrl } =
+    const { setBrowserSearch, setDataUrl, setReplayIframeData, setReplayIframeDataURL, setDisplayUrl } =
         useActions(heatmapsBrowserLogic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
@@ -138,9 +138,6 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             onChange={(value) => {
                                                 setBrowserSearch(value)
                                                 setDisplayUrl(value || null)
-
-                                                // Copy the same URL to heatmap data URL
-                                                setBrowserUrl(value || null)
                                             }}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' && browserSearchTerm) {
@@ -153,8 +150,8 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             type="secondary"
                                             icon={<IconOpenInNew />}
                                             to={
-                                                displayUrl || browserUrl
-                                                    ? appEditorUrl(displayUrl || browserUrl || '', {
+                                                displayUrl || dataUrl
+                                                    ? appEditorUrl(displayUrl || dataUrl || '', {
                                                           userIntent: 'heatmaps',
                                                       })
                                                     : hasValidReplayIframeData && replayIframeData?.url
@@ -165,7 +162,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             }
                                             targetBlank
                                             disabledReason={
-                                                !displayUrl && !browserUrl && !hasValidReplayIframeData
+                                                !displayUrl && !dataUrl && !hasValidReplayIframeData
                                                     ? 'Select a URL first'
                                                     : undefined
                                             }
@@ -187,7 +184,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                                         setBrowserSearch('')
 
                                                         // Copy the same URL to heatmap data URL
-                                                        setBrowserUrl(url)
+                                                        setDataUrl(url)
                                                     }}
                                                 >
                                                     {url}
@@ -206,9 +203,9 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                         <LemonInput
                                             size="small"
                                             placeholder="Auto-generated from display URL above"
-                                            value={browserUrl || ''}
+                                            value={dataUrl || ''}
                                             onChange={(value) => {
-                                                setBrowserUrl(value || null)
+                                                setDataUrl(value || null)
                                             }}
                                             className={`truncate flex-1 ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
                                             disabledReason={!displayUrl ? 'Set a valid Display URL first' : undefined}
@@ -227,7 +224,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                         data-attr="heatmaps-reset"
                         onClick={() => {
                             setReplayIframeData(null)
-                            setBrowserUrl(null)
+                            setDataUrl(null)
                         }}
                         className="mt-2 md:mt-0"
                     >
@@ -244,7 +241,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
 
     const { topUrls, topUrlsLoading, noPageviews } = useValues(logic)
 
-    const { setDisplayUrl, setBrowserUrl } = useActions(logic)
+    const { setDisplayUrl } = useActions(logic)
 
     return (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto">
@@ -283,7 +280,6 @@ function HeatmapsBrowserIntro(): JSX.Element {
                                     key={url}
                                     fullWidth
                                     onClick={() => {
-                                        setBrowserUrl(url)
                                         setDisplayUrl(url)
                                     }}
                                 >
@@ -301,12 +297,12 @@ function HeatmapsBrowserIntro(): JSX.Element {
 function ForbiddenURL(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl } = useValues(logic)
+    const { dataUrl } = useValues(logic)
 
     return (
         <div className="flex-1 p-4 gap-y-4 mb-2">
             <LemonBanner type="error">
-                {browserUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
+                {dataUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
                 this page.
             </LemonBanner>
 
