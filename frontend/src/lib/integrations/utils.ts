@@ -19,6 +19,7 @@ import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
+import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
@@ -40,6 +41,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
     databricks: IconDatabricks,
+    'tiktok-ads': IconTikTok,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
