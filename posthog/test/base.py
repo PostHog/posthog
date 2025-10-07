@@ -116,7 +116,7 @@ from posthog.models.raw_sessions.sql_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
-    DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_TABLE_SQL_V3,
     DROP_RAW_SESSION_VIEW_SQL_V3,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
@@ -1219,7 +1219,7 @@ def reset_clickhouse_database() -> None:
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
+            DROP_RAW_SESSION_TABLE_SQL_V3(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
@@ -1242,9 +1242,9 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
             TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
@@ -1355,7 +1355,8 @@ def snapshot_clickhouse_queries(fn_or_class):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
     return wrapped
 
