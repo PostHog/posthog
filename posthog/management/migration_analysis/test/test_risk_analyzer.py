@@ -287,6 +287,97 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.SAFE
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
+    def test_run_sql_with_reindex_concurrent(self):
+        """Test REINDEX CONCURRENTLY - should be safe (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="REINDEX INDEX CONCURRENTLY idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
+
+    def test_run_sql_add_constraint_not_valid(self):
+        """Test ADD CONSTRAINT ... NOT VALID - safe (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ADD CONSTRAINT check_age CHECK (age >= 0) NOT VALID;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "not valid" in risk.reason.lower() or "validates new rows" in risk.reason.lower()
+
+    def test_run_sql_validate_constraint(self):
+        """Test VALIDATE CONSTRAINT - slow but non-blocking (score 2)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users VALIDATE CONSTRAINT check_age;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "validate" in risk.reason.lower()
+
+    def test_run_sql_drop_constraint(self):
+        """Test DROP CONSTRAINT - fast metadata operation (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users DROP CONSTRAINT check_age;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "fast" in risk.reason.lower() or "metadata" in risk.reason.lower()
+
+    def test_run_sql_drop_constraint_cascade(self):
+        """Test DROP CONSTRAINT CASCADE - may be slow (score 3)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users DROP CONSTRAINT fk_company CASCADE;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 3
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "cascade" in risk.reason.lower()
+
+    def test_run_sql_comment_on(self):
+        """Test COMMENT ON - metadata only (score 0)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="COMMENT ON TABLE users IS 'User accounts';",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+        assert "metadata" in risk.reason.lower()
+
+    def test_run_sql_set_statistics(self):
+        """Test SET STATISTICS - metadata only (score 0)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ALTER COLUMN email SET STATISTICS 1000;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+        assert "metadata" in risk.reason.lower()
+
 
 class TestRunPythonOperations:
     def setup_method(self):

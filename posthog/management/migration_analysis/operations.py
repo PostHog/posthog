@@ -273,6 +273,65 @@ class RunSQLAnalyzer(OperationAnalyzer):
                     reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
                     details={"sql": sql},
                 )
+            elif "REINDEX" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=1,
+                    reason="REINDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                )
+
+        # Check for constraint operations (before general ALTER/DROP checks)
+        if "ADD" in sql and "CONSTRAINT" in sql and "NOT VALID" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=1,
+                reason="ADD CONSTRAINT ... NOT VALID is safe (validates new rows only, no table scan)",
+                details={"sql": sql},
+                guidance="Follow up with VALIDATE CONSTRAINT in a later migration to check existing rows.",
+            )
+
+        if "VALIDATE" in sql and "CONSTRAINT" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="VALIDATE CONSTRAINT can be slow but non-blocking (allows reads/writes)",
+                details={"sql": sql},
+                guidance="Long-running on large tables but uses SHARE UPDATE EXCLUSIVE lock (allows normal operations).",
+            )
+
+        if "DROP" in sql and "CONSTRAINT" in sql:
+            # Check for CASCADE which can be expensive
+            if "CASCADE" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=3,
+                    reason="DROP CONSTRAINT CASCADE may be slow (drops dependent objects)",
+                    details={"sql": sql},
+                )
+            return OperationRisk(
+                type=self.operation_type,
+                score=1,
+                reason="DROP CONSTRAINT is fast (just removes metadata)",
+                details={"sql": sql},
+            )
+
+        # Check for metadata-only operations (safe and instant)
+        if "COMMENT ON" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="COMMENT ON is metadata-only (instant, no locks)",
+                details={"sql": sql},
+            )
+
+        if "SET STATISTICS" in sql or "SET (FILLFACTOR" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Metadata-only operation (instant, no locks)",
+                details={"sql": sql},
+            )
 
         if "DROP" in sql:
             return OperationRisk(
