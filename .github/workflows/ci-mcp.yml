@@ -39,7 +39,7 @@ jobs:
               uses: actions/checkout@v4
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -48,16 +48,16 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install && cd mcp/typescript && pnpm install
+              run: cd mcp && pnpm install && cd typescript && pnpm install
 
             - name: Run linter
-              run: pnpm run lint
+              run: cd mcp && pnpm run lint
 
             - name: Run formatter
-              run: pnpm run format
+              run: cd mcp && pnpm run format
 
             - name: Run type check
-              run: cd mcp/typescript && pnpm run typecheck
+              run: cd mcp && pnpm run typecheck
 
             - name: Check for changes
               run: |
@@ -83,7 +83,7 @@ jobs:
               uses: actions/checkout@v4
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -92,10 +92,10 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install && cd mcp && pnpm install && cd typescript && pnpm install
+              run: cd mcp && pnpm install && cd typescript && pnpm install
 
             - name: Run unit tests
-              run: cd mcp/typescript && pnpm run test
+              run: cd mcp && pnpm run test
 
     integration-tests:
         name: Integration Tests
@@ -113,7 +113,7 @@ jobs:
               uses: actions/checkout@v4
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -122,7 +122,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install && cd mcp && pnpm install && cd typescript && pnpm install
+              run: cd mcp && pnpm install && cd typescript && pnpm install
 
             - name: Run integration tests
               run: cd mcp && pnpm run test:integration
