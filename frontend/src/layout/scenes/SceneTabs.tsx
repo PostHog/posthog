@@ -230,7 +230,11 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                         'focus:outline-none',
                         className
                     )}
-                    tooltip={tab.customTitle !== 'New tab' ? `${tab.customTitle} (${tab.title})` : tab.title}
+                    tooltip={
+                        tab.customTitle && tab.customTitle !== 'New tab'
+                            ? `${tab.customTitle} (${tab.title})`
+                            : tab.title
+                    }
                 >
                     {tab.iconType === 'blank' ? (
                         <></>
@@ -280,7 +284,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                         isSideActionRight
                         iconOnly
                         size="xs"
-                        className="group hover:bg-transparent mt-px"
+                        className="group hover:bg-transparent mt-px z-20"
                         tooltip={
                             tab.active ? (
                                 <>
