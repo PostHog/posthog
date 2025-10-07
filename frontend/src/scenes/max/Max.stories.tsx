@@ -837,10 +837,10 @@ export const SingleToolExecutionComponent: StoryFn = () => {
         tool_executions: [
             {
                 id: 'task_1',
-                description: 'Fetching last 30 days of user activity',
+                description: 'Creating a beautiful insight',
                 args: {},
                 status: ToolExecutionStatus.InProgress,
-                tool_name: 'create_insight',
+                tool_name: 'create_and_query_insight',
                 progress: {
                     content: 'Fetching data',
                     substeps: ['Fetching some data', 'Processing data'],
@@ -897,43 +897,45 @@ export const MultiToolExecutionComponent: StoryFn = () => {
                 description: 'Fetching last 30 days of user activity',
                 args: {},
                 status: ToolExecutionStatus.Completed,
-                tool_name: 'create_insight',
+                tool_name: 'read_taxonomy',
             },
             {
                 id: 'task_2',
                 description: 'Identifying peak usage times and user segments',
                 args: {},
                 status: ToolExecutionStatus.Completed,
-                tool_name: 'create_insight',
-            },
-            {
-                id: 'task_3',
-                description: 'Processing funnel metrics across key paths',
-                args: {},
-                status: ToolExecutionStatus.InProgress,
+                tool_name: 'create_and_query_insight',
                 progress: {
                     content: 'Fetching data',
                     substeps: ['Fetching some data', 'Processing data'],
                 },
-                tool_name: 'create_insight',
+            },
+            {
+                id: 'task_3',
+                description: 'Checking billing data',
+                args: {
+                    kind: 'billing_info',
+                },
+                status: ToolExecutionStatus.InProgress,
+                tool_name: 'read_data',
+                progress: {
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
+                },
             },
             {
                 id: 'task_4',
                 description: 'Creating charts and graphs for insights',
                 args: {},
-                status: ToolExecutionStatus.InProgress,
-                progress: {
-                    content: 'Fetching data',
-                    substeps: ['Fetching some data', 'Processing data'],
-                },
-                tool_name: 'create_insight',
+                status: ToolExecutionStatus.Failed,
+                tool_name: 'create_and_query_insight',
             },
             {
                 id: 'task_5',
-                description: 'Compiling findings into readable format',
+                description: 'Updating HogQL code',
                 args: {},
                 status: ToolExecutionStatus.Pending,
-                tool_name: 'create_insight',
+                tool_name: 'generate_hogql_query',
             },
         ],
     }
@@ -966,87 +968,6 @@ export const MultiToolExecutionComponent: StoryFn = () => {
             setTimeout(() => {
                 setConversationId(CONVERSATION_ID)
                 askMax('Execute analysis tasks')
-            }, 0)
-        }
-    }, [dataProcessingAccepted, setConversationId, askMax])
-
-    if (!dataProcessingAccepted) {
-        return <></>
-    }
-
-    return <Template />
-}
-
-export const ToolExecutionWithFailure: StoryFn = () => {
-    const toolExecutionMessage: ToolExecutionMessage = {
-        type: AssistantMessageType.ToolExecution,
-        tool_executions: [
-            {
-                id: 'task_1',
-                description: 'Fetching last 30 days of user activity',
-                args: {},
-                status: ToolExecutionStatus.Completed,
-                tool_name: 'create_insight',
-            },
-            {
-                id: 'task_2',
-                description: 'Identifying peak usage times and user segments',
-                args: {},
-                status: ToolExecutionStatus.Completed,
-                tool_name: 'create_insight',
-            },
-            {
-                id: 'task_3',
-                description: 'Processing funnel metrics across key paths',
-                args: {},
-                status: ToolExecutionStatus.Failed,
-                tool_name: 'create_insight',
-            },
-            {
-                id: 'task_4',
-                description: 'Creating charts and graphs for insights',
-                args: {},
-                status: ToolExecutionStatus.Pending,
-                tool_name: 'create_insight',
-            },
-            {
-                id: 'task_5',
-                description: 'Compiling findings into readable format',
-                args: {},
-                status: ToolExecutionStatus.Pending,
-                tool_name: 'create_insight',
-            },
-        ],
-    }
-
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(
-                    ctx.text(
-                        generateChunk([
-                            'event: conversation',
-                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                            'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis with some failures' })}`,
-                            'event: message',
-                            `data: ${JSON.stringify(toolExecutionMessage)}`,
-                        ])
-                    )
-                ),
-        },
-    })
-
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
-    const { askMax } = useActions(threadLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-    useEffect(() => {
-        if (dataProcessingAccepted) {
-            setTimeout(() => {
-                setConversationId(CONVERSATION_ID)
-                askMax('Execute analysis with some failures')
             }, 0)
         }
     }, [dataProcessingAccepted, setConversationId, askMax])

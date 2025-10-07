@@ -1740,6 +1740,26 @@
     }
 
     /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer-opacity {
+        0%,
+        100% {
+            opacity: 0.4;
+        }
+
+        25% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.4;
+        }
+
+        75% {
+            opacity: 1;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
     @keyframes fade-in {
         0% {
             opacity: 0;

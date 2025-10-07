@@ -243,7 +243,6 @@ export type AssistantTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
     | 'read_taxonomy'

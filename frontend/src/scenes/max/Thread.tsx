@@ -18,12 +18,12 @@ import {
     IconThumbsUp,
     IconThumbsUpFilled,
     IconWarning,
+    IconWrench,
     IconX,
 } from '@posthog/icons'
 import {
     LemonButton,
     LemonButtonPropsBase,
-    LemonCheckbox,
     LemonDialog,
     LemonInput,
     LemonSkeleton,
@@ -72,6 +72,7 @@ import { InsightShortId, ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { TOOL_DEFINITIONS } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -195,7 +196,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
             </Tooltip>
             <div
                 className={clsx(
-                    'flex flex-col gap-1.5 min-w-0 w-full',
+                    'flex flex-col min-w-0 w-full [&>*+*]:mt-1.5',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}
             >
@@ -542,50 +543,93 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
 
     const completedCount = message.steps.filter((step) => step.status === PlanningStepStatus.Completed).length
     const totalCount = message.steps.length
+    const hasMultipleSteps = message.steps.length > 1
 
     return (
-        <MessageTemplate type="ai" wrapperClassName="w-full">
-            <div className="space-y-2">
-                <div className="flex items-center justify-between w-full">
-                    <h4 className="m-0 text-xs font-semibold">TO-DOs</h4>
-                    {!isLastPlanningMessage && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted">
-                                {completedCount}/{totalCount}
+        <MessageTemplate type="ai">
+            <div className="flex items-center gap-1.5 text-xs">
+                <span className="flex-shrink-0">
+                    <IconNotebook />
+                </span>
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="font-medium">Planning</span>
+                    <span className="text-muted">
+                        ({completedCount}/{totalCount})
+                    </span>
+                    {hasMultipleSteps && (
+                        <button
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0"
+                            aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
+                        >
+                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                                <IconChevronRight />
                             </span>
-                            <LemonButton
-                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                                onClick={() => setIsExpanded(!isExpanded)}
-                                size="xsmall"
-                                type="tertiary"
-                                tooltip={isExpanded ? 'Collapse' : 'Expand'}
-                            />
-                        </div>
+                        </button>
                     )}
                 </div>
-                {isExpanded && (
-                    <div className="space-y-1.5 mt-1">
-                        {message.steps.map((step, index) => (
-                            <LemonCheckbox
-                                key={index}
-                                size="xsmall"
-                                defaultChecked={step.status === PlanningStepStatus.Completed}
-                                disabled={true}
-                                label={
-                                    step.description +
-                                    (step.status === PlanningStepStatus.InProgress ? ' (in progress)' : '')
-                                }
-                                labelClassName={clsx(
-                                    'cursor-default! text-xs',
-                                    step.status === PlanningStepStatus.Completed && 'text-muted line-through',
-                                    step.status === PlanningStepStatus.InProgress && 'font-semibold'
-                                )}
-                            />
-                        ))}
-                    </div>
-                )}
             </div>
+            {isExpanded && (
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3 ml-[calc(1em+0.375rem)]">
+                    {message.steps.map((step, index) => {
+                        const isCompleted = step.status === PlanningStepStatus.Completed
+                        const isInProgress = step.status === PlanningStepStatus.InProgress
+
+                        return (
+                            <div key={index} className="flex items-start gap-2 text-xs animate-fade-in">
+                                <span className="flex-shrink-0 mt-0.5">
+                                    {isCompleted ? (
+                                        <IconCheck className="text-success" />
+                                    ) : (
+                                        <span className="w-4 h-4 rounded-full border-2 border-border-secondary inline-block" />
+                                    )}
+                                </span>
+                                <span
+                                    className={clsx(
+                                        'leading-relaxed',
+                                        isCompleted && 'text-muted line-through',
+                                        isInProgress && 'font-medium'
+                                    )}
+                                >
+                                    {step.description}
+                                    {isInProgress && <span className="text-warning ml-1">(in progress)</span>}
+                                </span>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
         </MessageTemplate>
+    )
+}
+
+function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
+    const isTextContent = typeof children === 'string'
+
+    if (isTextContent) {
+        return (
+            <span
+                className="bg-clip-text text-transparent"
+                style={{
+                    backgroundImage: 'linear-gradient(in oklch 90deg, #666, #999, #ccc, #999, #666)',
+                    backgroundSize: '200% 100%',
+                    animation: 'shimmer 3s linear infinite',
+                }}
+            >
+                {children}
+            </span>
+        )
+    }
+
+    return (
+        <span
+            className="inline-flex"
+            style={{
+                animation: 'shimmer-opacity 3s linear infinite',
+            }}
+        >
+            {children}
+        </span>
     )
 }
 
@@ -594,11 +638,13 @@ function ReasoningComponent({
     content,
     substeps,
     state,
+    icon,
 }: {
     id: string
     content: string
     substeps: string[]
     state: ToolExecutionStatus
+    icon?: React.ReactNode
 }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const isPending = state === 'pending'
@@ -606,45 +652,44 @@ function ReasoningComponent({
     const isCompleted = state === 'completed'
     const isFailed = state === 'failed'
     const hasMultipleSteps = substeps.length > 1
+    const showChevron = hasMultipleSteps && !isCompleted && !isFailed
 
     return (
         <>
             <div
                 className={clsx(
-                    'transition-all duration-500',
-                    isPending && 'text-muted',
-                    !isInProgress && !isPending && !isFailed && 'text-default',
-                    isFailed && 'text-danger'
+                    'transition-all duration-500 text-xs flex items-center',
+                    (isPending || isFailed) && 'text-muted',
+                    !isInProgress && !isPending && !isFailed && 'text-default'
                 )}
             >
-                {isInProgress ? (
-                    <span
-                        className="bg-clip-text text-transparent"
-                        style={{
-                            backgroundImage: 'linear-gradient(in oklch 90deg, #666, #999, #ccc, #999, #666)',
-                            backgroundSize: '200% 100%',
-                            animation: 'shimmer 3s linear infinite',
-                        }}
-                    >
-                        {content}
+                {icon && (
+                    <span className="flex-shrink-0">
+                        {isInProgress ? <ShimmeringContent>{icon}</ShimmeringContent> : icon}
                     </span>
-                ) : (
-                    content
                 )}
-                {hasMultipleSteps && (
-                    <button
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        className="cursor-pointer inline-flex items-center ml-1 hover:opacity-70 transition-opacity"
-                        aria-label={isExpanded ? 'Collapse history' : 'Expand history'}
-                    >
-                        <span className={`mr-1 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
-                            <IconChevronRight />
-                        </span>
-                    </button>
-                )}
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                    {isInProgress ? <ShimmeringContent>{content}</ShimmeringContent> : content}
+                    {isCompleted && <IconCheck className="text-success size-3" />}
+                    {isFailed && <IconX className="text-danger size-3" />}
+                    {showChevron && (
+                        <button
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0"
+                            aria-label={isExpanded ? 'Collapse history' : 'Expand history'}
+                        >
+                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                                <IconChevronRight />
+                            </span>
+                        </button>
+                    )}
+                </div>
             </div>
             {isExpanded && (
-                <div className="text-xs mt-0.5 font-medium">
+                <div
+                    className={clsx('mt-1 space-y-1 border-l-2 border-border-secondary', icon && 'pl-3.5')}
+                    style={{ marginLeft: icon ? 'calc(0.775rem)' : '0' }}
+                >
                     {substeps?.map((substep, substepIndex) => {
                         const isCurrentSubstep = substepIndex === substeps.length - 1
                         const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
@@ -652,7 +697,7 @@ function ReasoningComponent({
                         return (
                             <div
                                 key={substepIndex}
-                                className="animate-fade-in"
+                                className="animate-fade-in text-xs"
                                 style={{
                                     animationDelay: `${substepIndex * 50}ms`,
                                 }}
@@ -660,11 +705,10 @@ function ReasoningComponent({
                                 <MarkdownMessage
                                     id={id}
                                     className={clsx(
-                                        'mt-1.5 leading-6 px-1 text-[0.6875rem] font-medium bg-surface-secondary rounded w-fit',
-                                        // Color-coded states
-                                        isFailed && 'text-danger opacity-90',
-                                        !isFailed && isCompletedSubstep && 'opacity-50',
-                                        !isFailed && isCurrentSubstep && !isCompleted && 'opacity-80'
+                                        'leading-relaxed',
+                                        isFailed && 'text-danger',
+                                        !isFailed && isCompletedSubstep && 'text-muted',
+                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
                                     )}
                                     content={substep ?? ''}
                                 />
@@ -700,47 +744,39 @@ interface ToolExecutionAnswerProps {
 }
 
 function ToolExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element {
-    const hasCompletedOrFailed = message.tool_executions.some(
-        (t) => t.status === ToolExecutionStatus.Completed || t.status === ToolExecutionStatus.Failed
-    )
     return (
-        <MessageTemplate type="ai">
-            <div className="flex flex-col gap-1">
-                {message.tool_executions.map((toolExecution, index) => {
-                    const allSteps = [
-                        ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
-                        ...(toolExecution.progress?.substeps ?? []),
-                    ]
-                    const isCompleted = toolExecution.status === ToolExecutionStatus.Completed
-                    const isFailed = toolExecution.status === ToolExecutionStatus.Failed
-                    return (
-                        <div
-                            key={index}
-                            className={clsx(
-                                'flex items-center gap-2 rounded transition-all duration-500 py-1',
-                                isCompleted && 'opacity-50'
-                            )}
-                        >
-                            {hasCompletedOrFailed && (
-                                <div className="flex-shrink-0 flex items-center justify-center size-7">
-                                    {isCompleted && <IconCheck className="text-success size-3.5" />}
-                                    {isFailed && <IconX className="text-danger size-3.5" />}
-                                </div>
-                            )}
-
-                            <div className="flex-1 min-w-0">
-                                <ReasoningComponent
-                                    id={toolExecution.id}
-                                    content={toolExecution.description}
-                                    substeps={allSteps}
-                                    state={toolExecution.status}
-                                />
-                            </div>
+        <div className="flex flex-col gap-1">
+            {message.tool_executions.map((toolExecution, index) => {
+                const allSteps = [
+                    ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
+                    ...(toolExecution.progress?.substeps ?? []),
+                ]
+                let definition = TOOL_DEFINITIONS[toolExecution.tool_name as keyof typeof TOOL_DEFINITIONS]
+                if (toolExecution.args.kind && definition?.kinds) {
+                    const kind = definition.kinds[toolExecution.args.kind as keyof typeof definition.kinds]
+                    if (kind) {
+                        definition = kind
+                    }
+                }
+                return (
+                    <div key={index} className="flex items-center rounded transition-all duration-500 py-1">
+                        <div className="flex-1 min-w-0">
+                            <ReasoningComponent
+                                id={toolExecution.id}
+                                content={toolExecution.description}
+                                substeps={allSteps}
+                                state={toolExecution.status}
+                                icon={
+                                    <div className="relative flex-shrink-0 flex items-center justify-center size-7">
+                                        {definition.icon || <IconWrench />}
+                                    </div>
+                                }
+                            />
                         </div>
-                    )
-                })}
-            </div>
-        </MessageTemplate>
+                    </div>
+                )
+            })}
+        </div>
     )
 }
 
