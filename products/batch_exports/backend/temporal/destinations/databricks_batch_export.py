@@ -49,9 +49,14 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -961,14 +966,20 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                 )
 
+                transformer: TransformerProtocol = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                    include_inserted_at=False,
+                )
+
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
-                    include_inserted_at=False,
+                    transformer=transformer,
                     max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )

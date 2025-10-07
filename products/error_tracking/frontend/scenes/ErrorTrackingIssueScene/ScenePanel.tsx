@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import { IconComment, IconShare } from '@posthog/icons'
 import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
-// import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -22,20 +23,19 @@ import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
-// import { RuntimeIcon } from '../../components/RuntimeIcon'
-import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { ErrorFilters } from '../../components/IssueFilters'
-import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
+import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -45,6 +45,7 @@ interface RelatedIssue {
     id: string
     title: string
     description?: string
+    library?: string
 }
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
@@ -52,12 +53,11 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
         errorTrackingIssueSceneLogic(logicProps)
     )
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
-            <div className="space-y-2 col-span-3">
+        <div className="ErrorTrackingIssue">
+            <div className="space-y-2">
                 <ExceptionCard
                     issue={issue ?? undefined}
                     issueLoading={issueLoading}
@@ -65,81 +65,9 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
                     eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
-                <ErrorFilters.Root>
-                    <div className="flex gap-2 justify-between">
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.InternalAccounts />
-                    </div>
-                    <ErrorFilters.FilterGroup />
-                </ErrorFilters.Root>
-                <Metadata>
-                    <EventsTable
-                        issueId={issueId}
-                        selectedEvent={selectedEvent}
-                        onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
-                    />
-                </Metadata>
-            </div>
-            <div className="col-span-1">
-                <IssueModalPanel issueId={issueId} />
             </div>
         </div>
     )
-}
-
-const IssueModalPanel = ({ issueId }: { issueId: string }): JSX.Element | null => {
-    const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
-    const { issue } = useValues(errorTrackingIssueSceneLogic(logicProps))
-    const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(
-        errorTrackingIssueSceneLogic(logicProps)
-    )
-    const hasTasks = useFeatureFlag('TASKS')
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-
-    return issue ? (
-        <div className="flex flex-col gap-2">
-            <ScenePanelCommonActions>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
-
-            <ScenePanelDivider />
-
-            <SceneTextInput
-                name="name"
-                defaultValue={issue.name ?? ''}
-                onSave={updateName}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-            <SceneTextarea
-                name="description"
-                defaultValue={issue.description ?? ''}
-                onSave={updateDescription}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
-            <IssueExternalReference />
-            {hasIssueSplitting && <IssueFingerprints />}
-            {hasTasks && <IssueTasks />}
-            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-        </div>
-    ) : null
 }
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
@@ -147,24 +75,46 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const hasRelatedIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
+    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const { openSidePanel } = useActions(sidePanelLogic)
 
     return issue ? (
-        <div className="flex flex-col gap-2">
-            <ScenePanelCommonActions>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
+        <div className="flex flex-col gap-2 @container">
+            <ScenePanelActionsSection>
+                <div className="grid grid-cols-2 gap-1">
+                    <ButtonPrimitive
+                        onClick={() => {
+                            if (!hasDiscussions) {
+                                posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                            }
+                            openSidePanel(SidePanelTab.Discussion)
+                        }}
+                        tooltip="Comment"
+                        menuItem
+                        className="justify-center"
+                    >
+                        <IconComment />
+                        <span className="hidden @[200px]:block">Comment</span>
+                    </ButtonPrimitive>
+
+                    <ButtonPrimitive
+                        onClick={() => {
                             void copyToClipboard(
                                 window.location.origin + urls.errorTrackingIssue(issue.id),
                                 'issue link'
                             )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
+                        }}
+                        tooltip="Share"
+                        data-attr={`${RESOURCE_TYPE}-share`}
+                        menuItem
+                        className="justify-center"
+                    >
+                        <IconShare />
+                        <span className="hidden @[200px]:block">Share</span>
+                    </ButtonPrimitive>
+                </div>
+            </ScenePanelActionsSection>
 
             <ScenePanelDivider />
 
@@ -191,7 +141,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasRelatedIssues && <RelatedIssues />}
+            {hasSimilarIssues && <SimilarIssues />}
         </div>
     ) : null
 }
@@ -281,60 +231,57 @@ const IssueExternalReference = (): JSX.Element => {
     )
 }
 
-const RelatedIssues = (): JSX.Element => {
-    const { issue, relatedIssues, relatedIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadRelatedIssues } = useActions(errorTrackingIssueSceneLogic)
-    const { mergeIssues } = useActions(issueActionsLogic)
+const SimilarIssues = (): JSX.Element => {
+    const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
+    const { mergeIssues } = useAsyncActions(issueActionsLogic)
     const [selectedIssue, setSelectedIssue] = useState<RelatedIssue | null>(null)
 
     useEffect(() => {
-        loadRelatedIssues()
-    }, [loadRelatedIssues])
+        loadSimilarIssues()
+    }, [loadSimilarIssues])
 
     const handleMerge = async (relatedIssueId: string): Promise<void> => {
         if (issue) {
             await mergeIssues([issue.id, relatedIssueId])
-            loadRelatedIssues()
+            loadSimilarIssues()
         }
     }
 
     return (
-        <ScenePanelLabel title="Related issues">
-            {relatedIssuesLoading ? (
+        <ScenePanelLabel title="Similar issues">
+            {similarIssuesLoading ? (
                 <Spinner />
-            ) : relatedIssues.length > 0 ? (
+            ) : similarIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {relatedIssues.map((relatedIssue: RelatedIssue) => {
-                        // const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
+                    {similarIssues.map((relatedIssue: RelatedIssue) => {
+                        const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
                         return (
                             <div
                                 key={relatedIssue.id}
-                                className="flex items-center justify-between p-2 border rounded hover:bg-gray-50"
+                                className="flex items-center justify-between px-2 py-1 border rounded bg-surface-primary"
                             >
                                 <div
-                                    className="flex-1 min-w-0 cursor-pointer"
+                                    className="flex flex-col gap-0.5 min-w-0 group flex-grow cursor-pointer"
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
-                                    <div className="flex items-center gap-2">
-                                        {/* <span className="shrink-0 text-gray-600">
-                                            <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
-                                        </span> */}
-                                        <div className="font-medium text-sm truncate text-link hover:underline">
-                                            {relatedIssue.title}
-                                        </div>
+                                    <div className="font-medium flex items-center gap-2 text-sm truncate group-hover:text-accent">
+                                        <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" className="shrink-0" />
+                                        {relatedIssue.title}
                                     </div>
                                     {relatedIssue.description && (
-                                        <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
+                                        <div className="text-xs text-secondary truncate">
+                                            {relatedIssue.description}
+                                        </div>
                                     )}
                                 </div>
                                 <ButtonPrimitive
-                                    size="xs"
-                                    variant="outline"
+                                    size="xxs"
                                     onClick={(e) => {
                                         e.preventDefault()
                                         handleMerge(relatedIssue.id)
                                     }}
-                                    className="ml-2 shrink-0"
+                                    className="shrink-0 px-2 py-3 h-full"
                                 >
                                     Merge
                                 </ButtonPrimitive>
@@ -343,7 +290,7 @@ const RelatedIssues = (): JSX.Element => {
                     })}
                 </div>
             ) : (
-                <div className="text-sm text-gray-500">No related issues found</div>
+                <div className="text-sm text-gray-500">No similar issues found</div>
             )}
 
             {/* Issue Detail Modal */}
@@ -361,16 +308,10 @@ const RelatedIssues = (): JSX.Element => {
 
 const IssueFingerprints = (): JSX.Element => {
     const { issue, issueFingerprints, issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssueFingerprints } = useActions(errorTrackingIssueSceneLogic)
-
-    useEffect(() => {
-        loadIssueFingerprints()
-    }, [loadIssueFingerprints])
-
     return (
         <ScenePanelLabel title="Fingerprints">
             <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
-                <ButtonPrimitive fullWidth>
+                <ButtonPrimitive fullWidth menuItem variant="panel">
                     {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
