@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 
 import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 
-import { AccessControlAction, getAccessControlDisabledReason, userHasAccess } from 'lib/components/AccessControlAction'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
@@ -20,6 +20,10 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    getAccessControlDisabledReason,
+    userHasAccess,
+} from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import {
     ScenePanel,
     ScenePanelActionsSection,

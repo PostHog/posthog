@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
 
+import { userHasAccess } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
