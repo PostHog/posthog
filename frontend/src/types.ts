@@ -4333,6 +4333,7 @@ export const INTEGRATION_KINDS = [
     'meta-ads',
     'clickup',
     'reddit-ads',
+    'databricks',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4966,8 +4967,23 @@ export type BatchExportServiceRedshift = {
     }
 }
 
+export type BatchExportServiceDatabricks = {
+    type: 'Databricks'
+    integration: number
+    config: {
+        http_path: string
+        catalog: string
+        schema: string
+        table_name: string
+        use_variant_type: boolean
+        table_partition_field: string | null
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 // When adding a new option here also add a icon for it to
-// src/scenes/pipeline/icons/
+// frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'S3',
@@ -4976,6 +4992,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'BigQuery',
     'Redshift',
     'HTTP',
+    'Databricks',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
@@ -4984,6 +5001,7 @@ export type BatchExportService =
     | BatchExportServiceBigQuery
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
+    | BatchExportServiceDatabricks
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
