@@ -503,6 +503,23 @@ async def eval_root(call_root, pytestconfig):
                     id="call_insight_default_props_2",
                 ),
             ),
+            # Ensure we try and navigate to the relevant page when asked about specific topics
+            EvalCase(
+                input="What's my MRR?",
+                expected=AssistantToolCall(
+                    name="navigate",
+                    args={"page_key": "revenueAnalytics"},
+                    id="call_navigate_1",
+                ),
+            ),
+            EvalCase(
+                input="Can you help me create a survey to collect NPS ratings?",
+                expected=AssistantToolCall(
+                    name="navigate",
+                    args={"page_key": "surveys"},
+                    id="call_navigate_1",
+                ),
+            ),
             EvalCase(
                 input="Give me the signup to purchase conversion rate for the dates between 8 Jul and 9 Sep",
                 expected=AssistantToolCall(

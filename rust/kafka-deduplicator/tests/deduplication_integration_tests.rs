@@ -136,10 +136,10 @@ async fn produce_duplicate_events_with_timestamp(
     for i in 0..count {
         let uuid = Uuid::new_v4();
 
-        // Create properties for the event
+        // Create properties for the event (same for all duplicates within a batch)
         let mut properties = HashMap::new();
-        properties.insert("index".to_string(), json!(i));
         properties.insert("duplicate_test".to_string(), json!(true));
+        properties.insert("batch_id".to_string(), json!(distinct_id)); // Same for all in batch
 
         // Create the CapturedEvent using our helper
         let captured_event =
@@ -319,6 +319,9 @@ async fn test_basic_deduplication() -> Result<()> {
     );
 
     // Should have only 2 unique events (one per distinct_id)
+    // 5 events for user_123 -> 1 unique + 4 duplicates (ConfirmedDuplicate with OnlyUuidDifferent)
+    // 3 events for user_456 -> 1 unique + 2 duplicates (ConfirmedDuplicate with OnlyUuidDifferent)
+    // Total: 2 unique events, 6 filtered duplicates
     assert_eq!(
         output_messages.len(),
         2,

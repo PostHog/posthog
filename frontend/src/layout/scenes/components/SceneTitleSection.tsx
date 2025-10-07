@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -36,7 +36,7 @@ function SceneTitlePanelButton(): JSX.Element | null {
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                     : setScenePanelOpen(!scenePanelOpen)
             }
-            icon={<IconEllipsis className="text-primary" />}
+            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
             tooltip={
                 !scenePanelOpen
                     ? 'Open Info & actions panel'
@@ -133,7 +133,10 @@ export function SceneTitleSection({
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
+
+    const effectiveDescription = description !== undefined ? description : sceneLayoutConfig?.description
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
@@ -196,10 +199,10 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {description !== null && (description || canEdit) && (
+                {effectiveDescription !== null && (effectiveDescription || canEdit) && (
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
                         <SceneDescription
-                            description={description}
+                            description={effectiveDescription}
                             markdown={markdown}
                             isLoading={isLoading}
                             onChange={onDescriptionChange}
