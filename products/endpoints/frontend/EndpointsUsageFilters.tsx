@@ -5,14 +5,13 @@ import { LemonButton, LemonInputSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
-// import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
-import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
+import { endpointsUsageLogic } from './endpointsUsageLogic'
 
-const embeddedAnalyticsDateMapping: DateMappingOption[] = [
+const endpointsUsageDateMapping: DateMappingOption[] = [
     {
         key: 'Last 24 hours',
         values: ['-24h'],
@@ -58,8 +57,8 @@ const embeddedAnalyticsDateMapping: DateMappingOption[] = [
 ]
 
 const RequestNameBreakdownToggle = ({ tabId }: { tabId: string }): JSX.Element => {
-    const { requestNameBreakdownEnabled } = useValues(embeddedAnalyticsLogic({ tabId }))
-    const { setRequestNameBreakdownEnabled } = useActions(embeddedAnalyticsLogic({ tabId }))
+    const { requestNameBreakdownEnabled } = useValues(endpointsUsageLogic({ tabId }))
+    const { setRequestNameBreakdownEnabled } = useActions(endpointsUsageLogic({ tabId }))
 
     return (
         <LemonButton
@@ -79,7 +78,7 @@ type RequestNameSelectProps = {
 }
 
 const RequestNameFilter = ({ value, onChange, tabId }: RequestNameSelectProps): JSX.Element => {
-    const { requestNames, requestNamesLoading } = useValues(embeddedAnalyticsLogic({ tabId }))
+    const { requestNames, requestNamesLoading } = useValues(endpointsUsageLogic({ tabId }))
 
     const options = requestNames.map((requestName: string) => ({
         key: requestName,
@@ -110,9 +109,9 @@ const RequestNameFilter = ({ value, onChange, tabId }: RequestNameSelectProps): 
     )
 }
 
-export const UsageFilters = ({ tabs, tabId }: { tabs?: JSX.Element; tabId: string }): JSX.Element => {
-    const { dateFilter, activeTab, requestNameFilter } = useValues(embeddedAnalyticsLogic({ tabId }))
-    const { setDates, setRequestNameFilter } = useActions(embeddedAnalyticsLogic({ tabId }))
+export const EndpointsUsageFilters = ({ tabs, tabId }: { tabs?: JSX.Element; tabId: string }): JSX.Element => {
+    const { dateFilter, activeTab, requestNameFilter } = useValues(endpointsUsageLogic({ tabId }))
+    const { setDates, setRequestNameFilter } = useActions(endpointsUsageLogic({ tabId }))
 
     return activeTab === 'usage' ? (
         <FilterBar
@@ -125,7 +124,7 @@ export const UsageFilters = ({ tabs, tabId }: { tabs?: JSX.Element; tabId: strin
                         dateTo={dateFilter.dateTo}
                         onChange={setDates}
                         forceGranularity="day"
-                        dateOptions={embeddedAnalyticsDateMapping}
+                        dateOptions={endpointsUsageDateMapping}
                     />
                     <RequestNameBreakdownToggle tabId={tabId} />
                     <RequestNameFilter value={requestNameFilter} onChange={setRequestNameFilter} tabId={tabId} />
