@@ -16,6 +16,7 @@ from posthog.temporal.delete_recordings.types import (
     RecordingInput,
     RecordingsWithPersonInput,
 )
+from posthog.temporal.delete_recordings.utils import batched
 
 
 @workflow.defn(name="delete-recording")
@@ -75,13 +76,14 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(seconds=10),
         )
 
-        async with asyncio.TaskGroup() as delete_recordings:
-            for session_id in session_ids:
-                delete_recordings.create_task(
-                    workflow.start_child_workflow(
-                        DeleteRecordingWorkflow.run,
-                        RecordingInput(session_id=session_id, team_id=input.team_id),
-                        parent_close_policy=ParentClosePolicy.ABANDON,
-                        execution_timeout=timedelta(minutes=10),
+        for batch in batched(session_ids, input.batch_size):
+            async with asyncio.TaskGroup() as delete_recordings:
+                for session_id in batch:
+                    delete_recordings.create_task(
+                        workflow.execute_child_workflow(
+                            DeleteRecordingWorkflow.run,
+                            RecordingInput(session_id=session_id, team_id=input.team_id),
+                            parent_close_policy=ParentClosePolicy.ABANDON,
+                            execution_timeout=timedelta(minutes=10),
+                        )
                     )
-                )
