@@ -46,7 +46,7 @@ const getCategoryDisplayName = (category: string): string => {
 }
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
-const convertToTreeDataItem = (item: NewTabTreeDataItem): NewTabTreeDataItem => {
+function convertToTreeDataItem(item: NewTabTreeDataItem): NewTabTreeDataItem {
     return {
         ...item,
         record: {
