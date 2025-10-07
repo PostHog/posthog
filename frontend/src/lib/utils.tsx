@@ -1016,6 +1016,13 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(1, 'week').startOf('week'), date.subtract(1, 'week').endOf('week')),
+        defaultInterval: 'day',
+    },
+    {
         key: 'Year to date',
         values: ['yStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
