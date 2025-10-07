@@ -53,7 +53,6 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         }),
         ...(service === 'Databricks' && {
             use_variant_type: true,
-            use_automatic_schema_evolution: true,
         }),
     }
 }
@@ -827,7 +826,6 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         'schema',
                         'table_name',
                         'use_variant_type',
-                        'use_automatic_schema_evolution',
                     ]
                 }
                 return generalRequiredFields

@@ -588,38 +588,6 @@ export function BatchExportsEditFields({
                                 )}
                             </LemonField>
                         ) : null}
-
-                        <LemonField name="use_automatic_schema_evolution">
-                            {({ value, onChange }) => (
-                                <LemonCheckbox
-                                    checked={!!value}
-                                    onChange={onChange}
-                                    bordered
-                                    label={
-                                        <span className="flex gap-2 items-center">
-                                            Use automatic schema evolution
-                                            <Tooltip
-                                                title={
-                                                    <>
-                                                        If enabled, the schema of the target table will be updated if
-                                                        new fields are added in future. Refer to the{' '}
-                                                        <Link
-                                                            to="https://docs.databricks.com/aws/en/delta/update-schema#automatic-schema-evolution-for-delta-lake-merge"
-                                                            target="_blank"
-                                                        >
-                                                            Databricks documentation
-                                                        </Link>{' '}
-                                                        for more information.
-                                                    </>
-                                                }
-                                            >
-                                                <IconInfo className="text-lg text-secondary" />
-                                            </Tooltip>
-                                        </span>
-                                    }
-                                />
-                            )}
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'HTTP' ? (
                     <>
