@@ -1,25 +1,25 @@
-import { ProjectSetActiveSchema } from "@/schema/tool-inputs";
-import type { Context, ToolBase } from "@/tools/types";
-import type { z } from "zod";
+import { ProjectSetActiveSchema } from '@/schema/tool-inputs'
+import type { Context, ToolBase } from '@/tools/types'
+import type { z } from 'zod'
 
-const schema = ProjectSetActiveSchema;
+const schema = ProjectSetActiveSchema
 
-type Params = z.infer<typeof schema>;
+type Params = z.infer<typeof schema>
 
 export const setActiveHandler = async (context: Context, params: Params) => {
-	const { projectId } = params;
+    const { projectId } = params
 
-	await context.cache.set("projectId", projectId.toString());
+    await context.cache.set('projectId', projectId.toString())
 
-	return {
-		content: [{ type: "text", text: `Switched to project ${projectId}` }],
-	};
-};
+    return {
+        content: [{ type: 'text', text: `Switched to project ${projectId}` }],
+    }
+}
 
 const tool = (): ToolBase<typeof schema> => ({
-	name: "switch-project",
-	schema,
-	handler: setActiveHandler,
-});
+    name: 'switch-project',
+    schema,
+    handler: setActiveHandler,
+})
 
-export default tool;
+export default tool

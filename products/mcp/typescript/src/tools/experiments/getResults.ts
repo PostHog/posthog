@@ -1,11 +1,11 @@
-import { ExperimentResultsResponseSchema } from "@/schema/experiments";
-import { ExperimentResultsGetSchema } from "@/schema/tool-inputs";
-import type { Context, ToolBase } from "@/tools/types";
-import type { z } from "zod";
+import { ExperimentResultsResponseSchema } from '@/schema/experiments'
+import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
+import type { Context, ToolBase } from '@/tools/types'
+import type { z } from 'zod'
 
-const schema = ExperimentResultsGetSchema;
+const schema = ExperimentResultsGetSchema
 
-type Params = z.infer<typeof schema>;
+type Params = z.infer<typeof schema>
 
 /**
  * Get experiment results including metrics and exposures data
@@ -13,41 +13,41 @@ type Params = z.infer<typeof schema>;
  * to get metrics results (both primary and secondary) and exposure data
  */
 export const getResultsHandler = async (context: Context, params: Params) => {
-	const projectId = await context.stateManager.getProjectId();
+    const projectId = await context.stateManager.getProjectId()
 
-	const result = await context.api.experiments({ projectId }).getMetricResults({
-		experimentId: params.experimentId,
-		refresh: params.refresh,
-	});
+    const result = await context.api.experiments({ projectId }).getMetricResults({
+        experimentId: params.experimentId,
+        refresh: params.refresh,
+    })
 
-	if (!result.success) {
-		throw new Error(`Failed to get experiment results: ${result.error.message}`);
-	}
+    if (!result.success) {
+        throw new Error(`Failed to get experiment results: ${result.error.message}`)
+    }
 
-	const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data;
+    const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
 
-	// Format the response using the schema
-	const parsedExperiment = ExperimentResultsResponseSchema.parse({
-		experiment,
-		primaryMetricsResults,
-		secondaryMetricsResults,
-		exposures,
-	});
+    // Format the response using the schema
+    const parsedExperiment = ExperimentResultsResponseSchema.parse({
+        experiment,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        exposures,
+    })
 
-	return {
-		content: [
-			{
-				type: "text",
-				text: JSON.stringify(parsedExperiment, null, 2),
-			},
-		],
-	};
-};
+    return {
+        content: [
+            {
+                type: 'text',
+                text: JSON.stringify(parsedExperiment, null, 2),
+            },
+        ],
+    }
+}
 
 const tool = (): ToolBase<typeof schema> => ({
-	name: "experiment-results-get",
-	schema,
-	handler: getResultsHandler,
-});
+    name: 'experiment-results-get',
+    schema,
+    handler: getResultsHandler,
+})
 
-export default tool;
+export default tool

@@ -1,1 +1,1 @@
-export type AnalyticsEvent = "mcp tool call" | "mcp tool response";
+export type AnalyticsEvent = 'mcp tool call' | 'mcp tool response'

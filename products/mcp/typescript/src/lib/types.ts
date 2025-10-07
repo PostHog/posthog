@@ -1,1 +1,1 @@
-type PrefixedString<T extends string> = `${T}:${string}`;
+type PrefixedString<T extends string> = `${T}:${string}`
