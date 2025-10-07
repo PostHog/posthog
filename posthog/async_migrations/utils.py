@@ -20,17 +20,11 @@ from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
-from posthog.settings import (
-    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
-    CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION,
-    CLICKHOUSE_CLUSTER,
-    TEST,
-)
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
 
-SLEEP_TIME_SECONDS = 20 if not TEST else 1
+SLEEP_TIME_SECONDS = 20 if not settings.TEST else 1
 
 
 def send_analytics_to_posthog(event, data):
@@ -55,7 +49,7 @@ def execute_op_clickhouse(
     args=None,
     *,
     query_id: str,
-    timeout_seconds: int = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+    timeout_seconds: int = settings.settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     settings=None,
     # If True, query is run on each shard.
     per_shard=False,
@@ -85,10 +79,10 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
     Note that the shard selection is stable - subsequent queries are guaranteed to hit the same shards!
     """
 
-    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+    if settings.CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         sql = sql.format(on_cluster_clause="")
     else:
-        sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+        sql = sql.format(on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'")
 
     async def run_on_all_shards():
         tasks = []
@@ -108,7 +102,7 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
 def _get_all_shard_connections():
     from posthog.clickhouse.client.connection import ch_pool as default_ch_pool
 
-    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+    if settings.CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         rows = sync_execute(
             """
             SELECT shard_num, min(host_name) as host_name
@@ -117,7 +111,7 @@ def _get_all_shard_connections():
             GROUP BY shard_num
             ORDER BY shard_num
             """,
-            {"cluster": CLICKHOUSE_CLUSTER},
+            {"cluster": settings.CLICKHOUSE_CLUSTER},
         )
         for shard, host in rows:
             ch_pool = make_ch_pool(host=host)
@@ -143,7 +137,7 @@ def _get_number_running_on_cluster(query_pattern: str) -> int:
         FROM clusterAllReplicas(%(cluster)s, system, 'processes')
         WHERE query LIKE %(query_pattern)s AND query NOT LIKE '%%clusterAllReplicas%%'
         """,
-        {"cluster": CLICKHOUSE_CLUSTER, "query_pattern": query_pattern},
+        {"cluster": settings.CLICKHOUSE_CLUSTER, "query_pattern": query_pattern},
     )[0][0]
 
 
@@ -170,7 +164,7 @@ def run_optimize_table(
     Note that this handles process restarts gracefully: If the query is still running on the cluster,
     we'll wait for that to complete first.
     """
-    if not TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
+    if not settings.TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
         sleep_until_finished(
             unique_name,
             lambda: _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0,
@@ -181,13 +175,13 @@ def run_optimize_table(
         sql = f"OPTIMIZE TABLE {table_name} {{on_cluster_clause}} {final_clause} {deduplicate_clause}"
 
         if not per_shard:
-            sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+            sql = sql.format(on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'")
 
         execute_op_clickhouse(
             sql,
             query_id=f"optimize:{unique_name}/{query_id}",
             settings={
-                "max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+                "max_execution_time": settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
                 "mutations_sync": 2,
             },
             per_shard=per_shard,

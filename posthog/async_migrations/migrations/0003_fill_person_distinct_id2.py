@@ -1,9 +1,14 @@
 from functools import cached_property
 
+from django.conf import settings
+
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_DATABASE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 """
 Migration summary:
@@ -44,7 +49,7 @@ class Migration(AsyncMigrationDefinition):
             FROM system.columns
             WHERE database = %(database)s
         """,
-            {"database": CLICKHOUSE_DATABASE},
+            {"database": settings.CLICKHOUSE_DATABASE},
         )
 
         comments = [row[0] for row in rows]

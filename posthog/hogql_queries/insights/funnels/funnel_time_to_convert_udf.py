@@ -57,7 +57,7 @@ class FunnelTimeToConvertUDF(FunnelBase):
 
         if not (0 < to_step < len(query.series)):
             raise ValidationError(
-                f'Filter parameter {FUNNEL_TO_STEP} can only be one of {", ".join(map(str, range(1, len(query.series))))} for time to convert!'
+                f"Filter parameter {FUNNEL_TO_STEP} can only be one of {', '.join(map(str, range(1, len(query.series))))} for time to convert!"
             )
 
         inner_select = self.funnel_order._inner_aggregation_query()
@@ -65,7 +65,7 @@ class FunnelTimeToConvertUDF(FunnelBase):
         timings = parse_select(
             f"""
             SELECT
-                groupArray(arraySum(arraySlice(timings, {from_step+1}, {to_step - from_step}))) as timings,
+                groupArray(arraySum(arraySlice(timings, {from_step + 1}, {to_step - from_step}))) as timings,
                 {bin_count_expression} as bin_count,
                 floor(arrayMin(timings)) as min_timing,
                 ceil(arrayMax(timings)) as max_timing,

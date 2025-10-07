@@ -2,10 +2,15 @@ import json
 from time import sleep
 from typing import Optional
 
+from django.conf import settings
+
 import structlog
 from prometheus_client import Counter, Histogram
 
-from posthog import settings
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 

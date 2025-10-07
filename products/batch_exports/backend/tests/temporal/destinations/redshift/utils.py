@@ -212,9 +212,9 @@ async def assert_clickhouse_records_in_redshift(
     inserted_records.sort(key=operator.itemgetter(sort_key))
     expected_records.sort(key=operator.itemgetter(sort_key))
 
-    assert (
-        inserted_column_names == expected_column_names
-    ), f"Expected column names to be '{expected_column_names}', got '{inserted_column_names}'"
+    assert inserted_column_names == expected_column_names, (
+        f"Expected column names to be '{expected_column_names}', got '{inserted_column_names}'"
+    )
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
     assert len(inserted_records) == len(expected_records)

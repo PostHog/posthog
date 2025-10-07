@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -7,7 +8,10 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import User
-from posthog.settings import SITE_URL
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from ee.models.license import License
 
@@ -64,7 +68,7 @@ def send_license_usage():
                 },
                 groups={
                     "organization": str(user.current_organization.id),  # type: ignore
-                    "instance": SITE_URL,
+                    "instance": settings.SITE_URL,
                 },
             )
             response.raise_for_status()
@@ -81,7 +85,7 @@ def send_license_usage():
                 },
                 groups={
                     "organization": str(user.current_organization.id),  # type: ignore
-                    "instance": SITE_URL,
+                    "instance": settings.SITE_URL,
                 },
             )
     except Exception as err:
@@ -96,7 +100,7 @@ def send_license_usage():
                 },
                 groups={
                     "organization": str(user.current_organization.id),  # type: ignore
-                    "instance": SITE_URL,
+                    "instance": settings.SITE_URL,
                 },
             )
             raise err

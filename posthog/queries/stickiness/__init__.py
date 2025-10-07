@@ -1,6 +1,6 @@
-from posthog.settings import EE_AVAILABLE
+from django.conf import settings
 
-if EE_AVAILABLE:
+if settings.EE_AVAILABLE:
     from ee.clickhouse.queries.stickiness import (
         ClickhouseStickiness as Stickiness,
         ClickhouseStickinessActors as StickinessActors,

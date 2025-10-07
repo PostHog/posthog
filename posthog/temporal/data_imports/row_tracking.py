@@ -11,7 +11,6 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
 from posthog.redis import get_client
-from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.models import ExternalDataJob
 
 
@@ -104,7 +103,7 @@ def get_all_rows_for_team(team_id: int) -> int:
 
 
 def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
-    if not EE_AVAILABLE:
+    if not settings.EE_AVAILABLE:
         return False
 
     try:

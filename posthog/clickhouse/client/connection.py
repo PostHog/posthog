@@ -15,7 +15,6 @@ from clickhouse_connect.driver import (
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
-from posthog.settings import data_stores
 from posthog.utils import patchable
 
 
@@ -70,7 +69,7 @@ __user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None
 
 def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
     user_dict = {
-        ClickHouseUser.DEFAULT: (data_stores.CLICKHOUSE_USER, data_stores.CLICKHOUSE_PASSWORD),
+        ClickHouseUser.DEFAULT: (settings.data_stores.CLICKHOUSE_USER, settings.data_stores.CLICKHOUSE_PASSWORD),
     }
     for u in ClickHouseUser:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")

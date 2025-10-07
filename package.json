@@ -90,6 +90,7 @@
         ],
         "funnel-udf/**/*.rs": "rustfmt",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
+            "python3 bin/check_settings_imports.py --fix",
             "./bin/ruff.sh check --fix",
             "./bin/ruff.sh format"
         ],

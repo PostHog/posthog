@@ -23,7 +23,6 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
-from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -382,7 +381,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if team_id is None:
             team_id = self.team_id
 
-        if TEST:
+        if settings.TEST:
             from posthog.test.base import flush_persons_and_events
 
             # Make sure persons are created in tests before running this
@@ -438,7 +437,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if team_id is None:
             team_id = self.team_id
 
-        if TEST:
+        if settings.TEST:
             from posthog.test.base import flush_persons_and_events
 
             # Make sure persons are created in tests before running this

@@ -378,17 +378,17 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert (
-                self.time_frame is None
-            ), "A `day` is forbidden for trends actors queries with total value aggregation"
+            assert self.time_frame is None, (
+                "A `day` is forbidden for trends actors queries with total value aggregation"
+            )
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert (
-                self.time_frame is not None
-            ), "A `day` is required for trends actors queries without total value aggregation"
+            assert self.time_frame is not None, (
+                "A `day` is required for trends actors queries without total value aggregation"
+            )
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:

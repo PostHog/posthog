@@ -66,7 +66,6 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
-from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
@@ -1473,7 +1472,7 @@ class SessionRecordingViewSet(
         client = get_openai_client()
 
         completion = client.beta.chat.completions.parse(
-            model=SESSION_REPLAY_AI_REGEX_MODEL,
+            model=settings.SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
             # need to type ignore before, this will be a WrappedParse

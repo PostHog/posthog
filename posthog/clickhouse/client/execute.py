@@ -27,7 +27,6 @@ from posthog.clickhouse.query_tagging import AccessMethod, Feature, QueryTags, g
 from posthog.cloud_utils import is_cloud
 from posthog.errors import ch_error_type, wrap_query_error
 from posthog.exceptions import ClickHouseAtCapacity
-from posthog.settings import API_QUERIES_ON_ONLINE_CLUSTER, CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
@@ -126,7 +125,7 @@ def sync_execute(
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
         logging.warning(f"workload is None", traceback.format_stack())
-    if TEST and flush:
+    if settings.TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
 
@@ -153,7 +152,7 @@ def sync_execute(
         and workload == Workload.OFFLINE
         and tags.chargeable
         and is_cloud()
-        and team_id in API_QUERIES_ON_ONLINE_CLUSTER
+        and team_id in settings.API_QUERIES_ON_ONLINE_CLUSTER
     ):
         workload = Workload.ONLINE
 
@@ -169,7 +168,7 @@ def sync_execute(
     query_id = validated_client_query_id()
     core_settings = {
         **default_settings(),
-        **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
+        **settings.CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
     }
     tags.query_settings = core_settings

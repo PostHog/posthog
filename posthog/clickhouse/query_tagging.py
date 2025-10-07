@@ -186,17 +186,17 @@ query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")
 @cached(cache={})
 def __get_constant_tags() -> dict[str, str]:
     # import locally to avoid circular imports
-    from posthog.settings import CONTAINER_HOSTNAME, OTEL_SERVICE_NAME, TEST
+    from django.conf import settings
 
-    if TEST:
+    if settings.TEST:
         return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}
 
     from posthog.git import get_git_commit_short
 
     return {
         "git_commit": get_git_commit_short() or "",
-        "container_hostname": CONTAINER_HOSTNAME,
-        "service_name": OTEL_SERVICE_NAME or "",
+        "container_hostname": settings.CONTAINER_HOSTNAME,
+        "service_name": settings.OTEL_SERVICE_NAME or "",
     }
 
 

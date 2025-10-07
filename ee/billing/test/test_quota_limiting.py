@@ -1213,12 +1213,12 @@ class TestQuotaLimiting(BaseTest):
                 quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
 
                 # Should get at least 2-day grace period, or more if trust score allows
-                assert (
-                    quota_limited_orgs["feature_flag_requests"] == {}
-                ), f"Trust score {trust_score} should not immediately limit"
-                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {
-                    org_id: expected_timestamp
-                }, f"Trust score {trust_score} should get appropriate grace period"
+                assert quota_limited_orgs["feature_flag_requests"] == {}, (
+                    f"Trust score {trust_score} should not immediately limit"
+                )
+                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {org_id: expected_timestamp}, (
+                    f"Trust score {trust_score} should get appropriate grace period"
+                )
                 assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                     f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1
                 )

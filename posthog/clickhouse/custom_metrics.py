@@ -2,7 +2,11 @@ from collections.abc import Mapping
 from concurrent.futures import Future
 from dataclasses import dataclass
 
-from posthog import settings
+from django.conf import settings
+<<<<<<< Updated upstream
+
+=======
+>>>>>>> Stashed changes
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
@@ -92,7 +96,7 @@ CREATE TABLE IF NOT EXISTS custom_metrics_counter_events (
     timestamp DateTime64(3, 'UTC') DEFAULT now(),
     labels Map(String, String),
     increment Float64
-) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
+) ENGINE = {MergeTreeEngine("metrics_counter_events", replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (name, timestamp)
 PARTITION BY toYYYYMM(timestamp)
 """

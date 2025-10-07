@@ -136,10 +136,10 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                {get_start_of_interval_sql(self._filter.interval, team=self._team, source='%(formatted_date_from)s')} + {interval_func}(number) AS entrance_period_start
-                    {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers(dateDiff(%(interval)s, {get_start_of_interval_sql(self._filter.interval, team=self._team, source='%(formatted_date_from)s')}, {get_start_of_interval_sql(self._filter.interval, team=self._team, source='%(formatted_date_to)s')}) + 1) AS period_offsets
-                {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
+                {get_start_of_interval_sql(self._filter.interval, team=self._team, source="%(formatted_date_from)s")} + {interval_func}(number) AS entrance_period_start
+                    {", breakdown_value as prop" if breakdown_clause else ""}
+                FROM numbers(dateDiff(%(interval)s, {get_start_of_interval_sql(self._filter.interval, team=self._team, source="%(formatted_date_from)s")}, {get_start_of_interval_sql(self._filter.interval, team=self._team, source="%(formatted_date_to)s")}) + 1) AS period_offsets
+                {"ARRAY JOIN (%(breakdown_values)s) AS breakdown_value" if breakdown_clause else ""}
             ) fill
             USING (entrance_period_start {breakdown_clause})
             ORDER BY entrance_period_start ASC
@@ -154,11 +154,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         to_step = self._filter.funnel_to_step or len(self._filter.entities) - 1
 
         # Those who converted OR dropped off
-        reached_from_step_count_condition = f"steps_completed >= {from_step+1}"
+        reached_from_step_count_condition = f"steps_completed >= {from_step + 1}"
         # Those who converted
-        reached_to_step_count_condition = f"steps_completed >= {to_step+1}"
+        reached_to_step_count_condition = f"steps_completed >= {to_step + 1}"
         # Those who dropped off
-        did_not_reach_to_step_count_condition = f"{reached_from_step_count_condition} AND steps_completed < {to_step+1}"
+        did_not_reach_to_step_count_condition = (
+            f"{reached_from_step_count_condition} AND steps_completed < {to_step + 1}"
+        )
         return (
             reached_from_step_count_condition,
             reached_to_step_count_condition,

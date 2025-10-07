@@ -37,7 +37,6 @@ from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 
 from .auth import PersonalAPIKeyAuthentication
@@ -154,7 +153,7 @@ class AutoProjectMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.token_allowlist = PROJECT_SWITCHING_TOKEN_ALLOWLIST
+        self.token_allowlist = settings.PROJECT_SWITCHING_TOKEN_ALLOWLIST
 
     def __call__(self, request: HttpRequest):
         if request.user.is_authenticated:
@@ -526,7 +525,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
 
             response.set_cookie(
                 key="ph_current_instance",
-                value=SITE_URL,
+                value=settings.SITE_URL,
                 max_age=365 * 24 * 60 * 60,
                 expires=default_cookie_options["expires"],
                 path=default_cookie_options["path"],

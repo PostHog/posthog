@@ -22,7 +22,6 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
-from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
@@ -368,7 +367,7 @@ def clickhouse_errors_count() -> None:
         order by minutes_ago
     """
     params = {
-        "cluster": CLICKHOUSE_CLUSTER,
+        "cluster": settings.CLICKHOUSE_CLUSTER,
     }
     rows = sync_execute(QUERY, params)
     with pushed_metrics_registry("celery_clickhouse_errors") as registry:
@@ -921,9 +920,7 @@ def background_delete_model_task(
 
             time.sleep(0.2)  # Sleep to avoid overwhelming the database
 
-        logger.info(
-            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
-        )
+        logger.info(f"Completed background deletion for {model_name}, team_id={team_id}, total_deleted={deleted_count}")
 
     except Exception as e:
         logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)

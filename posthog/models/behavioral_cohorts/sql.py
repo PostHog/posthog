@@ -1,6 +1,6 @@
 from posthog.clickhouse.kafka_engine import kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
-from posthog.settings import CLICKHOUSE_CLUSTER
+from django.conf import settings
 
 BEHAVIORAL_COHORTS_MATCHES_TABLE = "behavioral_cohorts_matches"
 BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE = f"writable_{BEHAVIORAL_COHORTS_MATCHES_TABLE}"
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
         table_name=table_name,
         engine=Distributed(
             data_table=BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE,
-            cluster=CLICKHOUSE_CLUSTER,
+            cluster=settings.CLICKHOUSE_CLUSTER,
             sharding_key="sipHash64(person_id)",
         ),
     )

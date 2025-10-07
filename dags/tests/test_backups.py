@@ -7,12 +7,17 @@ from uuid import UUID
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 import boto3
 import dagster
 from clickhouse_driver import Client
 from dagster_aws.s3 import S3Resource
 
-from posthog import settings
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 

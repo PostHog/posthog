@@ -249,14 +249,10 @@ class TestSessionSummarizationNode(BaseTest):
         session_ids = ["session-1"]
         mock_find_timestamps.return_value = (1000, 2000)
 
-        async def async_gen() -> (
-            AsyncGenerator[
-                tuple[
-                    SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict
-                ],
-                None,
-            ]
-        ):
+        async def async_gen() -> AsyncGenerator[
+            tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict],
+            None,
+        ]:
             yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing...")
             # No summary yielded - simulates error condition
 

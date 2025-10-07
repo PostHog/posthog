@@ -4,7 +4,6 @@ from django.conf import settings
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 from posthog.warehouse.s3 import get_s3_client
 
@@ -44,9 +43,9 @@ def prepare_s3_files_for_querying(
 
 
 def is_posthog_team(team_id: int) -> bool:
-    DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
+    DEBUG: bool = settings.get_from_env("DEBUG", False, type_cast=str_to_bool)
     if DEBUG:
         return True
 
-    region = get_from_env("CLOUD_DEPLOYMENT", optional=True)
+    region = settings.get_from_env("CLOUD_DEPLOYMENT", optional=True)
     return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)

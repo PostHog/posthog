@@ -8,7 +8,6 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportInsertInputs
-from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
@@ -66,7 +65,7 @@ async def execute_batch_export_using_internal_stage(
         team_id=inputs.team_id,
     )
 
-    if TEST:
+    if settings.TEST:
         maximum_attempts = 1
 
     if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):

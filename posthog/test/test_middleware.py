@@ -16,7 +16,6 @@ from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.settings import SITE_URL
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -414,7 +413,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
 
         ph_instance_cookie = response.cookies["ph_current_instance"]
         self.assertEqual(ph_instance_cookie.key, "ph_current_instance")
-        self.assertEqual(ph_instance_cookie.value, SITE_URL)
+        self.assertEqual(ph_instance_cookie.value, settings.SITE_URL)
         self.assertEqual(ph_instance_cookie["path"], "/")
         self.assertEqual(ph_instance_cookie["samesite"], "Strict")
         self.assertEqual(ph_instance_cookie["httponly"], "")
@@ -437,7 +436,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_project_name"]["max-age"], 31536000)
 
         self.assertEqual(response.cookies["ph_current_instance"].key, "ph_current_instance")
-        self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
+        self.assertEqual(response.cookies["ph_current_instance"].value, settings.SITE_URL)
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
 
         response = self.client.get("/logout")

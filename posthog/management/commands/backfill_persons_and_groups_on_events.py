@@ -15,8 +15,6 @@ from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.settings.data_stores import CLICKHOUSE_PASSWORD
 
 """
 WARNING: This script is in Alpha! Make sure you know what you're doing before running it with --live-run set.
@@ -52,11 +50,11 @@ GROUPS_DICT_TABLE_NAME = f"{GROUPS_TABLE}_dict"
 PERSONS_DICT_TABLE_NAME = f"{PERSONS_TABLE}_dict"
 PERSON_DISTINCT_IDS_DICT_TABLE_NAME = f"{PERSON_DISTINCT_ID2_TABLE}_dict"
 
-ACCESS_CONFIG = f"DB '{CLICKHOUSE_DATABASE}' USER 'default' PASSWORD '{CLICKHOUSE_PASSWORD}'"
+ACCESS_CONFIG = f"DB '{settings.CLICKHOUSE_DATABASE}' USER 'default' PASSWORD '{settings.CLICKHOUSE_PASSWORD}'"
 
 GROUPS_DICTIONARY_SQL = f"""
 CREATE DICTIONARY IF NOT EXISTS {GROUPS_DICT_TABLE_NAME}
-ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     group_key String,
     group_properties String
@@ -70,7 +68,7 @@ Lifetime(60000)
 
 PERSON_DISTINCT_IDS_DICTIONARY_SQL = f"""
 CREATE DICTIONARY IF NOT EXISTS {PERSON_DISTINCT_IDS_DICT_TABLE_NAME}
-ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     distinct_id String,
     person_id UUID
@@ -82,7 +80,7 @@ LAYOUT(complex_key_direct())
 
 PERSONS_DICTIONARY_SQL = f"""
 CREATE DICTIONARY IF NOT EXISTS {PERSONS_DICT_TABLE_NAME}
-ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     id UUID,
     properties String
@@ -96,15 +94,15 @@ backfill_settings = "SETTINGS mutations_sync = 2" if settings.TEST else ""
 
 BACKFILL_SQL = f"""
 ALTER TABLE {EVENTS_DATA_TABLE()}
-ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 UPDATE
-    person_id=toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', tuple(distinct_id))),
-    person_properties=dictGetString('{CLICKHOUSE_DATABASE}.{PERSONS_DICT_TABLE_NAME}', 'properties', tuple(toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', tuple(distinct_id))))),
-    group0_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_0)),
-    group1_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_1)),
-    group2_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_2)),
-    group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_3)),
-    group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_4))
+    person_id=toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', tuple(distinct_id))),
+    person_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.{PERSONS_DICT_TABLE_NAME}', 'properties', tuple(toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', tuple(distinct_id))))),
+    group0_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_0)),
+    group1_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_1)),
+    group2_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_2)),
+    group3_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_3)),
+    group4_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_4))
 WHERE team_id = %(team_id)s
 {backfill_settings}
 """
@@ -181,7 +179,7 @@ def run_backfill(options):
         query_id = query_id_res[0][0]
         print()
         print(
-            f"Backfill running. Cancel backfill by running:\n`KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id='{query_id}'`"
+            f"Backfill running. Cancel backfill by running:\n`KILL QUERY ON CLUSTER {settings.CLICKHOUSE_CLUSTER} WHERE query_id='{query_id}'`"
         )
 
 

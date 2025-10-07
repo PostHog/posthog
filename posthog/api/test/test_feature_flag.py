@@ -5512,9 +5512,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(flag_id), type="feature_flag").first()
         assert fs_entry, "No FileSystem entry found for this feature flag."
-        assert (
-            "Special Folder/Flags" in fs_entry.path
-        ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
+        assert "Special Folder/Flags" in fs_entry.path, (
+            f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_updates_super_groups(self, mock_capture):

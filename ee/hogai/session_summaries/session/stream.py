@@ -1,7 +1,12 @@
 from collections.abc import Generator
 
+from django.conf import settings
+
 from posthog.models.team.team import Team
-from posthog.settings import SERVER_GATEWAY_INTERFACE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
@@ -15,7 +20,7 @@ def stream_recording_summary(
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
 ) -> SyncIterableToAsync | Generator[str, None, None]:
-    if SERVER_GATEWAY_INTERFACE == "ASGI":
+    if settings.SERVER_GATEWAY_INTERFACE == "ASGI":
         return _astream(
             session_id=session_id,
             user_id=user_id,

@@ -149,7 +149,7 @@ def mssql_source_table(
                     SELECT *
                     FROM sys.tables t
                     JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE s.name = '{mssql_config['schema']}'
+                    WHERE s.name = '{mssql_config["schema"]}'
                     AND t.name = '{MSSQL_TABLE_NAME}'
                 )
                 BEGIN
@@ -518,7 +518,7 @@ class TestGetTableAverageRowSize:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = '{MSSQL_TABLE_NAME}'
                     )
                     BEGIN
@@ -594,7 +594,7 @@ class TestGetTableStats:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = 'test_small'
                     )
                     BEGIN
@@ -645,7 +645,7 @@ class TestGetTableStats:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = 'test_empty'
                     )
                     BEGIN

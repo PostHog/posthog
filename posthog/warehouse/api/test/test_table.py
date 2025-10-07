@@ -3,10 +3,15 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
+
 import boto3
 from clickhouse_driver.errors import ServerException
 
-from posthog.settings import settings
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
@@ -391,7 +396,7 @@ class TestTable(APIBaseTest):
                 "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             }
 
-            with self.settings(
+            with self.settings.settings(
                 AIRBYTE_BUCKET_KEY="test_key",
                 AIRBYTE_BUCKET_SECRET="test_secret",
                 AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
@@ -478,7 +483,7 @@ class TestTable(APIBaseTest):
                 "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             }
 
-            with self.settings(
+            with self.settings.settings(
                 AIRBYTE_BUCKET_KEY="test_key",
                 AIRBYTE_BUCKET_SECRET="test_secret",
                 AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
@@ -529,7 +534,11 @@ class TestTable(APIBaseTest):
         # Setup real S3 client
         s3_client = boto3.client(
             "s3",
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+<<<<<<< Updated upstream
+            endpoint_url=settings.settings.OBJECT_STORAGE_ENDPOINT,
+=======
+            endpoint_url=settings.settings.settings.OBJECT_STORAGE_ENDPOINT,
+>>>>>>> Stashed changes
             aws_access_key_id="object_storage_root_user",
             aws_secret_access_key="object_storage_root_password",
             region_name="us-east-1",
@@ -551,7 +560,7 @@ class TestTable(APIBaseTest):
                 "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
             }
             # Patch the settings to use our test bucket
-            with self.settings(
+            with self.settings.settings(
                 AIRBYTE_BUCKET_KEY="object_storage_root_user",
                 AIRBYTE_BUCKET_SECRET="object_storage_root_password",
                 AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",

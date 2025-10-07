@@ -1064,7 +1064,7 @@ class TestSignupAPI(APIBaseTest):
             )
 
             if i < 5:
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i+1} should succeed")
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
                 # Clean up the created org and user to allow next signup
                 Organization.objects.filter(for_internal_metrics=False).delete()
                 User.objects.filter(email=f"user{i}@example.com").delete()

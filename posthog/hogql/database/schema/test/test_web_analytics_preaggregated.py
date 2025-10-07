@@ -112,9 +112,9 @@ class TestWebAnalyticsPreAggregatedSchema:
             ]
         )
 
-        assert (
-            len(SHARED_SCHEMA_FIELDS) == expected_field_count
-        ), f"SHARED_SCHEMA_FIELDS has {len(SHARED_SCHEMA_FIELDS)} fields, expected {expected_field_count}"
+        assert len(SHARED_SCHEMA_FIELDS) == expected_field_count, (
+            f"SHARED_SCHEMA_FIELDS has {len(SHARED_SCHEMA_FIELDS)} fields, expected {expected_field_count}"
+        )
 
         # Ensure custom metadata fields are present
         assert "mat_metadata_loggedIn" in SHARED_SCHEMA_FIELDS
@@ -129,6 +129,6 @@ class TestWebAnalyticsPreAggregatedSchema:
 
         for group_name, field_names in field_groups.items():
             for field_name in field_names:
-                assert (
-                    field_name in SHARED_SCHEMA_FIELDS
-                ), f"{group_name.title()} field '{field_name}' missing from SHARED_SCHEMA_FIELDS"
+                assert field_name in SHARED_SCHEMA_FIELDS, (
+                    f"{group_name.title()} field '{field_name}' missing from SHARED_SCHEMA_FIELDS"
+                )

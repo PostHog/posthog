@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from clickhouse_driver import Client
@@ -22,7 +23,10 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_DATABASE, TEST
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +83,7 @@ class MaterializedColumn:
                     AND comment LIKE '%%column_materializer::%%'
                     AND comment not LIKE '%%column_materializer::elements_chain::%%'
             """,
-                {"database": CLICKHOUSE_DATABASE, "table": table},
+                {"database": settings.CLICKHOUSE_DATABASE, "table": table},
                 ch_user=ClickHouseUser.HOGQL,
             )
 
@@ -209,7 +213,7 @@ class CreateColumnOnDataNodesTask:
         client.execute(
             f"ALTER TABLE {self.table} " + ", ".join(actions),
             parameters,
-            settings={"alter_sync": 2 if TEST else 1},
+            settings={"alter_sync": 2 if settings.TEST else 1},
         )
 
 
@@ -226,7 +230,7 @@ class CreateColumnOnQueryNodesTask:
                 COMMENT COLUMN {self.column.name} %(comment)s
             """,
             {"comment": self.column.details.as_column_comment()},
-            settings={"alter_sync": 2 if TEST else 1},
+            settings={"alter_sync": 2 if settings.TEST else 1},
         )
 
 
@@ -235,11 +239,11 @@ def materialize(
     property: PropertyName,
     column_name: ColumnName | None = None,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
-    create_minmax_index=not TEST,
+    create_minmax_index=not settings.TEST,
     is_nullable: bool = False,
 ) -> MaterializedColumn:
     if existing_column := get_materialized_columns(table).get((property, table_column)):
-        if TEST:
+        if settings.TEST:
             return existing_column
 
         raise ValueError(f"Property already materialized. table={table}, property={property}, column={table_column}")
@@ -297,7 +301,7 @@ class UpdateColumnCommentTask:
         client.execute(
             f"ALTER TABLE {self.table} " + ", ".join(actions),
             parameters,
-            settings={"alter_sync": 2 if TEST else 1},
+            settings={"alter_sync": 2 if settings.TEST else 1},
         )
 
 
@@ -370,7 +374,7 @@ class DropColumnTask:
         if actions:
             client.execute(
                 f"ALTER TABLE {self.table} " + ", ".join(actions),
-                settings={"alter_sync": 2 if TEST else 1},
+                settings={"alter_sync": 2 if settings.TEST else 1},
             )
 
 

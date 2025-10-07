@@ -671,7 +671,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         org = Organization.objects.create(name=f"Test Org {description}")
         teams = []
         for i in range(max(1, num_teams)):  # Create at least 1 team even if user has no keys
-            team = Team.objects.create(organization=org, name=f"Team {i+1}")
+            team = Team.objects.create(organization=org, name=f"Team {i + 1}")
             teams.append(team)
 
         user = User.objects.create(email=f"test_{description}@example.com", is_active=True)
@@ -770,12 +770,12 @@ class TestUpdateUserAuthenticationCache(TestCase):
         cache3_before = team_access_tokens_hypercache.get_from_cache(team3.api_token)
         assert cache2_before is not None, "Cache should exist for team2"
         assert cache3_before is not None, "Cache should exist for team3"
-        assert (
-            unscoped_key.secure_value not in cache2_before["hashed_tokens"]
-        ), "Unscoped key should NOT be in team2 before joining"
-        assert (
-            unscoped_key.secure_value not in cache3_before["hashed_tokens"]
-        ), "Unscoped key should NOT be in team3 before joining"
+        assert unscoped_key.secure_value not in cache2_before["hashed_tokens"], (
+            "Unscoped key should NOT be in team2 before joining"
+        )
+        assert unscoped_key.secure_value not in cache3_before["hashed_tokens"], (
+            "Unscoped key should NOT be in team3 before joining"
+        )
         assert scoped_key.secure_value not in cache2_before["hashed_tokens"], "Scoped key should NOT be in team2"
         assert scoped_key.secure_value not in cache3_before["hashed_tokens"], "Scoped key should NOT be in team3"
 
@@ -787,12 +787,12 @@ class TestUpdateUserAuthenticationCache(TestCase):
         cache3_after = team_access_tokens_hypercache.get_from_cache(team3.api_token)
         assert cache2_after is not None, "Cache should exist for team2"
         assert cache3_after is not None, "Cache should exist for team3"
-        assert (
-            unscoped_key.secure_value in cache2_after["hashed_tokens"]
-        ), "Unscoped key should be in team2 after joining"
-        assert (
-            unscoped_key.secure_value in cache3_after["hashed_tokens"]
-        ), "Unscoped key should be in team3 after joining"
+        assert unscoped_key.secure_value in cache2_after["hashed_tokens"], (
+            "Unscoped key should be in team2 after joining"
+        )
+        assert unscoped_key.secure_value in cache3_after["hashed_tokens"], (
+            "Unscoped key should be in team3 after joining"
+        )
         assert scoped_key.secure_value not in cache2_after["hashed_tokens"], "Scoped key should still NOT be in team2"
         assert scoped_key.secure_value not in cache3_after["hashed_tokens"], "Scoped key should still NOT be in team3"
 
@@ -861,9 +861,9 @@ class TestUpdateUserAuthenticationCache(TestCase):
             assert cached_data is not None, f"Cache should still exist for {team.api_token}"
             hashed_tokens = cached_data["hashed_tokens"]
 
-            assert (
-                key_to_remove.secure_value not in hashed_tokens
-            ), f"Removed user's key should NOT be in {team.name} cache"
+            assert key_to_remove.secure_value not in hashed_tokens, (
+                f"Removed user's key should NOT be in {team.name} cache"
+            )
             assert key_to_keep.secure_value in hashed_tokens, f"Kept user's key should still be in {team.name} cache"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -958,15 +958,15 @@ class TestUpdateUserAuthenticationCache(TestCase):
         assert cached_data_team2 is not None, "Cache should exist for team2"
         assert cached_data_other is not None, "Cache should exist for other team"
 
-        assert (
-            key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"]
-        ), "Deleted key1 should NOT be in team1"
-        assert (
-            key1_to_delete.secure_value not in cached_data_team2["hashed_tokens"]
-        ), "Deleted key1 should NOT be in team2"
-        assert (
-            key1_to_delete.secure_value not in cached_data_other["hashed_tokens"]
-        ), "Deleted key1 should NOT be in other team"
+        assert key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"], (
+            "Deleted key1 should NOT be in team1"
+        )
+        assert key1_to_delete.secure_value not in cached_data_team2["hashed_tokens"], (
+            "Deleted key1 should NOT be in team2"
+        )
+        assert key1_to_delete.secure_value not in cached_data_other["hashed_tokens"], (
+            "Deleted key1 should NOT be in other team"
+        )
         assert key2_scoped.secure_value in cached_data_team1["hashed_tokens"], "Key2 should still be in team1"
         assert key3_keep.secure_value in cached_data_team1["hashed_tokens"], "Key3 should still be in team1"
         assert key3_keep.secure_value in cached_data_team2["hashed_tokens"], "Key3 should still be in team2"

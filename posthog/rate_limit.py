@@ -21,7 +21,6 @@ from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
-from posthog.settings.utils import get_list
 from posthog.utils import patchable
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -49,7 +48,7 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     The "allow list" will change way less frequently than it will be called
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
-    return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
+    return settings.get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
 def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:

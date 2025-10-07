@@ -466,6 +466,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
 
         response = self.client.get(url)
-        assert (
-            response.status_code == expected_status
-        ), f"Expected {expected_status}, got {response.status_code}: {response.json()}"
+        assert response.status_code == expected_status, (
+            f"Expected {expected_status}, got {response.status_code}: {response.json()}"
+        )
