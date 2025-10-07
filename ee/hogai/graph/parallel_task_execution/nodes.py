@@ -144,7 +144,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
         # Set up the appropriate callback mechanism
         self.set_reasoning_callback(tasks)
         # Use TaskExecutionMessage for multiple tasks, ReasoningMessage for single task
-        self._send_task_execution_message = len(input_tuples) > 1 or self._send_task_execution_message
+        self._send_task_execution_message = len(input_tuples) > 1
 
         # Mark all tasks as in-progress and send initial status
         for task in tasks:

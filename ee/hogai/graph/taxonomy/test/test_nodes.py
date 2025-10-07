@@ -159,7 +159,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     @patch.object(MockTaxonomyAgentToolkit, "handle_tools")
-    def test_run_normal_tool_execution(self, mock_handle_tools, mock_get_tool_input):
+    async def test_run_normal_tool_execution(self, mock_handle_tools, mock_get_tool_input):
         # Setup mocks
         mock_input = Mock()
         mock_input.name = "test_tool"
@@ -172,7 +172,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         state = TaxonomyAgentState()
         state.intermediate_steps = [(action, None)]
 
-        result = self.node.run(state, RunnableConfig())
+        result = await self.node.arun(state, RunnableConfig())
 
         self.assertIsInstance(result, TaxonomyAgentState)
         self.assertEqual(len(result.intermediate_steps), 1)
@@ -180,7 +180,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.assertEqual(result.intermediate_steps[0][0].log, "test_tool_id")
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
-    def test_run_validation_error(self, mock_get_tool_input):
+    async def test_run_validation_error(self, mock_get_tool_input):
         # Setup validation error
         validation_error = ValidationError.from_exception_data(
             "TestModel", [{"type": "missing", "loc": ("field",), "msg": "Field required"}]
@@ -191,13 +191,13 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         state = TaxonomyAgentState()
         state.intermediate_steps = [(action, None)]
 
-        result = self.node.run(state, RunnableConfig())
+        result = await self.node.arun(state, RunnableConfig())
 
         self.assertIsInstance(result, TaxonomyAgentState)
         self.assertEqual(len(result.tool_progress_messages), 0)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
-    def test_run_final_answer(self, mock_get_tool_input):
+    async def test_run_final_answer(self, mock_get_tool_input):
         # Mock final answer tool
         from pydantic import BaseModel
 
@@ -217,14 +217,14 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         state = TaxonomyAgentState()
         state.intermediate_steps = [(action, None)]
 
-        result = self.node.run(state, RunnableConfig())
+        result = await self.node.arun(state, RunnableConfig())
 
         self.assertIsInstance(result, TaxonomyAgentState)
         self.assertEqual(result.output, expected_data)
         self.assertIsNone(result.intermediate_steps)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
-    def test_run_ask_user_for_help(self, mock_get_tool_input):
+    async def test_run_ask_user_for_help(self, mock_get_tool_input):
         # Mock ask for help tool
         mock_input = Mock()
         mock_input.name = "ask_user_for_help"
@@ -239,11 +239,11 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         with patch.object(self.node, "_get_reset_state") as mock_reset:
             mock_reset.return_value = TaxonomyAgentState()
 
-            _ = self.node.run(state, RunnableConfig())
+            _ = await self.node.arun(state, RunnableConfig())
 
             mock_reset.assert_called_once_with("Need help", "ask_user_for_help", state)
 
-    def test_run_max_iterations(self):
+    async def test_run_max_iterations(self):
         # Create state with max iterations
         actions = []
         for i in range(self.node.MAX_ITERATIONS):
@@ -257,7 +257,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         with patch.object(self.node, "_get_reset_state") as mock_reset:
             mock_reset.return_value = TaxonomyAgentState()
 
-            _ = self.node.run(state, RunnableConfig())
+            _ = await self.node.arun(state, RunnableConfig())
 
             mock_reset.assert_called_once()
             call_args = mock_reset.call_args
@@ -291,7 +291,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         result = self.node.router(state)
         self.assertEqual(result, expected)
 
-    def test_get_reset_state(self):
+    async def test_get_reset_state(self):
         original_state = TaxonomyAgentState()
         original_state.change = "test change"
 

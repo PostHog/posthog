@@ -77,9 +77,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPieChart />,
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
-    embedded_analytics: {
+    endpoints: {
         icon: <IconCode2 />,
-        iconColor: ['var(--color-product-embedded-analytics-light', 'var(--color-product-embedded-analytics-dark'],
+        iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -387,13 +387,6 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/destination',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
-    } as FileSystemImport,
-    {
-        path: `Activity logs`,
-        category: 'Activity',
-        iconType: 'team_activity',
-        href: urls.advancedActivityLogs(),
-        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     } as FileSystemImport,
 ]
 

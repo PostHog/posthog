@@ -55,7 +55,7 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { QueryEndpoint } from './output-pane-tabs/QueryEndpoint'
+import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -457,10 +457,10 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             icon: <IconBolt />,
                         },
                         {
-                            key: OutputTab.QueryEndpoint,
-                            label: 'Query endpoint',
+                            key: OutputTab.Endpoint,
+                            label: 'Endpoint',
                             icon: <IconCode2 />,
-                            flag: FEATURE_FLAGS.EMBEDDED_ANALYTICS,
+                            flag: FEATURE_FLAGS.ENDPOINTS,
                         },
                     ]
                         .filter((tab) => !tab.flag || featureFlags[tab.flag])
@@ -624,7 +624,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
+                    <ElapsedTime />
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
                 </div>
             </div>
             <RowDetailsModal
@@ -731,6 +732,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 query={sourceQuery}
                 excludeDetail
                 title={error}
+                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
@@ -816,11 +818,11 @@ const Content = ({
             </TabScroller>
         )
     }
-    if (featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] && activeTab === OutputTab.QueryEndpoint) {
+    if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <QueryEndpoint tabId={tabId} />
+                    <Endpoint tabId={tabId} />
                 </div>
             </TabScroller>
         )

@@ -166,7 +166,7 @@ class TaxonomyAgentToolsNode(
     def node_name(self) -> MaxNodeName:
         return TaxonomyNodeName.TOOLS_NODE
 
-    def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
+    async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
         tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = {}
         tool_msgs = []
@@ -210,7 +210,7 @@ class TaxonomyAgentToolsNode(
                 tools_metadata[tool_input.name] = []
             tools_metadata[tool_input.name].append((tool_input, action.log))
 
-        tool_results = self._toolkit.handle_tools(tools_metadata)
+        tool_results = await self._toolkit.handle_tools(tools_metadata)
 
         for action, _ in intermediate_steps:
             tool_result = tool_results[action.log]

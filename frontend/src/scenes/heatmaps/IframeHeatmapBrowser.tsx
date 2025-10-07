@@ -13,7 +13,7 @@ export function IframeHeatmapBrowser({
 }): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { widthOverride, browserUrl } = useValues(logic)
+    const { widthOverride, browserUrl, displayUrl } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
@@ -42,7 +42,7 @@ export function IframeHeatmapBrowser({
                         className="h-full bg-white"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride ?? '100%' }}
-                        src={browserUrl ?? ''}
+                        src={displayUrl || browserUrl || ''}
                         onLoad={onIframeLoad}
                         // these two sandbox values are necessary so that the site and toolbar can run
                         // this is a very loose sandbox,

@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -44,6 +46,8 @@ const MOCK_COHORTS = {
         },
     ],
 }
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.Dashboards]: blankScene }
 
 describe('cohortsSceneLogic', () => {
     let logic: ReturnType<typeof cohortsSceneLogic.build>
@@ -64,7 +68,11 @@ describe('cohortsSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = cohortsSceneLogic()
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
+        logic = cohortsSceneLogic({ tabId: '1' })
         logic.mount()
     })
 

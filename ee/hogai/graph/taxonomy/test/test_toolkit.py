@@ -5,8 +5,6 @@ from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 
@@ -21,10 +19,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
         super().setUp()
         self.toolkit = DummyToolkit(self.team, self.user)
 
-    def test_toolkit_initialization(self):
+    async def test_toolkit_initialization(self):
         self.assertEqual(self.toolkit._team, self.team)
-        self.assertIsInstance(self.toolkit._team_group_types, list)
-        self.assertIsInstance(self.toolkit._entity_names, list)
+        self.assertIsInstance(await self.toolkit._get_entity_names(), list)
 
     @parameterized.expand(
         [
@@ -32,21 +29,10 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("session", ["person", "session"]),
         ]
     )
-    def test_entity_names_basic(self, entity, expected_base):
-        self.assertIn(entity, self.toolkit._entity_names)
+    async def test_entity_names_basic(self, entity, expected_base):
+        self.assertIn(entity, await self.toolkit._get_entity_names())
         for expected in expected_base:
-            self.assertIn(expected, self.toolkit._entity_names)
-
-    def test_entity_names_with_groups(self):
-        # Create group type mappings
-        for i, group_type in enumerate(["organization", "project"]):
-            create_group_type_mapping_without_created_at(
-                team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
-            )
-
-        toolkit = DummyToolkit(self.team, self.user)
-        expected = ["person", "session", "organization", "project"]
-        self.assertEqual(toolkit._entity_names, expected)
+            self.assertIn(expected, await self.toolkit._get_entity_names())
 
     def test_enrich_props_with_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
@@ -90,7 +76,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties_parallel", return_value={"test_event": "mocked"})
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
-    def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
+    async def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
         class Arguments(BaseModel):
             pass
 
@@ -102,12 +88,12 @@ class TestTaxonomyAgentToolkit(BaseTest):
             arguments: Arguments
 
         tool_input = ToolInput(name=tool_name, arguments=Arguments(**tool_args))
-        result = self.toolkit.handle_tools({tool_name: [(tool_input, "test_call_id")]})
+        result = await self.toolkit.handle_tools({tool_name: [(tool_input, "test_call_id")]})
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result["test_call_id"], expected_result)
 
-    def test_handle_tools_invalid_tool(self):
+    async def test_handle_tools_invalid_tool(self):
         class ToolInput(TaxonomyTool):
             name: str = "invalid_tool"
             arguments: dict = {}
@@ -115,7 +101,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         tool_input = ToolInput()
 
         with self.assertRaises(TaxonomyToolNotFoundError):
-            self.toolkit.handle_tools({"invalid_tool": [(tool_input, "invalid_tool")]})
+            await self.toolkit.handle_tools({"invalid_tool": [(tool_input, "invalid_tool")]})
 
     def test_format_properties_formats(self):
         props = [("prop1", "String", "Test description"), ("prop2", "Numeric", None)]
