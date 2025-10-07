@@ -503,13 +503,14 @@ def _recalculate_cohortpeople_for_team_hogql(
             )
 
             history.save(update_fields=["finished_at", "count", "queries"])
-            return history.count
 
         except Exception as e:
             history.finished_at = timezone.now()
             history.error = str(e)
             history.save(update_fields=["finished_at", "error"])
             raise
+
+    return result
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
