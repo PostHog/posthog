@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from posthog.models import Action
@@ -73,9 +72,8 @@ class TestEvents(NonAtomicBaseTest):
 
         self.toolkit = DummyToolkit(self.team, self.user)
 
-    @pytest.mark.asyncio
     async def test_events_property_values_exists(self):
-        result = await self.toolkit._entity_names
+        result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project"]
         assert result == expected
 
@@ -84,9 +82,8 @@ class TestEvents(NonAtomicBaseTest):
         assert "$browser" in "\n".join(property_vals.get("event1", []))
         assert "id" in "\n".join(property_vals.get("event1", []))
 
-    @pytest.mark.asyncio
     async def test_events_property_values_do_not_exist(self):
-        result = await self.toolkit._entity_names
+        result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project"]
         assert result == expected
 
@@ -98,9 +95,8 @@ class TestEvents(NonAtomicBaseTest):
             property_vals.get("event1", [])
         )
 
-    @pytest.mark.asyncio
     async def test_events_property_values_action_values_not_found(self):
-        result = await self.toolkit._entity_names
+        result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project"]
         assert result == expected
 
@@ -112,9 +108,8 @@ class TestEvents(NonAtomicBaseTest):
             property_vals.get(232, [])
         )
 
-    @pytest.mark.asyncio
     async def test_events_property_values_action_multiple_properties(self):
-        result = await self.toolkit._entity_names
+        result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project"]
         assert result == expected
 
@@ -127,14 +122,12 @@ class TestEvents(NonAtomicBaseTest):
         assert "Chrome" in "\n".join(property_vals.get(232, []))
         assert "Firefox" in "\n".join(property_vals.get(232, []))
 
-    @pytest.mark.asyncio
     async def test_retrieve_event_or_action_properties_action_not_found(self):
         result = await self.toolkit.retrieve_event_or_action_properties(999)
         assert (
             "Action 999 does not exist in the taxonomy. Verify that the action ID is correct and try again." == result
         )
 
-    @pytest.mark.asyncio
     async def test_retrieve_event_or_action_properties_event_not_found(self):
         result = await self.toolkit.retrieve_event_or_action_properties("test")
         assert "Properties do not exist in the taxonomy for the event test." == result

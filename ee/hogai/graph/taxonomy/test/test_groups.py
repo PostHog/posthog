@@ -1,6 +1,5 @@
 from datetime import datetime
 
-import pytest
 from posthog.test.base import NonAtomicBaseTest
 
 from posthog.models.group.util import raw_create_group_ch
@@ -79,10 +78,9 @@ class TestGroups(NonAtomicBaseTest):
 
         self.toolkit = DummyToolkit(self.team)
 
-    @pytest.mark.asyncio
     async def test_entity_names_with_existing_groups(self):
         # Test that the entity names include the groups we created in setUp
-        result = await self.toolkit._entity_names
+        result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project", "no_properties"]
         self.assertEqual(result, expected)
 
@@ -110,7 +108,6 @@ class TestGroups(NonAtomicBaseTest):
         )
         self.assertIn("project", property_vals)
 
-    @pytest.mark.asyncio
     async def test_retrieve_entity_properties_group(self):
         result = await self.toolkit.retrieve_entity_properties("organization")
 
@@ -119,7 +116,6 @@ class TestGroups(NonAtomicBaseTest):
             == result
         )
 
-    @pytest.mark.asyncio
     async def test_retrieve_entity_properties_group_not_found(self):
         result = await self.toolkit.retrieve_entity_properties("test")
 
@@ -127,7 +123,6 @@ class TestGroups(NonAtomicBaseTest):
             "Entity test not found. Available entities: person, session, organization, project, no_properties" == result
         )
 
-    @pytest.mark.asyncio
     async def test_retrieve_entity_properties_group_nothing_found(self):
         result = await self.toolkit.retrieve_entity_properties("no_properties")
 

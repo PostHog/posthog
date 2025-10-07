@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -160,7 +159,6 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     @patch.object(MockTaxonomyAgentToolkit, "handle_tools")
-    @pytest.mark.asyncio
     async def test_run_normal_tool_execution(self, mock_handle_tools, mock_get_tool_input):
         # Setup mocks
         mock_input = Mock()
@@ -181,7 +179,6 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.assertEqual(result.intermediate_steps[0][1], "tool output")
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
-    @pytest.mark.asyncio
     async def test_run_validation_error(self, mock_get_tool_input):
         # Setup validation error
         validation_error = ValidationError.from_exception_data(
@@ -199,7 +196,6 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.assertEqual(len(result.tool_progress_messages), 1)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
-    @pytest.mark.asyncio
     async def test_run_final_answer(self, mock_get_tool_input):
         # Mock final answer tool
         from pydantic import BaseModel
@@ -227,7 +223,6 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.assertIsNone(result.intermediate_steps)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
-    @pytest.mark.asyncio
     async def test_run_ask_user_for_help(self, mock_get_tool_input):
         # Mock ask for help tool
         mock_input = Mock()
@@ -247,7 +242,6 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
             mock_reset.assert_called_once_with("Need help", "ask_user_for_help", state)
 
-    @pytest.mark.asyncio
     async def test_run_max_iterations(self):
         # Create state with max iterations
         actions = []
@@ -295,7 +289,6 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         result = self.node.router(state)
         self.assertEqual(result, expected)
 
-    @pytest.mark.asyncio
     async def test_get_reset_state(self):
         original_state = TaxonomyAgentState()
         original_state.change = "test change"
