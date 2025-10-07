@@ -571,7 +571,8 @@ export function BatchExportsEditFields({
                                                                 recommended by Databricks
                                                             </Link>{' '}
                                                             , however, the VARIANT data type is only available in
-                                                            Databricks Runtime 15.3 and above.
+                                                            Databricks Runtime 15.3 and above. If left unchecked, JSON
+                                                            data will be stored using the STRING type.
                                                             <br />
                                                             <strong>
                                                                 This setting cannot be changed after the batch export is

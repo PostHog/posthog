@@ -53,6 +53,8 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         }),
         ...(service === 'Databricks' && {
             use_variant_type: true,
+            // prefill prefix for http path
+            http_path: '/sql/1.0/warehouses/',
         }),
     }
 }
