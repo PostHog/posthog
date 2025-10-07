@@ -259,7 +259,7 @@ jobs:
     playwright:
         name: Playwright E2E tests
         needs: [changes]
-        runs-on: depot-ubuntu-latest-8
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30
         steps:
             - name: Skip E2E checks

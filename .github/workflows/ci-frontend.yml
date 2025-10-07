@@ -15,7 +15,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: depot-ubuntu-24.04-small
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
@@ -182,7 +182,7 @@ jobs:
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
-        runs-on: depot-ubuntu-24.04-8
+        runs-on: depot-ubuntu-24.04-4
         steps:
             - name: Skip frontend checks
               if: ${{ needs.changes.outputs.frontend == 'false' }}
@@ -306,7 +306,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, changes]
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
