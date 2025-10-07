@@ -429,7 +429,7 @@ class TestRunSQLOperations:
         # Score 3 when IF NOT EXISTS is missing (still NEEDS_REVIEW, not BLOCKED)
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
-        assert "if not exists" in risk.guidance.lower()
+        assert risk.guidance is not None and "if not exists" in risk.guidance.lower()
 
     def test_run_sql_drop_index_with_if_exists(self):
         """Test DROP INDEX without CONCURRENTLY but with IF EXISTS - still risky but idempotent."""
