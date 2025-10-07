@@ -360,7 +360,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 compareFilter,
                 properties: [],
                 draftConversionGoal: draftConversionGoal || undefined,
-                includeAllConversions: false,
             }),
         ],
     }),

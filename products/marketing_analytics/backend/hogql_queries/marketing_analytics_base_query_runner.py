@@ -22,6 +22,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
+from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor
@@ -271,7 +273,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
 
             if unified_cte:
-                ctes["unified_conversion_goals"] = unified_cte
+                ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
 
         # Add CTEs to the main query
         main_query.ctes = ctes
@@ -354,7 +356,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # This gives us total conversion counts across all campaigns/sources
             aggregated_select = ast.SelectQuery(select=select_columns)
 
-            return ast.CTE(name="unified_conversion_goals", expr=aggregated_select, cte_type="subquery")
+            return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=aggregated_select, cte_type="subquery")
 
         except Exception as e:
             logger.exception("Error generating aggregated conversion goals CTE", error=str(e))

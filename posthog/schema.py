@@ -12136,9 +12136,6 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         default=None, description="Draft conversion goal that can be set in the UI without saving"
     )
     filterTestAccounts: Optional[bool] = None
-    includeAllConversions: Optional[bool] = Field(
-        default=None, description="Include conversion goal rows even when they don't match campaign costs table"
-    )
     includeRevenue: Optional[bool] = None
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(

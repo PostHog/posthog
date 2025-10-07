@@ -1,5 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 
+import { isNotNil } from 'lib/utils'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
@@ -57,6 +58,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 dateFilter: {
                     dateFrom: string | null
                     dateTo: string | null
+                    interval: IntervalType
                 },
                 createMarketingDataWarehouseNodes: EventsNode[],
                 campaignCostsBreakdown: DataTableNode,
@@ -82,7 +84,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     // Marketing Analytics Overview - aggregated metrics
                     {
                         kind: 'query',
-                        tileId: 'marketing_overview' as TileId,
+                        tileId: TileId.MARKETING_OVERVIEW,
                         layout: {
                             colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
                             orderWhenLargeClassName: 'xxl:order-0',
@@ -96,9 +98,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             compareFilter: compareFilter || undefined,
                             properties: [],
                             draftConversionGoal: draftConversionGoal || undefined,
-                            includeAllConversions: false,
                         },
-                        insightProps: createInsightProps('marketing_overview' as TileId),
+                        insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
                         canOpenInsight: false,
                     },
                     {
@@ -129,66 +130,72 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                                   math: BaseMathType.TotalCount,
                                               },
                                           ],
-                                interval: 'day' as IntervalType,
+                                interval: dateFilter.interval,
                                 dateRange: {
                                     date_from: dateFilter.dateFrom,
                                     date_to: dateFilter.dateTo,
                                 },
                                 trendsFilter: {
                                     display: chartDisplayType,
-                                    aggregationAxisFormat: isCurrency ? 'numeric' : undefined,
+                                    aggregationAxisFormat: 'numeric',
                                     aggregationAxisPrefix: isCurrency ? '$' : undefined,
                                 },
                             },
                         },
                         showIntervalSelect: true,
-                        insightProps: createInsightProps(TileId.MARKETING),
+                        insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}`),
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
                             title: `Marketing ${tileColumnSelectionName}`,
-                            description: `Track ${tileColumnSelectionName} from your configured marketing data sources.`,
-                        },
-                    },
-                    {
-                        kind: 'query',
-                        tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                            orderWhenLargeClassName: 'xxl:order-2',
-                        },
-                        title: 'Campaign costs breakdown',
-                        query: campaignCostsBreakdown,
-                        insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
-                        canOpenModal: true,
-                        canOpenInsight: false,
-                        docs: {
-                            title: 'Campaign costs breakdown',
                             description:
-                                'Breakdown of marketing costs by individual campaign names across all ad platforms.',
+                                createMarketingDataWarehouseNodes.length > 0
+                                    ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
+                                    : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
                         },
                     },
-                ]
+                    campaignCostsBreakdown
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                                  orderWhenLargeClassName: 'xxl:order-2',
+                              },
+                              title: 'Campaign costs breakdown',
+                              query: campaignCostsBreakdown,
+                              insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                              canOpenModal: true,
+                              canOpenInsight: false,
+                              docs: {
+                                  title: 'Campaign costs breakdown',
+                                  description:
+                                      'Breakdown of marketing costs by individual campaign names across all ad platforms.',
+                              },
+                          }
+                        : null,
+                ].filter(isNotNil) as QueryTile[]
 
                 return tiles
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.query, s.defaultColumns, s.compareFilter, s.dateFilter, s.draftConversionGoal],
+            (s) => [s.loading, s.query, s.dateFilter, s.draftConversionGoal, s.defaultColumns, s.compareFilter],
             (
-                query: DataTableNode | null,
+                loading: boolean,
+                query: DataTableNode,
+                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                draftConversionGoal: ConversionGoalFilter | null,
                 defaultColumns: string[],
-                compareFilter: CompareFilter | null,
-                dateFilter: {
-                    dateFrom: string | null
-                    dateTo: string | null
-                },
-                draftConversionGoal: ConversionGoalFilter | null
-            ): DataTableNode => {
+                compareFilter: CompareFilter
+            ): DataTableNode | null => {
+                if (loading) {
+                    return null
+                }
                 const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
                 const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
-                        (column: string) => !isDraftConversionGoalColumn(column, draftConversionGoal)
+                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
                     ),
                     ...(draftConversionGoal
                         ? [
@@ -200,7 +207,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
                 const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
                 const orderBy = getOrderBy(marketingQuery, sortedColumns)
-                const baseQuery: DataTableNode = {
+                return {
+                    ...query,
                     kind: NodeKind.DataTableNode,
                     source: {
                         ...marketingQuery,
@@ -221,7 +229,6 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     embedded: false,
                     showOpenEditorButton: false,
                 }
-                return query ? { ...query, ...baseQuery } : baseQuery
             },
         ],
     }),

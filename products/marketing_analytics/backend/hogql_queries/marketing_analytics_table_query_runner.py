@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Literal, Optional, cast
 
 import structlog
@@ -12,10 +13,17 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-from .constants import BASE_COLUMN_MAPPING, DEFAULT_LIMIT, PAGINATION_EXTRA, to_marketing_analytics_data
+from .constants import (
+    BASE_COLUMN_MAPPING,
+    DEFAULT_LIMIT,
+    PAGINATION_EXTRA,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    to_marketing_analytics_data,
+)
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
 
@@ -46,7 +54,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
     def _calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
-        from posthog.hogql.query import execute_hogql_query
 
         query: ast.SelectQuery
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
@@ -184,7 +191,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def calculate_with_compare(self) -> ast.SelectQuery:
         """Execute the query and return results with pagination support"""
         # For compare queries, we need to create a new query runner for the previous period
-        from copy import deepcopy
 
         previous_query = deepcopy(self.query)
         previous_date_range = self._create_previous_period_date_range()
@@ -259,7 +265,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
             unified_join = ast.JoinExpr(
                 join_type=join_type,
-                table=ast.Field(chain=["unified_conversion_goals"]),
+                table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
                 alias=self.config.unified_conversion_goals_cte_alias,
                 constraint=ast.JoinConstraint(
                     expr=ast.And(

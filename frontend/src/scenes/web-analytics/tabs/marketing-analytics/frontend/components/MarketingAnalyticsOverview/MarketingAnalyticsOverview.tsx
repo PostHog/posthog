@@ -14,6 +14,8 @@ import { QueryContext } from '~/queries/types'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
+const BASE_METRICS_COUNT = 6 // Total Cost, Total Clicks, CPC, CTR, Total Impressions, Reported Conversion
+
 let uniqueNode = 0
 
 export function MarketingAnalyticsOverview(props: {
@@ -55,9 +57,8 @@ export function MarketingAnalyticsOverview(props: {
         : []
 
     // Calculate number of skeletons based on expected metrics
-    const baseMetrics = 6 // Total Cost, Total Clicks, CPC, CTR, Total Impressions, Reported Conversion
     const conversionGoalMetrics = conversion_goals.length * 2 // Each conversion goal adds 2 metrics: goal + cost per conversion
-    const numSkeletons = baseMetrics + conversionGoalMetrics
+    const numSkeletons = BASE_METRICS_COUNT + conversionGoalMetrics
 
     return (
         <OverviewGrid

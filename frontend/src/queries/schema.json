@@ -15937,10 +15937,6 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeAllConversions": {
-                    "description": "Include conversion goal rows even when they don't match campaign costs table",
-                    "type": "boolean"
-                },
                 "includeRevenue": {
                     "type": "boolean"
                 },

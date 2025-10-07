@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Optional
 
 from posthog.schema import (
@@ -11,8 +12,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
-from .constants import BASE_COLUMN_MAPPING, to_marketing_analytics_data
+from .constants import BASE_COLUMN_MAPPING, UNIFIED_CONVERSION_GOALS_CTE_ALIAS, to_marketing_analytics_data
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
 
@@ -36,10 +38,10 @@ class MarketingAnalyticsAggregatedQueryRunner(
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
         if conversion_aggregator:
-            join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
+            join_type = "LEFT JOIN"
             unified_join = ast.JoinExpr(
                 join_type=join_type,
-                table=ast.Field(chain=["unified_conversion_goals"]),
+                table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
                 alias=self.config.unified_conversion_goals_cte_alias,
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
@@ -96,12 +98,22 @@ class MarketingAnalyticsAggregatedQueryRunner(
         return all_columns
 
     def _build_aggregated_columns(self, columns_mapping: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
-        """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip cost per conversion"""
+        """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip rate metrics and cost per conversion"""
         aggregated_columns: dict[str, ast.Expr] = {}
+
+        # Rate metrics that need to be recalculated from base values, not summed
+        rate_metrics = {
+            MarketingAnalyticsBaseColumns.CPC.value,
+            MarketingAnalyticsBaseColumns.CTR.value,
+        }
 
         for column_name, column_expr in columns_mapping.items():
             # Skip cost per conversion columns - we'll recalculate them later
             if column_name.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+                continue
+
+            # Skip rate metrics - we'll recalculate them from summed base values
+            if column_name in rate_metrics:
                 continue
 
             # For all other columns, wrap in SUM()
@@ -116,7 +128,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
 
     def _calculate(self) -> MarketingAnalyticsAggregatedQueryResponse:
         """Execute the query and return aggregated results - adapted from table query runner"""
-        from posthog.hogql.query import execute_hogql_query
 
         query: ast.SelectQuery
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
@@ -166,7 +177,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
 
     def calculate_with_compare(self) -> ast.SelectQuery:
         """Execute the query with comparison - adapted from table query runner"""
-        from copy import deepcopy
 
         previous_query = deepcopy(self.query)
         previous_date_range = self._create_previous_period_date_range()
@@ -187,7 +197,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
-        # Create the join - for aggregated queries, just use constant join since both have 1 row
         join_expr = ast.JoinExpr(
             table=current_period_query,
             alias="current_period",
@@ -257,7 +266,8 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 transformed_item = self._transform_cell_to_marketing_analytics_item(row, i, column_name, has_comparison)
                 results_dict[column_name] = transformed_item
 
-        # Recalculate cost per conversion metrics after aggregation
+        # Recalculate rate metrics and cost per conversion metrics after aggregation
+        self._add_rate_metrics(results_dict, has_comparison)
         self._add_cost_per_conversion_metrics(results_dict, has_comparison)
 
         return results_dict
@@ -294,6 +304,84 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 previous=None,
                 has_comparison=has_comparison,
             )
+
+    def _add_rate_metrics(self, results_dict: dict, has_comparison: bool) -> None:
+        """Add rate metrics (CPC, CTR) by recalculating from aggregated base values"""
+        # Get base values from results
+        total_cost_item = results_dict.get(MarketingAnalyticsBaseColumns.COST.value)
+        total_clicks_item = results_dict.get(MarketingAnalyticsBaseColumns.CLICKS.value)
+        total_impressions_item = results_dict.get(MarketingAnalyticsBaseColumns.IMPRESSIONS.value)
+
+        # Calculate CPC (Cost Per Click)
+        if total_cost_item and total_clicks_item:
+            if has_comparison and total_cost_item.previous is not None and total_clicks_item.previous is not None:
+                # Current period CPC
+                current_cpc = self._calculate_rate(total_cost_item.value, total_clicks_item.value)
+                # Previous period CPC
+                previous_cpc = self._calculate_rate(total_cost_item.previous, total_clicks_item.previous)
+
+                cpc_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.CPC.value,
+                    value=current_cpc,
+                    previous=previous_cpc,
+                    has_comparison=has_comparison,
+                )
+            else:
+                # No comparison data
+                cpc_value = self._calculate_rate(total_cost_item.value, total_clicks_item.value)
+                cpc_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.CPC.value,
+                    value=cpc_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+            results_dict[MarketingAnalyticsBaseColumns.CPC.value] = cpc_item
+
+        # Calculate CTR (Click Through Rate)
+        if total_clicks_item and total_impressions_item:
+            if (
+                has_comparison
+                and total_clicks_item.previous is not None
+                and total_impressions_item.previous is not None
+            ):
+                # Current period CTR (multiply by 100 for percentage)
+                current_ctr = self._calculate_rate(
+                    total_clicks_item.value, total_impressions_item.value, multiply_by_100=True
+                )
+                # Previous period CTR
+                previous_ctr = self._calculate_rate(
+                    total_clicks_item.previous, total_impressions_item.previous, multiply_by_100=True
+                )
+
+                ctr_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.CTR.value,
+                    value=current_ctr,
+                    previous=previous_ctr,
+                    has_comparison=has_comparison,
+                )
+            else:
+                # No comparison data
+                ctr_value = self._calculate_rate(
+                    total_clicks_item.value, total_impressions_item.value, multiply_by_100=True
+                )
+                ctr_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.CTR.value,
+                    value=ctr_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+            results_dict[MarketingAnalyticsBaseColumns.CTR.value] = ctr_item
+
+    def _calculate_rate(self, numerator, denominator, multiply_by_100: bool = False) -> float | None:
+        """Calculate a rate (numerator/denominator), handling division by zero"""
+        if numerator is None or denominator is None or denominator == 0:
+            return None
+
+        rate = float(numerator) / float(denominator)
+        if multiply_by_100:
+            rate *= 100
+
+        return round(rate, 2)
 
     def _add_cost_per_conversion_metrics(self, results_dict: dict, has_comparison: bool) -> None:
         """Add cost per conversion metrics by recalculating from aggregated totals"""
