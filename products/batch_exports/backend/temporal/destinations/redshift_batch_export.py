@@ -1213,7 +1213,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             if inputs.mode == "COPY" and inputs.copy_inputs is not None:
                 await execute_batch_export_using_internal_stage(
                     copy_into_redshift_activity_from_stage,
-                    RedshiftCopyInputs(
+                    RedshiftCopyInputs(  # type: ignore
                         batch_export=batch_export_inputs,
                         connection=connection_parameters,
                         table=table_parameters,
@@ -1223,6 +1223,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                                 region_name=inputs.copy_inputs.region_name,
                                 credentials=inputs.copy_inputs.bucket_credentials,
                             ),
+                            s3_key_prefix=inputs.copy_inputs.s3_key_prefix,
                             authorization=inputs.copy_inputs.authorization,
                         ),
                     ),
@@ -1232,7 +1233,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             else:
                 await execute_batch_export_using_internal_stage(
                     insert_into_redshift_activity_from_stage,
-                    RedshiftInsertInputs(
+                    RedshiftInsertInputs(  # type: ignore
                         batch_export=batch_export_inputs,
                         connection=connection_parameters,
                         table=table_parameters,
@@ -1243,7 +1244,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         else:
             await execute_batch_export_insert_activity(
                 insert_into_redshift_activity,
-                RedshiftInsertInputs(
+                RedshiftInsertInputs(  # type: ignore
                     batch_export=batch_export_inputs,
                     connection=connection_parameters,
                     table=table_parameters,
