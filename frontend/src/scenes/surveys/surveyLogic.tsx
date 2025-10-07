@@ -1401,6 +1401,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? {
                           activity_scope: ActivityScope.SURVEY,
                           activity_item_id: `${survey.id}`,
+                          access_control_resource: 'survey',
+                          access_control_resource_id: `${survey.id}`,
                       }
                     : null
             },
@@ -1409,17 +1411,6 @@ export const surveyLogic = kea<surveyLogicType>([
             () => [(_, props: SurveyLogicProps) => props.id],
             (id): ProjectTreeRef => {
                 return { type: 'survey', ref: id === 'new' ? null : String(id) }
-            },
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.survey],
-            (survey): SidePanelSceneContext | null => {
-                return survey.id !== 'new'
-                    ? {
-                          access_control_resource: 'survey',
-                          access_control_resource_id: `${survey.id}`,
-                      }
-                    : null
             },
         ],
         answerFilterHogQLExpression: [
