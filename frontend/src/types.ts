@@ -4334,6 +4334,7 @@ export const INTEGRATION_KINDS = [
     'clickup',
     'reddit-ads',
     'databricks',
+    'tiktok-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
