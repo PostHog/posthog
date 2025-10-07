@@ -27,8 +27,8 @@ export interface DataWarehouseSceneLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
 }
 
-export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
-    path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
+export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSceneLogicType>([
+    path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSceneLogic']),
     props({} as DataWarehouseSceneLogicProps),
     connect(() => ({
         values: [
