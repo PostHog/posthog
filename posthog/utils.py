@@ -202,10 +202,22 @@ def relative_date_parse_with_delta_mapping(
     if not match:
         return parsed_dt, delta_mapping, None
 
+    match_group_dict = match.groupdict()
+
     delta_mapping = get_delta_mapping_for(
-        **match.groupdict(),
+        **match_group_dict,
         human_friendly_comparison_periods=human_friendly_comparison_periods,
     )
+
+    if match_group_dict["kind"] == "w":
+        # Get the weekday index (Monday=0, Sunday=6)
+        weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).weekday()
+        if match_group_dict["position"] == "Start":
+            parsed_dt -= datetime.timedelta(days=weekday_index)
+        elif match_group_dict["position"] == "End":
+            weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).weekday()
+            days_to_add = 6 - weekday_index
+            parsed_dt += datetime.timedelta(days=days_to_add)
 
     if increase:
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
