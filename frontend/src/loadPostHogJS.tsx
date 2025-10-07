@@ -103,7 +103,11 @@ export function loadPostHogJS(): void {
                 </div>,
                 {
                     toastId: toastId,
-                    onClose: () => window.localStorage.setItem(toastId, 'true'),
+                    onClose: () =>
+                        window.localStorage.setItem(
+                            toastId,
+                            JSON.stringify({ timestamp: new Date().toISOString(), error: context.error })
+                        ),
                     autoClose: false,
                 }
             )
