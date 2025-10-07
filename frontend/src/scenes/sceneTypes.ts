@@ -20,6 +20,7 @@ export enum Scene {
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
     Cohort = 'Cohort',
+    CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
@@ -175,6 +176,8 @@ export interface Params {
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
+    /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
+    description?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -208,10 +211,16 @@ export interface SceneConfig {
     import?: () => Promise<any>
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
+    /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
+    canvasBackground?: boolean
 }
 
 // Map scenes to their access control resource types
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Actions
+    [Scene.Action]: AccessControlResourceType.Action,
+    [Scene.Actions]: AccessControlResourceType.Action,
+
     // Feature flags
     [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
     [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,

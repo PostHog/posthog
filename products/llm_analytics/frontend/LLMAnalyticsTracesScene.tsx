@@ -18,7 +18,6 @@ import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, rem
 
 export function LLMAnalyticsTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
-
     const { tracesQuery } = useValues(llmAnalyticsLogic)
 
     return (
