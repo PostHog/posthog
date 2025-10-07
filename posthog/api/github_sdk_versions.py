@@ -119,20 +119,40 @@ def fetch_web_sdk_data() -> Optional[dict[str, Any]]:
             return None
 
         changelog_content = changelog_response.text
-        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+)$", re.MULTILINE)
-        matches = version_pattern.findall(changelog_content)
 
-        if not matches:
+        # Parse versions without dates (new format: ## X.Y.Z)
+        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+)$", re.MULTILINE)
+        versions_no_date = version_pattern.findall(changelog_content)
+
+        # Parse versions WITH dates (old format: ## X.Y.Z - YYYY-MM-DD)
+        version_with_date_pattern = re.compile(r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})$", re.MULTILINE)
+        versions_with_dates = version_with_date_pattern.findall(changelog_content)
+
+        # Combine all versions
+        all_versions = versions_no_date
+
+        # Build release dates from CHANGELOG (for older versions)
+        changelog_dates = {}
+        for version, date in versions_with_dates:
+            # Convert YYYY-MM-DD to ISO 8601 timestamp (midnight UTC)
+            changelog_dates[version] = f"{date}T00:00:00Z"
+            # Also add to all_versions list if not already present
+            if version not in all_versions:
+                all_versions.append(version)
+
+        if not all_versions:
             logger.error(f"[SDK Doctor] No version matches found in Web SDK changelog")
             return None
 
-        latest_version = matches[0]
-        versions = matches
+        latest_version = all_versions[0]
 
-        # Fetch GitHub release dates
-        release_dates = fetch_github_release_dates("PostHog/posthog-js")
+        # Fetch GitHub release dates (for newer versions)
+        github_dates = fetch_github_release_dates("PostHog/posthog-js")
 
-        return {"latestVersion": latest_version, "versions": versions, "releaseDates": release_dates}
+        # Merge: GitHub API dates take precedence (more accurate timestamps), CHANGELOG dates as fallback
+        release_dates = {**changelog_dates, **github_dates}
+
+        return {"latestVersion": latest_version, "versions": all_versions, "releaseDates": release_dates}
     except Exception:
         return None
 
@@ -447,7 +467,7 @@ def fetch_github_release_dates(repo: str) -> dict[str, str]:
     """
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=4", timeout=10)
+            response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=100", timeout=10)
 
             # Handle rate limiting with exponential backoff (403 or 429)
             if response.status_code in [403, 429]:

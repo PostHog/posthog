@@ -86,35 +86,29 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
     const { menuIconStatus, featureFlagMisconfiguration, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
 
-    // TODO: Multi-init detection temporarily disabled for post-MVP
-    // const { multipleInitSdks } = useValues(sidePanelSdkDoctorLogic)
-    // const hasMultipleInits = multipleInitSdks.length > 0
-    const hasMultipleInits = false
     const hasFlagMisconfiguration = featureFlagMisconfiguration.detected
 
     const title = hasFlagMisconfiguration
         ? 'Feature flag misconfiguration detected!'
-        : hasMultipleInits
-          ? 'SDK initialization issue detected!'
-          : outdatedSdkCount > 0
-            ? 'Outdated SDKs found'
-            : menuIconStatus === 'warning'
-              ? 'Some SDKs have newer versions available'
-              : 'SDK health is good'
+        : outdatedSdkCount > 0
+          ? 'Outdated SDKs found'
+          : menuIconStatus === 'warning'
+            ? 'Some SDKs have newer versions available'
+            : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
             <span {...props}>
                 <IconWithBadge
                     content={
-                        hasFlagMisconfiguration || hasMultipleInits
+                        hasFlagMisconfiguration
                             ? '!!'
                             : menuIconStatus !== 'healthy' && outdatedSdkCount > 0
                               ? '!'
                               : '✓'
                     }
                     status={
-                        hasFlagMisconfiguration || hasMultipleInits
+                        hasFlagMisconfiguration
                             ? 'danger'
                             : menuIconStatus === 'critical'
                               ? 'danger'
@@ -224,8 +218,6 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 
 export function SidePanelSdkDoctor(): JSX.Element {
     const { sdkVersions, recentEventsLoading, featureFlagMisconfiguration } = useValues(sidePanelSdkDoctorLogic)
-    // TODO: Multi-init detection temporarily disabled for post-MVP
-    // const { multipleInitDetection } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
     // NEW: Group by device context first, then by SDK type
@@ -296,16 +288,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     Unavailable
                                 </LemonTag>
                             </Tooltip>
-                        ) : /* NEW: Enhanced age-based status with enhanced context */
-                        record.isAgeOutdated && !record.isOutdated ? (
-                            <Tooltip
-                                placement="right"
-                                title={`Version is ${Math.floor((record.daysSinceRelease || 0) / 7)} weeks old. Consider updating.`}
-                            >
-                                <LemonTag type="caution" className="shrink-0">
-                                    Aging
-                                </LemonTag>
-                            </Tooltip>
                         ) : record.isOutdated ? (
                             <Tooltip
                                 placement="right"
@@ -341,17 +323,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 </LemonTag>
                             </Tooltip>
                         )}
-                        {/* TODO: Multi-init detection temporarily disabled for post-MVP */}
-                        {/* {record.multipleInitializations && (
-                            <Tooltip
-                                placement="right"
-                                title={`SDK initialized multiple times (${record.initCount} times).`}
-                            >
-                                <LemonTag type="danger" className="shrink-0">
-                                    Multiple init
-                                </LemonTag>
-                            </Tooltip>
-                        )} */}
                     </div>
                 )
             },
@@ -385,97 +356,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
             </div>
 
             <div className="p-3 overflow-y-auto flex-1">
-                {/* TODO: Multi-init detection temporarily disabled for post-MVP */}
-                {/* Show warning for multiple initializations if detected */}
-                {/* {(sdkVersions.some((sdk) => sdk.multipleInitializations) || multipleInitDetection.detected) && (
-                    <Section title="Multiple SDK initializations detected">
-                        <div className="p-3 bg-danger/10 rounded border border-danger/20">
-                            <div className="flex items-start">
-                                <IconWarning className="text-danger text-xl mt-0.5 mr-2 flex-shrink-0" />
-                                <div>
-                                    <p className="font-semibold">
-                                        Whoops!
-                                        <br />
-                                        It looks like you're initializing the Web SDK multiple times
-                                    </p>
-                                    <p className="text-sm mt-1">
-                                        This could be the same version being initialized where it already has been,
-                                        and/or initializing different versions of `posthog-js` from different places in
-                                        your code (or via third-party tools like Google Tag Manager, Shopify, etc.)
-                                    </p>
-                                    <p className="text-sm mt-1">
-                                        This can cause problems; some obvious, some harder to notice. So, you'll want to
-                                        remove the duplicate inits, and initialize `posthog-js` just once (preferably{' '}
-                                        <Link
-                                            to="https://github.com/PostHog/posthog-js/blob/main/packages/browser/CHANGELOG.md"
-                                            target="_blank"
-                                            targetBlankIcon
-                                        >
-                                            the latest version
-                                        </Link>
-                                        )
-                                    </p>
-                                    <div className="mt-2 flex gap-3">
-                                        <Link
-                                            to="https://posthog.com/docs/libraries/js/config"
-                                            target="_blank"
-                                            targetBlankIcon
-                                        >
-                                            View initialization docs
-                                        </Link>
-                                        {multipleInitDetection.detected && multipleInitDetection.exampleEventId && (
-                                            <Link
-                                                to={`/project/1/events/${
-                                                    multipleInitDetection.exampleEventId
-                                                }/${encodeURIComponent(
-                                                    multipleInitDetection.exampleEventTimestamp || ''
-                                                )}`}
-                                                target="_blank"
-                                                targetBlankIcon
-                                            >
-                                                View example event
-                                            </Link>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Table showing the URLs/screens where multiple initializations happen 
-                        <div className="mt-3">
-                            <h4 className="text-sm font-semibold mb-2">Source(s) of multiple initialization</h4>
-                            <LemonTable
-                                dataSource={
-                                    // Use persistent detection data if available, otherwise fall back to current events
-                                    multipleInitDetection.detected && multipleInitDetection.affectedUrls.length > 0
-                                        ? multipleInitDetection.affectedUrls.map((url) => ({ url }))
-                                        : sdkVersions
-                                              .find((sdk) => sdk.multipleInitializations)
-                                              ?.initUrls?.map((item) => ({
-                                                  url: item.url,
-                                              })) || [
-                                              // Fallback data just in case
-                                              {
-                                                  url: 'Unknown source file',
-                                              },
-                                          ]
-                                }
-                                columns={[
-                                    {
-                                        title: 'URL / Screen',
-                                        dataIndex: 'url',
-                                        render: function RenderUrl(url) {
-                                            return <code className="text-xs truncate max-w-48">{url}</code>
-                                        },
-                                    },
-                                ]}
-                                size="small"
-                                className="ph-no-capture"
-                            />
-                        </div>
-                    </Section>
-                )} */}
-
                 {/* Show warning for feature flag misconfigurations if detected */}
                 {featureFlagMisconfiguration.detected && (
                     <Section title="Possible feature flag misconfiguration">
@@ -628,9 +508,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             </div>
                         </Section>
                     ) : (
-                        // TODO: Multi-init detection temporarily disabled for post-MVP
-                        // !sdkVersions.some((sdk) => sdk.multipleInitializations) &&
-                        // !multipleInitDetection.detected &&
                         !featureFlagMisconfiguration.detected && (
                             <Section title="SDK health is good">
                                 <div className="p-3 bg-success/10 rounded border border-success/20">

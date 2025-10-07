@@ -1,5 +1,5 @@
 /* oxlint-disable no-console */
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -19,10 +19,6 @@ const IS_DEBUG_MODE = (() => {
     const appContext = getAppContext()
     return appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
 })()
-
-// TODO: Multi-init detection temporarily disabled for post-MVP
-// Global cache for GitHub releases data
-// let releasesCache: { data: any[] | null; timestamp: number } = { data: null, timestamp: 0 }
 
 export type SdkType =
     | 'web'
@@ -45,16 +41,13 @@ export type SdkVersionInfo = {
     count: number
     releasesAhead?: number
     latestVersion?: string
-    multipleInitializations?: boolean
-    initCount?: number
-    initUrls?: { url: string; count: number }[] // Add this to track actual URLs
 
-    // NEW: Age-based tracking
+    // Age-based tracking
     releaseDate?: string // ISO date string when this version was released
     daysSinceRelease?: number // Calculated days since release
     isAgeOutdated?: boolean // True if >8 weeks old AND newer releases exist
 
-    // NEW: Device context
+    // Device context
     deviceContext?: 'mobile' | 'desktop' | 'mixed' // Based on detected usage patterns
     eventVolume?: 'low' | 'medium' | 'high' // Based on event count
     lastSeenTimestamp?: string // ISO timestamp of most recent event
@@ -63,7 +56,7 @@ export type SdkVersionInfo = {
     error?: string // Error message when SDK Doctor is unavailable
 }
 
-// NEW: Device context detection configuration
+// Device context detection configuration
 export type DeviceContextConfig = {
     mobileSDKs: SdkType[] // ['ios', 'android', 'flutter', 'react-native']
     desktopSDKs: SdkType[] // ['web', 'node', 'python', 'php', 'ruby', 'go', 'dotnet', 'elixir']
@@ -76,15 +69,6 @@ export type DeviceContextConfig = {
         warnAfterWeeks: number // 8 weeks
         criticalAfterWeeks: number // 16 weeks
     }
-}
-
-export type MultipleInitDetection = {
-    detected: boolean
-    detectedAt: string // timestamp when first detected
-    exampleEventId?: string // UUID of a problematic event
-    exampleEventTimestamp?: string // timestamp of the problematic event
-    affectedUrls: string[]
-    sessionCount: number
 }
 
 export type FeatureFlagMisconfiguration = {
@@ -175,20 +159,18 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 loadRecentEvents: async () => {
                     const teamId = values.currentTeamId || undefined
                     try {
-                        // Simplified approach: get strategy based on demo mode vs production
-                        const strategy = determineSamplingStrategy(0) // Let the function handle demo mode
-
-                        // Fetch events with strategy-based parameters
+                        // Simple fetch: recent events from last 24 hours, up to 50 events
                         const params: EventsListQueryParams = {
-                            limit: strategy.maxEvents,
+                            limit: 50,
                             orderBy: ['-timestamp'],
-                            after: strategy.timeWindow,
+                            after: '-24h',
                         }
 
-                        const response = await api.events.list(params, strategy.maxEvents, teamId)
+                        const response = await api.events.list(params, 50, teamId)
 
-                        // Note: Can't store strategy here since cache isn't available in loader context
-                        // The polling interval will use the fallback in afterMount
+                        if (IS_DEBUG_MODE) {
+                            console.info(`[SDK Doctor] Loaded ${response.results.length} events from last 24h`)
+                        }
 
                         return response.results
                     } catch (error) {
@@ -221,42 +203,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 },
             },
         ],
-
-        // DISABLED: Recent events for initialization detection (demo purposes)
-        recentInitEvents: [
-            [] as EventType[],
-            {
-                loadRecentInitEvents: async () => {
-                    // Disabled for demo - multi-init detection postponed for post-MVP
-                    return [] as EventType[]
-                },
-            },
-        ],
     })),
 
     reducers({
-        // Track initialization events separately for demo purposes
-        initializationEvents: [
-            [] as EventType[],
-            {
-                loadRecentEventsSuccess: (_, { recentEvents }) => {
-                    // For posthog-js SDK, filter events related to initialization
-                    return recentEvents.filter(
-                        (event) =>
-                            event.properties?.$lib === 'web' &&
-                            event.event === '$pageview' &&
-                            event.properties?.hasOwnProperty('$posthog_initialized')
-                    )
-                },
-            },
-        ],
-
-        // Stub for multi-init detection (disabled for post-MVP)
-        multipleInitDetection: [
-            { detected: false, detectedAt: '', affectedUrls: [], sessionCount: 0 } as MultipleInitDetection,
-            {},
-        ],
-
         // Feature flag misconfiguration detection with contextual threshold system
         featureFlagMisconfiguration: [
             {
@@ -613,66 +562,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         }
                     }
 
-                    const webEvents = customerEvents.filter((e) => e.properties?.$lib === 'web')
-
-                    // Detect multiple SDK versions within the same session - a strong indicator of misconfiguration
-                    // TODO: Implement multiple version detection logic
-                    const problematicSessions = new Set<string>()
-                    const problematicUrls = new Set<string>()
-
-                    // Group events by session to find version conflicts
-                    const sessionVersionMap: Record<string, Set<string>> = {} // session_id -> Set of versions
-
-                    webEvents.forEach((event) => {
-                        const sessionId = event.properties?.$session_id
-                        const version = event.properties?.$lib_version
-
-                        if (sessionId && version) {
-                            if (!sessionVersionMap[sessionId]) {
-                                sessionVersionMap[sessionId] = new Set()
-                            }
-                            sessionVersionMap[sessionId].add(version)
-                        }
-                    })
-
-                    // Check for sessions with multiple versions
-                    Object.entries(sessionVersionMap).forEach(([sessionId, versions]) => {
-                        if (versions.size > 1) {
-                            // hasMultipleVersions = true // Legacy - now handled by separate multipleInitDetection
-                            problematicSessions.add(sessionId)
-                        }
-                    })
-
-                    // Also check for rapid version changes within a short time window
-                    const eventsByTime = webEvents
-                        .filter((e) => e.properties?.$lib_version && e.properties?.$session_id)
-                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-
-                    for (let i = 1; i < eventsByTime.length; i++) {
-                        const prevEvent = eventsByTime[i - 1]
-                        const currEvent = eventsByTime[i]
-
-                        const prevVersion = prevEvent.properties?.$lib_version
-                        const currVersion = currEvent.properties?.$lib_version
-                        const prevTime = new Date(prevEvent.timestamp).getTime()
-                        const currTime = new Date(currEvent.timestamp).getTime()
-
-                        // If different versions appear within 10 minutes in the same session
-                        if (
-                            prevVersion !== currVersion &&
-                            prevEvent.properties?.$session_id === currEvent.properties?.$session_id &&
-                            currTime - prevTime < 10 * 60 * 1000
-                        ) {
-                            // hasMultipleVersions = true // Legacy - now handled by separate multipleInitDetection
-                            problematicSessions.add(currEvent.properties.$session_id)
-
-                            // Track URLs where this happens
-                            if (currEvent.properties.$current_url) {
-                                problematicUrls.add(currEvent.properties.$current_url)
-                            }
-                        }
-                    }
-
                     // Process all events to extract SDK versions
                     customerEvents.forEach((event) => {
                         const lib = event.properties?.$lib
@@ -726,10 +615,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 version: libVersion,
                                 isOutdated,
                                 count: 1,
-                                // Multiple init detection is now handled by the separate multipleInitDetection reducer
-                                multipleInitializations: false, // Always false - use multipleInitDetection.detected instead
-                                initCount: undefined,
-                                initUrls: undefined,
                             }
                         } else {
                             sdkVersionsMap[key].count += 1
@@ -771,6 +656,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 'go',
                                 'ruby',
                                 'php',
+                                'elixir',
+                                'dotnet',
                             ].includes(sdkType)
                         ) {
                             continue
@@ -873,15 +760,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
-        // Stub for multi-init SDKs (disabled for post-MVP)
-        multipleInitSdks: [
-            () => [],
-            (): SdkVersionInfo[] => {
-                // Always return empty array - multi-init detection disabled for post-MVP
-                return []
-            },
-        ],
-
         sdkHealth: [
             (s) => [s.outdatedSdkCount, s.featureFlagMisconfiguration],
             (outdatedSdkCount: number, featureFlagMisconfiguration: FeatureFlagMisconfiguration): SdkHealthStatus => {
@@ -933,9 +811,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
     listeners(({ actions, values }) => ({
         loadRecentEventsSuccess: async () => {
-            // TODO: Multi-init detection temporarily disabled for post-MVP
-            // await updateReleasesCache() - no longer needed
-
             // Fetch the latest versions to compare against for outdated version detection
             actions.loadLatestSdkVersions()
         },
@@ -1051,168 +926,37 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     error: undefined,
                                 }
                             } else if (info.type === 'web') {
-                                // DIRECT IMPLEMENTATION FOR WEB SDK - bypass the complex pipeline
+                                // WEB SDK - use smart semver detection
+                                console.info(`[SDK Doctor] Web SDK async check for version ${info.version}`)
 
-                                // Get SDK data directly
-                                const sdkData = await fetchSdkData('web')
+                                const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
+                                const {
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    error,
+                                } = versionCheckResult
 
-                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
-                                    console.warn('[SDK Doctor] Web SDK: No version data available')
-                                    updatedMap[key] = {
-                                        ...info,
-                                        isOutdated: false,
-                                        releasesAhead: 0,
-                                        latestVersion: undefined,
-                                        releaseDate: undefined,
-                                        daysSinceRelease: undefined,
-                                        isAgeOutdated: false,
-                                        deviceContext: 'desktop',
-                                        eventVolume: categorizeEventVolume(info.count),
-                                        lastSeenTimestamp: new Date().toISOString(),
-                                        error: 'The Doctor is unavailable. Please try again later.',
-                                    }
-                                    continue
-                                }
-
-                                const latestVersion = sdkData.versions[0]
-                                const versions = sdkData.versions
-                                const releaseDates = sdkData.releaseDates || {}
-
-                                console.info(
-                                    `[SDK Doctor] Web SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
-                                )
-
-                                // Find the index of the current version
-                                const currentIndex = versions.indexOf(info.version)
-                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
-
-                                // Get release date for the current version
-                                let releaseDate: string | undefined
-                                let daysSinceRelease: number | undefined
-                                let isRecentRelease = false
-
-                                if (releaseDates[info.version]) {
-                                    releaseDate = releaseDates[info.version]
-                                    const releaseTimestamp = new Date(releaseDate).getTime()
-                                    const now = Date.now()
-                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
-                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
-                                }
-
-                                // Apply the dual-check logic directly
-                                let isOutdated = false
-                                if (info.version !== latestVersion) {
-                                    if (isRecentRelease) {
-                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
-                                        isOutdated = false
-                                    } else if (releasesBehind >= 3) {
-                                        // 3 or more releases behind AND not recent - outdated
-                                        isOutdated = true
-                                    } else if (releasesBehind >= 2) {
-                                        // 2+ releases behind AND not recent - outdated
-                                        isOutdated = true
-                                    } else {
-                                        // 1 release behind - close enough
-                                        isOutdated = false
-                                    }
-                                }
+                                const deviceContext =
+                                    'deviceContext' in versionCheckResult && versionCheckResult.deviceContext
+                                        ? (versionCheckResult.deviceContext as 'mobile' | 'desktop' | 'mixed')
+                                        : determineDeviceContext(info.type)
 
                                 updatedMap[key] = {
                                     ...info,
                                     isOutdated,
-                                    releasesAhead: releasesBehind,
+                                    releasesAhead,
                                     latestVersion,
                                     releaseDate,
                                     daysSinceRelease,
-                                    isAgeOutdated: false, // Not used for direct implementation
-                                    deviceContext: 'desktop',
+                                    isAgeOutdated,
+                                    deviceContext,
                                     eventVolume: categorizeEventVolume(info.count),
                                     lastSeenTimestamp: new Date().toISOString(),
-                                    error: undefined,
-                                }
-                            } else if (info.type === 'python') {
-                                // DIRECT IMPLEMENTATION FOR PYTHON SDK - bypass the complex pipeline
-
-                                // Get SDK data directly
-                                const sdkData = await fetchSdkData('python')
-
-                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
-                                    console.warn('[SDK Doctor] Python SDK: No version data available')
-                                    updatedMap[key] = {
-                                        ...info,
-                                        isOutdated: false,
-                                        releasesAhead: 0,
-                                        latestVersion: undefined,
-                                        releaseDate: undefined,
-                                        daysSinceRelease: undefined,
-                                        isAgeOutdated: false,
-                                        deviceContext: 'desktop',
-                                        eventVolume: categorizeEventVolume(info.count),
-                                        lastSeenTimestamp: new Date().toISOString(),
-                                        error: 'The Doctor is unavailable. Please try again later.',
-                                    }
-                                    continue
-                                }
-
-                                const latestVersion = sdkData.versions[0]
-                                const versions = sdkData.versions
-                                const releaseDates = sdkData.releaseDates || {}
-
-                                console.info(
-                                    `[SDK Doctor] Python SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
-                                )
-                                console.info(
-                                    `[SDK Doctor] Python SDK release dates available:`,
-                                    Object.keys(releaseDates)
-                                )
-
-                                // Find the index of the current version
-                                const currentIndex = versions.indexOf(info.version)
-                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
-
-                                // Get release date for the current version
-                                let releaseDate: string | undefined
-                                let daysSinceRelease: number | undefined
-                                let isRecentRelease = false
-
-                                if (releaseDates[info.version]) {
-                                    releaseDate = releaseDates[info.version]
-                                    const releaseTimestamp = new Date(releaseDate).getTime()
-                                    const now = Date.now()
-                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
-                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
-                                }
-
-                                // Apply the dual-check logic directly
-                                let isOutdated = false
-                                if (info.version !== latestVersion) {
-                                    if (isRecentRelease) {
-                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
-                                        isOutdated = false
-                                    } else if (releasesBehind >= 3) {
-                                        // 3 or more releases behind AND not recent - outdated
-                                        isOutdated = true
-                                    } else if (releasesBehind >= 2) {
-                                        // 2+ releases behind AND not recent - outdated
-                                        isOutdated = true
-                                    } else {
-                                        // 1 release behind - close enough
-                                        isOutdated = false
-                                    }
-                                }
-
-                                updatedMap[key] = {
-                                    ...info,
-                                    isOutdated,
-                                    releasesAhead: releasesBehind,
-                                    latestVersion,
-                                    releaseDate,
-                                    daysSinceRelease,
-                                    isAgeOutdated: false, // Not used for direct implementation
-                                    deviceContext: 'desktop',
-                                    eventVolume: categorizeEventVolume(info.count),
-                                    lastSeenTimestamp: new Date().toISOString(),
-                                    error: undefined,
+                                    error,
                                 }
                             } else if (info.type === 'react-native') {
                                 // DIRECT IMPLEMENTATION FOR REACT NATIVE SDK - bypass the complex pipeline
@@ -1817,6 +1561,37 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
+                            } else if (info.type === 'python' || info.type === 'node') {
+                                // Use async version check for Python and Node SDKs
+                                const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
+                                const {
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    error,
+                                } = versionCheckResult
+
+                                const deviceContext =
+                                    'deviceContext' in versionCheckResult && versionCheckResult.deviceContext
+                                        ? (versionCheckResult.deviceContext as 'mobile' | 'desktop' | 'mixed')
+                                        : determineDeviceContext(info.type)
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    deviceContext,
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error,
+                                }
                             } else {
                                 // Use the existing async check for remaining SDKs
                                 console.info(
@@ -1865,41 +1640,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         },
     })),
 
-    afterMount(({ actions, cache }) => {
-        // Load recent events when the logic is mounted
+    afterMount(({ actions }) => {
+        // Load recent events once when the panel is opened
         actions.loadRecentEvents()
-
-        // NEW: Strategy-based adaptive polling
-        const updatePollingInterval = (): void => {
-            if (cache.pollingInterval) {
-                window.clearInterval(cache.pollingInterval)
-            }
-
-            // Use interval from current strategy, with fallback
-            const intervalMs = cache.currentStrategy?.intervalMs || 5000
-
-            cache.pollingInterval = window.setInterval(() => {
-                actions.loadRecentEvents()
-            }, intervalMs)
-        }
-
-        // Initial setup
-        updatePollingInterval()
-
-        // Update interval after each event load (when strategy might change)
-        cache.intervalUpdater = window.setInterval(updatePollingInterval, 60000) // Check every minute
-    }),
-
-    beforeUnmount(({ cache }) => {
-        // Clean up the intervals when unmounting
-        if (cache.pollingInterval) {
-            window.clearInterval(cache.pollingInterval)
-            cache.pollingInterval = null
-        }
-        if (cache.intervalUpdater) {
-            window.clearInterval(cache.intervalUpdater)
-            cache.intervalUpdater = null
-        }
     }),
 ])
 
@@ -1937,15 +1680,7 @@ function categorizeEventVolume(count: number): 'low' | 'medium' | 'high' {
     return 'high'
 }
 
-// NEW: Customer volume estimation and sampling strategy
-interface SamplingStrategy {
-    timeWindow: string // e.g., '-24h', '-7d'
-    maxEvents: number
-    minEventsForAnalysis: number
-    contextBalancing: boolean
-    intervalMs: number // Polling frequency
-}
-
+// Helper function to detect demo/dev mode
 function isDemoMode(): boolean {
     const url = window.location.href
     return (
@@ -1955,49 +1690,6 @@ function isDemoMode(): boolean {
         url.includes(':8000') ||
         url.includes(':8010')
     ) // PostHog dev server
-}
-
-function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingStrategy {
-    // Demo mode override for testing
-    if (isDemoMode()) {
-        return {
-            timeWindow: '-1h', // Short window for fast testing
-            maxEvents: 20, // Reasonable sample size
-            minEventsForAnalysis: 3,
-            contextBalancing: false, // Simple for demos
-            intervalMs: 5000, // 5 seconds - responsive for demos
-        }
-    }
-
-    // Production mode: All customers get 30-minute intervals
-    // SDK Doctor scans on session start + every 30 minutes + manual scans
-    if (estimatedEventsPerMinute > 1000) {
-        // High-volume customers
-        return {
-            timeWindow: '-6h', // Shorter window, recent data
-            maxEvents: 100, // Larger sample
-            minEventsForAnalysis: 20,
-            contextBalancing: true, // Ensure both mobile/desktop representation
-            intervalMs: 1800000, // 30 minutes - production interval
-        }
-    } else if (estimatedEventsPerMinute > 50) {
-        // Medium-volume customers
-        return {
-            timeWindow: '-24h',
-            maxEvents: 50,
-            minEventsForAnalysis: 10,
-            contextBalancing: true,
-            intervalMs: 1800000, // 30 minutes - production interval
-        }
-    }
-    // Low-volume customers
-    return {
-        timeWindow: '-7d', // Longer window to get sufficient data
-        maxEvents: 30,
-        minEventsForAnalysis: 5,
-        contextBalancing: false, // Take what we can get
-        intervalMs: 1800000, // 30 minutes - production interval
-    }
 }
 
 // NEW: Async version comparison function with on-demand SDK data fetching
@@ -2140,46 +1832,50 @@ function checkVersionAgainstLatest(
             isAgeOutdated = weeksOld > DEVICE_CONTEXT_CONFIG.ageThresholds.warnAfterWeeks && releasesBehind > 0
         }
 
-        // Dual check logic: Don't flag as "Outdated" if version released <48 hours ago, even if 2+ releases behind
+        // Grace period: Don't flag versions released <7 days ago (even if major version behind)
+        // This gives teams time to upgrade before we nag them about new releases
         let isRecentRelease = false
-
-        // Debug logging for Flutter specifically
+        const GRACE_PERIOD_DAYS = 7
 
         if (daysSinceRelease !== undefined) {
-            isRecentRelease = daysSinceRelease < 2 // 48 hours
-        } else if (['web', 'python', 'react-native', 'flutter', 'ios', 'android', 'go', 'ruby'].includes(type)) {
-            // For these SDKs, we require GitHub API data for accurate detection
-            // Return error state instead of misleading fallbacks
-            const errorMessage = `The Doctor is unavailable. Please try again later.`
-            console.error(`[SDK Doctor] ${errorMessage} (Missing GitHub release date data for version ${version})`)
-
-            return {
-                isOutdated: false,
-                error: errorMessage,
-                releasesAhead: 0,
-                latestVersion,
-                releaseDate,
-                daysSinceRelease,
-                isAgeOutdated: false,
-                deviceContext,
-            }
-        } else {
+            isRecentRelease = daysSinceRelease < GRACE_PERIOD_DAYS
         }
+        // Note: If daysSinceRelease is undefined (e.g., failed releases not in GitHub),
+        // we continue with release count logic only - this is intentional
 
-        // Apply SDK-specific logic
+        // Smart version detection based on semver difference
         let isOutdated = false
-        if (['go', 'php', 'ruby', 'elixir', 'dotnet', 'node'].includes(type)) {
-            // Go, PHP, Ruby, Elixir, .NET, Node.js SDK exception: infrequent releases, so 1-2 releases = "Close enough", 3+ = "Outdated"
-            isOutdated = releasesBehind >= 3
-        } else {
-            // Standard logic: 2+ releases behind AND >48h old
-            // This means even 3+ releases behind shows "Close enough" if released recently
-            isOutdated = releasesBehind >= 2 && !isRecentRelease
+
+        // Apply grace period first - don't flag anything <7 days old
+        if (isRecentRelease) {
+            isOutdated = false
+        } else if (diff && diff.kind === 'major') {
+            // Major version behind (1.x → 2.x): Always flag as outdated (also checked: >1 year below)
+            isOutdated = true
+        } else if (diff && diff.kind === 'minor') {
+            // Minor version behind (1.2.x → 1.5.x): Flag if 3+ minors behind
+            isOutdated = diff.diff >= 3
+        } else if (diff && diff.kind === 'patch') {
+            // Patch version behind (1.2.3 → 1.2.6): Flag if 5+ patches behind OR >3 months old
+            const threeMonthsInDays = 90
+            const isPatchOutdatedByCount = diff.diff >= 5
+            const isPatchOutdatedByAge = daysSinceRelease !== undefined && daysSinceRelease > threeMonthsInDays
+            isOutdated = isPatchOutdatedByCount || isPatchOutdatedByAge
+        } else if (!diff || diff.diff === 0) {
+            // Current version matches latest
+            isOutdated = false
+        }
+        // Note: Removed fallback release count logic - smart semver detection handles all cases now
+
+        // Additional check: Flag if version is more than 1 year old (regardless of semver difference)
+        const oneYearInDays = 365
+        if (!isOutdated && daysSinceRelease !== undefined && daysSinceRelease > oneYearInDays) {
+            isOutdated = true
         }
 
         if (IS_DEBUG_MODE) {
             console.info(
-                `[SDK Doctor] Time-based detection: daysSinceRelease=${daysSinceRelease}, isRecentRelease=${isRecentRelease}`
+                `[SDK Doctor] Smart detection: diff=${diff ? `${diff.kind} ${diff.diff}` : 'none'}, daysSinceRelease=${daysSinceRelease}, isRecentRelease=${isRecentRelease}`
             )
             console.info(
                 `[SDK Doctor] Final result: isOutdated=${isOutdated} (releasesBehind=${releasesBehind}, isAgeOutdated=${isAgeOutdated})`
@@ -2187,12 +1883,12 @@ function checkVersionAgainstLatest(
         }
 
         return {
-            isOutdated: isOutdated || isAgeOutdated, // Combine dual-check and age-based
+            isOutdated, // Use smart semver result only - don't combine with isAgeOutdated
             releasesAhead: Math.max(0, releasesBehind),
             latestVersion,
             releaseDate,
             daysSinceRelease,
-            isAgeOutdated,
+            isAgeOutdated, // Returned separately for "Old" badge in UI
             deviceContext,
         }
     } catch {
