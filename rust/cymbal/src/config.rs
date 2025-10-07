@@ -184,7 +184,6 @@ fn default_maxmind_db_path() -> PathBuf {
         .join("GeoLite2-City.mmdb")
 }
 
-// Resolves the s3 client configuration, handling
 pub async fn get_aws_config(config: &Config) -> aws_sdk_s3::Config {
     // If we have a role ARN and token file, which are added to the container due to the SA annotation we use in prod
     if std::env::var("AWS_ROLE_ARN").is_ok() && std::env::var("AWS_WEB_IDENTITY_TOKEN_FILE").is_ok()
