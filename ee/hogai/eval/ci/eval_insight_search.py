@@ -104,6 +104,7 @@ def call_insight_search(demo_org_team_user):
             search_insights_query=search_query,
         )
 
+        # search_insights is gated begind feature flag, we need to mock it for always being truthy
         with patch("posthoganalytics.feature_enabled", return_value=True):
             raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
             state = AssistantState.model_validate(raw_state)
