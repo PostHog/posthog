@@ -90,6 +90,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'unsubscribeError',
                 'currentPlatformAddon',
                 'platformAddons',
+                'timeRemainingInSeconds',
+                'timeTotalInSeconds',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -105,6 +107,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'setProductSpecificAlert',
                 'setScrollToProductKey',
                 'deactivateProductSuccess',
+                'switchFlatrateSubscriptionPlan',
+                'setSwitchPlanLoading',
             ],
         ],
     })),
@@ -147,6 +151,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
         removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
+        showConfirmUpgradeModal: true,
+        hideConfirmUpgradeModal: true,
+        confirmProductUpgrade: true,
     }),
     reducers({
         billingLimitInput: [
@@ -252,8 +259,38 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 setHedgehogSatisfied: (_, { satisfied }) => satisfied,
             },
         ],
+        confirmUpgradeModalOpen: [
+            false as boolean,
+            {
+                showConfirmUpgradeModal: () => true,
+                hideConfirmUpgradeModal: () => false,
+            },
+        ],
     }),
     selectors(({ values }) => ({
+        proratedAmount: [
+            (s) => [s.currentAndUpgradePlans, s.timeRemainingInSeconds, s.timeTotalInSeconds],
+            (currentAndUpgradePlans, timeRemainingInSeconds, timeTotalInSeconds): number => {
+                if (!timeTotalInSeconds) {
+                    return 0
+                }
+                const amountUsd = currentAndUpgradePlans.upgradePlan?.unit_amount_usd
+                const unitAmountInt = amountUsd ? parseInt(amountUsd) : 0
+                const ratio = Math.max(0, Math.min(1, timeRemainingInSeconds / timeTotalInSeconds)) // make sure ratio is between 0 and 1
+                return Math.round(unitAmountInt * ratio * 100) / 100
+            },
+        ],
+        isProrated: [
+            (s) => [s.billing, s.currentAndUpgradePlans, s.proratedAmount],
+            (billing, currentAndUpgradePlans, proratedAmount): boolean => {
+                const hasActiveSubscription = billing?.has_active_subscription
+                const amountUsd = currentAndUpgradePlans.upgradePlan?.unit_amount_usd
+                if (!hasActiveSubscription || !amountUsd) {
+                    return false
+                }
+                return proratedAmount !== parseInt(amountUsd)
+            },
+        ],
         isLowerTierThanCurrentAddon: [
             (s, p) => [p.product, s.currentPlatformAddon, s.platformAddons],
             (product, currentPlatformAddon, platformAddons): boolean => {
@@ -613,6 +650,24 @@ export const billingProductLogic = kea<billingProductLogicType>([
             window.location.href = `/api/billing/activate?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
+        },
+        confirmProductUpgrade: () => {
+            const upgradePlan = values.currentAndUpgradePlans.upgradePlan
+            const currentPlatformAddon = values.currentPlatformAddon
+            if (!upgradePlan || !currentPlatformAddon) {
+                return
+            }
+            actions.switchFlatrateSubscriptionPlan({
+                from_product_key: String(currentPlatformAddon.type),
+                from_plan_key: String(currentPlatformAddon.plans?.[0]?.plan_key),
+                to_product_key: props.product.type,
+                to_plan_key: String(upgradePlan.plan_key),
+            })
+        },
+        setSwitchPlanLoading: ({ productKey }) => {
+            if (productKey === null && values.confirmUpgradeModalOpen) {
+                actions.hideConfirmUpgradeModal()
+            }
         },
         activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)

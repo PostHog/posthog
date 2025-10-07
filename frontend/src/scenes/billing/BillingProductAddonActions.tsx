@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { confirmUpgradeModalLogic } from 'lib/components/ConfirmUpgradeModal/confirmUpgradeModalLogic'
 import { FEATURE_FLAGS, TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -14,7 +12,6 @@ import { toSentenceCase } from 'lib/utils'
 import { BillingProductV2AddonType } from '~/types'
 
 import { formatFlatRate } from './BillingProductAddon'
-import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
@@ -32,14 +29,7 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const {
-        billing,
-        billingError,
-        switchPlanLoading,
-        timeTotalInSeconds,
-        timeRemainingInSeconds,
-        currentPlatformAddon,
-    } = useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon } = useValues(billingLogic)
     const { switchFlatrateSubscriptionPlan } = useActions(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -49,22 +39,14 @@ export const BillingProductAddonActions = ({
         isSubscribedToAnotherAddon,
         isDataPipelinesDeprecated,
         isLowerTierThanCurrentAddon,
+        proratedAmount,
+        isProrated,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
-    const { showConfirmUpgradeModal } = useActions(confirmUpgradeModalLogic)
+    const { showConfirmUpgradeModal } = useActions(billingProductLogic({ product: addon }))
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const { prorationAmount, isProrated } = useMemo(
-        () =>
-            getProration({
-                timeRemainingInSeconds,
-                timeTotalInSeconds,
-                amountUsd: upgradePlan?.unit_amount_usd,
-                hasActiveSubscription: billing?.has_active_subscription,
-            }),
-        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
-    )
     const isTrialEligible = !!addon.trial
     const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
 
@@ -200,7 +182,7 @@ export const BillingProductAddonActions = ({
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
                 <p className="mt-2 text-xs text-secondary text-right">
-                    Pay ~${prorationAmount} today (prorated) and
+                    Pay ~${proratedAmount.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
                 </p>
@@ -220,8 +202,6 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
-                        loading={switchPlanLoading === addon.type}
-                        // TODO: Show confirmation modal with AddonFeatureLossNotice
                         onClick={() =>
                             switchFlatrateSubscriptionPlan({
                                 from_product_key: String(currentPlatformAddon?.type),
@@ -253,23 +233,7 @@ export const BillingProductAddonActions = ({
                     </h4>
                 )}
 
-                <LemonButton
-                    type="primary"
-                    loading={switchPlanLoading === addon.type}
-                    onClick={() =>
-                        showConfirmUpgradeModal(
-                            upgradePlan!,
-                            () =>
-                                switchFlatrateSubscriptionPlan({
-                                    from_product_key: String(currentPlatformAddon?.type),
-                                    from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
-                                    to_product_key: addon.type,
-                                    to_plan_key: String(upgradePlan?.plan_key),
-                                }),
-                            () => {}
-                        )
-                    }
-                >
+                <LemonButton type="primary" onClick={() => showConfirmUpgradeModal()}>
                     Upgrade
                 </LemonButton>
             </>
