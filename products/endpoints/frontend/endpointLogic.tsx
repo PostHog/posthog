@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
-import { NamedQueryRequest } from '~/queries/schema/schema-general'
+import { EndpointRequest } from '~/queries/schema/schema-general'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
@@ -28,7 +28,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setEndpointName: (endpointName: string) => ({ endpointName }),
         setEndpointDescription: (endpointDescription: string) => ({ endpointDescription }),
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
-        createEndpoint: (request: NamedQueryRequest) => ({ request }),
+        createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: (error: any) => ({ error }),
         deleteEndpoint: (name: string) => ({ name }),

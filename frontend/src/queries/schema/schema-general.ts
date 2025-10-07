@@ -1520,14 +1520,14 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
-export interface NamedQueryRequest {
+export interface EndpointRequest {
     name?: string
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
-export interface NamedQueryRunRequest {
+export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
@@ -1550,7 +1550,7 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
-export interface NamedQueryLastExecutionTimesRequest {
+export interface EndpointLastExecutionTimesRequest {
     names: string[]
 }
 

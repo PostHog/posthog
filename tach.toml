@@ -50,3 +50,7 @@ depends_on = ["posthog"]
 [[modules]]
 path = "products.revenue_analytics"
 depends_on = ["posthog"]
+
+[[modules]]
+path = "products.endpoints"
+depends_on = ["posthog"]

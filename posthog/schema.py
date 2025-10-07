@@ -987,6 +987,13 @@ class EmptyPropertyFilter(BaseModel):
     )
 
 
+class EndpointLastExecutionTimesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    names: list[str]
+
+
 class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
@@ -1889,13 +1896,6 @@ class MultipleBreakdownType(StrEnum):
     SESSION = "session"
     HOGQL = "hogql"
     REVENUE_ANALYTICS = "revenue_analytics"
-
-
-class NamedQueryLastExecutionTimesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    names: list[str]
 
 
 class NodeKind(StrEnum):
@@ -8166,6 +8166,33 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    filters_override: Optional[DashboardFilter] = None
+    query_override: Optional[dict[str, Any]] = None
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
+    variables_values: Optional[dict[str, Any]] = None
+
+
 class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9125,33 +9152,6 @@ class MultipleBreakdownOptions(BaseModel):
         extra="forbid",
     )
     values: list[BreakdownItem]
-
-
-class NamedQueryRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: Optional[str] = Field(
-        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
-    )
-    filters_override: Optional[DashboardFilter] = None
-    query_override: Optional[dict[str, Any]] = None
-    refresh: Optional[RefreshType] = Field(
-        default=RefreshType.BLOCKING,
-        description=(
-            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
-            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
-            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
-            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
-            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
-            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
-            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
-            " completes immediately as it never calculates Background calculation can be tracked using the"
-            " `query_status` response field."
-        ),
-    )
-    variables_override: Optional[dict[str, dict[str, Any]]] = None
-    variables_values: Optional[dict[str, Any]] = None
 
 
 class PathsQueryResponse(BaseModel):
@@ -14000,18 +14000,6 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
-class NamedQueryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-    name: Optional[str] = None
-    query: Optional[
-        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
-    ] = None
-
-
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14049,6 +14037,18 @@ class DatabaseSchemaQuery(BaseModel):
     response: Optional[DatabaseSchemaQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EndpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+    ] = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
