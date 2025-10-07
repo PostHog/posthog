@@ -47,8 +47,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def select_aggregation(self) -> ast.Expr:
         if isinstance(self.series, SessionsNode):
             if self.series.math == "dau":
-                # Count distinct users via distinct_id (sessions table doesn't have person_id join)
-                return parse_expr("count(DISTINCT distinct_id)")
+                # Count distinct users via person_id from joined person_distinct_ids table
+                return parse_expr("count(DISTINCT person_id)")
             elif self.series.math == "avg_count_per_actor":
                 # avg_count_per_actor requires query orchestration, will be replaced below
                 return parse_expr("count()")
@@ -98,13 +98,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def actor_id_field(self) -> str:
         """
         For group-based math (unique_group, weekly_active, monthly_active, dau with group index), returns the group
-        field. For SessionsNode, returns distinct_id. Otherwise, returns person_id.
+        field. For SessionsNode, returns person_id from the joined person_distinct_ids table. Otherwise, returns
+        person_id from events.
 
         Note: DAU can have math_group_type_index because weekly_active/monthly_active get converted to DAU when
         interval >= their time window.
         """
         if isinstance(self.series, SessionsNode):
-            return "distinct_id"
+            return "person_id"
         if is_groups_math(series=self.series):
             return f'e."$group_{int(cast(int, self.series.math_group_type_index))}"'
         return "e.person_id"

@@ -10,8 +10,10 @@ from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
+    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
+    LazyJoin,
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
@@ -20,6 +22,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.database.schema.person_distinct_ids import join_with_person_distinct_ids_table
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
@@ -85,6 +88,12 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
+    "pdi": LazyJoin(
+        from_field=["distinct_id"],
+        join_table="person_distinct_ids",
+        join_function=join_with_person_distinct_ids_table,
+    ),
+    "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at"),
@@ -418,8 +427,17 @@ def select_from_sessions_table_v2(
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id_v7"])]
 
     for name, chain in requested_fields.items():
+        # Check if this field should use an aggregate expression
+        # Either the alias name is in aggregate_fields, or the chain points to a field in aggregate_fields
+        aggregate_key = None
         if name in aggregate_fields:
-            select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
+            aggregate_key = name
+        elif len(chain) == 1 and isinstance(chain[0], str) and chain[0] in aggregate_fields:
+            # LazyJoin may request a field with an aliased name but chain pointing to an aggregate field
+            aggregate_key = chain[0]
+
+        if aggregate_key:
+            select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[aggregate_key]))
         else:
             select_fields.append(
                 ast.Alias(alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain))
@@ -511,6 +529,8 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         "max_inserted_at",
         "team_id",
         "distinct_id",
+        "person_id",
+        "pdi",
         "session_id",
         "id",
         "session_id_v7",
