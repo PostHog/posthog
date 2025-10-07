@@ -208,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrls(StrEnum):
+class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -1662,6 +1662,7 @@ class IntegrationKind(StrEnum):
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
+    DATABRICKS = "databricks"
 
 
 class IntervalType(StrEnum):

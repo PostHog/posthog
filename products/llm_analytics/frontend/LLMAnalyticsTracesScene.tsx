@@ -16,9 +16,9 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
 
-export function BaseLLMAnalyticsTraces({ logic }: { logic: ReturnType<typeof llmAnalyticsLogic> }): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
-    const { tracesQuery } = useValues(logic)
+export function LLMAnalyticsTraces(): JSX.Element {
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
+    const { tracesQuery } = useValues(llmAnalyticsLogic)
 
     return (
         <DataTable
@@ -79,10 +79,6 @@ export function BaseLLMAnalyticsTraces({ logic }: { logic: ReturnType<typeof llm
             uniqueKey="llm-analytics-traces"
         />
     )
-}
-
-export function LLMAnalyticsTraces(): JSX.Element {
-    return <BaseLLMAnalyticsTraces logic={llmAnalyticsLogic()} />
 }
 
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
