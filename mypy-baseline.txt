@@ -44,6 +44,7 @@ dags/tests/test_backups.py:0: error: boto3.client? has no attribute "exceptions"
 dags/tests/test_deletes.py:0: error: Incompatible type for "created_at" of "AsyncDeletion" (got "None", expected "str | datetime | date | Combinable")  [misc]
 dags/tests/test_deletes.py:0: error: Incompatible type for "key" of "AsyncDeletion" (got "UUID", expected "str | int | Combinable")  [misc]
 dags/tests/test_deletes.py:0: error: Non-overlapping container check (element type: "int", container item type: "tuple[int, UUID]")  [comparison-overlap]
+dags/tests/test_experiment_regular_metrics_timeseries_schedule.py:0: error: Module "dags.experiment_regular_metrics_timeseries" has no attribute "_parse_regular_metric_timeseries_partition_key"  [attr-defined]
 dags/tests/test_materialized_columns.py:0: error: "str" has no attribute "day"  [attr-defined]
 dags/tests/test_materialized_columns.py:0: error: "str" has no attribute "month"  [attr-defined]
 dags/tests/test_materialized_columns.py:0: error: "str" has no attribute "year"  [attr-defined]

@@ -116,7 +116,7 @@ def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse
     return result
 
 
-def _parse_regular_metric_timeseries_partition_key(partition_key: str) -> tuple[int, str, str]:
+def _parse_partition_key(partition_key: str) -> tuple[int, str, str]:
     """
     Parse partition key to extract experiment ID, metric UUID, and fingerprint.
 
@@ -152,7 +152,7 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
     if not context.partition_key:
         raise dagster.Failure("This asset must be run with a partition key")
 
-    experiment_id, metric_uuid, fingerprint = _parse_regular_metric_timeseries_partition_key(context.partition_key)
+    experiment_id, metric_uuid, fingerprint = _parse_partition_key(context.partition_key)
 
     context.log.info(
         f"Computing timeseries results for experiment {experiment_id}, metric {metric_uuid}, fingerprint {fingerprint}"
@@ -354,22 +354,6 @@ def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.Sens
         return dagster.SkipReason(f"Failed to discover regular metric experiments: {e}")
 
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def _extract_experiment_id_from_partition_key(partition_key: str) -> int:
-    """
-    Extract experiment ID from partition key.
-    Format: experiment_{id}_metric_{uuid}_{fingerprint}
-    """
-    parts = partition_key.split("_")
-    if len(parts) >= 2 and parts[0] == "experiment":
-        return int(parts[1])
-    raise ValueError(f"Invalid partition key format: {partition_key}")
-
-
 @dagster.schedule(
     job=experiment_regular_metrics_timeseries_job,
     cron_schedule="0 * * * *",  # Every hour at minute 0
@@ -416,7 +400,7 @@ def experiment_regular_metrics_timeseries_refresh_schedule(context: dagster.Sche
         partitions_to_run = []
         for partition_key in all_partitions:
             try:
-                experiment_id = _extract_experiment_id_from_partition_key(partition_key)
+                experiment_id, _, _ = _parse_partition_key(partition_key)
                 if experiment_id in target_experiment_ids:
                     partitions_to_run.append(partition_key)
             except ValueError:
