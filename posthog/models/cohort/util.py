@@ -25,6 +25,7 @@ from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, CohortPeople
+from posthog.models.cohort.dependencies import get_cohort_dependents
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -679,6 +680,35 @@ def get_all_cohort_dependencies(
             continue
 
     return cohorts
+
+
+def get_all_cohort_dependents(cohort: Cohort, using_database: str = "default") -> list[Cohort]:
+    """
+    Get all cohorts that reference the given cohort, traversing the full dependent chain.
+    For example: if A depends on B, and B depends on C, this returns [A, B] for cohort C.
+    This is the reverse traversal of get_dependency_cohorts.
+    """
+    cohorts: list[int] = []
+    seen_cohort_ids: set[int] = {cohort.id}
+    queue: list[int] = [cohort.id]
+
+    while queue:
+        cohort_id = queue.pop()
+
+        for related_id in get_cohort_dependents(cohort_id):
+            if related_id not in seen_cohort_ids:
+                queue.append(related_id)
+                seen_cohort_ids.add(related_id)
+
+        if cohort_id != cohort.id:
+            cohorts.append(cohort_id)
+
+    try:
+        dependent_cohorts = Cohort.objects.db_manager(using_database).filter(id__in=cohorts, deleted=False).all()
+        return list(dependent_cohorts)
+    except Exception as e:
+        logger.exception("Failed to fetch cohorts", error=str(e))
+    return []
 
 
 def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[int, CohortOrEmpty]) -> list[int]:

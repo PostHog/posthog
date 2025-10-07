@@ -146,16 +146,27 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
 }
 
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
-    const toolsWithParsedArguments = toolCalls.map((toolCall) => ({
-        ...toolCall,
-        function: {
-            ...toolCall.function,
-            arguments:
-                typeof toolCall.function.arguments === 'string'
-                    ? JSON.parse(toolCall.function.arguments)
-                    : toolCall.function.arguments,
-        },
-    }))
+    const toolsWithParsedArguments = toolCalls.map((toolCall) => {
+        let parsedArguments = toolCall.function.arguments
+
+        if (typeof toolCall.function.arguments === 'string') {
+            try {
+                parsedArguments = JSON.parse(toolCall.function.arguments)
+            } catch (e) {
+                console.warn('Failed to parse tool call arguments as JSON:', toolCall.function.arguments, e)
+                // Keep the original string if parsing fails
+                parsedArguments = toolCall.function.arguments
+            }
+        }
+
+        return {
+            ...toolCall,
+            function: {
+                ...toolCall.function,
+                arguments: parsedArguments,
+            },
+        }
+    })
 
     return toolsWithParsedArguments
 }

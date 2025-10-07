@@ -18,8 +18,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
+import { ExperimentTypePanel } from './ExperimentTypePanel'
+import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
-import { ExperimentTypePanel } from './panels/ExperimentTypePanel'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     return (
@@ -110,7 +111,7 @@ export const CreateExperiment = (): JSX.Element => {
                                 header: 'Feature flag & variants',
                                 content: (
                                     <div className="p-4">
-                                        <span>Variants Panel Goes Here</span>
+                                        <VariantsPanel experiment={experiment} onChange={(updates) => updates} />
                                     </div>
                                 ),
                             },

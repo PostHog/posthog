@@ -1066,6 +1066,11 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ actions, cache, values }) => {
         cache.onKeyDown = (event: KeyboardEvent) => {
             if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                const element = event.target as HTMLElement
+                if (element?.closest('.NotebookEditor')) {
+                    return
+                }
+
                 event.preventDefault()
                 event.stopPropagation()
                 if (event.shiftKey) {

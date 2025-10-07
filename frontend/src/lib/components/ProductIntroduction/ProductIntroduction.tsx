@@ -30,6 +30,7 @@ export type ProductIntroductionProps = {
     isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
     action?: () => void
+    disabledReason?: string
     /** If you want to provide a custom action button instead of using the default one */
     actionElementOverride?: JSX.Element
     docsURL?: string
@@ -45,6 +46,7 @@ export const ProductIntroduction = ({
     titleOverride,
     isEmpty,
     action,
+    disabledReason,
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
@@ -123,6 +125,7 @@ export const ProductIntroduction = ({
                                     action?.()
                                 }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
+                                disabledReason={disabledReason}
                             >
                                 Create {thingName}
                             </LemonButton>

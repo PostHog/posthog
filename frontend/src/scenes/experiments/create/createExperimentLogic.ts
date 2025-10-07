@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -19,7 +19,7 @@ import { NEW_EXPERIMENT } from '../constants'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 
 export const createExperimentLogic = kea<createExperimentLogicType>([
-    props(() => ({})),
+    key(() => 'create-experiment'),
     path(['scenes', 'experiments', 'create', 'createExperimentLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
@@ -32,7 +32,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['addProductIntent'],
         ],
     })),
-    forms(() => ({
+    forms(({ actions }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -40,6 +40,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 name: !name ? 'Name is required' : undefined,
                 description: !description ? 'Hypothesis is required' : undefined,
             }),
+            submit: () => {
+                actions.createExperiment()
+            },
         },
     })),
     actions(() => ({
@@ -50,9 +53,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     reducers(() => ({
         experiment: [
             { ...NEW_EXPERIMENT } as Experiment & { feature_flag_filters?: FeatureFlagFilters },
+            { persist: true },
             {
                 setExperiment: (_, { experiment }) => experiment,
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),
+                resetExperiment: () => ({ ...NEW_EXPERIMENT }),
             },
         ],
     })),
@@ -88,6 +93,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         },
                     },
                 })
+
+                // Reset form for next experiment (clear persisted state)
+                actions.resetExperiment()
 
                 // Navigate to experiment page
                 router.actions.push(urls.experiment(response.id))

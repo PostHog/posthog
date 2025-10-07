@@ -12,6 +12,7 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
@@ -20,13 +21,20 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink, QueryTabState } from '~/types'
+import {
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
+    DataWarehouseViewLink,
+    FileSystemIconColor,
+    QueryTabState,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -849,6 +857,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 return [
+                    {
+                        id: 'new-query',
+                        name: 'SQL editor',
+                        type: 'node',
+                        icon: iconForType('sql_editor', [
+                            'var(--color-product-data-warehouse-light)',
+                        ] as FileSystemIconColor),
+                        onClick: () => {
+                            newInternalTab(urls.sqlEditor())
+                        },
+                        record: {
+                            type: 'sql',
+                        },
+                    } as TreeDataItem,
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     ...(featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]
                         ? [createTopLevelFolderNode('drafts', draftsChildren, false)]

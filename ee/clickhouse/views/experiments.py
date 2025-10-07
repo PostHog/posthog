@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -28,13 +28,15 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
-class ExperimentSerializer(serializers.ModelSerializer):
+class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -79,6 +81,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -89,6 +92,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "exposure_cohort",
             "holdout",
             "saved_metrics",
+            "user_access_level",
         ]
 
     def to_representation(self, instance):
@@ -112,6 +116,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 saved_metric["query"]["count_query"]["dateRange"] = new_date_range
             if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
                 saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+            # Add fingerprint to saved metric returned from API
+            # so that frontend knows what timeseries records to query
+            if saved_metric.get("query"):
+                saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
+                    saved_metric["query"],
+                    instance.start_date,
+                    instance.stats_config,
+                    instance.exposure_criteria,
+                )
 
         return data
 
@@ -186,8 +200,12 @@ class ExperimentSerializer(serializers.ModelSerializer):
             raise ValidationError("filterTestAccounts must be a boolean")
 
         if "exposure_config" in exposure_criteria:
+            exposure_config = exposure_criteria["exposure_config"]
             try:
-                ExperimentEventExposureConfig.model_validate(exposure_criteria["exposure_config"])
+                if exposure_config.get("kind") == "ActionsNode":
+                    ActionsNode.model_validate(exposure_config)
+                else:
+                    ExperimentEventExposureConfig.model_validate(exposure_config)
                 return exposure_criteria
             except Exception:
                 raise ValidationError("Invalid exposure criteria")
@@ -478,7 +496,9 @@ class ExperimentStatus(str, Enum):
     ALL = "all"
 
 
-class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EnterpriseExperimentsViewSet(
+    ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
@@ -740,14 +760,6 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         if not fingerprint:
             raise ValidationError("fingerprint query parameter is required")
-
-        metrics = experiment.metrics or []
-        metrics_secondary = experiment.metrics_secondary or []
-        all_metrics = metrics + metrics_secondary
-
-        metric_exists = any(m.get("uuid") == metric_uuid for m in all_metrics)
-        if not metric_exists:
-            raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
 
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 

@@ -240,7 +240,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    EMBEDDED_ANALYTICS = 'embedded_analytics',
+    ENDPOINTS = 'endpoints',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -305,6 +305,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Experiment = 'experiment',
 }
 
 interface UserBaseType {
@@ -320,6 +321,7 @@ export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
     hedgehog_config?: MinimalHedgehogConfig
+    role_at_organization?: string | null
 }
 
 /**
@@ -2091,6 +2093,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    last_viewed_at?: string | null
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2108,7 +2111,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface QueryEndpointType extends WithAccessControl {
+export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
@@ -3428,6 +3431,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    evaluation_tags: string[]
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
@@ -3534,11 +3538,16 @@ export enum ScheduledChangeModels {
 export enum ScheduledChangeOperationType {
     UpdateStatus = 'update_status',
     AddReleaseCondition = 'add_release_condition',
+    UpdateVariants = 'update_variants',
 }
 
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+    | {
+          operation: ScheduledChangeOperationType.UpdateVariants
+          value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
+      }
 
 export interface ScheduledChangeType {
     id: number
@@ -3813,7 +3822,7 @@ export interface ExperimentHoldoutType {
     id: number | null
     name: string
     description: string | null
-    filters: Record<string, any>
+    filters: FeatureFlagGroupType[]
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
@@ -3877,6 +3886,7 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    user_access_level: AccessControlLevel
 }
 
 export interface FunnelExperimentVariant {
@@ -4499,6 +4509,7 @@ export type APIScopeObject =
     | 'dataset'
     | 'early_access_feature'
     | 'error_tracking'
+    | 'evaluation'
     | 'event_definition'
     | 'experiment'
     | 'export'
