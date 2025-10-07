@@ -414,6 +414,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # replace cohort calculation IDs in SQL comments and query content
+    query = re.sub(
+        r"/\* cohort_calculation:cohort_calc:[0-9a-f]+ \*/",
+        r"/* cohort_calculation:cohort_calc:00000000 */",
+        query,
+    )
+    query = re.sub(
+        r"cohort_calc:[0-9a-f]+",
+        r"cohort_calc:00000000",
+        query,
+    )
+
     return query
 
 

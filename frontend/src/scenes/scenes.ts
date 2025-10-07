@@ -56,6 +56,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
     [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
@@ -200,11 +201,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true,
         name: 'Notebook',
-        layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
+        canvasBackground: true,
     },
     [Scene.Notebooks]: {
         projectBased: true,
@@ -524,6 +524,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
+    [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
