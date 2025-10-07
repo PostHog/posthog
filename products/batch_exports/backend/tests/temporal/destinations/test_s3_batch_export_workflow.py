@@ -1954,7 +1954,7 @@ def test_get_s3_key(inputs, expected):
         inputs.data_interval_end,
         inputs.batch_export_model,
         inputs.file_format,
-        inputs.file_number,
         inputs.compression,
+        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
     )
     assert result == expected
