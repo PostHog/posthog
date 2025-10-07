@@ -185,14 +185,17 @@ fn default_maxmind_db_path() -> PathBuf {
 
 // Resolves the s3 client configuration, handling
 pub async fn get_aws_config(config: &Config) -> aws_sdk_s3::Config {
-    // If we have a role ARN and token file, we should use the standard AWS env vars, instead of the custom env credentials defined in Config.
+    // If we have a role ARN and token file, which are added to the container due to the SA annotation we use in prod
     if std::env::var("AWS_ROLE_ARN").is_ok() && std::env::var("AWS_WEB_IDENTITY_TOKEN_FILE").is_ok()
     {
+        // Use default aws config loading behaviour, which should pick up the role-based credentials. We
+        // assume region and endpoint will be properly set due to SA annotation. Behaviour version will
+        // be latest due to config crate feature flag
         aws_sdk_s3::config::Builder::from(&aws_config::load_from_env().await)
             .force_path_style(config.object_storage_force_path_style)
-            .build() // Use role-based credentials, assume region etc will be properly set due to SA annotation
+            .build()
     } else {
-        // Fall back to building our config from the environment variables we use in local dev
+        // Fall back to building our config from the explicit environment variables we use in local dev
         let env_credentials = aws_sdk_s3::config::Credentials::new(
             &config.object_storage_access_key_id,
             &config.object_storage_secret_access_key,
