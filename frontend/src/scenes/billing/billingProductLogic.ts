@@ -154,6 +154,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         showConfirmUpgradeModal: true,
         hideConfirmUpgradeModal: true,
         confirmProductUpgrade: true,
+        showConfirmDowngradeModal: true,
+        hideConfirmDowngradeModal: true,
+        confirmProductDowngrade: true,
     }),
     reducers({
         billingLimitInput: [
@@ -264,6 +267,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
             {
                 showConfirmUpgradeModal: () => true,
                 hideConfirmUpgradeModal: () => false,
+            },
+        ],
+        confirmDowngradeModalOpen: [
+            false as boolean,
+            {
+                showConfirmDowngradeModal: () => true,
+                hideConfirmDowngradeModal: () => false,
             },
         ],
     }),
@@ -664,9 +674,27 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 to_plan_key: String(upgradePlan.plan_key),
             })
         },
+        confirmProductDowngrade: () => {
+            const targetPlan = values.currentAndUpgradePlans.upgradePlan
+            const currentPlatformAddon = values.currentPlatformAddon
+            if (!targetPlan || !currentPlatformAddon) {
+                return
+            }
+            actions.switchFlatrateSubscriptionPlan({
+                from_product_key: String(currentPlatformAddon.type),
+                from_plan_key: String(currentPlatformAddon.plans?.[0]?.plan_key),
+                to_product_key: props.product.type,
+                to_plan_key: String(targetPlan.plan_key),
+            })
+        },
         setSwitchPlanLoading: ({ productKey }) => {
-            if (productKey === null && values.confirmUpgradeModalOpen) {
-                actions.hideConfirmUpgradeModal()
+            if (productKey === null) {
+                if (values.confirmUpgradeModalOpen) {
+                    actions.hideConfirmUpgradeModal()
+                }
+                if (values.confirmDowngradeModalOpen) {
+                    actions.hideConfirmDowngradeModal()
+                }
             }
         },
         activateTrial: async (_, breakpoint) => {

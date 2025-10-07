@@ -6,14 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 
-import { BillingProductV2AddonType } from '~/types'
-
-type PricingRow = {
-    description: string
-    dateRange?: string
-    amount: string
-    isBold?: boolean
-}
+import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 
 export function ConfirmUpgradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
     const { currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading, billing } = useValues(billingLogic)
@@ -22,23 +15,30 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
     )
     const { hideConfirmUpgradeModal, confirmProductUpgrade } = useActions(billingProductLogic({ product }))
 
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const amountDue = Math.max(0, (proratedAmount || 0) - (unusedPlatformAddonAmount || 0))
     const isLoading = switchPlanLoading === product.type
 
-    const periodEnd = billing?.billing_period?.current_period_end
-    const remainingPeriod = periodEnd ? `${dayjs().format('MMM D')} - ${periodEnd.format('MMM D, YYYY')}` : undefined
+    const targetPlan = currentAndUpgradePlans?.upgradePlan
+    const amountDue = Math.max(0, (proratedAmount || 0) - (unusedPlatformAddonAmount || 0))
 
-    const pricingRows: PricingRow[] = [
+    const periodEnd = billing?.billing_period?.current_period_end
+    const remainingPeriodFormatted = periodEnd
+        ? `${dayjs().format('MMM D')} - ${periodEnd.format('MMM D, YYYY')}`
+        : undefined
+
+    if (!confirmUpgradeModalOpen || !targetPlan || !currentPlatformAddon) {
+        return null
+    }
+
+    const rows: BillingInvoiceItemRow[] = [
         {
             description: `Remaining time on ${product.name}`,
-            dateRange: remainingPeriod,
+            dateRange: remainingPeriodFormatted,
             amount: `$${proratedAmount.toFixed(2)}`,
         },
         {
-            description: `Unused time on ${currentPlatformAddon?.name}`,
-            dateRange: remainingPeriod,
-            amount: `-$${unusedPlatformAddonAmount?.toFixed(2)}`,
+            description: `Unused time on ${currentPlatformAddon.name}`,
+            dateRange: remainingPeriodFormatted,
+            amount: `-$${unusedPlatformAddonAmount.toFixed(2)}`,
         },
         {
             description: 'Amount due today',
@@ -47,11 +47,7 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
         },
     ]
 
-    if (!confirmUpgradeModalOpen) {
-        return null
-    }
-
-    const columns: LemonTableColumns<PricingRow> = [
+    const columns: LemonTableColumns<BillingInvoiceItemRow> = [
         {
             title: 'Description',
             dataIndex: 'description',
@@ -75,7 +71,7 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
             onClose={hideConfirmUpgradeModal}
             isOpen={confirmUpgradeModalOpen}
             closable={false}
-            title={upgradePlan?.name ? `Ready to subscribe to ${upgradePlan.name}?` : ''}
+            title={`Ready to subscribe to ${targetPlan.name}?`}
             footer={
                 <>
                     <LemonButton
@@ -91,17 +87,14 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
                 </>
             }
         >
-            {upgradePlan && (
-                <div className="max-w-140">
-                    <p>
-                        You'll get access to all {product.name} features right away. ${amountDue.toFixed(2)} will be
-                        charged now for the remaining period until{' '}
-                        {billing?.billing_period?.current_period_end?.format('MMM D')}, and $
-                        {upgradePlan.unit_amount_usd} per {upgradePlan.unit} thereafter.
-                    </p>
-                    <LemonTable dataSource={pricingRows} columns={columns} className="mt-4" uppercaseHeader={false} />
-                </div>
-            )}
+            <div className="max-w-140">
+                <p>
+                    You'll get access to all {product.name} features right away. ${amountDue.toFixed(2)} will be charged
+                    now for the remaining period until {billing?.billing_period?.current_period_end?.format('MMM D')},
+                    and ${targetPlan.unit_amount_usd} per {targetPlan.unit} thereafter.
+                </p>
+                <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
+            </div>
         </LemonModal>
     )
 }

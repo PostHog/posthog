@@ -30,7 +30,6 @@ export const BillingProductAddonActions = ({
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon } = useValues(billingLogic)
-    const { switchFlatrateSubscriptionPlan } = useActions(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
@@ -45,7 +44,7 @@ export const BillingProductAddonActions = ({
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
-    const { showConfirmUpgradeModal } = useActions(billingProductLogic({ product: addon }))
+    const { showConfirmUpgradeModal, showConfirmDowngradeModal } = useActions(billingProductLogic({ product: addon }))
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
     const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
@@ -200,17 +199,7 @@ export const BillingProductAddonActions = ({
         return (
             <More
                 overlay={
-                    <LemonButton
-                        fullWidth
-                        onClick={() =>
-                            switchFlatrateSubscriptionPlan({
-                                from_product_key: String(currentPlatformAddon?.type),
-                                from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
-                                to_product_key: addon.type,
-                                to_plan_key: String(upgradePlan?.plan_key),
-                            })
-                        }
-                    >
+                    <LemonButton fullWidth onClick={() => showConfirmDowngradeModal()}>
                         Downgrade
                     </LemonButton>
                 }
