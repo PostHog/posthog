@@ -3346,7 +3346,7 @@
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
   PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date)
+  ORDER BY (team_id, cohort_id, condition, date, person_id)
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -5597,7 +5597,7 @@
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
   PARTITION BY toYYYYMM(date)
-  ORDER BY (team_id, cohort_id, condition, date)
+  ORDER BY (team_id, cohort_id, condition, date, person_id)
   
   SETTINGS ttl_only_drop_parts = 1
   

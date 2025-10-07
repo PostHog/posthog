@@ -1449,3 +1449,48 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
         self.assertEqual(len(response.results), 0)
+
+    def test_embedding_only_trace_cost_aggregation(self):
+        """Test that embedding-only traces properly aggregate costs in list view (regression test)."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "embedding_only_trace"
+
+        # Create multiple embedding events with costs
+        _create_ai_embedding_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="First text to embed",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_embedding_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="Second text to embed",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+
+        # Verify costs are aggregated (not null)
+        # "First text to embed" = 19 chars, "Second text to embed" = 20 chars
+        expected_input_cost = 0.0039
+        self.assertIsNotNone(trace.inputCost)
+        self.assertEqual(trace.inputCost, expected_input_cost)
+        self.assertEqual(trace.totalCost, expected_input_cost)
+
+        # Embeddings typically don't set output cost/tokens, so they'll be None
+        self.assertIsNone(trace.outputCost)
+        self.assertIsNone(trace.outputTokens)
+
+        # Verify input tokens are aggregated
+        expected_input_tokens = 39
+        self.assertIsNotNone(trace.inputTokens)
+        self.assertEqual(trace.inputTokens, expected_input_tokens)

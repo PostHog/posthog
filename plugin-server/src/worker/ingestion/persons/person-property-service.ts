@@ -1,8 +1,9 @@
 import { InternalPerson } from '../../../types'
-import { promiseRetry } from '../../../utils/retries'
+import { defaultRetryConfig, promiseRetry } from '../../../utils/retries'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 /**
  * Service responsible for handling person property updates and person creation.
@@ -19,7 +20,14 @@ export class PersonPropertyService {
         // - another thread created the person during a race
         // - the person might have been merged between start of processing and now
         // we simply and stupidly start from scratch
-        return await promiseRetry(() => this.updateProperties(), 'update_person')
+        return await promiseRetry(
+            () => this.updateProperties(),
+            'update_person',
+            defaultRetryConfig.MAX_RETRIES_DEFAULT,
+            defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
+            undefined,
+            [PersonPropertiesSizeViolationError]
+        )
     }
 
     async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
