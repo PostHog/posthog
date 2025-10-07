@@ -25,4 +25,4 @@ cli/target/
 cli/tests/_cases/**/*
 frontend/src/products.tsx
 frontend/src/layout.html
-mcp/
+products/mcp/

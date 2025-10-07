@@ -22,7 +22,7 @@ jobs:
               with:
                   filters: |
                       mcp:
-                        - 'mcp/**'
+                        - 'products/mcp/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 
@@ -51,13 +51,13 @@ jobs:
               run: pnpm install
 
             - name: Run linter
-              run: cd mcp && pnpm run lint
+              run: cd products/mcp && pnpm run lint
 
             - name: Run formatter
-              run: cd mcp && pnpm run format
+              run: cd products/mcp && pnpm run format
 
             - name: Run type check
-              run: cd mcp && pnpm run typecheck
+              run: cd products/mcp && pnpm run typecheck
 
             - name: Check for changes
               run: |
@@ -95,7 +95,7 @@ jobs:
               run: pnpm install
 
             - name: Run unit tests
-              run: cd mcp && pnpm run test
+              run: cd products/mcp && pnpm run test
 
     integration-tests:
         name: Integration Tests
@@ -125,7 +125,7 @@ jobs:
               run: pnpm install
 
             - name: Run integration tests
-              run: cd mcp && pnpm run test:integration
+              run: cd products/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
                   TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_PERSONAL_API_KEY }}

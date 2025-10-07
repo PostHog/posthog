@@ -7,9 +7,8 @@ packages:
     - common/tailwind
     - ee/frontend
     - frontend
-    - mcp
-    - mcp/typescript
     - playwright
     - plugin-server
     - products/*
+    - products/mcp/typescript
     - rust/cyclotron-node

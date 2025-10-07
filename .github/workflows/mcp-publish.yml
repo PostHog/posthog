@@ -78,9 +78,9 @@ jobs:
               run: pnpm install
 
             - name: Build the package
-              run: cd mcp/typescript && pnpm build
+              run: cd products/mcp/typescript && pnpm build
 
             - name: Publish the package in the npm registry
-              run: cd mcp/typescript && pnpm publish --access public
+              run: cd products/mcp/typescript && pnpm publish --access public
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

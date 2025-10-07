@@ -16,7 +16,7 @@
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
-        "mcp"
+        "products/mcp/**"
     ],
     "rules": {
         "no-constant-condition": "off",
