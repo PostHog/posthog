@@ -85,5 +85,9 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                             RecordingInput(session_id=session_id, team_id=input.team_id),
                             parent_close_policy=ParentClosePolicy.ABANDON,
                             execution_timeout=timedelta(minutes=10),
+                            retry_policy=common.RetryPolicy(
+                                maximum_attempts=2,
+                                initial_interval=timedelta(minutes=1),
+                            ),
                         )
                     )
