@@ -10,6 +10,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
@@ -34,7 +35,11 @@ export const STATIC_TOOLS: ToolRegistration[] = [
             const url = urls[pageKey as keyof typeof urls]()
             // Include the conversation ID and panel to ensure the side panel is open
             // (esp. when the navigate tool is used from the full-page Max)
-            router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
+
+            // TODO: validate this
+            router.actions.push(url) //, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
+            maxGlobalLogic.findMounted()?.actions.openSidePanelMax()
+
             // First wait for navigation to complete
             await new Promise<void>((resolve, reject) => {
                 const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
@@ -88,10 +93,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
+            sidePanelStateLogic,
+            ['sidePanelOpen', 'selectedTab'],
         ],
-        actions: [router, ['locationChanged']],
+        actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
+        openSidePanelMax: (conversationId?: string) => ({ conversationId }),
+        askSidePanelMax: (prompt: string) => ({ prompt }),
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
@@ -171,6 +180,28 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             if (cache.tabUnmounts?.[tabId]) {
                 cache.tabUnmounts[tabId]()
                 delete cache.tabUnmounts[tabId]
+            }
+        },
+        askSidePanelMax: ({ prompt }) => {
+            let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+            if (!logic) {
+                logic = maxLogic({ tabId: 'sidepanel' })
+                logic.mount() // we're never unmounting this
+            }
+            actions.openSidePanelMax()
+            logic.actions.askMax(prompt)
+        },
+        openSidePanelMax: ({ conversationId }) => {
+            if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
+                actions.openSidePanel(SidePanelTab.Max)
+            }
+            if (conversationId) {
+                let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+                if (!logic) {
+                    logic = maxLogic({ tabId: 'sidepanel' })
+                    logic.mount() // we're never unmounting this
+                }
+                logic.actions.openConversation(conversationId)
             }
         },
     })),

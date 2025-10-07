@@ -171,18 +171,11 @@ describe('maxLogic', () => {
             threadLogicKey: logic.values.frontendConversationId,
         })
 
-        // When conversation ID is set, should use conversationId when not in threadKeys
+        // When conversation ID is set, should use it
         await expectLogic(logic, () => {
             logic.actions.setConversationId('test-conversation-id')
         }).toMatchValues({
-            threadLogicKey: 'test-conversation-id', // Uses conversationId when not in threadKeys
-        })
-
-        // When threadKey is set for conversation ID, should use that
-        await expectLogic(logic, () => {
-            logic.actions.setThreadKey('test-conversation-id', 'custom-thread-key')
-        }).toMatchValues({
-            threadLogicKey: 'custom-thread-key',
+            threadLogicKey: 'test-conversation-id',
         })
     })
 })

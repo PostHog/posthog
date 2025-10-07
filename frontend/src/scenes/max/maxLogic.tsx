@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { decodeParams, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
 
@@ -12,6 +12,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, uuid } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,7 +20,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
+import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -62,7 +63,7 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
-    props({} as { tabId: string }),
+    props({} as { tabId: string | 'sidepanel' }),
     tabAwareScene(),
 
     connect(() => ({
@@ -82,6 +83,7 @@ export const maxLogic = kea<maxLogicType>([
         setQuestion: (question: string) => ({ question }), // update the form input
         askMax: (prompt: string | null) => ({ prompt }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
+        openConversation: (conversationId: string) => ({ conversationId }),
         setConversationId: (conversationId: string) => ({ conversationId }),
         startNewConversation: true,
         toggleConversationHistory: (visible?: boolean) => ({ visible }),
@@ -101,10 +103,6 @@ export const maxLogic = kea<maxLogicType>([
         setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
         setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
-        /**
-         * Save the logic ID for a conversation ID in a cache.
-         */
-        setThreadKey: (conversationId: string, logicKey: string) => ({ conversationId, logicKey }),
 
         /**
          * Prepend a conversation to the conversation history or update it in place.
@@ -174,16 +172,6 @@ export const maxLogic = kea<maxLogicType>([
             null as SuggestionGroup | null,
             {
                 setActiveGroup: (_, { group }) => group,
-            },
-        ],
-
-        /**
-         * Identifies the logic ID for each conversation ID.
-         */
-        threadKeys: [
-            {} as Record<string, string>,
-            {
-                setThreadKey: (state, { conversationId, logicKey }) => ({ ...state, [conversationId]: logicKey }),
             },
         ],
 
@@ -295,10 +283,10 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         threadLogicKey: [
-            (s) => [s.threadKeys, s.conversationId, s.frontendConversationId],
-            (threadKeys, conversationId, frontendConversationId) => {
+            (s) => [s.conversationId, s.frontendConversationId],
+            (conversationId, frontendConversationId) => {
                 if (conversationId) {
-                    return threadKeys[conversationId] || conversationId
+                    return conversationId
                 }
                 return frontendConversationId
             },
@@ -311,6 +299,39 @@ export const maxLogic = kea<maxLogicType>([
                 conversationId: threadLogicKey,
                 conversation,
             }),
+        ],
+
+        breadcrumbs: [
+            (s) => [s.conversationId, s.chatTitle, s.conversationHistoryVisible],
+            (conversationId, chatTitle, conversationHistoryVisible): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Max,
+                        name: `Max AI`,
+                        path: urls.max(),
+                        iconType: 'chat',
+                    },
+                    ...(conversationId
+                        ? [
+                              {
+                                  key: Scene.Max,
+                                  name: chatTitle || 'Chat',
+                                  path: urls.max(conversationId),
+                                  iconType: 'chat' as const,
+                              },
+                          ]
+                        : conversationHistoryVisible
+                          ? [
+                                {
+                                    key: Scene.Max,
+                                    name: 'Chat history',
+                                    path: urls.max(),
+                                    iconType: 'chat' as const,
+                                },
+                            ]
+                          : []),
+                ]
+            },
         ],
     }),
 
@@ -411,6 +432,23 @@ export const maxLogic = kea<maxLogicType>([
             }
         },
 
+        openConversation({ conversationId }) {
+            actions.setConversationId(conversationId)
+
+            const conversation = values.conversationHistory.find((c) => c.id === conversationId)
+
+            if (conversation) {
+                actions.scrollThreadToBottom('instant')
+            } else if (!values.conversationHistoryLoading) {
+                actions.pollConversation(conversationId, 0, 200)
+            }
+
+            if (values.conversationHistoryVisible) {
+                actions.toggleConversationHistory(false)
+                actions.setBackScreen('history')
+            }
+        },
+
         goBack: () => {
             if (values.backToScreen === 'history' && !values.conversationHistoryVisible) {
                 actions.toggleConversationHistory(true)
@@ -454,47 +492,23 @@ export const maxLogic = kea<maxLogicType>([
                 return
             }
 
-            if (!search.chat || search.chat === values.conversationId) {
-                return
+            if (!search.chat && values.conversationId) {
+                actions.startNewConversation()
             }
-
-            actions.setConversationId(search.chat)
-
-            if (!sidePanelStateLogic.values.sidePanelOpen && !router.values.location.pathname.includes('/max')) {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
-            }
-
-            const conversation = values.conversationHistory.find((c) => c.id === search.chat)
-
-            if (conversation) {
-                actions.scrollThreadToBottom('instant')
-            } else if (!values.conversationHistoryLoading) {
-                actions.pollConversation(search.chat, 0, 200)
-            }
-
-            if (values.conversationHistoryVisible) {
-                actions.toggleConversationHistory(false)
-                actions.setBackScreen('history')
+            if (search.chat && search.chat !== values.conversationId) {
+                actions.openConversation(search.chat)
             }
         },
     })),
 
     tabAwareActionToUrl(({ values }) => ({
         startNewConversation: () => {
-            const { chat, ask: _, ...params } = decodeParams(router.values.location.search, '?')
-            return [router.values.location.pathname, params, router.values.location.hash]
+            return [urls.max(), {}, router.values.location.hash]
         },
-        setConversationId: (payload: Record<string, any>) => {
-            const { conversationId } = payload
+        setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
-                const { ask: _, ...params } = decodeParams(router.values.location.search, '?')
-                return [
-                    router.values.location.pathname,
-                    { ...params, chat: conversationId },
-                    router.values.location.hash,
-                    { replace: true },
-                ]
+                return [urls.max(conversationId), {}, router.values.location.hash, { replace: true }]
             }
             // Return undefined to not update URL for existing conversations
             return undefined

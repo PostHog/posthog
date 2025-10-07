@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconSearch, IconSidePanel } from '@posthog/icons'
+import { IconFeatures, IconSearch } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
@@ -45,7 +45,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         newTabSceneLogic({ tabId })
     )
     const { mobileLayout } = useValues(navigationLogic)
-    // const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
@@ -112,14 +111,12 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 >
                                     <ButtonPrimitive
                                         size="xxs"
-                                        onClick={() => {
-                                            router.actions.push(urls.max(search))
-                                        }}
+                                        onClick={() => router.actions.push(urls.max(undefined, search))}
                                         className="text-xs"
                                         tooltip="Hit enter to open Max!"
                                     >
                                         Ask Max!
-                                        <IconSidePanel />
+                                        <IconFeatures />
                                     </ButtonPrimitive>
                                 </ListBox.Item>
                             </span>

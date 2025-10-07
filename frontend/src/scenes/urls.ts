@@ -80,7 +80,7 @@ export const urls = {
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
-    max: (ask?: string): string => combineUrl('/max', ask ? { ask } : undefined).url,
+    max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
