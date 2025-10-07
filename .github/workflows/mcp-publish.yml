@@ -31,6 +31,8 @@ jobs:
         name: Check package version and detect an update
         runs-on: ubuntu-24.04
         needs: changes
+        permissions:
+            contents: read
         if: needs.changes.outputs.mcp == 'true' || github.event_name == 'workflow_dispatch'
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
@@ -51,6 +53,8 @@ jobs:
         runs-on: ubuntu-24.04
         needs: check-package-version
         if: needs.check-package-version.outputs.is-new-version == 'true'
+        permissions:
+            contents: read
         env:
             COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
