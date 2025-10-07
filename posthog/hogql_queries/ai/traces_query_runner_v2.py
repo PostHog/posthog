@@ -402,6 +402,15 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
         if properties_filter is not None:
             exprs.append(properties_filter)
 
+        if self.query.personId:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     def _get_properties_filter(self) -> ast.Expr | None:
