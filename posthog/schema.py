@@ -208,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrl(StrEnum):
+class AssistantNavigateUrls(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"

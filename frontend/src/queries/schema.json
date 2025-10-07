@@ -1562,7 +1562,7 @@
                 }
             ]
         },
-        "AssistantNavigateUrl": {
+        "AssistantNavigateUrls": {
             "description": "Exact possible `urls` keys for the `navigate` tool.",
             "enum": [
                 "actions",
