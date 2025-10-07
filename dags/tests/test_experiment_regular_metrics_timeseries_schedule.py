@@ -11,21 +11,21 @@ from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 
 from dags.experiment_regular_metrics_timeseries import (
-    _parse_regular_metric_timeseries_partition_key,
+    _parse_partition_key,
     experiment_regular_metrics_timeseries_refresh_schedule,
 )
 
 
 class TestScheduleHelperFunctions:
-    def test_parse_regular_metric_timeseries_partition_key(self):
+    def test_parse_partition_key(self):
         key = "experiment_123_metric_uuid123_fingerprint456"
-        experiment_id, metric_uuid, fingerprint = _parse_regular_metric_timeseries_partition_key(key)
+        experiment_id, metric_uuid, fingerprint = _parse_partition_key(key)
         assert experiment_id == 123
         assert metric_uuid == "uuid123"
         assert fingerprint == "fingerprint456"
 
         with pytest.raises(ValueError):
-            _parse_regular_metric_timeseries_partition_key("invalid_key")
+            _parse_partition_key("invalid_key")
 
 
 @pytest.mark.django_db
