@@ -57,7 +57,7 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'revenue analytics resource'
     }
 
-    return resourceType.replace('_', ' ')
+    return resourceType.replace(/_/g, ' ')
 }
 
 /**
