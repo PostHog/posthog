@@ -92,6 +92,7 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    MANAGE_REVENUE_GOALS = "manage_revenue_goals"
 
 
 class AssistantDateRange(BaseModel):
@@ -4368,6 +4369,13 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: list[RevenueAnalyticsPropertyFilter]
+
+
+class RevenueAnalyticsAssistantGoalsOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goals: list[RevenueAnalyticsGoal]
 
 
 class RevenueAnalyticsEventItem(BaseModel):

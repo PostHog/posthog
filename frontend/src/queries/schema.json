@@ -801,7 +801,8 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "manage_revenue_goals"
             ],
             "type": "string"
         },
@@ -22131,6 +22132,19 @@
                 }
             },
             "required": ["properties", "breakdown"],
+            "type": "object"
+        },
+        "RevenueAnalyticsAssistantGoalsOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "goals": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGoal"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["goals"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse>": {

@@ -2,7 +2,7 @@ import { actions, afterMount, connect, defaults, kea, listeners, path, reducers,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 
-import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
+import { IconBook, IconGraph, IconHogQL, IconPiggyBank, IconPlug, IconRewindPlay } from '@posthog/icons'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -584,6 +584,23 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         ],
         url: urls.surveys(),
         tooltip: 'Max can help you create surveys to collect feedback from your users.',
+    },
+    {
+        label: 'Revenue analytics',
+        icon: <IconPiggyBank />,
+        suggestions: [
+            {
+                content: 'Show me my MRR for the last quarter',
+            },
+            {
+                content: 'Show me my gross revenue for the last quarter from France',
+            },
+            {
+                content: 'Add a new revenue goal for the next quarter at 2M MRR',
+            },
+        ],
+        url: urls.revenueAnalytics(),
+        tooltip: 'Max can help you filter your revenue data and create goals to track your revenue targets.',
     },
     {
         label: 'Docs',

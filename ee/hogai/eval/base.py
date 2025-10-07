@@ -55,6 +55,7 @@ async def BaseMaxEval(
     metadata: Metadata | None = None,
     is_public: bool = False,
     no_send_logs: bool = True,
+    max_concurrency: int = 100,
 ):
     if is_public and not no_send_logs:
         # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
@@ -76,7 +77,7 @@ async def BaseMaxEval(
         task=task,
         scores=scores,
         timeout=timeout,
-        max_concurrency=100,
+        max_concurrency=max_concurrency,
         is_public=is_public,
         no_send_logs=no_send_logs,
         metadata=metadata,

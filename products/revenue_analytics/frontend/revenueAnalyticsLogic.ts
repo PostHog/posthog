@@ -113,10 +113,16 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             revenueAnalyticsSettingsLogic,
             ['events', 'dataWarehouseSources', 'goals as revenueGoals'],
         ],
-        actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
+        actions: [
+            revenueAnalyticsSettingsLogic,
+            ['setGoals as setRevenueGoals'],
+            dataWarehouseSettingsLogic,
+            ['loadSourcesSuccess'],
+        ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDisplayRevenueGoals: (displayRevenueGoals: boolean) => ({ displayRevenueGoals }),
         setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
             revenueAnalyticsFilters,
         }),
@@ -137,6 +143,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     dateFrom,
                     interval: getDefaultRevenueAnalyticsInterval(dateFrom, dateTo),
                 }),
+            },
+        ],
+        displayRevenueGoals: [
+            false as boolean,
+            persistConfig,
+            {
+                setDisplayRevenueGoals: (_, { displayRevenueGoals }) => displayRevenueGoals,
             },
         ],
         revenueAnalyticsFilter: [
