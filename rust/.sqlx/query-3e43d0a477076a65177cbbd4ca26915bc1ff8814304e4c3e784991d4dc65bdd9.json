@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, team_id, status, name, description FROM posthog_errortrackingissue\n            WHERE team_id = $1 AND id = $2\n            ",
+  "query": "\n            SELECT id, team_id, status, name, description, created_at FROM posthog_errortrackingissue\n            WHERE team_id = $1 AND id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "description",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -40,8 +45,9 @@
       false,
       false,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "2a1514685491269ca61a0a898d7491f908b5047e86b13fbff22cf8f58e85cc81"
+  "hash": "3e43d0a477076a65177cbbd4ca26915bc1ff8814304e4c3e784991d4dc65bdd9"
 }

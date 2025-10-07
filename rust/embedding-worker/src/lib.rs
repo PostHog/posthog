@@ -61,8 +61,8 @@ pub async fn generate_embedding(
     // TODO - once we have a larger model zoo, we'll need to select this more carefully
     let encoder = tiktoken_rs::cl100k_base()?;
 
-    // Generate text representation of the exception and frames
-    // TODO - as above, a larger model zoo will require more careful selection of the model
+    // Generate the text to actually send to OpenAI
+    // TODO - as above, a larger model zoo will require more careful selection of the dimensionality
     let text = generate_embedding_text(&request, &encoder, 8192)?;
 
     // Call OpenAI API to generate embeddings
