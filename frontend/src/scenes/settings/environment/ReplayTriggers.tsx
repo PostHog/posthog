@@ -691,28 +691,6 @@ function TriggerMatchChoice(): JSX.Element {
         <div className="flex flex-col gap-y-1">
             <LemonLabel className="text-base py-2">Trigger matching</LemonLabel>
             <SupportedPlatforms web={{ version: '1.238.0' }} />
-            <LemonBanner type="info" className="text-sm" hideIcon={true} dismissKey="replay-trigger-match-1-238-0">
-                <div className="flex flex-row gap-x-4 items-center">
-                    <LemonTag type="warning">NEW</LemonTag>
-                    <div>
-                        <strong>Trigger matching</strong>
-                        <p>
-                            From version 1.238.0 of posthog-js on web, you can choose between "all" and "any" for
-                            trigger matching.
-                        </p>
-                        <p>For example if you set 30% sampling and an event trigger for exceptions:</p>
-                        <ul>
-                            <li className="my-1">
-                                With "ALL" trigger matching, only 30% of sessions with exceptions will be recorded.
-                            </li>
-                            <li>
-                                With "ANY" trigger matching, 30% of all sessions will be recorded, and 100% of sessions
-                                that have exceptions will be recorded.
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </LemonBanner>
             <div className="flex flex-row gap-x-2 items-center">
                 <div>Start when</div>
                 <AccessControlAction
@@ -784,10 +762,6 @@ export function ReplayTriggers(): JSX.Element {
             <p>
                 Use the settings below to control when recordings are started. If no triggers are selected, then
                 recordings will always start if enabled.
-            </p>
-            <p>
-                PostHog offers several tools to let you control the number of recordings you collect and which users you
-                collect recordings for.{' '}
                 <Link
                     to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
                     target="blank"
