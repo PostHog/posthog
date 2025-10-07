@@ -87,8 +87,6 @@ class AssistantContextualTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SEARCH_DOCS = "search_docs"
-    SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     READ_TAXONOMY = "read_taxonomy"
@@ -2090,6 +2088,14 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     team_name: str
     user_email: str
     user_id: str
+
+
+class ProgressState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    substeps: Optional[list[str]] = None
 
 
 class PropertyFilterType(StrEnum):
@@ -5018,7 +5024,7 @@ class TaskExecutionItem(BaseModel):
     artifact_ids: Optional[list[str]] = None
     description: str
     id: str
-    progress_text: Optional[str] = None
+    progress: Optional[ProgressState] = None
     prompt: str
     status: TaskExecutionStatus
     task_type: str

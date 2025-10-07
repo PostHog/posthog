@@ -1,8 +1,11 @@
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ee.hogai.tool import MaxTool
+from posthog.schema import PlanningMessage, PlanningStep, PlanningStepStatus
+
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 
 TODO_WRITE_PROMPT = """
 Use this tool to build and maintain a structured to-do list for the current session. It helps you monitor progress, organize complex work, and show thoroughness. It also makes both task progress and the overall status of the user’s requests clear to the user.
@@ -155,8 +158,25 @@ class TodoWriteTool(MaxTool):
     args_schema: type[BaseModel] = TodoWriteToolArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, None]:
+    async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, ToolMessagesArtifact]:
         return (
             "The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
-            None,
+            ToolMessagesArtifact(
+                messages=[
+                    PlanningMessage(
+                        id=str(uuid4()),
+                        steps=[
+                            PlanningStep(
+                                description=todo.content,
+                                status=PlanningStepStatus.IN_PROGRESS
+                                if todo.status == "in_progress"
+                                else PlanningStepStatus.COMPLETED
+                                if todo.status == "completed"
+                                else PlanningStepStatus.PENDING,
+                            )
+                            for todo in todos
+                        ],
+                    )
+                ]
+            ),
         )

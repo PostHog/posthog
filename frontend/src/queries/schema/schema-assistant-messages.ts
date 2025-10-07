@@ -97,10 +97,13 @@ export interface AssistantMessage extends BaseAssistantMessage {
     tool_calls?: AssistantToolCall[]
 }
 
-export interface ReasoningMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Reasoning
+export interface ProgressState {
     content: string
     substeps?: string[]
+}
+
+export interface ReasoningMessage extends BaseAssistantMessage, ProgressState {
+    type: AssistantMessageType.Reasoning
 }
 
 export interface ContextMessage extends BaseAssistantMessage {
@@ -187,7 +190,7 @@ export interface TaskExecutionItem {
     prompt: string
     status: TaskExecutionStatus
     artifact_ids?: string[]
-    progress_text?: string
+    progress?: ProgressState
     task_type: string
 }
 
@@ -257,8 +260,6 @@ export type AssistantContextualTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_docs'
-    | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
     | 'read_taxonomy'

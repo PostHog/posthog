@@ -797,8 +797,6 @@
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
-                "search_docs",
-                "search_insights",
                 "session_summarization",
                 "create_dashboard",
                 "read_taxonomy",
@@ -17516,6 +17514,22 @@
             ],
             "type": "object"
         },
+        "ProgressState": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["content"],
+            "type": "object"
+        },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
         },
@@ -21585,7 +21599,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["content", "type"],
             "type": "object"
         },
         "RecordingDurationFilter": {
@@ -24888,8 +24902,8 @@
                 "id": {
                     "type": "string"
                 },
-                "progress_text": {
-                    "type": "string"
+                "progress": {
+                    "$ref": "#/definitions/ProgressState"
                 },
                 "prompt": {
                     "type": "string"

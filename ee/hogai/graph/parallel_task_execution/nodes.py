@@ -6,7 +6,7 @@ from typing import Any, Generic, TypeVar, cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
+from posthog.schema import ProgressState, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -195,7 +195,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
                 if task.id == task_id:
                     if self._send_task_execution_message:
                         # For multiple tasks, update the task's progress text
-                        task.progress_text = progress_text
+                        task.progress = ProgressState(content=progress_text)
                         await self._asend_task_execution_message(tasks)
                     elif progress_text:
                         # For single task, send detailed reasoning message

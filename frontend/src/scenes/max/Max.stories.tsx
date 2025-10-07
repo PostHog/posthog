@@ -831,45 +831,20 @@ export const PlanningComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionComponent: StoryFn = () => {
+export const SingleTaskExecutionComponent: StoryFn = () => {
     const taskExecutionMessage: TaskExecutionMessage = {
         type: AssistantMessageType.TaskExecution,
         tasks: [
             {
                 id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
+                description: 'Creating a beautiful insight',
+                prompt: '',
                 status: TaskExecutionStatus.InProgress,
-                progress_text: 'Exploring data',
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                task_type: 'create_and_query_insight',
+                progress: {
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
+                },
             },
         ],
     }
@@ -913,44 +888,78 @@ export const TaskExecutionComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionWithFailure: StoryFn = () => {
+export const MultiTaskExecutionComponent: StoryFn = () => {
+    const planningMessage: PlanningMessage = {
+        type: AssistantMessageType.Planning,
+        id: 'planning-1',
+        steps: [
+            {
+                description: 'Analyze user engagement metrics',
+                status: PlanningStepStatus.Completed,
+            },
+            {
+                description: 'Create conversion funnel visualization',
+                status: PlanningStepStatus.Completed,
+            },
+            {
+                description: 'Generate retention cohort analysis',
+                status: PlanningStepStatus.InProgress,
+            },
+            {
+                description: 'Compile comprehensive report',
+                status: PlanningStepStatus.Pending,
+            },
+            {
+                description: 'Export data to dashboard',
+                status: PlanningStepStatus.Pending,
+            },
+        ],
+    }
     const taskExecutionMessage: TaskExecutionMessage = {
         type: AssistantMessageType.TaskExecution,
         tasks: [
             {
                 id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
+                description: 'Fetching last 30 days of user activity',
                 status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                task_type: 'read_taxonomy',
+                prompt: '',
             },
             {
                 id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
+                description: 'Identifying peak usage times and user segments',
                 status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                task_type: 'create_and_query_insight',
+                progress: {
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
+                },
+                prompt: '',
             },
             {
                 id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.Failed,
-                task_type: 'create_insight',
+                description: 'Checking billing data',
+                status: TaskExecutionStatus.InProgress,
+                task_type: 'read_data',
+                progress: {
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
+                },
+                prompt: '',
             },
             {
                 id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                description: 'Creating charts and graphs for insights',
+                status: TaskExecutionStatus.Failed,
+                task_type: 'create_and_query_insight',
+                prompt: '',
             },
             {
                 id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
+                description: 'Updating HogQL code',
                 status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                task_type: 'generate_hogql_query',
+                prompt: '',
             },
         ],
     }
@@ -964,7 +973,9 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis with some failures' })}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(planningMessage)}`,
                             'event: message',
                             `data: ${JSON.stringify(taskExecutionMessage)}`,
                         ])
@@ -982,7 +993,7 @@ export const TaskExecutionWithFailure: StoryFn = () => {
         if (dataProcessingAccepted) {
             setTimeout(() => {
                 setConversationId(CONVERSATION_ID)
-                askMax('Execute analysis with some failures')
+                askMax('Execute analysis tasks')
             }, 0)
         }
     }, [dataProcessingAccepted, setConversationId, askMax])

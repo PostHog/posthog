@@ -1,8 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBook, IconCompass, IconDashboard, IconGraph, IconRewindPlay } from '@posthog/icons'
-
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -23,7 +21,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'navigate' as const,
         name: TOOL_DEFINITIONS['navigate'].name,
         description: TOOL_DEFINITIONS['navigate'].description,
-        icon: <IconCompass />,
         context: { current_page: location.pathname, scene_descriptions: buildSceneDescriptionsContext() },
         callback: async (toolOutput) => {
             const { page_key: pageKey } = toolOutput
@@ -53,28 +50,24 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         },
     },
     {
-        identifier: 'create_dashboard' as const,
-        name: TOOL_DEFINITIONS['create_dashboard'].name,
-        description: TOOL_DEFINITIONS['create_dashboard'].description,
-        icon: <IconDashboard />,
-    },
-    {
-        identifier: 'search_docs' as const,
-        name: TOOL_DEFINITIONS['search_docs'].name,
-        description: TOOL_DEFINITIONS['search_docs'].description,
-        icon: <IconBook />,
+        identifier: 'search' as const,
+        name: TOOL_DEFINITIONS['search'].name,
+        description: TOOL_DEFINITIONS['search'].description,
     },
     {
         identifier: 'session_summarization' as const,
         name: TOOL_DEFINITIONS['session_summarization'].name,
         description: TOOL_DEFINITIONS['session_summarization'].description,
-        icon: <IconRewindPlay />,
     },
     {
         identifier: 'create_and_query_insight' as const,
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
-        icon: <IconGraph />,
+    },
+    {
+        identifier: 'create_dashboard' as const,
+        name: TOOL_DEFINITIONS['create_dashboard'].name,
+        description: TOOL_DEFINITIONS['create_dashboard'].description,
     },
 ]
 
