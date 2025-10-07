@@ -334,6 +334,15 @@ class RunSQLAnalyzer(OperationAnalyzer):
             )
 
         if "DROP" in sql:
+            # Check if using IF EXISTS for safer idempotent operations
+            if "IF EXISTS" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="RunSQL with DROP is dangerous",
+                    details={"sql": sql},
+                    guidance="Good: using IF EXISTS makes this idempotent. Consider using DROP ... CONCURRENTLY for indexes to avoid locks.",
+                )
             return OperationRisk(
                 type=self.operation_type,
                 score=5,
@@ -359,6 +368,23 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 score=3,
                 reason="RunSQL with ALTER may cause locks",
                 details={"sql": sql},
+            )
+        elif "CREATE" in sql and "INDEX" in sql:
+            # Non-concurrent index creation (would have been caught earlier if CONCURRENTLY)
+            if "IF NOT EXISTS" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=3,
+                    reason="CREATE INDEX without CONCURRENTLY locks table",
+                    details={"sql": sql},
+                    guidance="Good: using IF NOT EXISTS makes this idempotent. Use CONCURRENTLY to avoid table locks: CREATE INDEX CONCURRENTLY",
+                )
+            return OperationRisk(
+                type=self.operation_type,
+                score=3,
+                reason="CREATE INDEX without CONCURRENTLY locks table",
+                details={"sql": sql},
+                guidance="Use CREATE INDEX CONCURRENTLY to avoid table locks. Add IF NOT EXISTS for idempotency.",
             )
         else:
             return OperationRisk(

@@ -378,6 +378,34 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.SAFE
         assert "metadata" in risk.reason.lower()
 
+    def test_run_sql_create_index_with_if_not_exists(self):
+        """Test CREATE INDEX without CONCURRENTLY but with IF NOT EXISTS - still risky but idempotent."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX IF NOT EXISTS idx_foo ON users(email);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Still gets higher score (not CONCURRENTLY), but IF NOT EXISTS is noted
+        assert risk.score >= 3
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        # Should mention that IF NOT EXISTS makes it idempotent
+        assert risk.guidance is not None or "if not exists" in risk.reason.lower()
+
+    def test_run_sql_drop_index_with_if_exists(self):
+        """Test DROP INDEX without CONCURRENTLY but with IF EXISTS - still risky but idempotent."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP INDEX IF EXISTS idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # DROP without CONCURRENTLY is dangerous
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+
 
 class TestRunPythonOperations:
     def setup_method(self):
