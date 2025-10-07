@@ -176,7 +176,7 @@ export interface Params {
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
-    /** Optional static description of the scene or product */
+    /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
