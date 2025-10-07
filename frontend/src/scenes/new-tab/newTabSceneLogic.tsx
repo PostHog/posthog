@@ -21,6 +21,7 @@ import {
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
@@ -28,14 +29,10 @@ import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'recents'
 
-export interface ItemsGridItem {
+export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
-    types: { key?: string; name: string; icon?: JSX.Element; href?: string; flag?: string }[]
-}
-
-export interface ItemsGridItemSingle {
-    category: NEW_TAB_CATEGORY_ITEMS
-    type: { name: string; icon?: JSX.Element; href?: string }
+    href?: string
+    flag?: string
 }
 
 const PAGINATION_LIMIT = 20
@@ -156,108 +153,126 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         isSearching: [(s) => [s.recentsLoading], (recentsLoading): boolean => recentsLoading],
         projectTreeSearchItems: [
             (s) => [s.recents],
-            (recents): ItemsGridItem[] => {
-                return [
-                    {
+            (recents): NewTabTreeDataItem[] => {
+                return recents.results.map((item) => {
+                    const name = splitPath(item.path).pop()
+                    return {
+                        id: item.path,
+                        name: name || item.path,
                         category: 'recents',
-                        types: recents.results.map((item) => {
-                            const name = splitPath(item.path).pop()
-                            return {
-                                key: item.path,
-                                href: item.href || '#',
-                                name: name || item.path,
-                                icon: getIconForFileSystemItem({
-                                    type: item.type,
-                                    iconType: item.type as any,
-                                    path: item.path,
-                                }),
-                            }
+                        href: item.href || '#',
+                        icon: getIconForFileSystemItem({
+                            type: item.type,
+                            iconType: item.type as any,
+                            path: item.path,
                         }),
-                    },
-                ]
+                        record: item,
+                    }
+                })
             },
         ],
         itemsGrid: [
             (s) => [s.featureFlags, s.projectTreeSearchItems],
-            (featureFlags, projectTreeSearchItems): ItemsGridItem[] => {
+            (featureFlags, projectTreeSearchItems): NewTabTreeDataItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
-                    .map((fs) => ({
-                        href: fs.href,
+                    .map((fs, index) => ({
+                        id: `new-insight-${index}`,
                         name: 'New ' + fs.path.substring(8),
-                        icon: getIconForFileSystemItem(fs),
+                        category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
+                        href: fs.href,
                         flag: fs.flag,
+                        icon: getIconForFileSystemItem(fs),
+                        record: fs,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+
                 const newDataItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Data/'))
-                    .map((fs) => ({
-                        href: fs.href,
+                    .map((fs, index) => ({
+                        id: `new-data-${index}`,
                         name: 'Data ' + fs.path.substring(5).toLowerCase(),
-                        icon: getIconForFileSystemItem(fs),
+                        category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
+                        href: fs.href,
                         flag: fs.flag,
+                        icon: getIconForFileSystemItem(fs),
+                        record: fs,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+
                 const newOtherItems = getDefaultTreeNew()
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
-                    .map((fs) => ({
-                        href: fs.href,
+                    .map((fs, index) => ({
+                        id: `new-other-${index}`,
                         name: 'New ' + fs.path,
-                        icon: getIconForFileSystemItem(fs),
+                        category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
+                        href: fs.href,
                         flag: fs.flag,
+                        icon: getIconForFileSystemItem(fs),
+                        record: fs,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
-                    .map((fs) => ({
-                        href: fs.href,
+                    .map((fs, index) => ({
+                        id: `product-${index}`,
                         name: fs.path,
-                        icon: getIconForFileSystemItem(fs),
+                        category: 'apps' as NEW_TAB_CATEGORY_ITEMS,
+                        href: fs.href,
                         flag: fs.flag,
+                        icon: getIconForFileSystemItem(fs),
+                        record: fs,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
                 const data = getDefaultTreeData()
-                    .map((fs) => ({
-                        href: fs.href,
+                    .map((fs, index) => ({
+                        id: `data-${index}`,
                         name: fs.path,
-                        icon: getIconForFileSystemItem(fs),
+                        category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
+                        href: fs.href,
                         flag: fs.flag,
+                        icon: getIconForFileSystemItem(fs),
+                        record: fs,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const queryTree: ItemsGridItem[] = [
+                const allItems: NewTabTreeDataItem[] = [
                     {
+                        id: 'new-sql-query',
+                        name: 'New SQL query',
                         category: 'create-new',
-                        types: [
-                            { name: 'New SQL query', icon: <IconDatabase />, href: '/sql' },
-                            ...newInsightItems,
-                            ...newOtherItems,
-                            { name: 'New Hog program', icon: <IconHogQL />, href: '/debug/hog' },
-                        ],
+                        icon: <IconDatabase />,
+                        href: '/sql',
+                        record: { type: 'query', path: 'New SQL query' },
                     },
                     {
-                        category: 'apps',
-                        types: [...products],
+                        id: 'new-hog-program',
+                        name: 'New Hog program',
+                        category: 'create-new',
+                        icon: <IconHogQL />,
+                        href: '/debug/hog',
+                        record: { type: 'hog', path: 'New Hog program' },
                     },
-                    {
-                        category: 'data-management',
-                        types: [...data, ...newDataItems],
-                    },
+                    ...newInsightItems,
+                    ...newOtherItems,
+                    ...products,
+                    ...data,
+                    ...newDataItems,
                     ...projectTreeSearchItems,
                 ]
-                return queryTree
+                return allItems
             },
         ],
         filteredItemsGrid: [
             (s) => [s.itemsGrid, s.search, s.selectedCategory],
-            (itemsGrid, search, selectedCategory): ItemsGridItem[] => {
+            (itemsGrid, search, selectedCategory): NewTabTreeDataItem[] => {
                 let filtered = itemsGrid
 
                 // Filter by selected category
                 if (selectedCategory !== 'all') {
-                    filtered = filtered.filter(({ category }) => category === selectedCategory)
+                    filtered = filtered.filter((item) => item.category === selectedCategory)
                 }
 
                 // Filter by search
@@ -269,28 +284,17 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .split(' ')
                     .map((s) => s.trim())
                     .filter((s) => s)
-                return filtered
-                    .map(({ category, types }) => ({
-                        category,
-                        types: types.filter(
-                            (t) =>
-                                lowerSearchChunks.filter(
-                                    (lowerSearch) => !`${category} ${t.name}`.toLowerCase().includes(lowerSearch)
-                                ).length === 0
-                        ),
-                    }))
-                    .filter(({ category, types }) => types.length > 0 || category === 'recents')
+                return filtered.filter(
+                    (item) =>
+                        lowerSearchChunks.filter(
+                            (lowerSearch) => !`${item.category} ${item.name}`.toLowerCase().includes(lowerSearch)
+                        ).length === 0
+                )
             },
         ],
         filteredItemsList: [
             (s) => [s.filteredItemsGrid],
-            (filteredItemsGrid): ItemsGridItemSingle[] =>
-                filteredItemsGrid.flatMap(({ category, types }) =>
-                    types.map((type) => ({
-                        category,
-                        type,
-                    }))
-                ),
+            (filteredItemsGrid): NewTabTreeDataItem[] => filteredItemsGrid,
         ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsList],
@@ -306,7 +310,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
         selectedItem: [
             (s) => [s.selectedIndex, s.filteredItemsList],
-            (selectedIndex, filteredItemsList) =>
+            (selectedIndex, filteredItemsList): NewTabTreeDataItem | null =>
                 selectedIndex !== null && selectedIndex < filteredItemsList.length
                     ? filteredItemsList[selectedIndex]
                     : null,
@@ -315,8 +319,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     }),
     listeners(({ actions, values }) => ({
         onSubmit: () => {
-            if (values.selectedItem?.type?.href) {
-                router.actions.push(values.selectedItem.type.href)
+            if (values.selectedItem?.href) {
+                router.actions.push(values.selectedItem.href)
             }
         },
         setSearch: () => {
