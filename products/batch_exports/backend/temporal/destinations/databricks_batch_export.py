@@ -114,6 +114,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         evolution](https://docs.databricks.com/aws/en/delta/update-schema#automatic-schema-evolution-for-delta-lake-merge).
         This means the target table will automatically be updated with the schema of the source table (however, no
         columns will be dropped from the target table).
+        NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
     table_partition_field: the field to partition the table by.
         If None, we will use the default partition by field for the model (if exists)
     """
