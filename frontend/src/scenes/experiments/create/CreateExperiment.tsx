@@ -19,6 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
 import { ExperimentTypePanel } from './ExperimentTypePanel'
+import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
 
@@ -129,7 +130,10 @@ export const CreateExperiment = (): JSX.Element => {
                                 header: 'Exposure criteria',
                                 content: (
                                     <div className="p-4">
-                                        <span>Exposure Criteria Panel Goes Here</span>
+                                        <ExposureCriteriaPanel
+                                            experiment={experiment}
+                                            onChange={(exposureCriteria) => exposureCriteria}
+                                        />
                                     </div>
                                 ),
                             },
