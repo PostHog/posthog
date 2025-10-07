@@ -40,7 +40,7 @@ def migrate_recording_comments_to_replay_scope(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0868_move_recording_activity_log_to_replay"),
+        ("posthog", "0869_create_cohort_calculation_history"),
     ]
 
     operations = [
