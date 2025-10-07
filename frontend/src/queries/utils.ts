@@ -754,9 +754,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     }
 
     if (recursion === true && Array.isArray(node)) {
-        return (node as unknown as any[]).map((value) =>
-            setLatestVersionsOnQuery(value, { recursion, visited })
-        ) as unknown as T
+        return (node as unknown as any[]).map((value) => setLatestVersionsOnQuery(value)) as unknown as T
     }
 
     const cloned: Record<string, any> = { ...(node as any) }
@@ -773,7 +771,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     if (recursion === true) {
         for (const [key, value] of Object.entries(cloned)) {
             if (value !== null && typeof value === 'object') {
-                cloned[key] = setLatestVersionsOnQuery(value, { recursion })
+                cloned[key] = setLatestVersionsOnQuery(value)
             }
         }
     }
