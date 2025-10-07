@@ -285,7 +285,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return 0
                 }
                 const amountUsd = currentAndUpgradePlans.upgradePlan?.unit_amount_usd
-                const unitAmountInt = amountUsd ? parseInt(amountUsd) : 0
+                const unitAmountInt = amountUsd ? parseFloat(amountUsd) : 0
                 const ratio = Math.max(0, Math.min(1, timeRemainingInSeconds / timeTotalInSeconds)) // make sure ratio is between 0 and 1
                 return Math.round(unitAmountInt * ratio * 100) / 100
             },
@@ -298,7 +298,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (!hasActiveSubscription || !amountUsd) {
                     return false
                 }
-                return proratedAmount !== parseInt(amountUsd)
+                return proratedAmount !== parseFloat(amountUsd)
             },
         ],
         isLowerTierThanCurrentAddon: [
