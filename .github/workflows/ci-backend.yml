@@ -506,6 +506,25 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
+                  sparse-checkout: |
+                      bin/
+                      common/
+                      docker/
+                      ee/
+                      posthog/
+                      products/
+                      frontend/dist/
+                      frontend/public/
+                      frontend/src/queries/schema.json
+                      pyproject.toml
+                      uv.lock
+                      requirements.txt
+                      requirements-dev.txt
+                      mypy.ini
+                      pytest.ini
+                      docker-compose.dev.yml
+                      docker-compose.base.yml
+                  sparse-checkout-cone-mode: false
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |

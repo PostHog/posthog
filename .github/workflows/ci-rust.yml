@@ -23,6 +23,11 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
+              with:
+                  sparse-checkout: |
+                      .github/
+                      rust/
+                  sparse-checkout-cone-mode: false
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
@@ -122,6 +127,13 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
+              with:
+                  sparse-checkout: |
+                      .github/
+                      rust/
+                      docker-compose.dev.yml
+                      docker-compose.base.yml
+                  sparse-checkout-cone-mode: false
 
             - name: Setup main repo and dependencies
               if: needs.changes.outputs.rust == 'true'
