@@ -58,6 +58,7 @@ class ConversationSerializer(serializers.ModelSerializer):
                 additional_properties={
                     "tag": "max_ai",
                     "exception_type": type(e).__name__,
+                    "conversation_id": str(conversation.id),
                 },
             )
             return []

@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from posthog.schema import (
     AssistantEventType,
@@ -165,34 +165,6 @@ class TaskArtifact(BaseModel):
     id: str | int | None = None  # The id of the object referenced by the artifact
     task_id: str  # The id of the task that created the artifact
     content: str  # A string content attached to the artifact
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_legacy_artifact(cls, data):
-        """
-        Backwards-compatibility for legacy artifacts stored without required fields.
-        Older deep-research runs stored artifacts missing `task_id` and/or `content`.
-        We coerce them here so historical conversations can be parsed without 5xx thrown around.
-        """
-        if not isinstance(data, dict):
-            return data
-
-        if not data.get("task_id"):
-            fallback = (
-                data.get("id")
-                or data.get("name")
-                or (data.get("query").get("id") if isinstance(data.get("query"), dict) else None)
-            )
-            data["task_id"] = str(fallback) if fallback is not None else "legacy"
-
-        if data.get("content") in (None, ""):
-            content = data.get("description") or data.get("result") or data.get("text")
-            if content is None and isinstance(data.get("query"), dict):
-                q = data["query"]
-                content = q.get("name") or q.get("query")
-            data["content"] = str(content) if content is not None else ""
-
-        return data
 
 
 class InsightArtifact(TaskArtifact):
