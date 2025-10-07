@@ -272,7 +272,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                     row={index}
                                                     column={columnIndex}
                                                 >
-                                                    <ButtonGroupPrimitive className="group w-full border-none">
+                                                    <ButtonGroupPrimitive className="group w-full border-0">
                                                         <ContextMenu>
                                                             <ContextMenuTrigger asChild>
                                                                 <Link
@@ -316,7 +316,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                     size="xs"
                                                                     iconOnly
                                                                     isSideActionRight
-                                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100"
+                                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
                                                                 >
                                                                     <IconEllipsis className="size-3" />
                                                                 </ButtonPrimitive>
