@@ -8,7 +8,7 @@ This module defines:
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any, Union
 from zoneinfo import ZoneInfo
 
@@ -27,12 +27,16 @@ from posthog.schema import (
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import Experiment, ExperimentMetricResult
+from posthog.models.team import Team
 
 from dags.common import JobOwners
 
 # =============================================================================
-# Dynamic Partitions Setup
+# Configuration
 # =============================================================================
+
+# Default hour (UTC) for experiment recalculation when team has no specific time set
+DEFAULT_EXPERIMENT_RECALCULATION_HOUR = 2  # 02:00 UTC
 
 # Create dynamic partitions definition for regular metric combinations
 EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME = "experiment_regular_metrics"
@@ -112,7 +116,7 @@ def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse
     return result
 
 
-def _parse_regular_metric_timeseries_partition_key(partition_key: str) -> tuple[int, str, str]:
+def _parse_partition_key(partition_key: str) -> tuple[int, str, str]:
     """
     Parse partition key to extract experiment ID, metric UUID, and fingerprint.
 
@@ -148,7 +152,7 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
     if not context.partition_key:
         raise dagster.Failure("This asset must be run with a partition key")
 
-    experiment_id, metric_uuid, fingerprint = _parse_regular_metric_timeseries_partition_key(context.partition_key)
+    experiment_id, metric_uuid, fingerprint = _parse_partition_key(context.partition_key)
 
     context.log.info(
         f"Computing timeseries results for experiment {experiment_id}, metric {metric_uuid}, fingerprint {fingerprint}"
@@ -352,27 +356,70 @@ def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.Sens
 
 @dagster.schedule(
     job=experiment_regular_metrics_timeseries_job,
-    cron_schedule="0 2 * * *",  # Daily at 02:00 UTC
+    cron_schedule="0 * * * *",  # Every hour at minute 0
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )
 def experiment_regular_metrics_timeseries_refresh_schedule(context: dagster.ScheduleEvaluationContext):
     """
-    This schedule runs daily and reprocesses all known experiment-regular metric combinations.
+    This schedule runs hourly and reprocesses experiment-regular metric combinations
+    for teams scheduled at the current hour.
     """
     try:
-        existing_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
+        current_hour = context.scheduled_execution_time.hour
+        target_time = time(current_hour, 0, 0)
 
-        if not existing_partitions:
+        # Build time filter for teams
+        if current_hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
+            # At default hour, include teams with NULL (not set) or explicitly set to this hour
+            time_filter = Q(experiment_recalculation_time=target_time) | Q(experiment_recalculation_time__isnull=True)
+        else:
+            # At other hours, only include teams explicitly set to this hour
+            time_filter = Q(experiment_recalculation_time=target_time)
+
+        # Get all experiments from teams scheduled at this hour
+        target_experiment_ids = set(
+            Experiment.objects.filter(
+                deleted=False,
+                stats_config__timeseries=True,
+                start_date__isnull=False,
+                end_date__isnull=True,
+                team__in=Team.objects.filter(time_filter),
+            ).values_list("id", flat=True)
+        )
+
+        if not target_experiment_ids:
+            return dagster.SkipReason(f"No experiments found for teams scheduled at {current_hour}:00 UTC")
+
+        all_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
+
+        if not all_partitions:
             return dagster.SkipReason("No experiment regular metrics partitions exist")
 
-        context.log.info(f"Scheduling full refresh for {len(existing_partitions)} regular metrics partitions")
+        # Filter to only partitions for target experiments
+        partitions_to_run = []
+        for partition_key in all_partitions:
+            try:
+                experiment_id, _, _ = _parse_partition_key(partition_key)
+                if experiment_id in target_experiment_ids:
+                    partitions_to_run.append(partition_key)
+            except ValueError:
+                context.log.warning(f"Skipping partition with invalid key format: {partition_key}")
+                continue
+
+        if not partitions_to_run:
+            return dagster.SkipReason(f"No metrics to process for teams at {current_hour}:00 UTC")
+
+        context.log.info(
+            f"Scheduling refresh for {len(partitions_to_run)} partitions for teams at {current_hour}:00 UTC"
+        )
+
         return [
             dagster.RunRequest(
-                run_key=f"regular_metrics_refresh_{partition_key}_{context.scheduled_execution_time.strftime('%Y%m%d')}",
+                run_key=f"scheduled_{partition_key}_{context.scheduled_execution_time.strftime('%Y%m%d_%H')}",
                 partition_key=partition_key,
             )
-            for partition_key in existing_partitions
+            for partition_key in partitions_to_run
         ]
 
     except Exception as e:

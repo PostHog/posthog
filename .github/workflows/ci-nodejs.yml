@@ -163,6 +163,7 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
+              id: setup-uv
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
@@ -186,7 +187,7 @@ jobs:
               run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.nodejs == 'true'
+              if: needs.changes.outputs.nodejs == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl

@@ -469,6 +469,12 @@ class Team(UUIDTClassicModel):
         blank=True,
     )
 
+    experiment_recalculation_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+    )
+
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
