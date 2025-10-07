@@ -1,41 +1,41 @@
 {
-    "$schema": "https://biomejs.dev/schemas/1.6.2/schema.json",
-    "organizeImports": {
-        "enabled": true
-    },
-    "files": {
-        "ignore": [
-            "worker-configuration.d.ts",
-            ".mypy_cache/**",
-            "schema/tool-inputs.json",
-            "python/**",
-            "**/generated.ts"
-        ]
-    },
-    "vcs": {
-        "enabled": true,
-        "clientKind": "git",
-        "useIgnoreFile": true
-    },
-    "linter": {
-        "enabled": true,
-        "rules": {
-            "recommended": true,
-            "suspicious": {
-                "noExplicitAny": "off",
-                "noDebugger": "off",
-                "noConsoleLog": "off",
-                "noConfusingVoidType": "off",
-                "noAssignInExpressions": "off"
-            },
-            "style": {
-                "noNonNullAssertion": "off"
-            }
-        }
-    },
-    "formatter": {
-        "enabled": true,
-        "indentWidth": 4,
-        "lineWidth": 100
-    }
+	"$schema": "https://biomejs.dev/schemas/1.6.2/schema.json",
+	"organizeImports": {
+		"enabled": true
+	},
+	"files": {
+		"ignore": [
+			"worker-configuration.d.ts",
+			".mypy_cache/**",
+			"schema/tool-inputs.json",
+			"python/**",
+			"**/generated.ts"
+		]
+	},
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"suspicious": {
+				"noExplicitAny": "off",
+				"noDebugger": "off",
+				"noConsoleLog": "off",
+				"noConfusingVoidType": "off",
+				"noAssignInExpressions": "off"
+			},
+			"style": {
+				"noNonNullAssertion": "off"
+			}
+		}
+	},
+	"formatter": {
+		"enabled": true,
+		"indentWidth": 4,
+		"lineWidth": 100
+	}
 }
