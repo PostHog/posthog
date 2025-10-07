@@ -19,7 +19,7 @@ use tower_http::{
 };
 
 use crate::{
-    api::endpoint,
+    api::{endpoint, regex::regex_validate_handler},
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::utils::team_id_label_filter,
@@ -91,9 +91,14 @@ where
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
+    let regex_router = Router::new()
+        .route("/flags/regex/validate", any(regex_validate_handler))
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
+        .merge(regex_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
