@@ -6,6 +6,7 @@ import { logger } from '../../utils/logger'
 import { findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
 import { calculateInputCost } from './input-costs'
 import { calculateOutputCost } from './output-costs'
+import { ModelRow } from './providers/types'
 
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
@@ -62,6 +63,19 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
     return event
 }
 
+const setCostsOnEvent = (event: PluginEvent, cost: ModelRow): void => {
+    if (!event.properties) {
+        return
+    }
+
+    event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
+    event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
+
+    event.properties['$ai_total_cost_usd'] = parseFloat(
+        bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+    )
+}
+
 const processCost = (event: PluginEvent) => {
     if (!event.properties) {
         return event
@@ -74,6 +88,30 @@ const processCost = (event: PluginEvent) => {
                 bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
             )
         }
+
+        return event
+    }
+
+    // If custom token pricing is provided, use it to calculate costs
+    const hasCustomPricing =
+        event.properties['$ai_input_token_price'] !== undefined &&
+        event.properties['$ai_output_token_price'] !== undefined
+
+    if (hasCustomPricing) {
+        const customCost: ModelRow = {
+            model: 'custom',
+            cost: {
+                prompt_token: event.properties['$ai_input_token_price'],
+                completion_token: event.properties['$ai_output_token_price'],
+                cache_read_token: event.properties['$ai_cache_read_token_price'],
+                cache_write_token: event.properties['$ai_cache_write_token_price'],
+            },
+        }
+
+        setCostsOnEvent(event, customCost)
+
+        event.properties['$ai_model_cost_used'] = 'custom'
+        event.properties['$ai_cost_model_source'] = 'custom'
 
         return event
     }
@@ -96,16 +134,10 @@ const processCost = (event: PluginEvent) => {
 
     const { cost, source } = costResult
 
-    // This is used to track the model that was used for the cost calculation
+    setCostsOnEvent(event, cost)
+
     event.properties['$ai_model_cost_used'] = cost.model
     event.properties['$ai_cost_model_source'] = source
-
-    event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
-    event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
-
-    event.properties['$ai_total_cost_usd'] = parseFloat(
-        bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
-    )
 
     return event
 }

@@ -441,6 +441,188 @@ describe('processAiEvent()', () => {
         })
     })
 
+    describe('custom token pricing', () => {
+        it('uses custom pricing when provided', () => {
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_source).toBe('custom')
+        })
+
+        it('uses custom pricing even when model is unknown', () => {
+            event.properties!.$ai_model = 'completely-unknown-model'
+            event.properties!.$ai_input_token_price = 0.0005
+            event.properties!.$ai_output_token_price = 0.0015
+            event.properties!.$ai_input_tokens = 200
+            event.properties!.$ai_output_tokens = 100
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.15, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.25, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('custom pricing takes precedence over model matching', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.1
+            event.properties!.$ai_output_token_price = 0.2
+            event.properties!.$ai_input_tokens = 10
+            event.properties!.$ai_output_tokens = 5
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(2, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('pre-calculated costs take precedence over custom pricing', () => {
+            event.properties!.$ai_input_cost_usd = 5.5
+            event.properties!.$ai_output_cost_usd = 3.5
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(5.5)
+            expect(result.properties!.$ai_output_cost_usd).toBe(3.5)
+            expect(result.properties!.$ai_total_cost_usd).toBe(9)
+            expect(result.properties!.$ai_model_cost_used).toBeUndefined()
+        })
+
+        it('handles custom pricing with cache read tokens for OpenAI', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_read_token_price = 0.0005
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+        })
+
+        it('handles custom pricing with cache tokens for Anthropic', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_input_token_price = 0.000003
+            event.properties!.$ai_output_token_price = 0.000015
+            event.properties!.$ai_cache_read_token_price = 0.0000003
+            event.properties!.$ai_cache_write_token_price = 0.00000375
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_read_input_tokens = 500
+            event.properties!.$ai_cache_creation_input_tokens = 200
+            event.properties!.$ai_output_tokens = 100
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0039, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0015, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0054, 6)
+        })
+
+        it('falls back to multipliers when cache prices not provided', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+        })
+
+        it('handles zero custom prices', () => {
+            event.properties!.$ai_input_token_price = 0
+            event.properties!.$ai_output_token_price = 0
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(0)
+            expect(result.properties!.$ai_output_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('requires both input and output prices to use custom pricing', () => {
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('gpt-4')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Primary)
+        })
+
+        it('works without provider when using custom pricing', () => {
+            delete event.properties!.$ai_provider
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+        })
+
+        it('works without model when using custom pricing', () => {
+            delete event.properties!.$ai_model
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+        })
+
+        it('handles reasoning tokens with custom pricing for gemini-2.5 models', () => {
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_model = 'gemini-2.5-flash'
+            event.properties!.$ai_input_token_price = 0.0000003
+            event.properties!.$ai_output_token_price = 0.0000025
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 200
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00003, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000625, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000655, 6)
+        })
+    })
+
     describe('model name edge cases', () => {
         it('handles empty string model names', () => {
             event.properties!.$ai_model = ''
