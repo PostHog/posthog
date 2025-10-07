@@ -1,6 +1,6 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.error_tracking.embeddings import (
+from posthog.models.error_tracking.embedding import (
     DOCUMENT_EMBEDDINGS_MV_SQL,
     DOCUMENT_EMBEDDINGS_TABLE_SQL,
     DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL,
