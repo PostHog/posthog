@@ -121,7 +121,7 @@ class ReadTaxonomyToolArgs(BaseModel):
 class ReadTaxonomyTool(MaxTool):
     name: Literal["read_taxonomy"] = "read_taxonomy"
     description: str = READ_TAXONOMY_TOOL_DESCRIPTION
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
     thinking_message: str = "Searching the taxonomy"

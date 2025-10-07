@@ -329,7 +329,7 @@ class SurveyAnalysisTool(MaxTool):
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
     thinking_message: str = "Analyzing your survey responses"
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"

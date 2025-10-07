@@ -310,6 +310,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ):
                 # Create a mock tool class that behaves like a real tool
                 mock_tool_class = MagicMock()
+                mock_tool_class.create_tool_class = AsyncMock()
+                mock_tool_class.create_tool_class.side_effect = NotImplementedError
                 mock_tool_instance = MagicMock()
                 mock_tool_instance.name = "search_session_recordings"
                 mock_tool_class.return_value = mock_tool_instance

@@ -41,7 +41,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
         name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
         description: str = "What this tool does"
         thinking_message: str = "What to show while tool is working"
-        root_system_prompt_template: str = "Context about the tool state: {context_var}"
+        context_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
 
         async def _arun_impl(self, parameter_name: str) -> tuple[str, YourToolOutput]:
@@ -114,7 +114,7 @@ For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUn
 
 ### Iterating
 
-Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: prompt, description, `root_system_prompt_template`, context from the frontend.
+Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: tool name, tool description, prompt of the context messages (`context_prompt_template`), and context from the frontend.
 
 When developing, get full visibility into what the tool is doing using local PostHog LLM analytics: [http://localhost:8010/llm-analytics/traces](http://localhost:8010/llm-analytics/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
 
