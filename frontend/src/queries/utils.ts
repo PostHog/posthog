@@ -748,7 +748,6 @@ export function getMathTypeWarning(
  * are already the latest version. */
 export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion?: boolean }): T {
     const recursion = options?.recursion ?? true
-    const visited = options?.visited ?? new WeakSet()
 
     if (node === null || typeof node !== 'object') {
         return node
@@ -774,7 +773,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     if (recursion === true) {
         for (const [key, value] of Object.entries(cloned)) {
             if (value !== null && typeof value === 'object') {
-                cloned[key] = setLatestVersionsOnQuery(value, { recursion, visited })
+                cloned[key] = setLatestVersionsOnQuery(value, { recursion })
             }
         }
     }
