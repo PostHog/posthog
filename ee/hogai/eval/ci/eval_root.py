@@ -520,6 +520,26 @@ async def eval_root(call_root, pytestconfig):
                     id="call_navigate_1",
                 ),
             ),
+            EvalCase(
+                input="Give me the signup to purchase conversion rate for the dates between 8 Jul and 9 Sep",
+                expected=AssistantToolCall(
+                    name="create_and_query_insight",
+                    args={
+                        "query_description": "Calculate the signup to purchase conversion rate for dates between July 8 and September 9",
+                    },
+                    id="call_specific_conversion_rate",
+                ),
+            ),
+            EvalCase(
+                input="Show me daily active users for the past month",
+                expected=AssistantToolCall(
+                    name="create_and_query_insight",
+                    args={
+                        "query_description": "Daily active users for the past month",
+                    },
+                    id="call_dau_past_month",
+                ),
+            ),
         ],
         pytestconfig=pytestconfig,
     )
