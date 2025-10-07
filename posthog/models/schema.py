@@ -34,7 +34,6 @@ class SchemaPropertyGroup(UUIDTModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["project"], name="schema_pg_proj_idx"),
             models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
         ]
         constraints = [
@@ -114,16 +113,6 @@ class EventSchema(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [
-            models.Index(
-                fields=["event_definition"],
-                name="event_schema_event_def_idx",
-            ),
-            models.Index(
-                fields=["property_group"],
-                name="event_schema_prop_group_idx",
-            ),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["event_definition", "property_group"],

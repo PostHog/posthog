@@ -123,41 +123,32 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": ["order", "name"],
-                "indexes": [models.Index(fields=["property_group", "order"], name="schema_pgp_group_order_idx")],
             },
         ),
-        migrations.AddConstraint(
-            model_name="schemapropertygroupproperty",
-            constraint=models.UniqueConstraint(
-                fields=("property_group", "name"), name="unique_property_group_property_name"
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="schemapropertygroupproperty",
-            constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration"])),
-                name="property_type_is_valid_schema",
-            ),
-        ),
         migrations.AddIndex(
-            model_name="schemapropertygroup",
-            index=models.Index(fields=["project"], name="schema_pg_proj_idx"),
+            model_name="schemapropertygroupproperty",
+            index=models.Index(fields=["property_group", "order"], name="schema_pgp_group_order_idx"),
         ),
         migrations.AddIndex(
             model_name="schemapropertygroup",
             index=models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
         ),
         migrations.AddConstraint(
+            model_name="schemapropertygrouproperty",
+            constraint=models.UniqueConstraint(
+                fields=("property_group", "name"), name="unique_property_group_property_name"
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="schemapropertygrouproperty",
+            constraint=models.CheckConstraint(
+                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration"])),
+                name="property_type_is_valid_schema",
+            ),
+        ),
+        migrations.AddConstraint(
             model_name="schemapropertygroup",
             constraint=models.UniqueConstraint(fields=("team", "name"), name="unique_schema_property_group_team_name"),
-        ),
-        migrations.AddIndex(
-            model_name="eventschema",
-            index=models.Index(fields=["event_definition"], name="event_schema_event_def_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="eventschema",
-            index=models.Index(fields=["property_group"], name="event_schema_prop_group_idx"),
         ),
         migrations.AddConstraint(
             model_name="eventschema",
