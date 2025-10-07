@@ -66,4 +66,12 @@ export const manualCosts: ModelRow[] = [
             completion_token: 0.0000009,
         },
     },
+    {
+        model: 'mistral-medium-3',
+        provider: 'mistral',
+        cost: {
+            prompt_token: 4e-7,
+            completion_token: 0.000002,
+        },
+    },
 ]
