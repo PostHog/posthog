@@ -52,6 +52,9 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+                        - '**/*.md'
+                        - '**/*.mdx'
+                        - .config/.markdownlint-cli2.jsonc
 
     frontend-format:
         name: Frontend formatting
@@ -109,6 +112,10 @@ jobs:
             - name: Lint with Oxlint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js -f github
+
+            - name: Lint markdown files
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-toolbar-checks:
         name: Frontend toolbar checks

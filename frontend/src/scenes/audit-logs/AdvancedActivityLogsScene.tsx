@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconActivity } from '@posthog/icons'
+import { IconNotification } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AvailableFeature } from '~/types'
 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
@@ -21,20 +22,13 @@ export const scene: SceneExport = {
 }
 
 export function AdvancedActivityLogsScene(): JSX.Element | null {
-    const { isFeatureFlagEnabled, exports, activeTab } = useValues(advancedActivityLogsLogic)
+    const { activeTab } = useValues(advancedActivityLogsLogic)
     const { setActiveTab } = useActions(advancedActivityLogsLogic)
-
-    if (!isFeatureFlagEnabled) {
-        window.location.href = urls.projectHomepage()
-        return null
-    }
-
-    const hasExports = exports && exports.length > 0
 
     const tabs = [
         {
             key: 'logs',
-            label: 'Activity logs',
+            label: 'Logs',
             content: (
                 <div className="space-y-4">
                     <AdvancedActivityLogFiltersPanel />
@@ -42,34 +36,31 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                 </div>
             ),
         },
-        ...(hasExports
-            ? [
-                  {
-                      key: 'exports',
-                      label: 'Exports',
-                      content: <ExportsList />,
-                  },
-              ]
-            : []),
+        {
+            key: 'exports',
+            label: 'Exports',
+            content: <ExportsList />,
+        },
     ]
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Advanced activity logs"
-                description="Track all changes and activities in your organization"
+                name="Activity logs"
                 resourceType={{
-                    type: 'activity logs',
-                    forceIcon: <IconActivity />,
+                    type: 'team_activity',
+                    forceIcon: <IconNotification />,
                 }}
             />
             <SceneDivider />
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
-                tabs={tabs}
-                sceneInset
-            />
+            <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
+                    tabs={tabs}
+                    sceneInset
+                />
+            </PayGateMini>
         </SceneContent>
     )
 }

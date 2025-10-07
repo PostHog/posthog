@@ -6,6 +6,8 @@ use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::utils::client::get_client;
+
 use super::{auth::Token, git::get_git_info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,7 +32,6 @@ pub fn create_release(
     hash_id: Option<String>,
     project: Option<String>,
     version: Option<String>,
-    skip_ssl_verification: bool,
 ) -> Result<Option<CreateReleaseResponse>> {
     let git_info = get_git_info(dir)?;
 
@@ -64,9 +65,7 @@ pub fn create_release(
         host, token.env_id
     );
 
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(skip_ssl_verification)
-        .build()?;
+    let client = get_client()?;
 
     let response = client
         .post(&url)

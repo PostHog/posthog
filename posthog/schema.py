@@ -91,6 +91,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
+    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
 class AssistantDateRange(BaseModel):
@@ -207,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrls(StrEnum):
+class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -313,6 +314,7 @@ class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
 class Display(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
@@ -525,6 +527,7 @@ class ChartDisplayCategory(StrEnum):
 class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -1179,6 +1182,7 @@ class ExperimentMetricOutlierHandling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     upper_bound_percentile: Optional[float] = None
 
@@ -1319,7 +1323,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
-    EMBEDDED_ANALYTICS = "embedded_analytics"
+    ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -1355,6 +1359,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
+    HOME = "home"
 
 
 class FileSystemImport(BaseModel):
@@ -1657,6 +1662,7 @@ class IntegrationKind(StrEnum):
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
+    DATABRICKS = "databricks"
 
 
 class IntervalType(StrEnum):
@@ -1886,6 +1892,13 @@ class MultipleBreakdownType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
+class NamedQueryLastExecutionTimesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    names: list[str]
+
+
 class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
@@ -2041,6 +2054,26 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PlaywrightWorkspaceSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    personal_api_key: str
+    team_id: str
+    team_name: str
+    user_email: str
+    user_id: str
 
 
 class PropertyFilterType(StrEnum):
@@ -2400,6 +2433,15 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
+class SessionData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_uuid: str
+    person_id: str
+    session_id: str
+
+
 class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2692,6 +2734,24 @@ class TaxonomicFilterGroupType(StrEnum):
     MAX_AI_CONTEXT = "max_ai_context"
 
 
+class TestSetupRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Optional[dict[str, Any]] = None
+
+
+class TestSetupResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    available_tests: Optional[list[str]] = None
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    success: bool
+    test_name: str
+
+
 class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2751,6 +2811,7 @@ class UserBasicType(BaseModel):
     id: float
     is_email_verified: Optional[Any] = None
     last_name: Optional[str] = None
+    role_at_organization: Optional[str] = None
     uuid: str
 
 
@@ -3785,19 +3846,6 @@ class ExperimentExposureQueryResponse(BaseModel):
     total_exposures: dict[str, float]
 
 
-class ExperimentHoldoutType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: Optional[str] = None
-    created_by: Optional[UserBasicType] = None
-    description: Optional[str] = None
-    filters: dict[str, Any]
-    id: Optional[float] = None
-    name: str
-    updated_at: Optional[str] = None
-
-
 class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3822,6 +3870,8 @@ class ExperimentStatsBase(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
 
@@ -3835,6 +3885,8 @@ class ExperimentStatsBaseValidated(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3853,6 +3905,8 @@ class ExperimentVariantResultBayesian(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3871,6 +3925,8 @@ class ExperimentVariantResultFrequentist(BaseModel):
     numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -4302,6 +4358,16 @@ class RetentionValue(BaseModel):
     )
     count: int
     label: Optional[str] = None
+
+
+class RevenueAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: list[RevenueAnalyticsPropertyFilter]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
@@ -8541,33 +8607,39 @@ class ExperimentEventExposureConfig(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentExposureCriteria(BaseModel):
+class FeatureFlagGroupType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    exposure_config: Optional[ExperimentEventExposureConfig] = None
-    filterTestAccounts: Optional[bool] = None
-    multiple_variant_handling: Optional[MultipleVariantHandling] = None
-
-
-class ExperimentExposureQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    end_date: Optional[str] = None
-    experiment_id: Optional[int] = None
-    experiment_name: str
-    exposure_criteria: Optional[ExperimentExposureCriteria] = None
-    feature_flag: dict[str, Any]
-    holdout: Optional[ExperimentHoldoutType] = None
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentExposureQueryResponse] = None
-    start_date: Optional[str] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    description: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    rollout_percentage: Optional[float] = None
+    sort_key: Optional[str] = None
+    users_affected: Optional[float] = None
+    variant: Optional[str] = None
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -10967,6 +11039,7 @@ class TracesQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    personId: Optional[str] = Field(default=None, description="Person who performed the event")
     properties: Optional[
         list[
             Union[
@@ -11744,6 +11817,15 @@ class EventTaxonomyQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[Union[ExperimentEventExposureConfig, ActionsNode]] = None
+    filterTestAccounts: Optional[bool] = None
+    multiple_variant_handling: Optional[MultipleVariantHandling] = None
+
+
 class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11751,6 +11833,19 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     funnel_order_type: Optional[StepOrderValue] = None
     metric_type: Literal["funnel"] = "funnel"
     series: list[Union[EventsNode, ActionsNode]]
+
+
+class ExperimentHoldoutType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    description: Optional[str] = None
+    filters: list[FeatureFlagGroupType]
+    id: Optional[float] = None
+    name: str
+    updated_at: Optional[str] = None
 
 
 class ExperimentRatioMetric(BaseModel):
@@ -12621,6 +12716,26 @@ class ErrorTrackingQuery(BaseModel):
     withLastEvent: Optional[bool] = None
 
 
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end_date: Optional[str] = None
+    experiment_id: Optional[int] = None
+    experiment_name: str
+    exposure_criteria: Optional[ExperimentExposureCriteria] = None
+    feature_flag: dict[str, Any]
+    holdout: Optional[ExperimentHoldoutType] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentExposureQueryResponse] = None
+    start_date: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12647,6 +12762,7 @@ class ExperimentMeanMetric(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    ignore_zeros: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
@@ -12662,6 +12778,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
@@ -13755,7 +13872,16 @@ class VisualizationItem(BaseModel):
     )
     answer: Union[
         Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
     ]
     initiator: Optional[str] = None
     plan: Optional[str] = None
@@ -13768,7 +13894,16 @@ class VisualizationMessage(BaseModel):
     )
     answer: Union[
         Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
     ]
     id: Optional[str] = None
     initiator: Optional[str] = None

@@ -57,6 +57,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "session_recording",
     "revenue_analytics",
     "survey",
+    "experiment",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources

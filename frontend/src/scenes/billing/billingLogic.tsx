@@ -163,7 +163,7 @@ export const billingLogic = kea<billingLogicType>([
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
     }),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -184,7 +184,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    }),
+    })),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -611,8 +611,7 @@ export const billingLogic = kea<billingLogicType>([
             },
             submit: async ({ creditInput, collectionMethod }) => {
                 await api.create('api/billing/credits/purchase', {
-                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                    discount_percent: values.computedDiscount! * 100,
+                    annual_credit_amount_usd: +creditInput,
                     collection_method: collectionMethod,
                 })
 
@@ -786,7 +785,7 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
-                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
+                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
                         or ${
                             productOverLimit.name === 'Data warehouse'
@@ -920,7 +919,10 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         scrollToProduct: ({ productType }) => {
-            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            let element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            if (element == null) {
+                element = document.querySelector(`[data-attr="billing-product-${productType}"]`)
+            }
             element?.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center',

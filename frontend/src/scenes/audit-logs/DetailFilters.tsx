@@ -1,8 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonInputSelect, LemonSearchableSelect, LemonSelect } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSearchableSelect,
+    LemonSelect,
+    Tooltip,
+} from '@posthog/lemon-ui'
+
+import { midEllipsis } from 'lib/utils'
 
 import { ActiveDetailFilter, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
@@ -28,44 +37,73 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
             activeFilters.filter((f) => f.key !== filter.key && !f.isCustom).map((f) => f.fieldPath)
         )
 
-        const sections = new Map<string, { fields: Map<string, string>; scope: string }>()
-        const generalFields = new Set<string>()
+        // Group by field name instead of scope
+        const fieldGroups = new Map<string, { scopes: string[]; fullPaths: string[] }>()
 
         Object.entries(availableFilters.detail_fields).forEach(([scope, scopeData]) => {
-            const cleanScope = scope.replace(/([A-Z])/g, ' $1').trim() || 'General'
-
-            if (!sections.has(cleanScope)) {
-                sections.set(cleanScope, { fields: new Map(), scope })
-            }
-
             scopeData.fields.forEach((field) => {
                 const fieldValue = `${scope}::${field.name}`
-                if (!selectedFields.has(fieldValue) || fieldValue === filter.fieldPath) {
-                    sections.get(cleanScope)!.fields.set(field.name, fieldValue)
-                }
 
-                if (cleanScope === 'General') {
-                    generalFields.add(field.name)
+                if (!selectedFields.has(fieldValue) || fieldValue === filter.fieldPath) {
+                    if (!fieldGroups.has(field.name)) {
+                        fieldGroups.set(field.name, { scopes: [], fullPaths: [] })
+                    }
+
+                    const group = fieldGroups.get(field.name)!
+                    if (!group.scopes.includes(scope)) {
+                        group.scopes.push(scope)
+                        group.fullPaths.push(fieldValue)
+                    }
                 }
             })
         })
 
-        const fieldSections = Array.from(sections.entries())
-            .sort(([a], [b]) => (a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)))
-            .map(([title, { fields }]) => {
-                const fieldOptions = Array.from(fields.entries())
-                    .filter(([fieldName]) => title === 'General' || !generalFields.has(fieldName))
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([fieldName, fieldValue]) => ({
-                        value: fieldValue,
-                        label: fieldName,
-                    }))
+        // Convert to options with composite display
+        const fieldOptions = Array.from(fieldGroups.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([fieldName, group]) => {
+                // Get the last part of the field path after splitting by "."
+                const displayName = fieldName.split('.').pop() || fieldName
 
-                return { title, options: fieldOptions }
+                // Create tooltip with full path and scopes
+                const scopeNames = group.scopes.map((scope) => scope.replace(/([A-Z])/g, ' $1').trim()).join(', ')
+                const displayPath = fieldName.length > 50 ? midEllipsis(fieldName, 50) : fieldName
+
+                // For single scope, use direct field path; for multiple, use first one as primary
+                const primaryValue = group.fullPaths[0]
+
+                return {
+                    value: primaryValue,
+                    label: (
+                        <div className="flex flex-col">
+                            <div>{displayName}</div>
+                            <div className="text-xs text-muted">{displayPath}</div>
+                        </div>
+                    ),
+                    tooltip: (
+                        <div className="text-xs">
+                            <div>
+                                <strong>Full path:</strong>
+                                <br />
+                                {fieldName}
+                            </div>
+                            <br />
+                            <div>
+                                <strong>Available in:</strong>
+                                <br />
+                                {scopeNames}
+                            </div>
+                        </div>
+                    ),
+                }
             })
-            .filter((section) => section.options.length > 0)
 
-        return fieldSections
+        return [
+            {
+                title: 'Available Fields',
+                options: fieldOptions,
+            },
+        ]
     }, [availableFilters, filter.key, filter.fieldPath, activeFilters])
 
     const validateCustomFieldPath = (path: string): string | null => {
@@ -157,6 +195,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                         onChange={handleCustomFieldPathChange}
                         placeholder="Enter custom field path"
                         status={fieldPathError ? 'danger' : undefined}
+                        size="small"
                     />
                     {fieldPathError && <div className="text-xs text-danger mt-1">{fieldPathError}</div>}
                 </div>
@@ -166,6 +205,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     onChange={handleFieldChange}
                     options={fieldOptionsForRow}
                     placeholder="Select field"
+                    size="small"
                     className="min-w-60"
                 />
             )}
@@ -178,6 +218,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     { value: 'contains', label: 'contains' },
                     { value: 'in', label: 'is one of' },
                 ]}
+                size="small"
                 className="min-w-32"
             />
 
@@ -188,6 +229,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     onChange={handleValueChange}
                     allowCustomValues
                     placeholder="Enter values"
+                    size="small"
                     className="min-w-60"
                 />
             ) : (
@@ -195,6 +237,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     value={localValue as string}
                     onChange={handleValueChange}
                     placeholder="Enter value"
+                    size="small"
                     className="min-w-60"
                 />
             )}
@@ -221,49 +264,86 @@ export const DetailFilters = (): JSX.Element => {
 
         const selectedFields = new Set(activeFilters.filter((f) => !f.isCustom).map((f) => f.fieldPath))
 
-        const sections = new Map<string, { fields: Map<string, string>; scope: string }>()
-        const generalFields = new Set<string>()
+        // Group by field name instead of scope
+        const fieldGroups = new Map<string, { scopes: string[]; fullPaths: string[] }>()
 
         Object.entries(availableFilters.detail_fields).forEach(([scope, scopeData]) => {
-            const cleanScope = scope.replace(/([A-Z])/g, ' $1').trim() || 'General'
-
-            if (!sections.has(cleanScope)) {
-                sections.set(cleanScope, { fields: new Map(), scope })
-            }
-
             scopeData.fields.forEach((field) => {
                 const fieldValue = `${scope}::${field.name}`
+
                 if (!selectedFields.has(fieldValue)) {
-                    sections.get(cleanScope)!.fields.set(field.name, fieldValue)
-                }
+                    if (!fieldGroups.has(field.name)) {
+                        fieldGroups.set(field.name, { scopes: [], fullPaths: [] })
+                    }
 
-                if (cleanScope === 'General') {
-                    generalFields.add(field.name)
+                    const group = fieldGroups.get(field.name)!
+                    if (!group.scopes.includes(scope)) {
+                        group.scopes.push(scope)
+                        group.fullPaths.push(fieldValue)
+                    }
                 }
             })
         })
 
-        const fieldSections = Array.from(sections.entries())
-            .sort(([a], [b]) => (a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)))
-            .map(([title, { fields }]) => {
-                const fieldOptions = Array.from(fields.entries())
-                    .filter(([fieldName]) => title === 'General' || !generalFields.has(fieldName))
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([fieldName, fieldValue]) => ({
-                        value: fieldValue,
-                        label: fieldName,
-                    }))
+        // Convert to options with composite display
+        const fieldOptions = Array.from(fieldGroups.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([fieldName, group]) => {
+                // Get the last part of the field path after splitting by "."
+                const displayName = fieldName.split('.').pop() || fieldName
 
-                return { title, options: fieldOptions }
+                // Create tooltip with full path and scopes
+                const scopeNames = group.scopes.map((scope) => scope.replace(/([A-Z])/g, ' $1').trim()).join(', ')
+                const displayPath = fieldName.length > 50 ? midEllipsis(fieldName, 50) : fieldName
+
+                // For single scope, use direct field path; for multiple, use first one as primary
+                const primaryValue = group.fullPaths[0]
+
+                return {
+                    value: primaryValue,
+                    label: (
+                        <div className="flex flex-col">
+                            <div>{displayName}</div>
+                            <div className="text-xs text-muted">{displayPath}</div>
+                        </div>
+                    ),
+                    tooltip: (
+                        <div className="text-xs">
+                            <div>
+                                <strong>Full path:</strong>
+                                <br />
+                                {fieldName}
+                            </div>
+                            <br />
+                            <div>
+                                <strong>Available in:</strong>
+                                <br />
+                                {scopeNames}
+                            </div>
+                        </div>
+                    ),
+                }
             })
-            .filter((section) => section.options.length > 0)
 
-        fieldSections.push({
+        const sections = [
+            {
+                title: 'Available Fields',
+                options: fieldOptions,
+            },
+        ]
+
+        sections.push({
             title: 'Custom',
-            options: [{ value: '__add_custom__', label: 'Custom field path...' }],
+            options: [
+                {
+                    value: '__add_custom__',
+                    label: <span>Custom field path...</span>,
+                    tooltip: <div>Enter a custom field path manually</div>,
+                },
+            ],
         })
 
-        return fieldSections
+        return sections
     }, [availableFilters, activeFilters])
 
     if (!availableFilters?.detail_fields || Object.keys(availableFilters.detail_fields).length === 0) {
@@ -271,8 +351,13 @@ export const DetailFilters = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            <label className="block text-sm font-medium">Detail Filters</label>
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
+                <label className="block text-sm font-medium">Detail filters</label>
+                <Tooltip title="Filter by specific fields within the activity log details field. For example, filter by changes to specific dashboard properties, feature flag variations, or other detailed attributes logged with each activity.">
+                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                </Tooltip>
+            </div>
 
             <div className="flex flex-col gap-2">
                 {activeFilters.map((filter) => (
@@ -290,9 +375,10 @@ export const DetailFilters = (): JSX.Element => {
                     }
                 }}
                 options={fieldOptions}
-                placeholder="Add detail filter"
+                placeholder="Add filter"
                 searchPlaceholder="Search fields..."
                 icon={<IconPlus />}
+                size="small"
                 className="w-[200px]"
             />
         </div>

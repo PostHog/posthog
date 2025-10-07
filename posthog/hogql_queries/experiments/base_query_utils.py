@@ -363,13 +363,12 @@ def get_experiment_exposure_query(
         variant
         first_exposure_time
     """
-    event, feature_flag_variant_property = get_exposure_event_and_property(
+    _, feature_flag_variant_property = get_exposure_event_and_property(
         feature_flag_key=feature_flag.key, exposure_criteria=experiment.exposure_criteria
     )
 
     # Build common exposure conditions
     exposure_conditions = build_common_exposure_conditions(
-        event=event,
         feature_flag_variant_property=feature_flag_variant_property,
         variants=variants,
         date_range_query=date_range_query,
@@ -389,6 +388,20 @@ def get_experiment_exposure_query(
             expr=ast.Call(
                 name="min",
                 args=[ast.Field(chain=["timestamp"])],
+            ),
+        ),
+        ast.Alias(
+            alias="exposure_event_uuid",
+            expr=ast.Call(
+                name="argMin",
+                args=[ast.Field(chain=["uuid"]), ast.Field(chain=["timestamp"])],
+            ),
+        ),
+        ast.Alias(
+            alias="exposure_session_id",
+            expr=ast.Call(
+                name="argMin",
+                args=[ast.Field(chain=["$session_id"]), ast.Field(chain=["timestamp"])],
             ),
         ),
     ]
@@ -557,6 +570,8 @@ def _get_metric_events_for_funnel_metric(
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
             ast.Field(chain=["events", "event"]),
             ast.Field(chain=["events", "uuid"]),
+            ast.Field(chain=["events", "properties"]),
+            ast.Alias(alias="session_id", expr=ast.Field(chain=["events", "properties", "$session_id"])),
             *step_selects,
         ],
         select_from=ast.JoinExpr(
@@ -661,10 +676,16 @@ def get_winsorized_metric_values_query(
         lower_bound_expr = parse_expr("min(value)")
 
     if metric.upper_bound_percentile is not None:
-        upper_bound_expr = parse_expr(
-            "quantile({level})(value)",
-            placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
-        )
+        if getattr(metric, "ignore_zeros", False):
+            upper_bound_expr = parse_expr(
+                "quantile({level})(if(value != 0, value, null))",
+                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
+            )
+        else:
+            upper_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
+            )
     else:
         upper_bound_expr = parse_expr("max(value)")
 
@@ -708,7 +729,7 @@ def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNo
 def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str) -> ast.Expr:
     """
     Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
-    Evaluates to 1 if the user completed the funnel, 0 if they didn't.
+    Returns the highest step number (0-indexed) that the user reached.
 
     When events_alias is provided, assumes that step conditions have been pre-calculated
     as step_0, step_1, etc. fields in the aliased table.
@@ -736,29 +757,39 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
     # Determine funnel order type - default to "ordered" for backward compatibility
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
 
+    # Return tuple of (highest step reached, uuid of that step's event)
+    # aggregate_funnel_array returns an array of tuples where:
+    # result.1 is the step_reached (0-indexed)
+    # result.4 is an array of arrays of UUIDs for each step
     expression = f"""
-    if(
-        length(
-            arrayFilter(result -> result.1 >= {num_steps - 1},
-                aggregate_funnel_array(
-                    {num_steps},
-                    {conversion_window_seconds},
-                    'first_touch',
-                    '{funnel_order_type}',
-                    array(array('')),
-                    [],
-                    arraySort(t -> t.1, groupArray(tuple(
-                        toFloat({timestamp_field}),
-                        {uuid_field},
-                        array(''),
-                        arrayFilter(x -> x != 0, [{step_conditions_str}])
-                    )))
+    arraySort(x -> -x.1,
+        arrayMap(
+            result -> tuple(
+                result.1,
+                if(result.1 >= 0 AND length(result.4) > result.1,
+                    if(length(arrayElement(result.4, result.1 + 1)) > 0,
+                        toString(arrayElement(result.4, result.1 + 1)[1]),
+                        ''
+                    ),
+                    ''
                 )
+            ),
+            aggregate_funnel_array(
+                {num_steps},
+                {conversion_window_seconds},
+                'first_touch',
+                '{funnel_order_type}',
+                array(array('')),
+                [],
+                arraySort(t -> t.1, groupArray(tuple(
+                    toFloat({timestamp_field}),
+                    {uuid_field},
+                    array(''),
+                    arrayFilter(x -> x != 0, [{step_conditions_str}])
+                )))
             )
-        ) > 0,
-        1,
-        0
-    )
+        )
+    )[1]
     """
 
     return parse_expr(expression)

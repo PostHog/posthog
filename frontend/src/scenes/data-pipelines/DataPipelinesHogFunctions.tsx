@@ -12,6 +12,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { HogFunctionTypeType, ProductKey } from '~/types'
 
+import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 export type DataPipelinesHogFunctionsProps = {
@@ -52,6 +53,8 @@ export function DataPipelinesHogFunctions({
         useValues(nonHogFunctionsLogic)
     const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
         useActions(nonHogFunctionsLogic)
+
+    const { hogFunctionTemplatesBatchExports } = useValues(nonHogFunctionTemplatesLogic)
 
     useEffect(() => {
         if (kind === 'destination') {
@@ -95,7 +98,12 @@ export function DataPipelinesHogFunctions({
             </SceneSection>
             <SceneDivider />
             <SceneSection title={`Create a new ${humanizedKind}`}>
-                <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} hideComingSoonByDefault />
+                <HogFunctionTemplateList
+                    type={kind}
+                    additionalTypes={additionalKinds}
+                    manualTemplates={kind === 'destination' ? hogFunctionTemplatesBatchExports : undefined}
+                    hideComingSoonByDefault
+                />
             </SceneSection>
         </SceneContent>
     )

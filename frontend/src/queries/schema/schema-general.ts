@@ -1550,6 +1550,10 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
+export interface NamedQueryLastExecutionTimesRequest {
+    names: string[]
+}
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
@@ -2403,7 +2407,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
-    | 'embedded_analytics'
+    | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2439,6 +2443,7 @@ export type FileSystemIconType =
     | 'insight/stickiness'
     | 'insight/hog'
     | 'team_activity'
+    | 'home'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2543,9 +2548,11 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
+
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
-    exposure_config?: ExperimentEventExposureConfig
+    exposure_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -2574,6 +2581,7 @@ export interface ExperimentMetricBaseProperties extends Node {
 export type ExperimentMetricOutlierHandling = {
     lower_bound_percentile?: number
     upper_bound_percentile?: number
+    ignore_zeros?: boolean
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
@@ -2676,6 +2684,12 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface SessionData {
+    person_id: string
+    session_id: string
+    event_uuid: string
+}
+
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
@@ -2684,6 +2698,8 @@ export interface ExperimentStatsBase {
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
+    step_counts?: integer[]
+    step_sessions?: SessionData[][]
 }
 
 export enum ExperimentStatsValidationFailure {
@@ -3365,6 +3381,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Person who performed the event */
+    personId?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4007,4 +4025,31 @@ export type ExternalDataSourceType = (typeof externalDataSources)[number]
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+// PostHog Playwright Setup Types for Playwright Testing
+export interface TestSetupRequest {
+    data?: Record<string, any>
+}
+
+export interface TestSetupResponse {
+    success: boolean
+    test_name: string
+    result?: any
+    error?: string
+    available_tests?: string[]
+}
+
+export interface PlaywrightWorkspaceSetupData {
+    organization_name?: string
+}
+
+export interface PlaywrightWorkspaceSetupResult {
+    organization_id: string
+    team_id: string
+    organization_name: string
+    team_name: string
+    user_id: string
+    user_email: string
+    personal_api_key: string
 }
