@@ -42,6 +42,13 @@ def get_task_details(task_id: str) -> TaskDetails:
             {"task_id": task_id},
         )
 
+    repository_full_name = task.primary_repository.get("full_name")
+    if not repository_full_name:
+        raise TaskInvalidStateError(
+            f"Task {task_id} primary repository missing full_name",
+            {"task_id": task_id},
+        )
+
     if not task.created_by:
         raise TaskInvalidStateError(
             f"Task {task_id} has no created_by user",
@@ -56,7 +63,7 @@ def get_task_details(task_id: str) -> TaskDetails:
         "Task details retrieved successfully",
         task_id=task_id,
         team_id=task.team_id,
-        repository=task.primary_repository.get("full_name"),
+        repository=repository_full_name,
         distinct_id=distinct_id,
     )
 
@@ -64,6 +71,6 @@ def get_task_details(task_id: str) -> TaskDetails:
         task_id=str(task.id),
         team_id=task.team_id,
         github_integration_id=task.github_integration_id,
-        repository=task.primary_repository.get("full_name"),
+        repository=repository_full_name,
         distinct_id=distinct_id,
     )

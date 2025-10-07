@@ -39,8 +39,7 @@ async def inject_github_token(input: InjectGitHubTokenInput) -> None:
 
         escaped_github_token = shlex.quote(github_token)
         result = await sandbox.execute(
-            f"echo 'export GITHUB_TOKEN={escaped_github_token}' >> ~/.bash_profile && echo 'export GITHUB_TOKEN=\"{escaped_github_token}\"' >> ~/.bashrc",
-            shell=True,
+            f"echo 'export GITHUB_TOKEN={escaped_github_token}' >> ~/.bash_profile && echo 'export GITHUB_TOKEN=\"{escaped_github_token}\"' >> ~/.bashrc"
         )
 
         if result.exit_code != 0:

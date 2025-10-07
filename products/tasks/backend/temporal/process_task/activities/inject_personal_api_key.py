@@ -95,8 +95,7 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
         escaped_value = shlex.quote(value)
 
         result = await sandbox.execute(
-            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc",
-            shell=True,
+            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc"
         )
 
         if result.exit_code != 0:
