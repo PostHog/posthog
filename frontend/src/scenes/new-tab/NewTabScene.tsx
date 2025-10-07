@@ -272,7 +272,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                     row={index}
                                                     column={columnIndex}
                                                 >
-                                                    <ButtonGroupPrimitive className="group w-full">
+                                                    <ButtonGroupPrimitive className="group w-full border-none">
                                                         <ContextMenu>
                                                             <ContextMenuTrigger asChild>
                                                                 <Link
