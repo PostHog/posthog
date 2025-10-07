@@ -70,6 +70,7 @@ import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -94,39 +95,42 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
-        <div
-            className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
-                className
-            )}
-        >
-            {conversationLoading ? (
-                <>
-                    <MessageGroupSkeleton groupType="human" />
-                    <MessageGroupSkeleton groupType="ai" className="opacity-80" />
-                    <MessageGroupSkeleton groupType="human" className="opacity-65" />
-                    <MessageGroupSkeleton groupType="ai" className="opacity-40" />
-                    <MessageGroupSkeleton groupType="human" className="opacity-20" />
-                    <MessageGroupSkeleton groupType="ai" className="opacity-10" />
-                    <MessageGroupSkeleton groupType="human" className="opacity-5" />
-                </>
-            ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((group: ThreadMessage[], index: number) => (
-                    <MessageGroup
-                        // Reset the components when the thread changes
-                        key={`${conversationId}-${index}`}
-                        messages={group}
-                        isFinal={index === threadGrouped.length - 1}
-                    />
-                ))
-            ) : (
-                conversationId && (
-                    <div className="flex flex-1 items-center justify-center">
-                        <NotFound object="conversation" className="m-0" />
-                    </div>
-                )
-            )}
-        </div>
+        <>
+            <div
+                className={twMerge(
+                    '@container/thread flex flex-col items-stretch w-full max-w-200 mx-auto self-center gap-1.5 grow',
+                    className
+                )}
+            >
+                {conversationLoading ? (
+                    <>
+                        <MessageGroupSkeleton groupType="human" />
+                        <MessageGroupSkeleton groupType="ai" className="opacity-80" />
+                        <MessageGroupSkeleton groupType="human" className="opacity-65" />
+                        <MessageGroupSkeleton groupType="ai" className="opacity-40" />
+                        <MessageGroupSkeleton groupType="human" className="opacity-20" />
+                        <MessageGroupSkeleton groupType="ai" className="opacity-10" />
+                        <MessageGroupSkeleton groupType="human" className="opacity-5" />
+                    </>
+                ) : threadGrouped.length > 0 ? (
+                    threadGrouped.map((group: ThreadMessage[], index: number) => (
+                        <MessageGroup
+                            // Reset the components when the thread changes
+                            key={`${conversationId}-${index}`}
+                            messages={group}
+                            isFinal={index === threadGrouped.length - 1}
+                        />
+                    ))
+                ) : (
+                    conversationId && (
+                        <div className="flex flex-1 items-center justify-center">
+                            <NotFound object="conversation" className="m-0" />
+                        </div>
+                    )
+                )}
+            </div>
+            {threadGrouped.length > 0 && <SidebarQuestionInput isSticky />}
+        </>
     )
 }
 

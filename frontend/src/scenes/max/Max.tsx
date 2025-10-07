@@ -20,7 +20,6 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { Thread } from './Thread'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
-import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -177,7 +176,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         /** Must be the last child and be a direct descendant of the scrollable element */
                         <ThreadAutoScroller>
                             <Thread className="p-3" />
-                            <SidebarQuestionInput isSticky />
                         </ThreadAutoScroller>
                     )}
                 </>
