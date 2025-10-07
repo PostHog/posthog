@@ -745,7 +745,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -802,24 +802,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_funnel_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeChatAnthropic(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
-                        }
-                    ],
-                )
-            ]
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                    }
+                ],
+            )
         )
-        res2 = FakeChatAnthropic(
-            responses=[messages.AIMessage(content="The results indicate a great future for you.")],
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -898,7 +896,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -975,7 +973,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -1323,9 +1321,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        root_model_mock.return_value = FakeChatOpenAI(
+        root_model_mock.return_value = FakeChatAnthropic(
             responses=[
-                messages.AIMessage(content="", tool_calls=[{"name": "search_documentation", "id": "1", "args": {}}])
+                messages.AIMessage(
+                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
+                )
             ]
         )
         inkeep_docs_model_mock.return_value = FakeChatOpenAI(
@@ -1337,7 +1337,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output,
             [
                 ("message", HumanMessage(content="How do I use feature flags?")),
-                ("message", ReasoningMessage(content="Checking PostHog docs")),
+                ("message", ReasoningMessage(content="Searching for information")),
                 ("message", AssistantMessage(content="Here's what I found in the docs...")),
             ],
         )
@@ -1686,7 +1686,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantToolCallMessage(
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
-                    ui_payload={"create_and_query_insight": query.model_dump()},
+                    ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                     visible=False,
                 ),
             ),
@@ -1715,7 +1715,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantToolCallMessage(
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
-                ui_payload={"create_and_query_insight": query.model_dump()},
+                ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                 visible=False,
             ),
             AssistantMessage(content="Everything is fine"),
