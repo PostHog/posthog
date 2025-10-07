@@ -53,5 +53,6 @@ AppStateItem.args = {
             payload: { user: { id: 1, name: 'John Doe' } },
             nextState: { user: { id: 1, name: 'John Doe' } },
         },
+        key: 'id',
     },
 }
