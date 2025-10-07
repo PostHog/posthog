@@ -7,6 +7,10 @@ from rest_framework import status
 
 from posthog.api.instance_settings import get_instance_setting as get_instance_setting_helper
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 class TestInstanceSettings(APIBaseTest):

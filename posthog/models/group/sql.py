@@ -1,5 +1,8 @@
 from django.conf import settings
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine

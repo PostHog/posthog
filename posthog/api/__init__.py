@@ -9,6 +9,10 @@ from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.warehouse.api import (
     data_modeling_job,
     data_warehouse,

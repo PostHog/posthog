@@ -8,6 +8,10 @@ import structlog
 
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 logger = structlog.get_logger(__name__)
 

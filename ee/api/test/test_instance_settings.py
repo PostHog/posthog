@@ -8,6 +8,10 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.performance.sql import PERFORMANCE_EVENT_DATA_TABLE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from ee.api.test.base import APILicensedTest
 

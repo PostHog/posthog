@@ -7,6 +7,10 @@ from django.db.models.functions import Coalesce
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 class PropertyType(models.TextChoices):

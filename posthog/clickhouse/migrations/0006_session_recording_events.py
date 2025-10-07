@@ -8,6 +8,10 @@ from posthog.session_recordings.sql.session_recording_event_sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
     WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = (
     lambda: """

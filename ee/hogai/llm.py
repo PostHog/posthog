@@ -10,6 +10,10 @@ from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 if TYPE_CHECKING:
     from posthog.models import Team, User
 

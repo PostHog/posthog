@@ -970,9 +970,9 @@ class BaseTestMigrations(QueryMatchingTest):
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)

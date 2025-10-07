@@ -187,6 +187,6 @@ class TestFileSystemSyncMixin(TestCase):
 
         note.save()
 
-        assert (
-            FileSystem.objects.filter(id=fs_entry_id).exists() is False
-        ), "Existing entries for internal notebooks should be deleted"
+        assert FileSystem.objects.filter(id=fs_entry_id).exists() is False, (
+            "Existing entries for internal notebooks should be deleted"
+        )

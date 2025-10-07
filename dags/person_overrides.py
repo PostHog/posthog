@@ -10,6 +10,10 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.clickhouse.cluster import (
     AlterTableMutationRunner,
     ClickhouseCluster,

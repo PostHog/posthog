@@ -11,6 +11,10 @@ from posthog.models.instance_setting import (
     set_instance_setting as set_instance_setting_raw,
 )
 from posthog.permissions import IsStaffUser
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.utils import str_to_bool
 
 

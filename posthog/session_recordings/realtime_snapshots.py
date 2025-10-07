@@ -7,6 +7,10 @@ from django.conf import settings
 import structlog
 from prometheus_client import Counter, Histogram
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 

@@ -5,6 +5,10 @@ from infi.clickhouse_orm import migrations
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 # KafkaEngine doesn't support DEFAULT/MATERIALIZED/EPHEMERAL expressions for columns, so we're
 # leaning on the default of 0 to be "full" (as desired)

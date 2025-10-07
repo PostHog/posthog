@@ -23,6 +23,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner

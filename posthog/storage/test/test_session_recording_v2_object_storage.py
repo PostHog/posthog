@@ -7,6 +7,10 @@ from django.test import override_settings
 import snappy
 from botocore.client import Config
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.storage.session_recording_v2_object_storage import (
     AsyncSessionRecordingV2ObjectStorage,
     BlockFetchError,

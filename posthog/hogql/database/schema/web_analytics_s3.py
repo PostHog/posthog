@@ -8,6 +8,11 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     web_preaggregated_base_fields,
 )
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+
+>>>>>>> Stashed changes
 
 def get_s3_function_args(s3_path: str) -> str:
     if settings.DEBUG:

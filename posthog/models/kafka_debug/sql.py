@@ -4,6 +4,10 @@ from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import MergeTreeEngine
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 @dataclass

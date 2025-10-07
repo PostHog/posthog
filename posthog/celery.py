@@ -87,7 +87,11 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     from django.conf import settings
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
+<<<<<<< Updated upstream
     logging_config.dictConfig(settings.logs.LOGGING)
+=======
+    logging_config.dictConfig(settings.LOGGING)
+>>>>>>> Stashed changes
 
 
 @receiver(signals.bind_extra_task_metadata)

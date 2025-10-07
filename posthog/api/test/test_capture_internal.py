@@ -11,6 +11,10 @@ from django.conf import settings
 from prance import ResolvingParser
 
 from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 parser = ResolvingParser(
     url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),

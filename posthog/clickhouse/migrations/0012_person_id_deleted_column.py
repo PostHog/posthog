@@ -2,6 +2,10 @@ from django.conf import settings
 
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.person.sql import KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_DISTINCT_ID_TABLE_MV_SQL
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE person_distinct_id_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"),

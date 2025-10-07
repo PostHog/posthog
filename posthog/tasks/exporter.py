@@ -12,6 +12,10 @@ from prometheus_client import Counter, Histogram
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)

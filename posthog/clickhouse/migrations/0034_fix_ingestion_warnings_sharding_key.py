@@ -6,6 +6,10 @@ from posthog.models.ingestion_warnings.sql import (
     INGESTION_WARNINGS_MV_TABLE_SQL,
     KAFKA_INGESTION_WARNINGS_TABLE_SQL,
 )
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS ingestion_warnings_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"),

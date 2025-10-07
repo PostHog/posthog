@@ -4,6 +4,10 @@ from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.performance.sql import UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 def update_performance_events_ttl(database):

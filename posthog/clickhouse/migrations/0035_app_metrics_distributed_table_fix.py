@@ -6,6 +6,10 @@ from posthog.models.app_metrics.sql import (
     DISTRIBUTED_APP_METRICS_TABLE_SQL,
     KAFKA_APP_METRICS_TABLE_SQL,
 )
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS app_metrics_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"),

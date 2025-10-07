@@ -24,6 +24,10 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Team
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS

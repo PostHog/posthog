@@ -37,6 +37,10 @@ from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 

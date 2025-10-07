@@ -4,6 +4,11 @@ import argparse
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+
+>>>>>>> Stashed changes
 from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
 from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 

@@ -1743,9 +1743,9 @@ class TestSurvey(APIBaseTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(survey_id), type="survey").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Survey."
-        assert (
-            "Special Folder/Surveys" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
+        assert "Special Folder/Surveys" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
+        )
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):

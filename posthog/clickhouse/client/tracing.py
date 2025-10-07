@@ -9,6 +9,10 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 logger = logging.getLogger(__name__)
 

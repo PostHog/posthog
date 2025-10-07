@@ -8,6 +8,10 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from dags.common import ClickhouseClusterResource, settings_with_log_comment
 

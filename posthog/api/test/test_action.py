@@ -465,6 +465,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Action."
-        assert (
-            "Special Folder/Actions" in fs_entry.path
-        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        assert "Special Folder/Actions" in fs_entry.path, (
+            f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        )

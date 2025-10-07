@@ -7,6 +7,10 @@ from django.conf import settings
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     lambda on_cluster=True: f"""

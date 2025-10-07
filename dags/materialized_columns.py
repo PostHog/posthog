@@ -11,6 +11,10 @@ import pydantic
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
 
 from dags.common import JobOwners

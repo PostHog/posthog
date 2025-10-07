@@ -18,6 +18,10 @@ from posthog.models.element.element import Element, chain_to_elements, elements_
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 ZERO_DATE = datetime(1970, 1, 1)
 

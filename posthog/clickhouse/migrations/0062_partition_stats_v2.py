@@ -13,6 +13,10 @@ from posthog.models.kafka_partition_stats.sql import (
     PartitionStatsV2MaterializedView as MaterializedView,
     PartitionStatsV2Table as Table,
 )
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 table = Table()
 

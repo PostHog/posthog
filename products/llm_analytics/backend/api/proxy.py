@@ -13,7 +13,6 @@ import logging
 from collections.abc import Callable, Generator
 from typing import Any, TypedDict, TypeGuard
 
-from django.conf import settings
 from django.http import StreamingHttpResponse
 
 import posthoganalytics
@@ -27,6 +26,7 @@ from rest_framework.response import Response
 from posthog.auth import SessionAuthentication
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from django.conf import settings
 
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider

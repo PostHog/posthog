@@ -14,6 +14,10 @@ from rest_framework.response import Response
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 class DebugCHQueries(viewsets.ViewSet):

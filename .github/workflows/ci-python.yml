@@ -98,7 +98,11 @@ jobs:
               if: needs.changes.outputs.python == 'true'
               shell: bash
               run: |
+<<<<<<< Updated upstream
                   python3 bin/check_settings_imports.py .
+=======
+                  python3 bin/check_settings_imports.py
+>>>>>>> Stashed changes
 
             - name: Check formatting
               if: needs.changes.outputs.python == 'true'

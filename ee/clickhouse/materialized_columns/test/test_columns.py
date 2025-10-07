@@ -19,6 +19,10 @@ from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,

@@ -5,6 +5,10 @@ from posthog.session_recordings.sql.session_recording_event_sql import (
     KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_MV_SQL,
 )
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE session_recording_events_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"),

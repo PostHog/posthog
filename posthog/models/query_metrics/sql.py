@@ -5,6 +5,10 @@ from django.conf import settings
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import MergeTreeEngine
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 METRICS_TIME_TO_SEE_ENGINE = lambda: MergeTreeEngine("metrics_time_to_see_data", force_unique_zk_path=True)
 CREATE_METRICS_TIME_TO_SEE = (

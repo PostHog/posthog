@@ -8,6 +8,10 @@ from prometheus_client import Counter
 from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 logger.setLevel("DEBUG")
 

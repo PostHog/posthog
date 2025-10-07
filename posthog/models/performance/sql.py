@@ -1,7 +1,10 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 
 from django.conf import settings
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme

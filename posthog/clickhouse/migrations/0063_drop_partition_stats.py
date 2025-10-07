@@ -6,6 +6,10 @@ from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_SESSION_RECORDING_EVENTS,
 )
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE = (
     lambda: f"DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"

@@ -8,6 +8,10 @@ from django.dispatch import receiver
 
 from posthog.models.utils import UUIDTModel
 from posthog.redis import get_client
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 

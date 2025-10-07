@@ -10,6 +10,10 @@ from requests import Response, Session
 from requests.adapters import HTTPAdapter, Retry
 
 from posthog.logging.timing import timed
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 logger = structlog.get_logger(__name__)
 

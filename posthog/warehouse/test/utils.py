@@ -8,6 +8,10 @@ import s3fs
 import pandas as pd
 
 from posthog.models.team import Team
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_source import ExternalDataSource

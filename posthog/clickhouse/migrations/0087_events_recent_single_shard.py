@@ -2,6 +2,10 @@ from django.conf import settings
 
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_RECENT_TABLE_SQL
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 operations = [
     run_sql_with_exceptions(

@@ -8,6 +8,10 @@ from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)
 

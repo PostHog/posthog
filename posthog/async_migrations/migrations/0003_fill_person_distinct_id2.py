@@ -5,6 +5,10 @@ from django.conf import settings
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 """
 Migration summary:

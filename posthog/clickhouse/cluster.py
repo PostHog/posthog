@@ -17,6 +17,10 @@ import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 
 logger = dagster.get_dagster_logger("clickhouse")

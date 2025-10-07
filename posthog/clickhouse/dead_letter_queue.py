@@ -4,6 +4,10 @@ from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 # We pipe our Kafka dead letter queue into CH for easier analysis and longer retention
 # This allows us to explore errors and replay events with ease

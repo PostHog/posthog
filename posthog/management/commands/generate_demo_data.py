@@ -18,6 +18,10 @@ from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task

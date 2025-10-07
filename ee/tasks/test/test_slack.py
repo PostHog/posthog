@@ -3,7 +3,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight

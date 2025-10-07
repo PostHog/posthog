@@ -20,6 +20,10 @@ from posthog.models import (
     ErrorTrackingSymbolSet,
 )
 from posthog.models.utils import uuid7
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from ee.models.rbac.role import Role
 

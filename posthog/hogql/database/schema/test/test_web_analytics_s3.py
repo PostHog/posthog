@@ -6,6 +6,11 @@ from django.test import override_settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args, get_s3_url
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+
+>>>>>>> Stashed changes
 
 class TestWebAnalyticsS3(BaseTest):
     @patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False)

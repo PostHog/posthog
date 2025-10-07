@@ -309,9 +309,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: TOTAL should count all 5 events (3+2), not unique users
         assert campaign_name == "growth_hack"
         assert source_name == "twitter"
-        assert (
-            total_count == 5
-        ), f"Expected total count of 5 events (3+2), got {total_count}. TOTAL should count all events, not unique users."
+        assert total_count == 5, (
+            f"Expected total count of 5 events (3+2), got {total_count}. TOTAL should count all events, not unique users."
+        )
 
     def test_math_type_dau_counts_unique_users_correctly(self):
         """Test DAU math type correctly counts unique users - business logic validation"""
@@ -397,9 +397,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: DAU should count 3 unique users, not 6 total events
         assert campaign_name == "test_campaign"
         assert source_name == "google"
-        assert (
-            dau_count == 3
-        ), f"Expected 3 unique users (DAU), got {dau_count}. Total events were 6, but DAU should count unique users."
+        assert dau_count == 3, (
+            f"Expected 3 unique users (DAU), got {dau_count}. Total events were 6, but DAU should count unique users."
+        )
 
     def test_math_type_sum_correctly_adds_revenue_values(self):
         """Test SUM math type correctly adds revenue property values - business logic validation"""
@@ -484,9 +484,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: SUM should add all revenue values (100 + 0 + missing=0 + 250 + 50 = 400)
         assert campaign_name == "summer_sale"
         assert source_name == "facebook"
-        assert (
-            total_revenue == 400
-        ), f"Expected total revenue of 400 (100+0+missing=0+250+50), got {total_revenue}. Missing revenue should be treated as 0."
+        assert total_revenue == 400, (
+            f"Expected total revenue of 400 (100+0+missing=0+250+50), got {total_revenue}. Missing revenue should be treated as 0."
+        )
 
     def test_math_type_sum_handles_missing_and_zero_values_correctly(self):
         """Test SUM math type correctly handles missing properties and zero values - business logic validation"""
@@ -562,9 +562,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: SUM should handle missing values as 0 (100 + 0 + 0 + 0 = 100)
         assert campaign_name == "edge_case_test"
         assert source_name == "test"
-        assert (
-            total_revenue == 100
-        ), f"Expected total revenue of 100 (100+0+missing=0+missing=0), got {total_revenue}. Missing revenue properties should be treated as 0."
+        assert total_revenue == 100, (
+            f"Expected total revenue of 100 (100+0+missing=0+missing=0), got {total_revenue}. Missing revenue properties should be treated as 0."
+        )
 
     def test_math_type_average_fallback_behavior(self):
         """Test AVERAGE math type fallback behavior - counts events since AVG not implemented - business logic validation"""
@@ -634,9 +634,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: AVG fallback should count 3 events, NOT average revenue (200)
         assert campaign_name == "avg_fallback_test"
         assert source_name == "test"
-        assert (
-            result_value == 3
-        ), f"Expected count of 3 events (AVG fallback), got {result_value}. AVG is not implemented so it falls back to counting events, not averaging revenue values."
+        assert result_value == 3, (
+            f"Expected count of 3 events (AVG fallback), got {result_value}. AVG is not implemented so it falls back to counting events, not averaging revenue values."
+        )
 
     # ================================================================
     # 4. PROPERTY FILTER TESTS - Event properties, filters
@@ -726,9 +726,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: Should only count 2 events (revenue >= 100), not all 4
         assert campaign_name == "filter_test"
         assert source_name == "test"
-        assert (
-            filtered_count == 2
-        ), f"Expected 2 events with revenue >= 100 (100, 150), got {filtered_count}. Filter should exclude events with revenue < 100 (50, 75)."
+        assert filtered_count == 2, (
+            f"Expected 2 events with revenue >= 100 (100, 150), got {filtered_count}. Filter should exclude events with revenue < 100 (50, 75)."
+        )
 
     def test_property_filters_multiple_filters(self):
         """Test ConversionGoalProcessor query correctly filters events with multiple property conditions"""
@@ -805,9 +805,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert campaign_name == "multi_filter_test"
         assert source_name == "google"
-        assert (
-            conversion_count == 1
-        ), f"Expected conversion count of 1, got {conversion_count}. Only event 1 should match both revenue > 100 AND utm_source = 'google'."
+        assert conversion_count == 1, (
+            f"Expected conversion count of 1, got {conversion_count}. Only event 1 should match both revenue > 100 AND utm_source = 'google'."
+        )
 
     def test_property_filters_complex_operators(self):
         """Test complex property filter operators LT and ICONTAINS work correctly together"""
@@ -884,9 +884,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response = execute_hogql_query(query=cte_query, team=self.team)
 
         # Should find exactly 1 result: only user1 matches both revenue < 500 AND campaign ICONTAINS "sale"
-        assert (
-            len(response.results) == 1
-        ), f"Expected 1 event matching both complex filters, got {len(response.results)}"
+        assert len(response.results) == 1, (
+            f"Expected 1 event matching both complex filters, got {len(response.results)}"
+        )
 
         # Result format: [campaign_name, source_name, conversion_count]
         campaign_name, source_name, conversion_count = (
@@ -897,9 +897,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert campaign_name == "summer_SALE_promo"
         assert source_name == "test"
-        assert (
-            conversion_count == 1
-        ), f"Expected conversion count of 1, got {conversion_count}. Only user1 should match both revenue < 500 AND campaign contains 'sale' (case-insensitive)."
+        assert conversion_count == 1, (
+            f"Expected conversion count of 1, got {conversion_count}. Only user1 should match both revenue < 500 AND campaign contains 'sale' (case-insensitive)."
+        )
 
     # ================================================================
     # 5. SCHEMA MAPPING TESTS - UTM expressions, field mappings
@@ -1056,9 +1056,15 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             f"Should use custom field 'my_campaign_field', got {campaign_name}. "
             f"If this fails, schema_map logic is broken!"
         )
+<<<<<<< Updated upstream
         assert (
             source_name == "custom_source_test"
         ), f"Should use custom field 'my_source_field', got {source_name}. If this fails, schema_map logic is broken!"
+=======
+        assert source_name == "custom_source_test", (
+            f"Should use custom field 'my_source_field', got {source_name}. If this fails, schema_map logic is broken!"
+        )
+>>>>>>> Stashed changes
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         # Verify it did NOT use the default field values
@@ -1209,9 +1215,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # If it succeeds, check results - result format: [campaign_name, source_name, conversion_count]
         total_conversions = sum(row[2] for row in response.results)
-        assert (
-            total_conversions == 3
-        ), f"Expected 3 total conversions (all events) with empty event name, got {total_conversions}"
+        assert total_conversions == 3, (
+            f"Expected 3 total conversions (all events) with empty event name, got {total_conversions}"
+        )
 
     # ================================================================
     # 8. EDGE CASE TESTS - Complex scenarios
@@ -1268,9 +1274,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert campaign_name == "long_name_test"
         assert source_name == "organic", f"Expected organic source, got {source_name}"
-        assert (
-            conversion_count == 1
-        ), f"Expected conversion count of 1 with very long goal name, got {conversion_count}. Long names should not affect query results."
+        assert conversion_count == 1, (
+            f"Expected conversion count of 1 with very long goal name, got {conversion_count}. Long names should not affect query results."
+        )
 
     def test_edge_case_special_characters_in_event_names(self):
         """Test that events with special characters in names are correctly matched"""
@@ -1321,9 +1327,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response = execute_hogql_query(query=cte_query, team=self.team)
 
         # Should find exactly 1 event - only the one with special characters in name
-        assert (
-            len(response.results) == 1
-        ), f"Expected 1 event with special characters in name, got {len(response.results)}"
+        assert len(response.results) == 1, (
+            f"Expected 1 event with special characters in name, got {len(response.results)}"
+        )
 
         # Result format: [campaign_name, source_name, conversion_count]
         campaign_name, source_name, conversion_count = (
@@ -1334,9 +1340,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert campaign_name == "special_test"
         assert source_name == "organic", f"Expected organic source, got {source_name}"
-        assert (
-            conversion_count == 1
-        ), f"Expected conversion count of 1 for special character event, got {conversion_count}. Special characters in event names should be handled correctly."
+        assert conversion_count == 1, (
+            f"Expected conversion count of 1 for special character event, got {conversion_count}. Special characters in event names should be handled correctly."
+        )
 
     def test_edge_case_unicode_in_properties(self):
         """Test that Unicode property names work correctly in queries and attribution"""
@@ -1389,15 +1395,15 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response = execute_hogql_query(query=cte_query, team=self.team)
 
         # Should find both events - Unicode property names should work without affecting results
-        assert (
-            len(response.results) == 2
-        ), f"Expected 2 events with Unicode property mapping, got {len(response.results)}"
+        assert len(response.results) == 2, (
+            f"Expected 2 events with Unicode property mapping, got {len(response.results)}"
+        )
 
         # Check that both events are counted correctly - result format: [campaign_name, source_name, conversion_count]
         total_conversions = sum(row[2] for row in response.results)  # row[2] is conversion_count
-        assert (
-            total_conversions == 2
-        ), f"Expected total of 2 conversions with Unicode properties, got {total_conversions}. Unicode property names should not affect conversion counting."
+        assert total_conversions == 2, (
+            f"Expected total of 2 conversions with Unicode properties, got {total_conversions}. Unicode property names should not affect conversion counting."
+        )
 
     def test_edge_case_temporal_attribution_complex_timeline(self):
         """Test that ConversionGoalProcessor correctly handles conversions with complex temporal scenarios"""
@@ -1463,9 +1469,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             response.results[0][2],
         )
 
-        assert (
-            conversion_count == 1
-        ), f"Expected 1 conversion despite complex timeline, got {conversion_count}. ConversionGoalProcessor should handle complex temporal scenarios correctly."
+        assert conversion_count == 1, (
+            f"Expected 1 conversion despite complex timeline, got {conversion_count}. ConversionGoalProcessor should handle complex temporal scenarios correctly."
+        )
         assert campaign_name == "pre_range", f"Expected pre_range campaign, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
 
@@ -1703,9 +1709,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Index 0: campaign_name, Index 1: source_name, Index 2: conversion_count
         assert first_result[0] == expected_campaign, f"Expected campaign '{expected_campaign}', got '{first_result[0]}'"
         assert first_result[1] == expected_source, f"Expected source '{expected_source}', got '{first_result[1]}'"
-        assert (
-            first_result[2] == expected_conversion_count
-        ), f"Expected {expected_conversion_count} conversion, got {first_result[2]}"
+        assert first_result[2] == expected_conversion_count, (
+            f"Expected {expected_conversion_count} conversion, got {first_result[2]}"
+        )
 
     def test_temporal_attribution_backward_order_validation_example(self):
         """
@@ -1833,12 +1839,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
 
-        assert (
-            campaign_name == "spring_promo"
-        ), f"Last-touch attribution should choose Facebook campaign over Email, got {campaign_name}"
-        assert (
-            source_name == "facebook"
-        ), f"Last-touch attribution should choose Facebook source over Email, got {source_name}"
+        assert campaign_name == "spring_promo", (
+            f"Last-touch attribution should choose Facebook campaign over Email, got {campaign_name}"
+        )
+        assert source_name == "facebook", (
+            f"Last-touch attribution should choose Facebook source over Email, got {source_name}"
+        )
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     def test_direct_utm_attribution_priority_over_temporal(self):
@@ -1920,12 +1926,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # EXPECTED BEHAVIOR (when properly implemented):
         # Should be summer_sale/google (direct UTM) NOT flash_sale/facebook (temporal)
-        assert (
-            first_result[0] == "summer_sale"
-        ), f"Expected direct UTM 'summer_sale', got '{first_result[0]}'. Direct UTM on conversion event should override temporal attribution!"
-        assert (
-            first_result[1] == "google"
-        ), f"Expected direct UTM 'google', got '{first_result[1]}'. Should NOT use last touchpoint 'facebook'!"
+        assert first_result[0] == "summer_sale", (
+            f"Expected direct UTM 'summer_sale', got '{first_result[0]}'. Direct UTM on conversion event should override temporal attribution!"
+        )
+        assert first_result[1] == "google", (
+            f"Expected direct UTM 'google', got '{first_result[1]}'. Should NOT use last touchpoint 'facebook'!"
+        )
 
         # Attribution Rule Priority (for implementation):
         # 1. Direct UTM params on conversion event (HIGHEST PRIORITY)
@@ -2370,9 +2376,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response_april = execute_hogql_query(query=cte_query_april, team=self.team)
 
         # With proper temporal attribution, look for the spring_sale attribution result
-        assert (
-            response_april.results is not None and len(response_april.results) > 0
-        ), "Should have attribution results for April"
+        assert response_april.results is not None and len(response_april.results) > 0, (
+            "Should have attribution results for April"
+        )
 
         # Find the spring_sale attribution (April conversion should be attributed to spring_sale)
         spring_sale_result = None
@@ -2381,9 +2387,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 spring_sale_result = result
                 break
 
-        assert (
-            spring_sale_result is not None
-        ), f"Expected spring_sale attribution for April conversion, got results: {response_april.results}"
+        assert spring_sale_result is not None, (
+            f"Expected spring_sale attribution for April conversion, got results: {response_april.results}"
+        )
         campaign, source, count = spring_sale_result[0], spring_sale_result[1], spring_sale_result[2]
         assert campaign == "spring_sale", f"Expected spring_sale for April purchase, got {campaign}"
         assert source == "google", f"Expected google source for April, got {source}"
@@ -2404,9 +2410,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response_may = execute_hogql_query(query=cte_query_may, team=self.team)
 
         # Find the mothers_day attribution (May+ conversions should be attributed to mothers_day)
-        assert (
-            response_may.results is not None and len(response_may.results) > 0
-        ), "Should have attribution results for May"
+        assert response_may.results is not None and len(response_may.results) > 0, (
+            "Should have attribution results for May"
+        )
 
         mothers_day_result = None
         for result in response_may.results:
@@ -2414,9 +2420,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 mothers_day_result = result
                 break
 
-        assert (
-            mothers_day_result is not None
-        ), f"Expected mothers_day attribution for May conversion, got results: {response_may.results}"
+        assert mothers_day_result is not None, (
+            f"Expected mothers_day attribution for May conversion, got results: {response_may.results}"
+        )
         may_campaign, may_source, may_count = mothers_day_result[0], mothers_day_result[1], mothers_day_result[2]
         assert may_campaign == "mothers_day", f"Expected mothers_day for May purchase, got {may_campaign}"
         assert may_source == "facebook", f"Expected facebook source for May, got {may_source}"
@@ -2437,9 +2443,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response_june = execute_hogql_query(query=cte_query_june, team=self.team)
 
         # Find the mothers_day attribution (June conversion should also be attributed to mothers_day)
-        assert (
-            response_june.results is not None and len(response_june.results) > 0
-        ), "Should have attribution results for June"
+        assert response_june.results is not None and len(response_june.results) > 0, (
+            "Should have attribution results for June"
+        )
 
         june_mothers_day_result = None
         for result in response_june.results:
@@ -2447,9 +2453,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 june_mothers_day_result = result
                 break
 
-        assert (
-            june_mothers_day_result is not None
-        ), f"Expected mothers_day attribution for June conversion, got results: {response_june.results}"
+        assert june_mothers_day_result is not None, (
+            f"Expected mothers_day attribution for June conversion, got results: {response_june.results}"
+        )
         june_campaign, june_source, june_count = (
             june_mothers_day_result[0],
             june_mothers_day_result[1],
@@ -3351,12 +3357,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
 
         # These assertions validate the CORRECT temporal attribution behavior:
-        assert (
-            campaign_name == "early_bird_sale"
-        ), f"Temporal attribution should find historical campaign outside query range, got {campaign_name}"
-        assert (
-            source_name == "google"
-        ), f"Temporal attribution should find historical source outside query range, got {source_name}"
+        assert campaign_name == "early_bird_sale", (
+            f"Temporal attribution should find historical campaign outside query range, got {campaign_name}"
+        )
+        assert source_name == "google", (
+            f"Temporal attribution should find historical source outside query range, got {source_name}"
+        )
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     def test_attribution_window_30_day_limit(self):
@@ -4235,9 +4241,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         cte_query_first = processor_first.generate_cte_query(additional_conditions_first)
         response_first = execute_hogql_query(query=cte_query_first, team=self.team)
 
-        assert (
-            len(response_first.results) == 1
-        ), f"Expected 1 result for first purchase, got {len(response_first.results)}"
+        assert len(response_first.results) == 1, (
+            f"Expected 1 result for first purchase, got {len(response_first.results)}"
+        )
 
         # Validation: First purchase should attribute to Facebook retargeting
         # Expected: "retarget_feb"/facebook (ignores post-purchase upsell and partial UTM on conversion)
@@ -4263,9 +4269,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         response_full = execute_hogql_query(query=cte_query_full, team=self.team)
 
         # With proper temporal attribution, we should get separate attribution for each conversion
-        assert (
-            response_full.results is not None and len(response_full.results) > 0
-        ), "Should have attribution results for full timeline"
+        assert response_full.results is not None and len(response_full.results) > 0, (
+            "Should have attribution results for full timeline"
+        )
 
         # Look for both expected attributions: retarget_feb and upsell_campaign
         retarget_result = None
@@ -4278,22 +4284,22 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 upsell_result = result
 
         # First purchase should be attributed to retarget_feb (Feb 15 ad before Feb 17 purchase)
-        assert (
-            retarget_result is not None
-        ), f"Expected retarget_feb attribution for first purchase, got results: {response_full.results}"
+        assert retarget_result is not None, (
+            f"Expected retarget_feb attribution for first purchase, got results: {response_full.results}"
+        )
         retarget_campaign, retarget_source, retarget_count = retarget_result[0], retarget_result[1], retarget_result[2]
         assert retarget_campaign == "retarget_feb", f"Expected retarget_feb for first purchase, got {retarget_campaign}"
         assert retarget_source == "facebook", f"Expected facebook source, got {retarget_source}"
         assert retarget_count == 1, f"Expected 1 conversion attributed to retarget_feb, got {retarget_count}"
 
         # Second purchase should be attributed to upsell_campaign (Feb 22 ad before Mar 8 purchase)
-        assert (
-            upsell_result is not None
-        ), f"Expected upsell_campaign attribution for second purchase, got results: {response_full.results}"
+        assert upsell_result is not None, (
+            f"Expected upsell_campaign attribution for second purchase, got results: {response_full.results}"
+        )
         upsell_campaign, upsell_source, upsell_count = upsell_result[0], upsell_result[1], upsell_result[2]
-        assert (
-            upsell_campaign == "upsell_campaign"
-        ), f"Expected upsell_campaign for second purchase, got {upsell_campaign}"
+        assert upsell_campaign == "upsell_campaign", (
+            f"Expected upsell_campaign for second purchase, got {upsell_campaign}"
+        )
         assert upsell_source == "email", f"Expected email source for second purchase, got {upsell_source}"
         assert upsell_count == 1, f"Expected 1 conversion attributed to upsell_campaign, got {upsell_count}"
 
@@ -4724,23 +4730,23 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert len(results_dict) == 2, f"Expected 2 results, got {len(results_dict)}: {results_dict}"
 
         # User2: Within 30-day window - should be attributed to UTM
-        assert (
-            "social_campaign/facebook" in results_dict
-        ), f"Missing social_campaign/facebook attribution. Results: {results_dict}"
-        assert (
-            results_dict["social_campaign/facebook"] == 1
-        ), f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+        assert "social_campaign/facebook" in results_dict, (
+            f"Missing social_campaign/facebook attribution. Results: {results_dict}"
+        )
+        assert results_dict["social_campaign/facebook"] == 1, (
+            f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+        )
 
         # User1: Outside 30-day window - should be organic
         assert "organic/organic" in results_dict, f"Missing organic attribution. Results: {results_dict}"
-        assert (
-            results_dict["organic/organic"] == 1
-        ), f"Expected 1 conversion for organic, got {results_dict['organic/organic']}"
+        assert results_dict["organic/organic"] == 1, (
+            f"Expected 1 conversion for organic, got {results_dict['organic/organic']}"
+        )
 
         # Validate that email_campaign is NOT present (it's outside attribution window)
-        assert (
-            "email_campaign/newsletter" not in results_dict
-        ), f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
+        assert "email_campaign/newsletter" not in results_dict, (
+            f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
+        )
 
     # ================================================================
     # 16. ACTIONS WITH MULTIPLE EVENTS TESTS

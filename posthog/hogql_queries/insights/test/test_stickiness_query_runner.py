@@ -44,6 +44,10 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 

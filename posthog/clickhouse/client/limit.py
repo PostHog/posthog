@@ -12,7 +12,11 @@ from django.conf import settings
 from celery import current_task
 from prometheus_client import Counter
 
+<<<<<<< Updated upstream
 from posthog import redis
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.clickhouse.cluster import ExponentialBackoff
 from posthog.constants import AvailableFeature
 from posthog.utils import generate_short_id

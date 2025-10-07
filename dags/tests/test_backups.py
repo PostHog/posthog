@@ -14,6 +14,10 @@ import dagster
 from clickhouse_driver import Client
 from dagster_aws.s3 import S3Resource
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 

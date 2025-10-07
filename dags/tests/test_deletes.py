@@ -109,15 +109,15 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
 
     # Check that events after the deletion window remain
     target_uuid = UUID(int=hour_delay - 2)
-    assert any(
-        target_uuid == uuid for _, uuid in final_events.keys()
-    ), f"Expected to find UUID {target_uuid} in remaining events"
+    assert any(target_uuid == uuid for _, uuid in final_events.keys()), (
+        f"Expected to find UUID {target_uuid} in remaining events"
+    )
 
     # Check that early events were deleted
     deleted_uuid = UUID(int=hour_delay + 2)
-    assert not any(
-        deleted_uuid == uuid for _, uuid in final_events.keys()
-    ), f"Expected UUID {deleted_uuid} to be deleted"
+    assert not any(deleted_uuid == uuid for _, uuid in final_events.keys()), (
+        f"Expected UUID {deleted_uuid} to be deleted"
+    )
 
     # Verify that the deletions before oldest override timestamp have been marked verified
     pre_override_deletions = AsyncDeletion.objects.filter(created_at__lte=oldest_override_timestamp)
@@ -296,24 +296,24 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     # assert len(final_cohortpeople) == event_count - delete_count, f"expected cohortpeople data was not deleted"
 
     final_person_static_cohort = cluster.any_host(partial(get_by_team, "person_static_cohort")).result()
-    assert (
-        len(final_person_static_cohort) == event_count - delete_count
-    ), f"expected person_static_cohort data was not deleted"
+    assert len(final_person_static_cohort) == event_count - delete_count, (
+        f"expected person_static_cohort data was not deleted"
+    )
 
     final_plugin_log_entries = cluster.any_host(partial(get_by_team, "plugin_log_entries")).result()
-    assert (
-        len(final_plugin_log_entries) == event_count - delete_count
-    ), f"expected plugin_log_entries data was not deleted"
+    assert len(final_plugin_log_entries) == event_count - delete_count, (
+        f"expected plugin_log_entries data was not deleted"
+    )
 
     final_person_distinct_id2 = cluster.any_host(partial(get_by_team, "person_distinct_id2")).result()
-    assert (
-        len(final_person_distinct_id2) == event_count - delete_count
-    ), f"expected person_distinct_id2 data was not deleted"
+    assert len(final_person_distinct_id2) == event_count - delete_count, (
+        f"expected person_distinct_id2 data was not deleted"
+    )
 
     # Check that events for non-deleted teams were actually not deleted
-    assert all(
-        event[0] in final_events.keys() for event in events if event[0] not in range(delete_count)
-    ), f"There are events for non-deleted teams that were deleted"
+    assert all(event[0] in final_events.keys() for event in events if event[0] not in range(delete_count)), (
+        f"There are events for non-deleted teams that were deleted"
+    )
 
     # Verify that the deletions for the teams have been marked verified
     marked_deletions = AsyncDeletion.objects.filter(

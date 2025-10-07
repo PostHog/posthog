@@ -5,6 +5,10 @@ from django.conf import settings
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.version_requirement import ServiceVersionRequirement
 
 if TYPE_CHECKING:

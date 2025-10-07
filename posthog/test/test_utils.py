@@ -18,6 +18,10 @@ from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition, GroupTypeMapping
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,

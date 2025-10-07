@@ -10,6 +10,10 @@ import posthoganalytics
 
 from posthog.models import Organization, User
 from posthog.models.team import Team
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.utils import get_instance_realm
 
 

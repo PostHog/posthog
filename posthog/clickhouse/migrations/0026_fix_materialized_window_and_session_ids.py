@@ -4,6 +4,10 @@ from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 def does_column_exist(database, table_name, column_name):

@@ -1,6 +1,10 @@
 from django.conf import settings
 
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 operations = [
     run_sql_with_exceptions(

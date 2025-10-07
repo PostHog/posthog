@@ -11,6 +11,11 @@ import orjson
 from django_redis.serializers.base import BaseSerializer
 from rest_framework.utils.encoders import JSONEncoder
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+
+>>>>>>> Stashed changes
 P = ParamSpec("P")
 R = TypeVar("R")
 

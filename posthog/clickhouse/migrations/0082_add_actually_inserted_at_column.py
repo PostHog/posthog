@@ -2,6 +2,10 @@ from django.conf import settings
 
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 ADD_COLUMNS_BASE_SQL = """
 ALTER TABLE {table}

@@ -1,7 +1,6 @@
-from django.conf import settings
-
 from posthog.clickhouse.kafka_engine import kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from django.conf import settings
 
 BEHAVIORAL_COHORTS_MATCHES_TABLE = "behavioral_cohorts_matches"
 BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE = f"writable_{BEHAVIORAL_COHORTS_MATCHES_TABLE}"

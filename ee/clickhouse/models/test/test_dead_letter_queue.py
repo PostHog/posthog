@@ -16,6 +16,10 @@ from posthog.clickhouse.dead_letter_queue import (
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 

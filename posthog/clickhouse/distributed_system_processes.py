@@ -1,6 +1,10 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 # Deliberately using skip_unavailable_shards, as the things that use this table are usually not 100% critical, and can have bad knock-on effects if they keep waiting for shards.
 

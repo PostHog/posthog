@@ -3,6 +3,10 @@ from django.conf import settings
 from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client.connection import get_client_from_pool
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 DROP_COLUMNS_EVENTS = """
 ALTER TABLE {table} ON CLUSTER {cluster}

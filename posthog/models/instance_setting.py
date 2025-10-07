@@ -6,6 +6,11 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+
+>>>>>>> Stashed changes
 
 class InstanceSetting(models.Model):
     key = models.CharField(max_length=128, null=False, blank=False)

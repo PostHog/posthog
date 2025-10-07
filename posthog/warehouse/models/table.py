@@ -27,6 +27,10 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_er
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema

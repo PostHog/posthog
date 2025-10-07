@@ -69,6 +69,10 @@ from posthog.models.surveys.util import (
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 CHANNEL_DEFINITION_DICT = f"{settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 

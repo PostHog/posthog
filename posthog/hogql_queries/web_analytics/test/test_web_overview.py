@@ -39,6 +39,10 @@ from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRun
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 @snapshot_clickhouse_queries

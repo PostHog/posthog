@@ -15,6 +15,10 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.exceptions_capture import capture_exception
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync

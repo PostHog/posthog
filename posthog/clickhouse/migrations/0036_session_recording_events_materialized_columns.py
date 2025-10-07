@@ -4,6 +4,10 @@ from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.sql.session_recording_event_sql import MATERIALIZED_COLUMNS
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 def create_events_summary_mat_columns(database):

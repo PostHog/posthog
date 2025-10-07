@@ -19,6 +19,10 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (

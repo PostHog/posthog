@@ -8,6 +8,10 @@ from opentelemetry.trace import Status, StatusCode
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 class TestTraceClickhouseQueryDecorator:

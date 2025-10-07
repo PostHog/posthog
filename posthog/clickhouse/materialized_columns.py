@@ -4,6 +4,10 @@ from django.conf import settings
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 ColumnName = str
 TablesWithMaterializedColumns = TableWithProperties

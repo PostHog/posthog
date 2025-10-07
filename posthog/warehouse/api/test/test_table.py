@@ -8,6 +8,10 @@ from django.conf import settings
 import boto3
 from clickhouse_driver.errors import ServerException
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
@@ -530,7 +534,11 @@ class TestTable(APIBaseTest):
         # Setup real S3 client
         s3_client = boto3.client(
             "s3",
+<<<<<<< Updated upstream
             endpoint_url=settings.settings.OBJECT_STORAGE_ENDPOINT,
+=======
+            endpoint_url=settings.settings.settings.OBJECT_STORAGE_ENDPOINT,
+>>>>>>> Stashed changes
             aws_access_key_id="object_storage_root_user",
             aws_secret_access_key="object_storage_root_password",
             region_name="us-east-1",

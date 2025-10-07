@@ -9,6 +9,10 @@ from django.conf import settings
 from boto3 import resource
 from botocore.client import Config
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.storage.object_storage import (
     ObjectStorage,
     copy_objects,

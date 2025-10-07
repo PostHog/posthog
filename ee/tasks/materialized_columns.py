@@ -6,6 +6,10 @@ from celery.utils.log import get_task_logger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 

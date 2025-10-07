@@ -62,6 +62,10 @@ from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrottle, ClickHouseBurstRateThrottle
 from posthog.renderers import SafeJSONRenderer
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput

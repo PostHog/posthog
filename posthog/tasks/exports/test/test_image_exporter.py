@@ -7,6 +7,10 @@ from boto3 import resource
 from botocore.client import Config
 
 from posthog.models import ExportedAsset, Insight
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import image_exporter

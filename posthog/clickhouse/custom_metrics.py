@@ -3,7 +3,10 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 
 from django.conf import settings
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 

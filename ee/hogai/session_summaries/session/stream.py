@@ -3,6 +3,10 @@ from collections.abc import Generator
 from django.conf import settings
 
 from posthog.models.team.team import Team
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext

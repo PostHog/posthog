@@ -4,6 +4,10 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 LOG_ENTRIES_TABLE = "log_entries"
 LOG_ENTRIES_DISTRIBUTED_TABLE = "distributed_log_entries"

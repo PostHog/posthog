@@ -1,6 +1,10 @@
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 def analyze_enough_disk_space_free_for_table(table_name: str, required_ratio: float):

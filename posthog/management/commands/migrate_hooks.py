@@ -4,6 +4,10 @@ from django.core.paginator import Paginator
 
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.plugins.plugin_server_api import reload_all_hog_functions_on_workers
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = False):

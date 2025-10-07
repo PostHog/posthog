@@ -15,6 +15,10 @@ from rest_framework import status
 
 from posthog.models import UploadedMedia
 from posthog.models.utils import UUIDT
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 MEDIA_ROOT = tempfile.mkdtemp()
 

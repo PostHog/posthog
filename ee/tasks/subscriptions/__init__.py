@@ -9,6 +9,10 @@ import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter
 
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.subscription import Subscription

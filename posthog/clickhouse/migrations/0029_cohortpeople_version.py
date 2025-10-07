@@ -3,6 +3,10 @@ from django.conf import settings
 from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client import sync_execute
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 ADD_COLUMNS_BASE_SQL = """
 ALTER TABLE {table}

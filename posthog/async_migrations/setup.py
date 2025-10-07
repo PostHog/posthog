@@ -10,6 +10,10 @@ from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
+<<<<<<< Updated upstream
+=======
+from django.conf import settings
+>>>>>>> Stashed changes
 
 
 def reload_migration_definitions():
