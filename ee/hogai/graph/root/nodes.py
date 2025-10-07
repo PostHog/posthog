@@ -16,7 +16,6 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
@@ -770,8 +769,8 @@ class RootNodeTools(AssistantNode):
                     ],
                     root_tool_calls_count=tool_call_count + 1,
                 )
-            if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
-                raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
+            if not isinstance(result, LangchainToolMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage} , got {type(result)}")
 
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]
@@ -782,13 +781,8 @@ class RootNodeTools(AssistantNode):
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
-            # Convert result to AssistantToolCallMessage and return it
-            if isinstance(result, AssistantToolCallMessage):
-                # Result is already an AssistantToolCallMessage (e.g., from exception handler)
-                raise NodeInterrupt(result)
-            else:
-                # Convert LangchainToolMessage to AssistantToolCallMessage
-                raise NodeInterrupt(
+            return PartialAssistantState(
+                messages=[
                     AssistantToolCallMessage(
                         content=str(result.content) if result.content else "",
                         ui_payload={tool_call.name: getattr(result, "artifact", None)},
@@ -796,15 +790,14 @@ class RootNodeTools(AssistantNode):
                         tool_call_id=tool_call.id,
                         visible=tool_class.show_tool_call_message,
                     )
-                )
+                ],
+                root_tool_calls_count=tool_call_count + 1,
+            )
         else:
             raise ValueError(f"Unknown tool called: {tool_call.name}")
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
-
-        if isinstance(last_message, AssistantToolCallMessage):
-            return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
             if tool_calls and len(tool_calls) > 0:
@@ -822,4 +815,4 @@ class RootNodeTools(AssistantNode):
                 return "session_summarization"
             else:
                 return "search_documentation"
-        return "end"
+        return "end"  # If last message is an AssistantToolCallMessage, frontend will restart after tool applied
