@@ -69,6 +69,7 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
+              id: setup-uv
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               if: needs.changes.outputs.python == 'true'
               with:
@@ -76,7 +77,7 @@ jobs:
                   version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.python == 'true'
+              if: needs.changes.outputs.python == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
               run: |
                   sudo apt-get update

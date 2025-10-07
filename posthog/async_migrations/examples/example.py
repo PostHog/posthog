@@ -79,7 +79,7 @@ class Migration(AsyncMigrationDefinition):
             """,
             rollback=f"""
                 RENAME TABLE
-                    {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
+                    {settings.CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME},
                     {settings.CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup to {settings.CLICKHOUSE_DATABASE}.person_distinct_id,
                 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
             """,
