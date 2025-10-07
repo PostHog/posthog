@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -19,11 +18,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
         super().setUp()
         self.toolkit = DummyToolkit(self.team)
 
-    @pytest.mark.asyncio
     async def test_toolkit_initialization(self):
         self.assertEqual(self.toolkit._team, self.team)
-        self.assertIsInstance(await self.toolkit._team_group_types, list)
-        self.assertIsInstance(await self.toolkit._entity_names, list)
+        self.assertIsInstance(await self.toolkit._get_entity_names(), list)
 
     @parameterized.expand(
         [
@@ -31,11 +28,10 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("session", ["person", "session"]),
         ]
     )
-    @pytest.mark.asyncio
     async def test_entity_names_basic(self, entity, expected_base):
-        self.assertIn(entity, await self.toolkit._entity_names)
+        self.assertIn(entity, await self.toolkit._get_entity_names())
         for expected in expected_base:
-            self.assertIn(expected, await self.toolkit._entity_names)
+            self.assertIn(expected, await self.toolkit._get_entity_names())
 
     def test_enrich_props_with_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
@@ -80,7 +76,6 @@ class TestTaxonomyAgentToolkit(BaseTest):
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties", return_value="mocked")
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
-    @pytest.mark.asyncio
     async def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
         class Arguments(BaseModel):
             pass
@@ -98,7 +93,6 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertEqual(result, expected_result)
         self.assertEqual(tool_name_result, tool_name)
 
-    @pytest.mark.asyncio
     async def test_handle_tools_invalid_tool(self):
         class ToolInput(BaseModel):
             name: str = "invalid_tool"

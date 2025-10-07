@@ -116,27 +116,29 @@ class TaxonomyAgentToolkit:
         return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
     @cached_property
-    async def _team_group_types(self) -> list[str]:
+    def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
-        groups = [group async for group in self._groups.further_orm_chain_if_needed()]
-        return [group.group_type for group in groups]
+        group_types = self._groups.values_list("group_type", flat=True)
+        return group_types
 
-    @property
-    async def _entity_names(self) -> list[str]:
+    @cached_property
+    def _entity_names(self) -> list[str]:
         """
         The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
         so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
         to create various tools for different group types. Since we don't use function calling here, we want to limit the
         number of tools because non-function calling models can't handle many tools.
         """
-        if not hasattr(self, "_cached_entity_names"):
-            entities = [
-                "person",
-                "session",
-                *[group.group_type async for group in self._groups.further_orm_chain_if_needed()],
-            ]
-            self._cached_entity_names = entities
-        return self._cached_entity_names
+        entities = [
+            "person",
+            "session",
+            *self._team_group_types,
+        ]
+        return entities
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _get_entity_names(self) -> list[str]:
+        return self._entity_names
 
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
         return enrich_props_with_descriptions(entity, props)
@@ -241,7 +243,7 @@ class TaxonomyAgentToolkit:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        entity_names = await self._entity_names
+        entity_names = await self._get_entity_names()
         if entity not in entity_names:
             return TaxonomyErrorMessages.entity_not_found(entity, entity_names)
 
@@ -263,7 +265,8 @@ class TaxonomyAgentToolkit:
             )
         else:
             group_type_index = None
-            async for group in self._groups.further_orm_chain_if_needed():
+            groups = [group async for group in self._groups]
+            for group in groups:
                 if group.group_type == entity:
                     group_type_index = group.group_type_index
                     break
@@ -307,7 +310,7 @@ class TaxonomyAgentToolkit:
     async def _retrieve_multiple_entity_property_values(self, entity: str, property_names: list[str]) -> list[str]:
         """Retrieve property values for multiple entities and properties efficiently."""
         results = []
-        entity_names = await self._entity_names
+        entity_names = await self._get_entity_names()
         if entity not in entity_names:
             results.append(TaxonomyErrorMessages.entity_not_found(entity, entity_names))
             return results
@@ -315,7 +318,7 @@ class TaxonomyAgentToolkit:
             for property_name in property_names:
                 results.append(self._retrieve_session_properties(property_name))
             return results
-        groups = [group async for group in self._groups.further_orm_chain_if_needed()]
+        groups = [group async for group in self._groups]
         query = self._build_query(entity, property_names, groups)
         if query is None:
             results.append(TaxonomyErrorMessages.entity_not_found(entity))
