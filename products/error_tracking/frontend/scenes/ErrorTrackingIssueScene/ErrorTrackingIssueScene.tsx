@@ -1,23 +1,10 @@
 import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
@@ -25,6 +12,7 @@ import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { Header } from './Header'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -35,11 +23,10 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueLoading, selectedEvent, initialEventLoading, eventsQuery, eventsQueryKey } =
+    const { issue, issueLoading, selectedEvent, initialEventLoading, eventsQuery, eventsQueryKey } =
         useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
@@ -47,30 +34,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
-            <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
-                <SceneBreadcrumbBackButton />
-                {hasIssueSplitting && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <ButtonPrimitive iconOnly>
-                                <IconEllipsis />
-                            </ButtonPrimitive>
-                        </DropdownMenuTrigger>
-
-                        <DropdownMenuContent loop align="end">
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive
-                                    size="base"
-                                    menuItem
-                                    onClick={() => router.actions.push(urls.errorTrackingIssueFingerprints(issueId))}
-                                >
-                                    Split issue
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-            </div>
+            <Header />
 
             {isPostHogSDKIssue && (
                 <LemonBanner
