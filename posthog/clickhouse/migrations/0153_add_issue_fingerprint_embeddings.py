@@ -21,3 +21,4 @@
 #     ),
 #     run_sql_with_exceptions(ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
 # ]
+operations = []
