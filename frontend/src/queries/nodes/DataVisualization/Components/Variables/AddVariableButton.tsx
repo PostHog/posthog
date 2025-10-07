@@ -93,7 +93,7 @@ export const AddVariableButton = ({
                                             active: n.selected,
                                             sideAction: {
                                                 icon: <IconGear />,
-                                                onClick: (e) => {
+                                                onClick: (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
                                                     e.stopPropagation()
                                                     openExistingVariableModal(n)
                                                 },
