@@ -53,7 +53,9 @@ function convertExperimentResultToFunnelSteps(
     metric: ExperimentMetric
 ): FunnelStepWithNestedBreakdown[] {
     const allResults = [result.baseline, ...(result.variant_results || [])]
-    const numSteps = (result.baseline.step_counts?.length || 0) + 1
+    // Use step_counts from any variant that has data, not just baseline (which might have 0 users)
+    const stepCountsSource = allResults.find((r) => r.step_counts && r.step_counts.length > 0) || result.baseline
+    const numSteps = (stepCountsSource.step_counts?.length || 0) + 1
     const funnelSteps: FunnelStepWithNestedBreakdown[] = []
 
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {

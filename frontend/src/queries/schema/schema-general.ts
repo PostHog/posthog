@@ -2407,7 +2407,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
-    | 'embedded_analytics'
+    | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2548,9 +2548,11 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
+
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
-    exposure_config?: ExperimentEventExposureConfig
+    exposure_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -3379,6 +3381,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Person who performed the event */
+    personId?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4014,6 +4018,7 @@ export const externalDataSources = [
     'DoIt',
     'LinkedinAds',
     'RedditAds',
+    'TikTokAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

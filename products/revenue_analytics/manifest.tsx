@@ -11,7 +11,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
             defaultDocsPath: '/docs/revenue-analytics',
-            activityScope: 'RevenueAnalytics',
         },
     },
     routes: {
