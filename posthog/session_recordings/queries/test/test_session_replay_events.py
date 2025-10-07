@@ -157,7 +157,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def test_get_group_metadata(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
             session_ids=["1", "2"],
-            team_id=self.team,
+            team=self.team,
         )
         assert len(metadata_dict) == 2
         assert metadata_dict["1"] == {
@@ -202,7 +202,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
             session_ids=["1", "nonexistent", "3"],
-            team_id=self.team,
+            team=self.team,
         )
         assert len(metadata_dict) == 3
         assert metadata_dict["1"] is not None
