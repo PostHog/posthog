@@ -100,7 +100,7 @@ pub struct Config {
     #[envconfig(default = "900")] // 15 minutes in seconds
     pub checkpoint_cleanup_interval_secs: u64,
 
-    #[envconfig(default = "4")] // 4 hours
+    #[envconfig(default = "2")] // 2 hours
     pub max_checkpoint_retention_hours: u32,
 
     #[envconfig(default = "8")]

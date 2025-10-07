@@ -58,7 +58,7 @@ impl Default for CheckpointConfig {
             full_upload_interval: 0, // TODO: always full checkpoints until we impl incremental
             aws_region: "us-east-1".to_string(),
             max_local_checkpoints: 10,
-            max_checkpoint_retention_hours: 6,
+            max_checkpoint_retention_hours: 2,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
             checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
