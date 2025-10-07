@@ -7,9 +7,12 @@ import pytest
 from unittest.mock import Mock
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
+    TikTokAdsAPIError,
     TikTokAdsPaginator,
+    exponential_backoff_retry,
     flatten_tiktok_report_record,
     flatten_tiktok_reports,
     generate_date_chunks,
@@ -126,13 +129,18 @@ class TestDateRangeFunctions:
 
     @parameterized.expand(
         [
-            ("no_incremental_no_last_value", False, None, 30),
-            ("no_incremental_with_last_value", False, datetime.now() - timedelta(days=5), 30),
-            ("incremental_no_last_value", True, None, 30),
+            ("no_incremental_no_last_value", False, None, 365),  # Uses MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS (3 years)
+            ("no_incremental_with_last_value", False, datetime.now() - timedelta(days=5), 365),
+            ("incremental_no_last_value", True, None, 365),
             ("incremental_with_recent_datetime", True, datetime.now() - timedelta(days=2), 7),
             ("incremental_with_old_datetime", True, datetime.now() - timedelta(days=60), 60),
             ("incremental_with_recent_date", True, date.today() - timedelta(days=3), 7),
-            ("incremental_with_date_string", True, "2025-09-25", 7),
+            (
+                "incremental_with_date_string",
+                True,
+                (datetime.now() - timedelta(days=12)).strftime("%Y-%m-%d"),
+                12,
+            ),  # 12 days ago
             ("incremental_with_iso_string", True, (datetime.now() - timedelta(days=4)).isoformat(), 7),
         ]
     )
@@ -143,7 +151,9 @@ class TestDateRangeFunctions:
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-        assert end_dt.date() == datetime.now().date()
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        assert end_dt.date() in [today, yesterday]
 
         days_diff = (end_dt - start_dt).days
         assert days_diff <= expected_max_days + 1
@@ -156,10 +166,10 @@ class TestDateRangeFunctions:
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         days_diff = (end_dt - start_dt).days
 
-        assert days_diff <= 31
+        assert days_diff <= 365  # Falls back to full range (3 years)
 
     def test_get_incremental_date_range_future_date(self):
-        """Test date range calculation with future date (should use 7-day minimum)."""
+        """Test date range calculation with future date (should use future date as start)."""
         future_date = datetime.now() + timedelta(days=10)
         start_date, end_date = get_incremental_date_range(True, future_date)
 
@@ -167,16 +177,54 @@ class TestDateRangeFunctions:
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         days_diff = (end_dt - start_dt).days
 
-        assert days_diff == 7
+        # Should use the future date as start, so negative days
+        assert days_diff == -10
 
     @parameterized.expand(
         [
-            ("single_chunk_short_range", "2025-09-01", "2025-09-15", 30, 1),
-            ("single_chunk_exact_boundary", "2025-09-01", "2025-10-01", 30, 1),
-            ("two_chunks", "2025-09-01", "2025-10-15", 30, 2),
-            ("three_chunks", "2025-09-01", "2025-11-30", 30, 3),
-            ("small_chunk_size", "2025-09-01", "2025-09-15", 7, 2),
-            ("same_day", "2025-09-01", "2025-09-01", 30, 1),
+            (
+                "single_chunk_short_range",
+                (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d"),
+                (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d"),
+                30,
+                1,
+            ),
+            (
+                "single_chunk_exact_boundary",
+                (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                1,
+            ),
+            (
+                "two_chunks",
+                (datetime.now() - timedelta(days=59)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                2,
+            ),
+            (
+                "three_chunks",
+                (datetime.now() - timedelta(days=89)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                3,
+            ),
+            (
+                "small_chunk_size",
+                (datetime.now() - timedelta(days=13)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                7,
+                2,
+            ),
+            (
+                "exact_30_days",
+                (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                1,
+            ),
+            ("same_day", datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime("%Y-%m-%d"), 30, 1),
         ]
     )
     def test_generate_date_chunks_scenarios(self, name, start_date, end_date, chunk_days, expected_chunks):
@@ -202,12 +250,15 @@ class TestDateRangeFunctions:
 
     def test_generate_date_chunks_invalid_date_format(self):
         """Test date chunk generation with invalid date format."""
+        valid_end_date = datetime.now().strftime("%Y-%m-%d")
         with pytest.raises(ValueError):
-            generate_date_chunks("invalid-date", "2025-09-15", 30)
+            generate_date_chunks("invalid-date", valid_end_date, 30)
 
     def test_generate_date_chunks_end_before_start(self):
         """Test date chunk generation when end date is before start date."""
-        chunks = generate_date_chunks("2025-09-15", "2025-09-01", 30)
+        start_date = datetime.now().strftime("%Y-%m-%d")
+        end_date = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
+        chunks = generate_date_chunks(start_date, end_date, 30)
         assert len(chunks) == 0
 
 
@@ -293,14 +344,188 @@ class TestTikTokAdsPaginator:
 
         for response_data in malformed_responses:
             mock_response = self._create_mock_response(cast(dict[Any, Any], response_data))
-            self.paginator.update_state(mock_response)
-            assert self.paginator.has_next_page is False
+            with pytest.raises(TikTokAdsAPIError, match="Failed to parse TikTok API response"):
+                self.paginator.update_state(mock_response)
 
         # Test with response that raises exception on json()
         mock_response = Mock()
         mock_response.json.side_effect = Exception("JSON decode error")
-        self.paginator.update_state(mock_response)
-        assert self.paginator.has_next_page is False
+        with pytest.raises(TikTokAdsAPIError, match="Failed to parse TikTok API response"):
+            self.paginator.update_state(mock_response)
+
+    @parameterized.expand(
+        [
+            ("qps_limit_error", 40100, "App reaches the QPS limit 20", True),
+            ("rate_limit_error", 40001, "Rate limit exceeded", False),  # Auth error - not retryable
+            ("validation_error", 40002, "Invalid parameter", False),  # Client error - not retryable
+            ("server_error", 50000, "Internal server error", True),
+            ("service_unavailable", 50001, "Service temporarily unavailable", True),
+        ]
+    )
+    def test_update_state_api_error_codes(self, name, api_code, message, should_be_retryable):
+        """Test paginator handling of various TikTok API error codes."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": api_code,
+            "message": message,
+            "data": {},
+            "request_id": "test-request-id",
+        }
+
+        if should_be_retryable:
+            with pytest.raises(TikTokAdsAPIError) as exc_info:
+                self.paginator.update_state(mock_response)
+
+            assert str(api_code) in str(exc_info.value)
+            assert message in str(exc_info.value)
+            assert exc_info.value.api_code == api_code
+        else:
+            with pytest.raises(ValueError) as value_exc_info:
+                self.paginator.update_state(mock_response)
+
+            assert "non-retryable" in str(value_exc_info.value)
+            assert str(api_code) in str(value_exc_info.value)
+
+
+class TestExponentialBackoffRetry:
+    """Test suite for exponential backoff retry mechanism."""
+
+    def test_exponential_backoff_success_on_first_attempt(self):
+        """Test that successful functions are not retried."""
+        call_count = 0
+
+        def successful_function():
+            nonlocal call_count
+            call_count += 1
+            return "success"
+
+        decorated_func = exponential_backoff_retry(successful_function, max_retries=3, base_delay=0.1)
+        result = decorated_func()
+
+        assert result == "success"
+        assert call_count == 1
+
+    def test_exponential_backoff_retry_on_tiktok_api_error(self):
+        """Test retry behavior with TikTokAdsAPIError."""
+        call_count = 0
+
+        def failing_function():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise TikTokAdsAPIError("QPS limit reached", api_code=40100)
+            return "success_after_retries"
+
+        decorated_func = exponential_backoff_retry(failing_function, max_retries=2, base_delay=0.1, multiplier=2.0)
+        result = decorated_func()
+
+        assert result == "success_after_retries"
+        assert call_count == 3  # Initial + 2 retries
+
+    def test_exponential_backoff_max_retries_exceeded(self):
+        """Test that function fails after max retries."""
+        call_count = 0
+
+        def always_failing_function():
+            nonlocal call_count
+            call_count += 1
+            raise TikTokAdsAPIError("Persistent error", api_code=40100)
+
+        decorated_func = exponential_backoff_retry(always_failing_function, max_retries=2, base_delay=0.1)
+
+        with pytest.raises(TikTokAdsAPIError, match="Persistent error"):
+            decorated_func()
+
+        assert call_count == 3  # Initial + 2 retries
+
+    def test_exponential_backoff_non_retryable_exception(self):
+        """Test that non-retryable exceptions are not retried."""
+        call_count = 0
+
+        def non_retryable_error_function():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("Client error - should not retry")
+
+        decorated_func = exponential_backoff_retry(non_retryable_error_function, max_retries=3, base_delay=0.1)
+
+        with pytest.raises(ValueError, match="Client error - should not retry"):
+            decorated_func()
+
+        assert call_count == 1  # No retries
+
+    def test_exponential_backoff_http_error_retryable(self):
+        """Test retry behavior with retryable HTTP errors."""
+
+        call_count = 0
+
+        def http_error_function():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                mock_response = Mock()
+                mock_response.status_code = 429
+                error = HTTPError("Too Many Requests", response=mock_response)
+                raise error
+            return "success_after_http_retry"
+
+        decorated_func = exponential_backoff_retry(http_error_function, max_retries=2, base_delay=0.1)
+        result = decorated_func()
+
+        assert result == "success_after_http_retry"
+        assert call_count == 2  # Initial + 1 retry
+
+    def test_exponential_backoff_http_error_non_retryable(self):
+        """Test that non-retryable HTTP errors are not retried."""
+
+        call_count = 0
+
+        def non_retryable_http_error():
+            nonlocal call_count
+            call_count += 1
+            mock_response = Mock()
+            mock_response.status_code = 404
+            error = HTTPError("Not Found", response=mock_response)
+            raise error
+
+        decorated_func = exponential_backoff_retry(non_retryable_http_error, max_retries=3, base_delay=0.1)
+
+        with pytest.raises(HTTPError, match="Not Found"):
+            decorated_func()
+
+        assert call_count == 1  # No retries for 404
+
+
+class TestTikTokAdsAPIError:
+    """Test suite for TikTokAdsAPIError exception class."""
+
+    def test_tiktok_ads_api_error_basic_creation(self):
+        """Test basic TikTokAdsAPIError creation."""
+        error = TikTokAdsAPIError("Test error message")
+
+        assert str(error) == "Test error message"
+        assert error.api_code is None
+        assert error.response is None
+
+    def test_tiktok_ads_api_error_with_api_code(self):
+        """Test TikTokAdsAPIError with API code."""
+        error = TikTokAdsAPIError("QPS limit reached", api_code=40100)
+
+        assert str(error) == "QPS limit reached"
+        assert error.api_code == 40100
+        assert error.response is None
+
+    def test_tiktok_ads_api_error_with_response(self):
+        """Test TikTokAdsAPIError with response object."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+
+        error = TikTokAdsAPIError("API error", api_code=40100, response=mock_response)
+
+        assert str(error) == "API error"
+        assert error.api_code == 40100
+        assert error.response == mock_response
 
 
 class TestHelperFunctions:

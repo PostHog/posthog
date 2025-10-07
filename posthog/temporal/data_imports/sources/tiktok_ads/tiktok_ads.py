@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAuth,
     TikTokAdsPaginator,
     create_date_chunked_resources,
+    exponential_backoff_retry,
     flatten_tiktok_report_record,
     flatten_tiktok_reports,
     get_incremental_date_range,
@@ -57,7 +58,7 @@ def get_tiktok_resource(
 
     # Set write disposition based on incremental field usage
     if should_use_incremental_field and config.incremental_fields:
-        resource["write_disposition"] = {
+        resource["write_disposition"] = {  # type: ignore[typeddict-item]
             "disposition": "merge",
             "strategy": "upsert",
         }
@@ -91,12 +92,12 @@ def tiktok_ads_source(
             starts_at = (datetime.now() - timedelta(days=MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS)).strftime("%Y-%m-%d")
 
         # Get base resource configuration (dates will be set per chunk)
-        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
+        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field, starts_at, ends_at)
 
         resources = create_date_chunked_resources(base_resource, starts_at, ends_at, advertiser_id)
     else:
         # For non-report endpoints, use single resource without dates
-        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
+        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field, None, None)
         resources = [base_resource]
 
     # Create REST API config
@@ -123,7 +124,13 @@ def tiktok_ads_source(
                 if isinstance(resource_endpoint, dict):
                     resource_endpoint["paginator"] = TikTokAdsPaginator()
 
-    dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    # Apply retry logic to the entire resource creation process
+    @exponential_backoff_retry
+    def get_dlt_resources_with_retry():
+        """Get DLT resources with retry logic - creates fresh generators on each attempt."""
+        return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+
+    dlt_resources = get_dlt_resources_with_retry()
 
     if is_report and len(dlt_resources) > 1:
 

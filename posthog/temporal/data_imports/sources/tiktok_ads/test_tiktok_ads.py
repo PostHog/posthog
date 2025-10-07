@@ -5,7 +5,6 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.tiktok_ads.settings import MAX_TIKTOK_DAYS_TO_QUERY
 from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import get_tiktok_resource, tiktok_ads_source
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     flatten_tiktok_report_record,
@@ -59,9 +58,9 @@ class TestTikTokAdsHelpers:
 
     @parameterized.expand(
         [
-            ("no_incremental", False, None, 30),
-            ("with_datetime", True, datetime(2025, 9, 1), 30),
-            ("with_date_string", True, "2025-09-01", 30),
+            ("no_incremental", False, None, 365),  # Uses MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS
+            ("with_datetime", True, datetime.now() - timedelta(days=30), 30),
+            ("with_date_string", True, (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"), 30),
             ("with_recent_date", True, datetime.now() - timedelta(days=2), 7),
             ("with_old_date", True, datetime.now() - timedelta(days=60), 60),
         ]
@@ -84,14 +83,38 @@ class TestTikTokAdsHelpers:
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         days_diff = (end_dt - start_dt).days
 
-        assert days_diff <= 31
+        assert days_diff <= 365  # Falls back to full range
 
     @parameterized.expand(
         [
-            ("single_chunk", "2025-09-01", "2025-09-15", 30, 1),
-            ("two_chunks", "2025-09-01", "2025-10-15", 30, 2),
-            ("three_chunks", "2025-09-01", "2025-11-30", 30, 3),
-            ("exact_boundary", "2025-09-01", "2025-10-01", 30, 1),
+            (
+                "single_chunk",
+                (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                1,
+            ),
+            (
+                "two_chunks",
+                (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                2,
+            ),
+            (
+                "three_chunks",
+                (datetime.now() - timedelta(days=89)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                3,
+            ),
+            (
+                "exact_boundary",
+                (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+                30,
+                1,
+            ),
         ]
     )
     def test_generate_date_chunks(self, name, start_date, end_date, chunk_days, expected_chunks):
@@ -157,8 +180,18 @@ class TestGetResource:
         assert "start_date" in resource["endpoint"]["params"]
         assert "end_date" in resource["endpoint"]["params"]
 
-        start_date = datetime.strptime(resource["endpoint"]["params"]["start_date"], "%Y-%m-%d")
-        end_date = datetime.strptime(resource["endpoint"]["params"]["end_date"], "%Y-%m-%d")
+        # When no dates are provided, they should be empty strings
+        assert resource["endpoint"]["params"]["start_date"] == ""
+        assert resource["endpoint"]["params"]["end_date"] == ""
+
+        start_date_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        end_date_str = datetime.now().strftime("%Y-%m-%d")
+        resource_with_dates = get_tiktok_resource(
+            "campaign_report", self.advertiser_id, False, start_date_str, end_date_str
+        )
+
+        start_date = datetime.strptime(resource_with_dates["endpoint"]["params"]["start_date"], "%Y-%m-%d")
+        end_date = datetime.strptime(resource_with_dates["endpoint"]["params"]["end_date"], "%Y-%m-%d")
         days_diff = (end_date - start_date).days
 
         assert days_diff > 0
@@ -166,17 +199,19 @@ class TestGetResource:
     def test_get_tiktok_resource_with_date_chunking(self):
         """Test resource configuration with date chunking for large ranges."""
         old_date_str = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, old_date_str)
+        end_date_str = datetime.now().strftime("%Y-%m-%d")
+        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, old_date_str, end_date_str)
 
-        # Verify that start_date and end_date are set to the first chunk
         assert "start_date" in resource["endpoint"]["params"]
         assert "end_date" in resource["endpoint"]["params"]
 
-        # The date range should be limited to MAX_TIKTOK_DAYS_TO_QUERY (30 days)
         start_date = datetime.strptime(resource["endpoint"]["params"]["start_date"], "%Y-%m-%d")
         end_date = datetime.strptime(resource["endpoint"]["params"]["end_date"], "%Y-%m-%d")
-        days_diff = (end_date - start_date).days
-        assert days_diff <= MAX_TIKTOK_DAYS_TO_QUERY
+        expected_start = datetime.strptime(old_date_str, "%Y-%m-%d")
+        expected_end = datetime.strptime(end_date_str, "%Y-%m-%d")
+
+        assert start_date == expected_start
+        assert end_date == expected_end
 
 
 class TestTikTokAdsSource:
@@ -192,7 +227,7 @@ class TestTikTokAdsSource:
     @parameterized.expand(
         [
             ("campaigns", False, None),
-            ("adgroups", False, None),
+            ("ad_groups", False, None),
             ("ads", False, None),
         ]
     )
@@ -215,7 +250,7 @@ class TestTikTokAdsSource:
     @parameterized.expand(
         [
             ("campaign_report", False, None),
-            ("adgroup_report", False, None),
+            ("ad_group_report", False, None),
             ("ad_report", False, None),
         ]
     )
@@ -238,7 +273,7 @@ class TestTikTokAdsSource:
     @parameterized.expand(
         [
             ("campaign_report", True, datetime.now() - timedelta(days=5)),
-            ("adgroup_report", True, "2025-09-01"),
+            ("ad_group_report", True, (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")),
             ("ad_report", True, datetime.now() - timedelta(days=10)),
         ]
     )

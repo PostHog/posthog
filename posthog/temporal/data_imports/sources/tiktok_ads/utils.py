@@ -1,4 +1,5 @@
 import copy
+import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -8,6 +9,7 @@ from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import AuthConfigBase
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from requests import PreparedRequest
+from requests.exceptions import HTTPError, RequestException, Timeout
 
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
@@ -16,6 +18,151 @@ from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class TikTokAdsAPIError(Exception):
+    """Custom exception for TikTok Ads API errors that should trigger retries."""
+
+    def __init__(self, message: str, api_code: int | None = None, response: Optional[Response] = None):
+        super().__init__(message)
+        self.api_code = api_code
+        self.response = response
+
+
+# https://business-api.tiktok.com/portal/docs?id=1740029171730433 For QPM limit, you need to wait 5 minutes before you can
+# make API requests again. For QPD limit, you need to wait until the next day (UTC+0 time) to make API requests again.
+# Note that the QPD limit resets at 00:00:00 UTC+0 time every day.
+def exponential_backoff_retry(
+    func,
+    max_retries: int = 5,
+    base_delay: float = 301.0,  # tiktok has 5 minutes circuit breaker when too many requests are made and QPM/QPD limits are exceeded
+    multiplier: float = 1.68,
+    exceptions: tuple = (TikTokAdsAPIError,),
+):
+    """
+    Decorator for exponential backoff retry with custom parameters.
+
+    Args:
+        func: Function to retry
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        multiplier: Exponential multiplier
+        exceptions: Tuple of exceptions that should trigger a retry
+    """
+
+    def wrapper(*args, **kwargs):
+        last_exception = None
+
+        for attempt in range(max_retries + 1):  # +1 for initial attempt
+            try:
+                return func(*args, **kwargs)
+            except exceptions as e:
+                last_exception = e
+
+                if attempt == max_retries:
+                    logger.exception(
+                        "tiktok_ads_max_retries_exceeded",
+                        function=func.__name__,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        error=str(e),
+                    )
+                    raise
+
+                # Calculate delay: base_delay * multiplier^attempt
+                delay = base_delay * (multiplier**attempt)
+
+                logger.warning(
+                    "tiktok_ads_retry_attempt",
+                    function=func.__name__,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    delay_seconds=delay,
+                    error=str(e),
+                )
+
+                time.sleep(delay)
+            except HTTPError as e:
+                # Handle HTTP errors - retry on rate limiting and server errors
+                if hasattr(e, "response") and e.response is not None:
+                    status_code = e.response.status_code
+                    if status_code in [429, 500, 502, 503, 504]:
+                        # Convert to retryable error and continue with retry logic
+                        last_exception = TikTokAdsAPIError(f"HTTP {status_code} error: {str(e)}", response=e.response)
+
+                        if attempt == max_retries:
+                            logger.exception(
+                                "tiktok_ads_max_retries_exceeded",
+                                function=func.__name__,
+                                attempt=attempt + 1,
+                                max_retries=max_retries,
+                                error=str(last_exception),
+                                http_status=status_code,
+                            )
+                            raise last_exception
+
+                        delay = base_delay * (multiplier**attempt)
+
+                        logger.warning(
+                            "tiktok_ads_http_retry_attempt",
+                            function=func.__name__,
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            delay_seconds=delay,
+                            http_status=status_code,
+                            error=str(e),
+                        )
+
+                        time.sleep(delay)
+                        continue
+
+                # Non-retryable HTTP error, re-raise immediately
+                logger.exception(
+                    "tiktok_ads_non_retryable_http_error",
+                    function=func.__name__,
+                    error=str(e),
+                    http_status=getattr(e.response, "status_code", None) if hasattr(e, "response") else None,
+                )
+                raise
+            except (Timeout, RequestException) as e:
+                # Network errors are retryable
+                last_exception = TikTokAdsAPIError(f"Network error: {str(e)}")
+
+                if attempt == max_retries:
+                    logger.exception(
+                        "tiktok_ads_max_retries_exceeded",
+                        function=func.__name__,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        error=str(last_exception),
+                        error_type="network",
+                    )
+                    raise last_exception
+
+                delay = base_delay * (multiplier**attempt)
+
+                logger.warning(
+                    "tiktok_ads_network_retry_attempt",
+                    function=func.__name__,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    delay_seconds=delay,
+                    error=str(e),
+                )
+
+                time.sleep(delay)
+            except Exception as e:
+                # Non-retryable exception, re-raise immediately
+                logger.exception(
+                    "tiktok_ads_non_retryable_error", function=func.__name__, error=str(e), error_type=type(e).__name__
+                )
+                raise
+
+        # This should never be reached, but just in case
+        if last_exception:
+            raise last_exception
+
+    return wrapper
 
 
 def flatten_tiktok_report_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -72,7 +219,7 @@ def get_incremental_date_range(
         except Exception:
             starts_at = (datetime.now() - timedelta(days=MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS)).strftime("%Y-%m-%d")
     else:
-        # If there isn't an incremental field last value, we fetch the last 365 days of data
+        # If there isn't an incremental field last value, we fetch the last year of data
         starts_at = (datetime.now() - timedelta(days=MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS)).strftime("%Y-%m-%d")
 
     return starts_at, ends_at
@@ -92,7 +239,10 @@ def generate_date_chunks(
     current_start = start_dt
 
     while current_start <= end_dt:
-        chunk_end = min(current_start + timedelta(days=chunk_days), end_dt)
+        chunk_end = current_start + timedelta(days=chunk_days - 1)
+
+        if chunk_end > end_dt:
+            chunk_end = end_dt
 
         chunks.append((current_start.strftime("%Y-%m-%d"), chunk_end.strftime("%Y-%m-%d")))
 
@@ -132,14 +282,41 @@ class TikTokAdsPaginator(BasePaginator):
                     self.current_page = current_page + 1
             else:
                 self._has_next_page = False
-                logger.warning(
+                error_message = json_data.get("message", "Unknown API error")
+                logger.error(
                     "tiktok_ads_api_error",
                     api_code=api_code,
-                    message=json_data.get("message", "Unknown API error"),
+                    message=error_message,
+                    response_status=response.status_code,
                 )
+
+                # Only retry specific error codes that are retryable (server/rate limit errors)
+                retryable_codes = [
+                    40100,  # QPS limit reached (confirmed from our tests - 20 QPS limit)
+                    50000,  # Internal server error
+                    50001,  # Service temporarily unavailable
+                    50002,  # Service error
+                ]
+
+                if api_code in retryable_codes:
+                    # Raise exception for retryable API errors
+                    raise TikTokAdsAPIError(
+                        f"TikTok API error: {error_message} (code: {api_code})", api_code=api_code, response=response
+                    )
+                else:
+                    # Non-retryable error - raise a different exception
+                    raise ValueError(f"TikTok API client error (non-retryable): {error_message} (code: {api_code})")
+        except TikTokAdsAPIError:
+            # Re-raise TikTok API errors
+            raise
+        except ValueError:
+            # Re-raise ValueError (non-retryable errors) without wrapping
+            raise
         except Exception as e:
             self._has_next_page = False
             logger.exception("tiktok_ads_paginator_error", error=str(e))
+            # Raise exception for JSON parsing or other errors
+            raise TikTokAdsAPIError(f"Failed to parse TikTok API response: {str(e)}", response=response)
 
     def update_request(self, request: Request) -> None:
         """Update the request with pagination parameters."""
