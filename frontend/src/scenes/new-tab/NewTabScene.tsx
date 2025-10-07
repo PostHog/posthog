@@ -225,6 +225,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         <div className="grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true">
                             {Object.entries(groupedFilteredItems).map(([category, items], columnIndex) => {
                                 const typedItems = items as NewTabTreeDataItem[]
+                                const isFirstCategory = columnIndex === 0
                                 return (
                                     <div
                                         className={cn('mb-8', {
@@ -256,16 +257,20 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             ) : (
                                                 typedItems.map((item, index) => (
                                                     // If we have filtered results set virtual focus to first item
-                                                    <ListBox.Item
-                                                        key={item.id}
-                                                        asChild
-                                                        focusFirst={filteredItemsGrid.length > 0 && index === 0}
-                                                        row={index}
-                                                        column={columnIndex}
-                                                    >
-                                                        <ButtonGroupPrimitive className="group w-full border-0">
-                                                            <ContextMenu>
-                                                                <ContextMenuTrigger asChild>
+                                                    <ButtonGroupPrimitive className="group w-full border-0">
+                                                        <ContextMenu>
+                                                            <ContextMenuTrigger asChild>
+                                                                <ListBox.Item
+                                                                    key={item.id}
+                                                                    asChild
+                                                                    focusFirst={
+                                                                        filteredItemsGrid.length > 0 &&
+                                                                        isFirstCategory &&
+                                                                        index === 0
+                                                                    }
+                                                                    row={index}
+                                                                    column={columnIndex}
+                                                                >
                                                                     <Link
                                                                         to={item.href || '#'}
                                                                         className="w-full"
@@ -288,49 +293,49 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                             )}
                                                                         </span>
                                                                     </Link>
-                                                                </ContextMenuTrigger>
-                                                                <ContextMenuContent loop className="max-w-[250px]">
-                                                                    <ContextMenuGroup>
-                                                                        <MenuItems
-                                                                            item={convertToTreeDataItem(item)}
-                                                                            type="context"
-                                                                            root="project://"
-                                                                            onlyTree={false}
-                                                                            showSelectMenuOption={false}
-                                                                        />
-                                                                    </ContextMenuGroup>
-                                                                </ContextMenuContent>
-                                                            </ContextMenu>
-                                                            <DropdownMenu>
-                                                                <DropdownMenuTrigger asChild>
-                                                                    <ButtonPrimitive
-                                                                        size="xs"
-                                                                        iconOnly
-                                                                        isSideActionRight
-                                                                        className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
-                                                                    >
-                                                                        <IconEllipsis className="size-3" />
-                                                                    </ButtonPrimitive>
-                                                                </DropdownMenuTrigger>
-                                                                <DropdownMenuContent
-                                                                    loop
-                                                                    align="end"
-                                                                    side="bottom"
-                                                                    className="max-w-[250px]"
+                                                                </ListBox.Item>
+                                                            </ContextMenuTrigger>
+                                                            <ContextMenuContent loop className="max-w-[250px]">
+                                                                <ContextMenuGroup>
+                                                                    <MenuItems
+                                                                        item={convertToTreeDataItem(item)}
+                                                                        type="context"
+                                                                        root="project://"
+                                                                        onlyTree={false}
+                                                                        showSelectMenuOption={false}
+                                                                    />
+                                                                </ContextMenuGroup>
+                                                            </ContextMenuContent>
+                                                        </ContextMenu>
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <ButtonPrimitive
+                                                                    size="xs"
+                                                                    iconOnly
+                                                                    isSideActionRight
+                                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
                                                                 >
-                                                                    <DropdownMenuGroup>
-                                                                        <MenuItems
-                                                                            item={convertToTreeDataItem(item)}
-                                                                            type="dropdown"
-                                                                            root="project://"
-                                                                            onlyTree={false}
-                                                                            showSelectMenuOption={false}
-                                                                        />
-                                                                    </DropdownMenuGroup>
-                                                                </DropdownMenuContent>
-                                                            </DropdownMenu>
-                                                        </ButtonGroupPrimitive>
-                                                    </ListBox.Item>
+                                                                    <IconEllipsis className="size-3" />
+                                                                </ButtonPrimitive>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent
+                                                                loop
+                                                                align="end"
+                                                                side="bottom"
+                                                                className="max-w-[250px]"
+                                                            >
+                                                                <DropdownMenuGroup>
+                                                                    <MenuItems
+                                                                        item={convertToTreeDataItem(item)}
+                                                                        type="dropdown"
+                                                                        root="project://"
+                                                                        onlyTree={false}
+                                                                        showSelectMenuOption={false}
+                                                                    />
+                                                                </DropdownMenuGroup>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </ButtonGroupPrimitive>
                                                 ))
                                             )}
                                         </div>
