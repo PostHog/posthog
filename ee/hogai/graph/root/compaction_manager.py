@@ -91,11 +91,11 @@ class ConversationCompactionManager(ABC):
         char_count = 0
         if isinstance(message, HumanMessage):
             char_count = len(message.content)
-        if isinstance(message, AssistantMessage):
+        elif isinstance(message, AssistantMessage):
             char_count = len(message.content) + sum(
                 len(json.dumps(m.args, separators=(",", ":"))) for m in message.tool_calls or []
             )
-        if isinstance(message, AssistantToolCallMessage):
+        elif isinstance(message, AssistantToolCallMessage):
             char_count = len(message.content)
         return round(char_count / self.APPROXIMATE_TOKEN_LENGTH)
 

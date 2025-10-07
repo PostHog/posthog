@@ -400,7 +400,9 @@ class RootNodeTools(AssistantNode):
             try:
                 result = await tool_class.ainvoke(tool_call.model_dump(), config)
                 if not isinstance(result, LangchainToolMessage):
-                    raise ValueError("Expected LangchainToolMessage")
+                    raise ValueError(
+                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                    )
             except Exception as e:
                 capture_exception(
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)

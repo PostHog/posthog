@@ -1228,8 +1228,8 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
-    async def test_arun_tool_returns_wrong_type_raises(self):
-        """Test that tool returning wrong type raises ValueError"""
+    async def test_arun_tool_returns_wrong_type_returns_error_message(self):
+        """Test that tool returning wrong type returns an error message"""
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
