@@ -533,7 +533,8 @@ async def initialize_tool(
     config: RunnableConfig | None = None,
 ) -> ToolClass:
     try:
-        return await tool_class.create_tool_class(team=team, user=user, state=state, config=config)
+        if hasattr(tool_class, "create_tool_class"):
+            return await tool_class.create_tool_class(team=team, user=user, state=state, config=config)
     except NotImplementedError:
         pass
     return tool_class(team=team, user=user, state=state, config=config)
