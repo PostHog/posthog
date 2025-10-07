@@ -17,6 +17,7 @@ import {
     IconGear,
     IconLeave,
     IconLogomark,
+    IconRedux,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -55,7 +56,7 @@ const typeToIconAndDescription = {
         tooltip: 'Console log',
     },
     'app-state': {
-        Icon: IconTerminal,
+        Icon: IconRedux,
         tooltip: 'State log',
     },
     network: {
@@ -322,43 +323,38 @@ const ListItemTitle = memo(function ListItemTitle({
     )
 })
 
-const ListItemDetail = memo(
-    function ListItemDetail({ item, index }: { item: InspectorListItem; index: number }) {
-        const { logicProps } = useValues(sessionRecordingPlayerLogic)
-        const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: InspectorListItem; index: number }) {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
-        const { end } = useValues(playerInspectorLogic(logicProps))
-        const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
+    const { end } = useValues(playerInspectorLogic(logicProps))
+    const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
-        // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
-        // Ceiling second is used since this is what's displayed to the user.
-        const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
+    // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
+    // Ceiling second is used since this is what's displayed to the user.
+    const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
 
-        return (
-            <div
-                className={clsx(
-                    'w-full mx-2 overflow-hidden',
-                    item.highlightColor && `bg-${item.highlightColor}-highlight`
-                )}
-            >
-                <div className="text-xs">
-                    <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
-                    <LemonDivider dashed />
+    return (
+        <div
+            className={clsx(
+                'w-full mx-2 overflow-hidden',
+                item.highlightColor && `bg-${item.highlightColor}-highlight`
+            )}
+        >
+            <div className="text-xs">
+                <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                <LemonDivider dashed />
 
-                    <div
-                        className="flex justify-end cursor-pointer mx-2 my-1"
-                        onClick={() => setItemExpanded(index, false)}
-                    >
-                        <span className="text-secondary">Collapse</span>
-                    </div>
+                <div
+                    className="flex justify-end cursor-pointer mx-2 my-1"
+                    onClick={() => setItemExpanded(index, false)}
+                >
+                    <span className="text-secondary">Collapse</span>
                 </div>
             </div>
-        )
-    },
-    (prevProps, nextProps) => {
-        return prevProps.item.key === nextProps.item.key && prevProps.index === nextProps.index
-    }
-)
+        </div>
+    )
+}, objectsEqual)
 
 export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     item,

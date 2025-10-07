@@ -142,7 +142,11 @@ export function initKea({
         }
     }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
+    // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
+    const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
+    const localStorageDisablesLogging = localStorageLoggingFlag === 'false'
+    const localStorageEnablesLogging = localStorageLoggingFlag === 'true'
+    if (!localStorageDisablesLogging && (localStorageEnablesLogging || window.JS_KEA_VERBOSE_LOGGING)) {
         plugins.push(
             posthogKeaLogger({
                 logger: sessionRecordingLoggerForPostHogInstance(window.posthog),

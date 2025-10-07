@@ -2293,6 +2293,45 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_update_experiment_exposure_config_with_action(self):
+        # Create an action
+        action = Action.objects.create(
+            name="Test Action",
+            team=self.team,
+            steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
+        )
+
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": False,
+                    "exposure_config": {
+                        "kind": "ActionsNode",
+                        "id": action.id,
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        experiment = Experiment.objects.get(id=experiment.id)
+        assert experiment.exposure_criteria is not None
+        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], False)
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["kind"], "ActionsNode")
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["id"], action.id)
+
     def test_create_experiment_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
