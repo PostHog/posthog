@@ -118,8 +118,7 @@ class TaxonomyAgentToolkit:
     @cached_property
     def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
-        group_types = self._groups.values_list("group_type", flat=True)
-        return group_types
+        return list(self._groups.values_list("group_type", flat=True))
 
     @cached_property
     def _entity_names(self) -> list[str]:
