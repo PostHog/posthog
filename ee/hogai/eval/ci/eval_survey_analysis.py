@@ -39,7 +39,7 @@ def generate_test_data_responses():
 
 def generate_mixed_data_responses():
     """Generate mixed test and genuine responses (60% test, 40% genuine)."""
-    test_responses = []
+    test_responses: list[dict] = []
 
     genuine_responses = [
         # Interface feedback
