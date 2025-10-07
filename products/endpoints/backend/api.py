@@ -3,7 +3,6 @@ from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
-from django.utils.text import slugify
 
 from django_filters.rest_framework import DjangoFilterBackend
 from pydantic import BaseModel
@@ -112,7 +111,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             if name is not None or strict:
                 raise ValidationError("Endpoint must have a name.")
             return
-        if not isinstance(name, str) or not re.fullmatch(r"^[a-zA-Z0-9_\-\s]{1,128}$", name):
+        if not isinstance(name, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,128}$", name):
             raise ValidationError(
                 "Endpoint name must be alphanumeric characters, hyphens, underscores, or spaces, "
                 "and be between 1 and 128 characters long."
@@ -128,12 +127,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=True)
 
-        slugified_name = slugify(data.name)  # verified in validate_request
         try:
             endpoint = Endpoint.objects.create(
                 team=self.team,
                 created_by=cast(User, request.user),
-                name=cast(str, slugified_name),
+                name=cast(str, data.name),  # verified in validate_request
                 query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
                 description=data.description or "",
                 is_active=data.is_active if data.is_active is not None else True,
