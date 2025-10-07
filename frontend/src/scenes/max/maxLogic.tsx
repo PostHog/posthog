@@ -337,10 +337,9 @@ export const maxLogic = kea<maxLogicType>([
 
         loadConversationHistorySuccess: ({ payload }) => {
             // Don't update the thread if:
-            // the current chat is not a chat with ID
-            // the current chat is a temp chat
-            // we have explicitly marked
-            // we're in an autorun conversation
+            // - the current chat is not a chat with ID
+            // - the current chat is a temp chat
+            // - we have explicitly marked we're in an autorun conversation
             if (!values.conversationId || values.autoRun || payload?.doNotUpdateCurrentThread) {
                 return
             }
@@ -378,10 +377,11 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
-                // If conversation is not found, reset the thread completely.
-                if (err.status === 404 && currentRecursionDepth >= 3) {
-                    actions.startNewConversation()
-                    lemonToast.error('The chat has not been found.')
+                if (err.status === 404) {
+                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
+                    // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
+                    // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
+                    // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
                     return
                 }
 

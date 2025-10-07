@@ -1562,7 +1562,7 @@
                 }
             ]
         },
-        "AssistantNavigateUrls": {
+        "AssistantNavigateUrl": {
             "description": "Exact possible `urls` keys for the `navigate` tool.",
             "enum": [
                 "actions",
@@ -11284,11 +11284,21 @@
             "required": ["event", "kind", "properties"],
             "type": "object"
         },
+        "ExperimentExposureConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
                 "exposure_config": {
-                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                    "$ref": "#/definitions/ExperimentExposureConfig"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
@@ -11597,7 +11607,10 @@
                     "type": ["string", "null"]
                 },
                 "filters": {
-                    "type": "object"
+                    "items": {
+                        "$ref": "#/definitions/FeatureFlagGroupType"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": ["number", "null"]
@@ -12475,6 +12488,33 @@
             "required": ["type"],
             "type": "object"
         },
+        "FeatureFlagGroupType": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "rollout_percentage": {
+                    "type": ["number", "null"]
+                },
+                "sort_key": {
+                    "type": ["string", "null"]
+                },
+                "users_affected": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "FeaturePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12592,7 +12632,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
-                "embedded_analytics",
+                "endpoints",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -25272,6 +25312,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "personId": {
+                    "description": "Person who performed the event",
+                    "type": "string"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -25762,6 +25806,9 @@
                 "is_email_verified": {},
                 "last_name": {
                     "type": "string"
+                },
+                "role_at_organization": {
+                    "type": ["string", "null"]
                 },
                 "uuid": {
                     "type": "string"

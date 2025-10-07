@@ -364,6 +364,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_CONNECTIONS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
@@ -472,6 +474,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     HEAP_DUMP_S3_PREFIX: string
     HEAP_DUMP_S3_ENDPOINT: string
     HEAP_DUMP_S3_REGION: string
+
+    // Pod termination
+    POD_TERMINATION_ENABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
