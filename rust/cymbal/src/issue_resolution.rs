@@ -403,7 +403,7 @@ async fn send_new_fingerprint_event(
 
     let res = send_iter_to_kafka(
         &context.immediate_producer,
-        &context.config.new_fingerprints_topic,
+        &context.config.embedding_worker_topic,
         &[request],
     )
     .await
