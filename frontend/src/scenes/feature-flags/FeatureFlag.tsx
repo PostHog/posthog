@@ -1348,7 +1348,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                             (featureFlag.has_encrypted_payloads &&
                                                                 Boolean(featureFlag.filters?.payloads?.['true']))
                                                         }
-                                                        placeholder='Examples: "A string", 2500, {"key": "value"}'
+                                                        placeholder={'Examples: "A string", 2500, {"key": "value"}'}
                                                     />
                                                 </LemonField>
                                             </Group>

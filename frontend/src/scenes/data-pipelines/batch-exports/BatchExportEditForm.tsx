@@ -66,7 +66,11 @@ export function BatchExportGeneralEditFields({
                             label={
                                 <span className="flex gap-2 items-center">
                                     Create in paused state
-                                    <Tooltip title="If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date.">
+                                    <Tooltip
+                                        title={
+                                            "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
+                                        }
+                                    >
                                         <IconInfo className="text-lg text-secondary" />
                                     </Tooltip>
                                 </span>

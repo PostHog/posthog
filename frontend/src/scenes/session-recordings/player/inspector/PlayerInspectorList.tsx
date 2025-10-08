@@ -49,7 +49,7 @@ export function PlayerInspectorList(): JSX.Element {
             positionMarkerEl.id = 'PlayerInspectorListMarker'
             listElement?.appendChild(positionMarkerEl)
         }
-    }, [])
+    }, [listRef.current])
 
     useEffect(() => {
         if (listRef.current) {

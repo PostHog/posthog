@@ -126,7 +126,7 @@ const VariableInput = ({
 
     useEffect(() => {
         inputRef.current?.focus()
-    }, [])
+    }, [inputRef.current])
 
     const variableAsHogQL = `{variables.${variable.code_name}}`
 

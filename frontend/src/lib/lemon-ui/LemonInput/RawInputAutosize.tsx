@@ -21,7 +21,7 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
         if (inputRef.current) {
             setInputStyles(getComputedStyle(inputRef.current))
         }
-    }, [])
+    }, [inputRef.current])
 
     useLayoutEffect(() => {
         if (inputStyles) {
@@ -47,7 +47,7 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
         if (newInputWidth !== inputWidth) {
             setInputWidth(newInputWidth)
         }
-    }, [sizerRef.current, inputProps.placeholder, inputProps.value, inputWidth])
+    }, [sizerRef.current, placeHolderSizerRef.current, inputProps.placeholder, inputProps.value, inputWidth])
 
     return (
         <div className={clsx('relative min-w-0', wrapperClassName)}>

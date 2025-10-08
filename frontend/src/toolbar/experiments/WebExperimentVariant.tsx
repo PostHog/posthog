@@ -43,7 +43,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                                 }
                             }
                         }}
-                        placeholder='Example: "test-1"'
+                        placeholder={`Example: "test-1"`}
                     />
                 </div>
             )}

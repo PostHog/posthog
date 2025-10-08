@@ -210,7 +210,7 @@ export function LemonTable<T extends Record<string, any>>({
                 window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
             }
         }
-    }, [paginationState.currentPage])
+    }, [paginationState.currentPage, scrollRef.current])
 
     if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
