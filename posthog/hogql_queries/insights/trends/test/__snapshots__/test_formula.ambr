@@ -5,16 +5,16 @@
   FROM events AS e SAMPLE 1
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 13:01:01', 'UTC'))), equals(e.event, 'session start'))
   ORDER BY 1 DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_aggregated_one_without_events.1
@@ -23,16 +23,16 @@
   FROM events AS e SAMPLE 1
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 13:01:01', 'UTC'))), equals(e.event, 'session error'))
   ORDER BY 1 DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown
@@ -66,16 +66,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown.1
@@ -109,16 +109,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated
@@ -146,16 +146,16 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated.1
@@ -183,16 +183,16 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort
@@ -252,16 +252,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.3
@@ -295,16 +295,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.4
@@ -348,16 +348,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.5
@@ -401,16 +401,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql
@@ -461,16 +461,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql.1
@@ -521,16 +521,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
@@ -564,16 +564,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
@@ -607,16 +607,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions
@@ -636,16 +636,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions.1
@@ -672,16 +672,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative
@@ -701,16 +701,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative.1
@@ -730,16 +730,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative
@@ -759,16 +759,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative.1
@@ -788,16 +788,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
@@ -830,16 +830,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
@@ -859,16 +859,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
@@ -895,16 +895,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
@@ -924,16 +924,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
@@ -960,16 +960,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
@@ -996,15 +996,15 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
