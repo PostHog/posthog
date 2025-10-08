@@ -203,9 +203,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setSourceConnectionDetailsConfirmed: (areSourceConnectionDetailsConfirmed: boolean) => ({
-            areSourceConnectionDetailsConfirmed,
-        }),
         setSourceId: (id: string) => ({ sourceId: id }),
         closeWizard: true,
         cancelWizard: true,
@@ -319,13 +316,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
-            },
-        ],
-        areSourceConnectionDetailsConfirmed: [
-            false as boolean,
-            {
-                setSourceConnectionDetailsConfirmed: (_, { areSourceConnectionDetailsConfirmed }) =>
-                    areSourceConnectionDetailsConfirmed,
             },
         ],
         sourceId: [
