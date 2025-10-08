@@ -206,6 +206,7 @@ export function OperatorValueSelect({
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
+                    // High flex-grow for proper sizing within TaxonomicPropertyFilter
                     className="shrink grow-[1000] min-w-[10rem]"
                     data-attr="taxonomic-value-select"
                 >
@@ -232,6 +233,7 @@ export function OperatorValueSelect({
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         onApply={onApply}
+                        // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
                         groupTypeIndex={groupTypeIndex}
