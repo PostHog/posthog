@@ -39,12 +39,12 @@ def validate_sources_map(sources_map: dict) -> None:
                 )
 
 
-def validate_attribution_window_weeks(weeks: int) -> None:
-    """Validate attribution window weeks is between 1 and 52."""
-    if not isinstance(weeks, int):
-        raise ValidationError("attribution_window_weeks must be an integer")
-    if weeks < 1 or weeks > 52:
-        raise ValidationError("attribution_window_weeks must be between 1 and 52")
+def validate_attribution_window_days(days: int) -> None:
+    """Validate attribution window days is between 1 and 365."""
+    if not isinstance(days, int):
+        raise ValidationError("attribution_window_days must be an integer")
+    if days < 1 or days > 365:
+        raise ValidationError("attribution_window_days must be between 1 and 365")
 
 
 def validate_attribution_mode(mode: str) -> None:
@@ -130,7 +130,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     # Attribution settings
-    attribution_window_weeks = models.IntegerField(default=52, help_text="Attribution window in weeks (1-52)")
+    attribution_window_days = models.IntegerField(default=90, help_text="Attribution window in days (1-365)")
     attribution_mode = models.CharField(
         max_length=20,
         default=AttributionMode.LAST_TOUCH,
@@ -147,7 +147,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     def clean(self):
         """Validate model fields"""
         super().clean()
-        validate_attribution_window_weeks(self.attribution_window_weeks)
+        validate_attribution_window_days(self.attribution_window_days)
         validate_attribution_mode(self.attribution_mode)
 
     def save(self, *args, **kwargs):
@@ -232,7 +232,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         return {
             "base_currency": self.team.base_currency,
             "sources_map": self.sources_map,
-            "attribution_window_weeks": self.attribution_window_weeks,
+            "attribution_window_days": self.attribution_window_days,
             "attribution_mode": self.attribution_mode,
         }
 

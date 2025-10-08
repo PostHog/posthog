@@ -3890,7 +3890,7 @@ export enum AttributionMode {
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
-    attribution_window_weeks?: number
+    attribution_window_days?: number
     attribution_mode?: AttributionMode
 }
 

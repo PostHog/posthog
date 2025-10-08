@@ -203,14 +203,14 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
-    attribution_window_weeks = serializers.IntegerField(required=False, min_value=1, max_value=52)
+    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=365)
     attribution_mode = serializers.ChoiceField(
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
     )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map", "conversion_goals", "attribution_window_weeks", "attribution_mode"]
+        fields = ["sources_map", "conversion_goals", "attribution_window_days", "attribution_mode"]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -230,8 +230,8 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             instance.conversion_goals = validated_data["conversion_goals"]
 
         # Handle attribution settings
-        if "attribution_window_weeks" in validated_data:
-            instance.attribution_window_weeks = validated_data["attribution_window_weeks"]
+        if "attribution_window_days" in validated_data:
+            instance.attribution_window_days = validated_data["attribution_window_days"]
 
         if "attribution_mode" in validated_data:
             instance.attribution_mode = validated_data["attribution_mode"]
@@ -686,7 +686,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 if instance.marketing_analytics_config.sources_map
                 else {}
             ),
-            "attribution_window_weeks": instance.marketing_analytics_config.attribution_window_weeks,
+            "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
             "attribution_mode": instance.marketing_analytics_config.attribution_mode,
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
@@ -703,7 +703,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Log activity for marketing analytics config changes
         new_config = {
             "sources_map": validated_data.get("sources_map", {}),
-            "attribution_window_weeks": validated_data.get("attribution_window_weeks"),
+            "attribution_window_days": validated_data.get("attribution_window_days"),
             "attribution_mode": validated_data.get("attribution_mode"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),

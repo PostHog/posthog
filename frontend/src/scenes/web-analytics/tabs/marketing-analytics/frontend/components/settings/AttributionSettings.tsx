@@ -13,9 +13,13 @@ import { AttributionMode } from '~/queries/schema/schema-general'
 import { teamLogic } from '~/scenes/teamLogic'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-
-const DEFAULT_ATTRIBUTION_WINDOW_WEEKS = 52
-const DEFAULT_ATTRIBUTION_MODE = AttributionMode.LastTouch
+import {
+    DEFAULT_ATTRIBUTION_MODE,
+    DEFAULT_ATTRIBUTION_WINDOW_DAYS,
+    MAX_ATTRIBUTION_WINDOW_DAYS,
+    MIN_ATTRIBUTION_WINDOW_DAYS,
+    STEP_ATTRIBUTION_WINDOW_DAYS,
+} from '../../logic/utils'
 
 export function AttributionSettings(): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
@@ -23,28 +27,27 @@ export function AttributionSettings(): JSX.Element {
     const { currentTeamLoading } = useValues(teamLogic)
 
     // Get attribution settings from config with defaults
-    const attribution_window_weeks =
-        marketingAnalyticsConfig?.attribution_window_weeks ?? DEFAULT_ATTRIBUTION_WINDOW_WEEKS
+    const attribution_window_days = marketingAnalyticsConfig?.attribution_window_days ?? DEFAULT_ATTRIBUTION_WINDOW_DAYS
     const attribution_mode = marketingAnalyticsConfig?.attribution_mode ?? DEFAULT_ATTRIBUTION_MODE
 
     // Local state for immediate UI updates
-    const [localWeeks, setLocalWeeks] = useState(attribution_window_weeks)
+    const [localDays, setLocalDays] = useState(attribution_window_days)
     const [localAttributionMode, setLocalAttributionMode] = useState(attribution_mode)
 
     // Sync local state when store value changes
     useEffect(() => {
-        setLocalWeeks(attribution_window_weeks)
-    }, [attribution_window_weeks])
+        setLocalDays(attribution_window_days)
+    }, [attribution_window_days])
 
     useEffect(() => {
         setLocalAttributionMode(attribution_mode)
     }, [attribution_mode])
 
-    const updateAttributionWindowWeeks = (weeks: number): void => {
+    const updateAttributionWindowDays = (days: number): void => {
         updateCurrentTeam({
             marketing_analytics_config: {
                 ...marketingAnalyticsConfig,
-                attribution_window_weeks: weeks,
+                attribution_window_days: days,
             },
         })
     }
@@ -59,15 +62,15 @@ export function AttributionSettings(): JSX.Element {
     }
 
     // Debounce the team update to avoid excessive API calls
-    const debouncedUpdateWeeks = useMemo(
-        () => debounce((weeks: number) => updateAttributionWindowWeeks(weeks), 500),
-        [updateAttributionWindowWeeks]
+    const debouncedUpdateDays = useMemo(
+        () => debounce((days: number) => updateAttributionWindowDays(days), 500),
+        [updateAttributionWindowDays]
     )
 
     // Handle slider change: update UI immediately, debounce team update
-    const handleWeeksChange = (weeks: number): void => {
-        setLocalWeeks(weeks)
-        debouncedUpdateWeeks(weeks)
+    const handleDaysChange = (days: number): void => {
+        setLocalDays(days)
+        debouncedUpdateDays(days)
     }
 
     // Handle attribution mode change: update UI immediately, update backend
@@ -98,14 +101,20 @@ export function AttributionSettings(): JSX.Element {
                 <div>
                     <label className="block text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Window
-                        <Tooltip title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 4-week window, if someone converts today, we'll look back 4 weeks for any UTM campaigns they interacted with. Recommendation: Use 4-8 weeks for short sales cycles, 12+ weeks for longer consideration periods.">
+                        <Tooltip title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods.">
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
                     <div className="max-w-md">
-                        <LemonSlider min={1} max={52} step={1} value={localWeeks} onChange={handleWeeksChange} />
+                        <LemonSlider
+                            min={MIN_ATTRIBUTION_WINDOW_DAYS}
+                            max={MAX_ATTRIBUTION_WINDOW_DAYS}
+                            step={STEP_ATTRIBUTION_WINDOW_DAYS}
+                            value={localDays}
+                            onChange={handleDaysChange}
+                        />
                         <div className="text-sm text-muted-foreground mt-2">
-                            {localWeeks} week{localWeeks !== 1 ? 's' : ''} ({localWeeks * 7} days)
+                            {localDays} day{localDays !== 1 ? 's' : ''} ({Math.round(localDays / 7)} weeks)
                         </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">

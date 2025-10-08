@@ -7,12 +7,12 @@ import { AttributionMode, MarketingAnalyticsColumnsSchemaNames } from '~/queries
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
-import { generateUniqueName } from './utils'
+import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
     conversion_goals: [],
-    attribution_window_weeks: 52,
+    attribution_window_days: DEFAULT_ATTRIBUTION_WINDOW_DAYS,
     attribution_mode: AttributionMode.LastTouch,
 })
 
@@ -126,11 +126,11 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, sources_map: updatedSourcesMap }
                 },
-                updateAttributionWindowWeeks: (state: MarketingAnalyticsConfig | null, { weeks }) => {
+                updateAttributionWindowDays: (state: MarketingAnalyticsConfig | null, { days }) => {
                     if (!state) {
-                        return { ...createEmptyConfig(), attribution_window_weeks: weeks }
+                        return { ...createEmptyConfig(), attribution_window_days: days }
                     }
-                    return { ...state, attribution_window_weeks: weeks }
+                    return { ...state, attribution_window_days: days }
                 },
                 updateAttributionMode: (state: MarketingAnalyticsConfig | null, { mode }) => {
                     if (!state) {
@@ -160,10 +160,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.conversion_goals || []
             },
         ],
-        attribution_window_weeks: [
+        attribution_window_days: [
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
-                return marketingAnalyticsConfig?.attribution_window_weeks ?? 52
+                return marketingAnalyticsConfig?.attribution_window_days ?? DEFAULT_ATTRIBUTION_WINDOW_DAYS
             },
         ],
         attribution_mode: [

@@ -133,7 +133,7 @@
                           conversion_math_values[i] AS conversion_math_value,
                           conversion_campaigns[i] AS conversion_campaign,
                           conversion_sources[i] AS conversion_source,
-                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31449600))), utm_timestamps)) AS last_utm_timestamp,
+                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
                           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
                           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
                       
@@ -153,7 +153,7 @@
                               events
                           
   WHERE
-                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-11-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-11-01 00:00:00'), toIntervalSecond(31449600))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
+                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-11-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-11-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
                           
   GROUP BY
                               events.person_id
@@ -240,7 +240,7 @@
                           conversion_math_values[i] AS conversion_math_value,
                           conversion_campaigns[i] AS conversion_campaign,
                           conversion_sources[i] AS conversion_source,
-                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31449600))), utm_timestamps)) AS last_utm_timestamp,
+                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
                           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
                           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
                       
@@ -260,7 +260,7 @@
                               events
                           
   WHERE
-                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-09-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-09-01 00:00:00'), toIntervalSecond(31449600))), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))))
+                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-09-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-09-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))))
                           
   GROUP BY
                               events.person_id

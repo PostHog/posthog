@@ -9072,7 +9072,7 @@ class MarketingAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     attribution_mode: Optional[AttributionMode] = None
-    attribution_window_weeks: Optional[float] = None
+    attribution_window_days: Optional[float] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 

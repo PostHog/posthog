@@ -15842,7 +15842,7 @@
                 "attribution_mode": {
                     "$ref": "#/definitions/AttributionMode"
                 },
-                "attribution_window_weeks": {
+                "attribution_window_days": {
                     "type": "number"
                 },
                 "conversion_goals": {

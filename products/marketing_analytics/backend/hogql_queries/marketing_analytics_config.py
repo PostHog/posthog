@@ -69,7 +69,7 @@ class MarketingAnalyticsConfig:
     decimal_precision: int = DECIMAL_PRECISION
 
     # Attribution settings (can be overridden by team settings)
-    attribution_window_weeks: int = 52
+    attribution_window_days: int = 90
     attribution_mode: str = AttributionMode.LAST_TOUCH
 
     @classmethod
@@ -78,14 +78,9 @@ class MarketingAnalyticsConfig:
         config = cls()
         if hasattr(team, "marketing_analytics_config"):
             ma_config = team.marketing_analytics_config
-            config.attribution_window_weeks = ma_config.attribution_window_weeks
+            config.attribution_window_days = ma_config.attribution_window_days
             config.attribution_mode = ma_config.attribution_mode
         return config
-
-    @property
-    def attribution_window_days(self) -> int:
-        """Get attribution window in days"""
-        return self.attribution_window_weeks * 7
 
     @property
     def attribution_mode_operator(self) -> str:

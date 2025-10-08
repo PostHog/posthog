@@ -2301,6 +2301,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 365
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2779,6 +2780,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 120
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3434,7 +3436,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Test conversion within 30-day attribution window (should attribute)
         processor_within = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-        processor_within.config.attribution_window_weeks = 4
+        processor_within.config.attribution_window_days = 30
 
         additional_conditions_within = [
             ast.CompareOperation(
@@ -3471,7 +3473,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
             ),
         ]
-        processor_beyond.config.attribution_window_weeks = 4
+        processor_beyond.config.attribution_window_days = 30
 
         cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
         response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
@@ -3527,7 +3529,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-        processor.config.attribution_window_weeks = 2
+        processor.config.attribution_window_days = 10
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -3850,8 +3852,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should handle long values gracefully (truncate or handle full value)
         Tests handling of abnormally long UTM parameter values
         """
-        long_campaign = "very_long_campaign_name_" + "x" * 100  # Long campaign name (reduced for memory)
-        long_source = "extremely_long_source_name_" + "y" * 50  # Long source (reduced for memory)
+        long_campaign = "very_long_campaign_name_" + "x" * 500
+        long_source = "extremely_long_source_name_" + "y" * 300
 
         with freeze_time("2023-03-01"):
             _create_person(distinct_ids=["long_utm_user"], team=self.team)
@@ -4553,7 +4555,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-        processor.config.attribution_window_weeks = 26
+        processor.config.attribution_window_days = 180
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4632,7 +4634,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-        processor.config.attribution_window_weeks = 26
+        processor.config.attribution_window_days = 180
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4728,7 +4730,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-        processor.config.attribution_window_weeks = 4
+        processor.config.attribution_window_days = 30
 
         # Query range: June 2 to July 2 (includes both conversions)
         additional_conditions = [

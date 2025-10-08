@@ -1,4 +1,5 @@
 import {
+    AttributionMode,
     ConversionGoalFilter,
     CurrencyCode,
     DataWarehouseNode,
@@ -55,6 +56,12 @@ export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketin
     RedditAds: [REDDIT_ADS_CAMPAIGN_TABLE_NAME, REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME],
     MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
 }
+
+export const MAX_ATTRIBUTION_WINDOW_DAYS = 365
+export const MIN_ATTRIBUTION_WINDOW_DAYS = 1
+export const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 90
+export const STEP_ATTRIBUTION_WINDOW_DAYS = 1
+export const DEFAULT_ATTRIBUTION_MODE = AttributionMode.LastTouch
 
 export function MarketingDashboardMapper(
     source: NativeSource,
