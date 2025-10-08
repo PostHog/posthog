@@ -1,5 +1,6 @@
 from posthog.schema import (
     ActionsNode,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -211,7 +212,13 @@ class ExperimentQueryBuilder:
         """
         Builds the metric predicate as an AST expression.
         """
-        event_name = self.metric.source.event if hasattr(self.metric.source, "event") else None
+
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # TODO: Implement support for DatawarehouseNode
+        assert isinstance(self.metric.source, EventsNode | ActionsNode)
+
+        metric_event_filter = event_or_action_to_filter(self.team, self.metric.source)
 
         # Build conversion window constraint
         if self.metric.conversion_window and self.metric.conversion_window_unit:
@@ -226,13 +233,13 @@ class ExperimentQueryBuilder:
             """
             timestamp >= {date_from}
             AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
-            AND event = {event_name}
+            AND {metric_event_filter}
             """,
             placeholders={
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": self.date_range_query.date_to_as_hogql(),
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-                "event_name": ast.Constant(value=event_name),
+                "metric_event_filter": metric_event_filter,
             },
         )
 
