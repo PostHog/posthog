@@ -159,7 +159,6 @@ dependencies = [
     "asgiref==3.8.1",
     "claude-code-sdk>=0.0.14",
     "user-agents>=2.2.0",
-    "django-mcp-server==0.5.6",
     "django-admin-inline-paginator===0.4.0",
     "fastavro>=1.12.0",
     "pydantic-avro>=0.9.0",
