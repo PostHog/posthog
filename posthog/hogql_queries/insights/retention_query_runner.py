@@ -373,8 +373,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        setup = self._get_actor_query_setup()
-
         interval = self.query_date_range.interval_name
         if interval == "Hour":
             unit, count = "hour", 1
@@ -385,16 +383,24 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         else:  # Day
             unit, count = "hour", 24
 
+        t0_expr: ast.Expr
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            t0_expr = self._get_first_time_anchor_expr()
+        else:
+            t0_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": self.start_entity_expr})
+
         # CTE to get t_0 for each actor
         first_event_cte = ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", setup.target_field])),
-                ast.Alias(alias="t_0", expr=self._get_first_time_anchor_expr()),
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
+                ast.Alias(alias="t_0", expr=t0_expr),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=setup.global_event_filters),
+            where=ast.And(exprs=self.global_event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
-            having=ast.CompareOperation(op=ast.CompareOperationOp.IsNotNull, left=ast.Field(chain=["t_0"]), right=None),
+            having=ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["t_0"]), right=ast.Constant(value=None)
+            ),
         )
 
         inner_query = ast.SelectQuery(
@@ -434,7 +440,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         )
                         """,
                         {
-                            "return_entity_expr": setup.return_entity_expr,
+                            "return_entity_expr": self.return_entity_expr,
                             "unit": ast.Constant(value=unit),
                             "count": ast.Constant(value=count),
                         },
@@ -447,14 +453,17 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     table=first_event_cte,
                     alias="actors_with_t0",
                     join_type="INNER JOIN",
-                    constraint=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["events", setup.target_field]),
-                        right=ast.Field(chain=["actors_with_t0", "actor_id"]),
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", self.target_field]),
+                            right=ast.Field(chain=["actors_with_t0", "actor_id"]),
+                        ),
+                        constraint_type="ON",
                     ),
                 ),
             ),
-            where=ast.And(exprs=[*setup.global_event_filters, parse_expr("timestamp >= t_0")]),
+            where=ast.And(exprs=[*self.global_event_filters, parse_expr("timestamp >= t_0")]),
             group_by=[ast.Field(chain=["actors_with_t0", "actor_id"]), ast.Field(chain=["actors_with_t0", "t_0"])],
         )
 

@@ -5338,8 +5338,8 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         # Day 1 cohort: person2 did event on Day 1 (1 AM) and Day 2 (2 AM)
         calendar_day_1 = next(row for row in calendar_result_2 if row["label"] == "Day 1")
-        self.assertEqual(calendar_day_1["values"][0]["count"], 1)  # Day 0 (same day, includes 11 PM)
-        self.assertEqual(calendar_day_1["values"][1]["count"], 1)  # Day 1 (next day, 2 AM)
+        self.assertEqual(calendar_day_1["values"][0]["count"], 2)  # Day 0 (same day, includes person1 and person2)
+        self.assertEqual(calendar_day_1["values"][1]["count"], 1)  # Day 1 (next day, only person2)
 
         # With 24-hour windows
         window_result_2 = self.run_query(
