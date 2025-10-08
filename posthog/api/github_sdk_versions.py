@@ -446,7 +446,7 @@ def fetch_ruby_sdk_data() -> Optional[dict[str, Any]]:
 
 
 def fetch_elixir_sdk_data() -> Optional[dict[str, Any]]:
-    """Fetch Elixir SDK data from CHANGELOG.md (simplified logic)"""
+    """Fetch Elixir SDK data from CHANGELOG.md with release dates"""
     try:
         # Fetch CHANGELOG.md for versions
         changelog_response = requests.get(
@@ -456,17 +456,21 @@ def fetch_elixir_sdk_data() -> Optional[dict[str, Any]]:
             return None
 
         changelog_content = changelog_response.text
-        # Elixir format: ## 1.1.0 - 2025-07-01
-        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+)", re.MULTILINE)
+        # Elixir format: ## 2.0.0 - 2025-09-30
+        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})", re.MULTILINE)
         matches = version_pattern.findall(changelog_content)
 
         if not matches:
             return None
 
-        latest_version = matches[0]
-        versions = matches
+        latest_version = matches[0][0]
+        versions = []
+        release_dates = {}
+        for version, date in matches:
+            versions.append(version)
+            release_dates[version] = f"{date}T00:00:00Z"
 
-        return {"latestVersion": latest_version, "versions": versions, "releaseDates": {}}
+        return {"latestVersion": latest_version, "versions": versions, "releaseDates": release_dates}
     except Exception:
         return None
 
