@@ -706,24 +706,19 @@ async fn it_should_not_set_force_disable_person_processing_header_when_rate_limi
 
     let server = ServerHandle::for_config(config).await;
 
-    // First event should go to main topic
-    let batch_1 = json!([{
+    // Send both events in a single batch to ensure rate limiting triggers
+    // First event goes to main, second should overflow
+    let events = json!([{
         "token": token1,
         "event": "event1",
         "distinct_id": distinct_id1,
-    }]);
-
-    let res = server.capture_events(batch_1.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    // Second event should go to overflow due to rate limiting
-    let batch_2 = json!([{
+    },{
         "token": token1,
         "event": "event2",
         "distinct_id": distinct_id1,
     }]);
 
-    let res = server.capture_events(batch_2.to_string()).await;
+    let res = server.capture_events(events.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
     // First event in main topic should NOT have the header
