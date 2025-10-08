@@ -18,6 +18,7 @@ import {
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { fullName } from 'lib/utils'
+import { getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
@@ -27,25 +28,6 @@ import {
     RoleResourceAccessControls,
     resourcesAccessControlLogic,
 } from './resourcesAccessControlLogic'
-
-/**
- * Returns the minimum allowed access level for a resource.
- * Matches the backend minimum_access_level function in user_access_control.py
- */
-const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
-    if (resource === 'action') {
-        return AccessControlLevel.Viewer
-    }
-    return null
-}
-
-const pluralizeResource = (resource: APIScopeObject): string => {
-    if (resource === 'revenue_analytics') {
-        return 'revenue analytics'
-    }
-
-    return resource.replace(/_/g, ' ') + 's'
-}
 
 const SummarizeAccessLevels = ({
     accessControlByResource,
