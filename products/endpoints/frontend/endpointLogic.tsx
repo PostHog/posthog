@@ -40,6 +40,8 @@ export const endpointLogic = kea<endpointLogicType>([
         setEndpointName: (endpointName: string) => ({ endpointName }),
         setEndpointDescription: (endpointDescription: string) => ({ endpointDescription }),
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
+        setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
+        setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: (error: any) => ({ error }),
@@ -60,6 +62,18 @@ export const endpointLogic = kea<endpointLogicType>([
             { setEndpointDescription: (_, { endpointDescription }) => endpointDescription },
         ],
         activeCodeExampleTab: ['terminal' as CodeExampleTab, { setActiveCodeExampleTab: (_, { tab }) => tab }],
+        isUpdateMode: [
+            false,
+            {
+                setIsUpdateMode: (_, { isUpdateMode }) => isUpdateMode,
+            },
+        ],
+        selectedEndpointName: [
+            null as string | null,
+            {
+                setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
+            },
+        ],
     }),
     loaders(() => ({
         endpoint: [
@@ -69,7 +83,19 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name || name === 'new') {
                         return { ...NEW_ENDPOINT } as EndpointType
                     }
-                    return api.endpoint.get(name)
+                    const endpoint = await api.endpoint.get(name)
+
+                    // Fetch last execution time
+                    try {
+                        const executionTimes = await api.endpoint.getLastExecutionTimes({ names: [name] })
+                        if (executionTimes[name]) {
+                            endpoint.last_executed_at = executionTimes[name]
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch last execution time:', error)
+                    }
+
+                    return endpoint
                 },
             },
         ],

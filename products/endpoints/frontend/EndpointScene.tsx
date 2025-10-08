@@ -1,15 +1,27 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
+import { IconPause, IconTrash } from '@posthog/icons'
+import { LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import 'lib/lemon-ui/LemonModal/LemonModal'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, Node } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { ActivityScope } from '~/types'
 
+import { EndpointCodeExamples } from './EndpointCodeExamples'
+import { EndpointConfiguration } from './EndpointConfiguration'
 import { EndpointSceneHeader } from './EndpointHeader'
-import { endpointSceneLogic } from './endpointSceneLogic'
+import { EndpointOverview } from './EndpointOverview'
+import { EndpointQuery } from './EndpointQuery'
+import { endpointLogic } from './endpointLogic'
+import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 
 interface EndpointProps {
     tabId?: string
@@ -24,71 +36,132 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     if (!tabId) {
         throw new Error('<EndpointScene /> must receive a tabId prop')
     }
-    const { endpoint, endpointLoading, showQueryEditor, queryToRender } = useValues(endpointSceneLogic({ tabId }))
-    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
+    const { endpoint, endpointLoading, activeTab } = useValues(endpointSceneLogic({ tabId }))
+    const { deleteEndpoint, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { searchParams } = useValues(router)
 
-    const setQuery = (query: Node): void => {
-        let actualQuery: Node
-        if (isInsightVizNode(query)) {
-            actualQuery = query.source
-        } else if (isHogQLQuery(query) || isInsightQueryNode(query)) {
-            actualQuery = query
-        } else {
-            actualQuery = (query as DataTableNode).source
+    const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
+
+    const tabs: LemonTab<EndpointTab>[] = [
+        {
+            key: EndpointTab.QUERY,
+            label: 'Query',
+            content: <EndpointQuery tabId={tabId} />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.QUERY }).url
+                : undefined,
+        },
+        {
+            key: EndpointTab.CONFIGURATION,
+            label: 'Configuration',
+            content: <EndpointConfiguration tabId={tabId} />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CONFIGURATION }).url
+                : undefined,
+        },
+        {
+            key: EndpointTab.CODE,
+            label: 'Code',
+            content: <EndpointCodeExamples tabId={tabId} />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CODE }).url
+                : undefined,
+        },
+        {
+            key: EndpointTab.HISTORY,
+            label: 'History',
+            content: endpoint ? <ActivityLog scope={ActivityScope.ENDPOINT} id={endpoint.id} /> : <></>,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.HISTORY }).url
+                : undefined,
+        },
+    ]
+
+    const handleDelete = (): void => {
+        if (!endpoint?.name) {
+            return
         }
-        setLocalQuery(actualQuery)
+
+        LemonDialog.open({
+            title: 'Delete endpoint?',
+            content: (
+                <div className="text-sm text-secondary">
+                    Are you sure you want to delete this endpoint? This action cannot be undone.
+                </div>
+            ),
+            primaryButton: {
+                children: 'Delete',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => {
+                    deleteEndpoint(endpoint.name)
+                    router.actions.push(urls.endpoints())
+                },
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const handleToggleActive = (): void => {
+        if (!endpoint?.name) {
+            return
+        }
+
+        if (endpoint.is_active) {
+            LemonDialog.open({
+                title: 'Deactivate endpoint?',
+                content: (
+                    <div className="text-sm text-secondary">
+                        Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.
+                    </div>
+                ),
+                primaryButton: {
+                    children: 'Deactivate',
+                    type: 'primary',
+                    status: 'danger',
+                    onClick: () => {
+                        updateEndpoint(endpoint.name, { is_active: false })
+                    },
+                    size: 'small',
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                    size: 'small',
+                },
+            })
+        } else {
+            updateEndpoint(endpoint.name, { is_active: true })
+        }
     }
 
     return (
         <BindLogic logic={endpointSceneLogic} props={{ tabId }}>
             <SceneContent className="Endpoint">
                 <EndpointSceneHeader tabId={tabId} />
-                <div className="flex gap-4">
-                    {/* Left side: Query editor */}
-                    <div className="flex-1">
-                        {queryToRender && !endpointLoading ? (
-                            <Query
-                                key={`${endpoint?.name}-${showQueryEditor}`}
-                                query={queryToRender}
-                                setQuery={setQuery}
-                                readOnly={false}
-                                editMode={true}
-                                context={{
-                                    showQueryEditor,
-                                    showOpenEditorButton: false,
-                                }}
-                            />
-                        ) : null}
-                    </div>
-
-                    {/* Right side: Variables & Configuration */}
-                    <div className="w-80 flex flex-col gap-4">
-                        {/* Variables */}
-                        <div className="border rounded p-4">
-                            <h3 className="text-sm font-semibold mb-2">Variables</h3>
-                            <p className="text-muted text-xs">Variables panel placeholder</p>
-                        </div>
-
-                        {/* Configuration */}
-                        <div className="border rounded p-4">
-                            <h3 className="text-sm font-semibold mb-2">Configuration</h3>
-                            <p className="text-muted text-xs">Materialization options placeholder</p>
-                        </div>
-
-                        {/* Versions */}
-                        <div className="border rounded p-4">
-                            <h3 className="text-sm font-semibold mb-2">Versions</h3>
-                            <p className="text-muted text-xs">Version history placeholder</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Bottom: Endpoint Usage */}
-                <div className="mt-4 border rounded p-4">
-                    <h3 className="text-sm font-semibold mb-2">Endpoint Usage</h3>
-                    <p className="text-muted text-xs">Usage analytics placeholder</p>
-                </div>
+                {!endpointLoading && <EndpointOverview tabId={tabId} />}
+                <LemonTabs activeKey={activeTab} tabs={tabs} />
             </SceneContent>
+            {endpoint && !isNewEndpoint && (
+                <ScenePanel>
+                    <ScenePanelActionsSection>
+                        <ButtonPrimitive menuItem onClick={handleToggleActive}>
+                            <IconPause />
+                            {endpoint.is_active ? 'Deactivate' : 'Activate'}
+                        </ButtonPrimitive>
+                        <LemonDivider />
+                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">
+                            <IconTrash />
+                            Delete endpoint
+                        </ButtonPrimitive>
+                    </ScenePanelActionsSection>
+                </ScenePanel>
+            )}
         </BindLogic>
     )
 }

@@ -115,6 +115,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "endpoint_path": endpoint.endpoint_path,
                 "created_at": endpoint.created_at,
                 "updated_at": endpoint.updated_at,
+                "created_by": UserBasicSerializer(endpoint.created_by).data,
             },
             status=status.HTTP_200_OK,
         )

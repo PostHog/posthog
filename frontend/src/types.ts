@@ -4670,6 +4670,7 @@ export enum ActivityScope {
     TAGGED_ITEM = 'TaggedItem',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
+    ENDPOINT = 'Endpoint',
 }
 
 export type CommentType = {

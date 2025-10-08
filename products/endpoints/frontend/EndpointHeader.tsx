@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { isInsightVizNode } from '~/queries/utils'
 
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
@@ -14,9 +15,7 @@ export interface EndpointSceneHeaderProps {
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
     const { endpoint, endpointLoading, localQuery } = useValues(endpointSceneLogic({ tabId }))
     const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
-    const { setEndpointName, setEndpointDescription, updateEndpoint, createEndpoint } = useActions(
-        endpointLogic({ tabId })
-    )
+    const { setEndpointDescription, updateEndpoint, createEndpoint } = useActions(endpointLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
 
     const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
@@ -27,7 +26,11 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const hasChanges = hasNameChange || hasDescriptionChange || hasQueryChange
 
     const handleSave = (): void => {
-        const queryToSave = (localQuery || endpoint?.query) as any
+        let queryToSave = (localQuery || endpoint?.query) as any
+
+        if (queryToSave && isInsightVizNode(queryToSave)) {
+            queryToSave = queryToSave.source
+        }
 
         if (isNewEndpoint) {
             createEndpoint({
@@ -46,7 +49,6 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
 
     const handleDiscardChanges = (): void => {
         if (endpoint) {
-            setEndpointName(endpoint.name)
             setEndpointDescription(endpoint.description || '')
         }
         setLocalQuery(null)
@@ -59,7 +61,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 description={endpointDescription || endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
                 canEdit
-                onNameChange={(name) => setEndpointName(name)}
+                // onNameChange={(name) => setEndpointName(name)}
                 onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading}
                 renameDebounceMs={200}
@@ -79,7 +81,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                             onClick={handleSave}
                             disabledReason={!hasChanges && !isNewEndpoint && 'No changes to save'}
                         >
-                            {isNewEndpoint ? 'Create' : 'Save'}
+                            {isNewEndpoint ? 'Create' : 'Update'}
                         </LemonButton>
                     </>
                 }

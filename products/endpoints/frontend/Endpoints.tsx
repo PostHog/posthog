@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -34,10 +36,60 @@ export function Endpoints({ tabId }: EndpointsProps): JSX.Element {
 }
 
 export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
-    const { setFilters } = useActions(endpointsLogic({ tabId }))
+    const { setFilters, loadEndpoints } = useActions(endpointsLogic({ tabId }))
     const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
 
-    const { deleteEndpoint, deactivateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { deleteEndpoint, updateEndpoint } = useActions(endpointLogic({ tabId }))
+
+    const handleDelete = (endpointName: string): void => {
+        LemonDialog.open({
+            title: 'Delete endpoint?',
+            content: (
+                <div className="text-sm text-secondary">
+                    Are you sure you want to delete this endpoint? This action cannot be undone.
+                </div>
+            ),
+            primaryButton: {
+                children: 'Delete',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => {
+                    deleteEndpoint(endpointName)
+                },
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const handleDeactivate = (endpointName: string): void => {
+        LemonDialog.open({
+            title: 'Deactivate endpoint?',
+            content: (
+                <div className="text-sm text-secondary">
+                    Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.
+                </div>
+            ),
+            primaryButton: {
+                children: 'Deactivate',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => {
+                    updateEndpoint(endpointName, { is_active: false })
+                },
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
 
     const columns: LemonTableColumns<EndpointType> = [
         {
@@ -123,7 +175,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                             <LemonDivider />
                             <LemonButton
                                 onClick={() => {
-                                    deactivateEndpoint(record.name)
+                                    handleDeactivate(record.name)
                                 }}
                                 fullWidth
                                 status="alt"
@@ -132,7 +184,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                             </LemonButton>
                             <LemonButton
                                 onClick={() => {
-                                    deleteEndpoint(record.name)
+                                    handleDelete(record.name)
                                 }}
                                 fullWidth
                                 status="danger"
@@ -156,6 +208,14 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={() => loadEndpoints()}
+                    loading={allEndpointsLoading}
+                >
+                    Reload
+                </LemonButton>
             </div>
             <LemonTable
                 data-attr="endpoints-table"

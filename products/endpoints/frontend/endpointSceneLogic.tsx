@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -12,6 +13,14 @@ import { Breadcrumb, EndpointType } from '~/types'
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
 
+export enum EndpointTab {
+    QUERY = 'query',
+    CODE = 'code',
+    CONFIGURATION = 'configuration',
+    USAGE = 'usage',
+    HISTORY = 'history',
+}
+
 export const endpointSceneLogic = kea<endpointSceneLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointSceneLogic']),
     tabAwareScene(),
@@ -21,6 +30,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
+        setActiveTab: (tab: EndpointTab) => ({ tab }),
     }),
     reducers({
         localQuery: [
@@ -28,6 +38,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             {
                 setLocalQuery: (_, { query }) => query,
                 loadEndpointSuccess: () => null,
+            },
+        ],
+        activeTab: [
+            EndpointTab.QUERY as EndpointTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -48,6 +64,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     return {
                         kind: NodeKind.DataTableNode,
                         source: currentQuery,
+                        showHogQLEditor: true,
                     } as DataTableNode
                 }
 
@@ -78,10 +95,16 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
-    tabAwareUrlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.endpoint(':name')]: ({ name }: { name?: string }) => {
+            const { searchParams } = router.values
             if (name) {
                 actions.loadEndpoint(name)
+            }
+            if (searchParams.tab && searchParams.tab !== values.activeTab) {
+                actions.setActiveTab(searchParams.tab as EndpointTab)
+            } else if (!searchParams.tab && values.activeTab !== EndpointTab.QUERY) {
+                actions.setActiveTab(EndpointTab.QUERY)
             }
         },
     })),
