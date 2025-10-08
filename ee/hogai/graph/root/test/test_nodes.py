@@ -729,10 +729,10 @@ class TestRootNodeTools(BaseTest):
                 },
             )
 
-        self.assertIsInstance(result, PartialAssistantState)
+        assert isinstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
         tool_message = result.messages[0]
-        self.assertIsInstance(tool_message, AssistantToolCallMessage)
+        assert isinstance(tool_message, AssistantToolCallMessage)
         self.assertEqual(tool_message.content, "Success")
         self.assertEqual(tool_message.tool_call_id, "xyz")
         self.assertEqual(result.root_tool_calls_count, 1)
@@ -824,10 +824,10 @@ class TestRootNodeTools(BaseTest):
             result = await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
 
             # Verify the result is a PartialAssistantState with the expected message
-            self.assertIsInstance(result, PartialAssistantState)
+            assert isinstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
             tool_message = result.messages[0]
-            self.assertIsInstance(tool_message, AssistantToolCallMessage)
+            assert isinstance(tool_message, AssistantToolCallMessage)
             self.assertEqual(tool_message.content, "XXX")
             self.assertEqual(tool_message.tool_call_id, "nav-123")
             self.assertTrue(tool_message.visible)
