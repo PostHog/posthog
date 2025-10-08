@@ -43,7 +43,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
     const { setPropertyGroupModalOpen, setEditingPropertyGroup } = useActions(schemaLogic)
 
     const selectedPropertyGroupIds = useMemo(
-        () => new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id)),
+        () => new Set(eventSchemas.map((schema) => schema.property_group.id)),
         [eventSchemas]
     )
 

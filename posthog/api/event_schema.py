@@ -30,7 +30,7 @@ class EventSchemaSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "property_group", "created_at", "updated_at")
 
     def validate(self, attrs):
         # Ensure property_group belongs to the same team as event_definition

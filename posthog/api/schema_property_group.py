@@ -95,35 +95,60 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         properties_data = validated_data.pop("properties", None)
 
-        with transaction.atomic():
-            instance.name = validated_data.get("name", instance.name)
-            instance.description = validated_data.get("description", instance.description)
-            instance.save()
+        try:
+            with transaction.atomic():
+                instance.name = validated_data.get("name", instance.name)
+                instance.description = validated_data.get("description", instance.description)
+                instance.save()
 
-            if properties_data is not None:
-                existing_properties = {prop.id: prop for prop in instance.properties.all()}
-                incoming_property_ids = {prop.get("id") for prop in properties_data if prop.get("id")}
+                if properties_data is not None:
+                    existing_properties = {prop.id: prop for prop in instance.properties.all()}
+                    incoming_property_ids = {prop.get("id") for prop in properties_data if prop.get("id")}
 
-                # Delete properties that are no longer present
-                properties_to_delete = set(existing_properties.keys()) - incoming_property_ids
-                if properties_to_delete:
-                    SchemaPropertyGroupProperty.objects.filter(id__in=properties_to_delete).delete()
+                    # Delete properties that are no longer present
+                    properties_to_delete = set(existing_properties.keys()) - incoming_property_ids
+                    if properties_to_delete:
+                        SchemaPropertyGroupProperty.objects.filter(id__in=properties_to_delete).delete()
 
-                # Update existing properties and create new ones
-                for property_data in properties_data:
-                    property_id = property_data.pop("id", None)
-                    if property_id and property_id in existing_properties:
-                        # Update existing property
-                        existing_prop = existing_properties[property_id]
-                        for key, value in property_data.items():
-                            setattr(existing_prop, key, value)
-                        existing_prop.save()
-                    else:
-                        # Create new property
-                        SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
+                    # Update existing properties and create new ones
+                    for property_data in properties_data:
+                        property_id = property_data.pop("id", None)
+                        if property_id and property_id in existing_properties:
+                            # Update existing property
+                            existing_prop = existing_properties[property_id]
+                            for key, value in property_data.items():
+                                setattr(existing_prop, key, value)
+                            existing_prop.save()
+                        else:
+                            # Create new property
+                            SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
 
-        # Query fresh instance with properties to ensure all data is current
-        return SchemaPropertyGroup.objects.prefetch_related("properties").get(pk=instance.pk)
+            # Query fresh instance with properties to ensure all data is current
+            return SchemaPropertyGroup.objects.prefetch_related("properties").get(pk=instance.pk)
+        except IntegrityError as e:
+            error_str = str(e)
+
+            # Handle duplicate property name within group
+            if "unique_property_group_property_name" in error_str:
+                # Extract the property name from the error message
+                import re
+
+                match = re.search(r"\(property_group_id, name\)=\([^,]+, ([^)]+)\)", error_str)
+                if match:
+                    property_name = match.group(1)
+                    raise serializers.ValidationError(
+                        {"properties": f"A property named '{property_name}' already exists in this group"}
+                    )
+                raise serializers.ValidationError(
+                    {"properties": "A property with this name already exists in this group"}
+                )
+
+            # Handle duplicate property group name
+            if "unique_schema_property_group_team_name" in error_str:
+                raise serializers.ValidationError({"name": "A property group with this name already exists"})
+
+            logging.error(f"Database integrity error while updating property group: {e}", exc_info=True)
+            raise serializers.ValidationError("Could not update property group due to a database error.")
 
 
 class SchemaPropertyGroupViewSet(

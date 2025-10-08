@@ -4,15 +4,50 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { schemaManagementLogic } from '../schema/schemaManagementLogic'
-import type { SchemaPropertyGroup } from '../schema/schemaManagementLogic'
+import { type SchemaPropertyGroup, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import type { eventDefinitionSchemaLogicType } from './eventDefinitionSchemaLogicType'
 
 export type { SchemaPropertyGroup }
 
+function getErrorMessage(error: any, defaultMessage: string): string {
+    if (error.detail) {
+        const detail = error.detail
+
+        // Handle "property group is already added to this event schema"
+        if (
+            typeof detail === 'string' &&
+            (detail.includes('already added to this event schema') || detail.includes('already exists'))
+        ) {
+            // Extract property group name if available
+            const nameMatch = detail.match(/Property group '([^']+)'/)
+            if (nameMatch) {
+                return `Property group "${nameMatch[1]}" is already added to this event`
+            }
+            return detail
+        }
+
+        // Handle team mismatch errors
+        if (typeof detail === 'string' && detail.includes('must belong to the same team')) {
+            return 'Property group must belong to the same team as the event'
+        }
+
+        // Return the detail if it's a user-friendly string
+        if (typeof detail === 'string' && !detail.includes('IntegrityError') && !detail.includes('Key (')) {
+            return detail
+        }
+    }
+
+    if (error.message && !error.message.includes('IntegrityError')) {
+        return error.message
+    }
+
+    return defaultMessage
+}
+
 export interface EventSchema {
     id: string
     event_definition: string
+    property_group_id: string
     property_group: SchemaPropertyGroup
     created_at: string
     updated_at: string
@@ -62,51 +97,39 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
         availablePropertyGroups: [
             (s) => [s.allPropertyGroups, s.eventSchemas],
             (allPropertyGroups: SchemaPropertyGroup[], eventSchemas: EventSchema[]): SchemaPropertyGroup[] => {
-                const usedGroupIds = new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id))
+                const usedGroupIds = new Set(eventSchemas.map((schema: EventSchema) => schema.property_group_id))
                 return allPropertyGroups.filter((group: SchemaPropertyGroup) => !usedGroupIds.has(group.id))
             },
         ],
     }),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props }) => ({
         addPropertyGroup: async ({ propertyGroupId }) => {
             try {
                 await api.eventSchemas.create({
                     event_definition: props.eventDefinitionId,
                     property_group_id: propertyGroupId,
                 })
-                // Reload to get the updated list from server
                 await actions.loadEventSchemas()
                 lemonToast.success('Property group added to event schema')
             } catch (error: any) {
-                const errorMessage = error.detail || error.message || 'Unknown error'
-                lemonToast.error(`Failed to add property group: ${errorMessage}`)
+                const errorMessage = getErrorMessage(error, 'Failed to add property group')
+                lemonToast.error(errorMessage)
             }
         },
         removePropertyGroup: async ({ eventSchemaId }) => {
             try {
                 await api.eventSchemas.delete(eventSchemaId)
-                // The reducer already handles removing from state
                 lemonToast.success('Property group removed from event schema')
             } catch (error: any) {
-                lemonToast.error(`Failed to remove property group: ${error.detail || error.message}`)
+                const errorMessage = getErrorMessage(error, 'Failed to remove property group')
+                lemonToast.error(errorMessage)
             }
         },
-        // Listen for property group updates from schemaManagementLogic
-        updatePropertyGroupSuccess: async ({ propertyGroups }) => {
-            // Check if any of the updated property groups are used in our event schemas
-            const usedGroupIds = new Set(values.eventSchemas.map((schema: EventSchema) => schema.property_group.id))
-            const wasUpdated = propertyGroups.some((group: SchemaPropertyGroup) => usedGroupIds.has(group.id))
-
-            if (wasUpdated) {
-                // Reload event schemas to get fresh embedded property group data
-                await actions.loadEventSchemas()
-            }
-            // Always reload all property groups to ensure we have the latest list
-            await actions.loadAllPropertyGroups()
+        updatePropertyGroupSuccess: async () => {
+            await actions.loadEventSchemas()
         },
         createPropertyGroupSuccess: async () => {
-            // Reload property groups to include the new one in available list
-            await actions.loadAllPropertyGroups()
+            await actions.loadEventSchemas()
         },
     })),
     afterMount(({ actions }) => {
