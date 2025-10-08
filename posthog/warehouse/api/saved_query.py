@@ -410,7 +410,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
-            .exclude(managed_view_id__isnull=True)  # Exclude managed views for now
+            .filter(managed_view_id__isnull=True)  # Don't include managed views for now
             .order_by(self.ordering)
         )
 

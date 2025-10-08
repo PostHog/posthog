@@ -143,7 +143,7 @@ HOGQL_CLICKHOUSE_MAPPING: dict[type[DatabaseField], str] = {
 
 
 def convert_hogql_type_to_clickhouse_type(hogql_type: DatabaseField) -> str:
-    base = HOGQL_CLICKHOUSE_MAPPING[hogql_type.__class__]
+    base = HOGQL_CLICKHOUSE_MAPPING.get(hogql_type.__class__, "Unknown")
     if hogql_type.nullable:
         base = f"Nullable({base})"
     return base

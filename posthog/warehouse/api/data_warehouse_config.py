@@ -87,9 +87,6 @@ class DataWarehouseConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if enabled is None:
             # No specific value provided, toggle the current state
             enabled = not current_enabled
-        elif isinstance(enabled, str):
-            # Handle string values like "true"/"false"
-            enabled = enabled.lower() in ("true", "1", "yes", "on")
 
         # Determine the new timestamp value
         if enabled:

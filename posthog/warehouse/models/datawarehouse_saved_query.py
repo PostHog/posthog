@@ -83,7 +83,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
-    # The package that this saved query belongs to. If not set, this is a standalone saved query.
+    # The managed view that this saved query belongs to. If not set, this is a standalone saved query.
     managed_view = models.OneToOneField(
         "posthog.DataWarehouseManagedView",
         on_delete=models.SET_NULL,

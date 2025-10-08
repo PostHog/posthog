@@ -46,7 +46,7 @@ class DataWarehouseManagedView(CreatedMetaFields, UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "external_data_source", "kind"],
+                fields=["team", "external_data_source", "event_source", "kind"],
                 name="posthog_datawarehouse_view_package_uniqueness",
             )
         ]
