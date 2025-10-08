@@ -56,9 +56,16 @@ from posthog.tasks.tasks import (
     verify_persons_data_in_sync,
 )
 from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
-from posthog.utils import get_crontab
+from posthog.utils import get_crontab, get_instance_region
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
+
+# Organizations with delayed data ingestion that need delayed usage report re-runs
+# This is a temporary solution until we switch event usage queries from timestamp to created_at
+DELAYED_ORGS_EU = [
+    "01975ab3-7ec5-0000-9751-a89cbc971419",
+]
+DELAYED_ORGS_US = []
 
 
 def add_periodic_task_with_expiry(
@@ -117,6 +124,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
+
+    # Send usage reports for specific orgs with delayed data ingestion
+    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
+    if delayed_orgs:
+        sender.add_periodic_task(
+            crontab(hour="10", minute="00"),
+            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            name="send delayed org usage reports",
+        )
 
     # Send all periodic digest reports
     sender.add_periodic_task(
