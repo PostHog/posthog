@@ -132,7 +132,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="schemapropertygroupproperty",
             index=models.Index(fields=["property_group", "order"], name="schema_pgp_group_order_idx"),
-            concurrent=True,
         ),
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",
@@ -150,7 +149,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="schemapropertygroup",
             index=models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
-            concurrent=True,
         ),
         migrations.AddConstraint(
             model_name="schemapropertygroup",
