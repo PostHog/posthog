@@ -116,7 +116,7 @@ export const maxLogic = kea<maxLogicType>([
         activeStreamingThreads: [
             0,
             {
-                incrActiveStreamingThreads: (state) => Math.max(state + 1, 0),
+                incrActiveStreamingThreads: (state) => state + 1,
                 decrActiveStreamingThreads: (state) => Math.max(state - 1, 0),
             },
         ],
