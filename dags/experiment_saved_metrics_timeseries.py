@@ -24,6 +24,7 @@ from dags.common import JobOwners
 from dags.experiments import (
     _parse_partition_key,
     discover_experiment_metric_partitions,
+    remove_step_sessions_from_experiment_result,
     schedule_experiment_metric_partitions,
 )
 
@@ -65,11 +66,9 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
         f"Computing timeseries results for experiment {experiment_id}, metric {metric_uuid}, fingerprint {fingerprint}"
     )
 
-    # Load experiment and find the saved metric with matching UUID
     try:
         experiment = Experiment.objects.get(id=experiment_id, deleted=False)
 
-        # Find the saved metric via the mapping table and UUID
         saved_metric = None
         for exp_to_sm in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
             if exp_to_sm.saved_metric.query.get("uuid") == metric_uuid:
@@ -82,7 +81,6 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
     except Experiment.DoesNotExist:
         raise dagster.Failure(f"Experiment {experiment_id} not found or deleted")
 
-    # Extract the metric from saved metric's query
     query = saved_metric.query
     if query.get("kind") != "ExperimentMetric":
         raise dagster.Failure(f"Unexpected saved metric query kind: {query.get('kind')}. Expected 'ExperimentMetric'")
@@ -115,9 +113,10 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
         result = query_runner._calculate()
 
+        result = remove_step_sessions_from_experiment_result(result)
+
         completed_at = datetime.now(ZoneInfo("UTC"))
 
-        # Store with the actual metric UUID from the query
         experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -223,7 +222,6 @@ def _get_experiment_saved_metrics_timeseries(context: dagster.SensorEvaluationCo
         for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
             saved_metric = exp_to_saved_metric.saved_metric
 
-            # Compute fingerprint for this saved metric in context of this experiment
             fingerprint = compute_metric_fingerprint(
                 saved_metric.query,
                 experiment.start_date,

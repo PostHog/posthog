@@ -16,13 +16,7 @@ from django.db.models import Q
 
 import dagster
 
-from posthog.schema import (
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
-    ExperimentQuery,
-    ExperimentQueryResponse,
-    ExperimentRatioMetric,
-)
+from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
@@ -32,6 +26,7 @@ from dags.common import JobOwners
 from dags.experiments import (
     _parse_partition_key,
     discover_experiment_metric_partitions,
+    remove_step_sessions_from_experiment_result,
     schedule_experiment_metric_partitions,
 )
 
@@ -44,20 +39,6 @@ experiment_regular_metrics_partitions_def = dagster.DynamicPartitionsDefinition(
 # =============================================================================
 # Asset
 # =============================================================================
-
-
-def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse) -> ExperimentQueryResponse:
-    """
-    Remove step_sessions values from experiment results to reduce API response size.
-    """
-    if result.baseline is not None:
-        result.baseline.step_sessions = None
-
-    if result.variant_results is not None:
-        for variant in result.variant_results:
-            variant.step_sessions = None
-
-    return result
 
 
 @dagster.asset(
@@ -73,7 +54,6 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
     combination. Each partition computes timeseries analysis for one regular metric from one
     experiment using ExperimentQueryRunner.
     """
-    # Parse partition key to get experiment and metric info
     if not context.partition_key:
         raise dagster.Failure("This asset must be run with a partition key")
 
@@ -83,7 +63,6 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
         f"Computing timeseries results for experiment {experiment_id}, metric {metric_uuid}, fingerprint {fingerprint}"
     )
 
-    # Load experiment from database
     try:
         experiment = Experiment.objects.get(id=experiment_id, deleted=False)
     except Experiment.DoesNotExist:
@@ -100,7 +79,6 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
     if not metric_dict:
         raise dagster.Failure(f"Metric {metric_uuid} not found in experiment {experiment_id}")
 
-    # Convert metric dict to appropriate Pydantic model
     try:
         metric_type = metric_dict.get("metric_type")
         metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
@@ -129,11 +107,10 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
         result = query_runner._calculate()
 
-        result = _remove_step_sessions_from_experiment_result(result)
+        result = remove_step_sessions_from_experiment_result(result)
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
-        # Store the result in the database
         experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -240,17 +217,14 @@ def _get_experiment_regular_metrics_timeseries(
     )
 
     for experiment in experiments:
-        # Extract regular metrics from metrics and metrics_secondary fields
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
 
         for metric in all_metrics:
-            # Skip if metric doesn't have a UUID (shouldn't happen but being safe)
             metric_uuid = metric.get("uuid")
             if not metric_uuid:
                 context.log.warning(f"Metric in experiment {experiment.id} has no UUID, skipping")
                 continue
 
-            # Compute fingerprint for this metric in context of this experiment
             fingerprint = compute_metric_fingerprint(
                 metric,
                 experiment.start_date,
