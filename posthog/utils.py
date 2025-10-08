@@ -321,7 +321,7 @@ def relative_date_parse(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
-    team_week_start_day: Optional[WeekStartDay],
+    team_week_start_day: Optional[WeekStartDay] = None,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
         input,
