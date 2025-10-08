@@ -48,14 +48,14 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def run_cohort_query(fn, *args, cohort_id: int, history_id: int | None = None, **kwargs):
+def run_cohort_query(fn, *args, cohort_id: int, history_id: str | None = None, **kwargs):
     """
     Run a cohort calculation function with delayed query performance tracking.
 
     Args:
         fn: Function to execute
         cohort_id: ID of the cohort being calculated
-        history_id: Optional ID of CohortCalculationHistory to update with delayed stats
+        history_id: Optional UUID string of CohortCalculationHistory to update with delayed stats
         *args, **kwargs: Arguments passed to fn
 
     Returns:

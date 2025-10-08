@@ -363,7 +363,7 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.DEFAULT.value)
-def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: int) -> None:
+def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str) -> None:
     """
     Delayed task to collect cohort query statistics
 
@@ -371,7 +371,7 @@ def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso:
         tag_matcher: Query tag to match in query_log_archive
         cohort_id: Cohort ID for the calculation
         start_time_iso: Start time in ISO format
-        history_id: CohortCalculationHistory ID to update
+        history_id: CohortCalculationHistory UUID to update
     """
     try:
         from dateutil import parser
