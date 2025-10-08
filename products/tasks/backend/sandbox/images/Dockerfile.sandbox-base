@@ -78,8 +78,8 @@ RUN npm install -g @posthog/agent
 # Download agent runner script from GitHub
 RUN mkdir -p /scripts && \
     curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/array/use-agent/products/tasks/scripts/runAgent.mjs \
-    -o /scripts/run_agent.mjs && \
-    chmod +x /scripts/run_agent.mjs
+    -o /scripts/runAgent.mjs && \
+    chmod +x /scripts/runAgent.mjs
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1
