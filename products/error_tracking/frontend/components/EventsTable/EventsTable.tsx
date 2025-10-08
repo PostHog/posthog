@@ -8,6 +8,7 @@ import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/co
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
@@ -144,12 +145,94 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
     }
 
     return (
-        <DataSourceTable<ErrorEventType> dataSource={dataSource} embedded onRowClick={toggleSelectedEvent}>
+        <DataSourceTable<ErrorEventType>
+            dataSource={dataSource}
+            embedded
+            onRowClick={toggleSelectedEvent}
+            className="overflow-auto"
+        >
             <DataSourceTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
             <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
             <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
             <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={renderRecording} />
+        </DataSourceTable>
+    )
+}
+
+export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
+    const tagRenderer = useErrorTagRenderer()
+    const dataSource = eventsSourceLogic({ queryKey, query })
+
+    // function isEventSelected(record: ErrorEventType): boolean {
+    //     return selectedEvent ? selectedEvent.uuid === record.uuid : false
+    // }
+
+    // function renderUUID(record: ErrorEventType): JSX.Element {
+    //     // Click event is caught at the row level
+    //     return (
+    //         <div className="flex items-center">
+    //             <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} onChange={() => {}} />
+    //         </div>
+    //     )
+    // }
+
+    // function renderAttributes(record: ErrorEventType): JSX.Element {
+    //     return (
+    //         <div className="flex justify-end gap-1">
+    //             {tagRenderer(record)}
+    //             <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
+    //         </div>
+    //     )
+    // }
+
+    function renderActions(record: ErrorEventType): JSX.Element {
+        return (
+            <div className="flex justify-end items-center gap-x-1">
+                {renderViewRecordingButton(record)}
+                {renderMoreButton(record)}
+            </div>
+        )
+    }
+
+    function renderPerson(record: ErrorEventType): JSX.Element {
+        const display = asDisplay(record.person)
+        return (
+            <div className="flex items-center">
+                <span onClick={cancelEvent}>
+                    <PersonDisplay person={record.person} noLink>
+                        <Link subtle className={clsx('flex items-center')}>
+                            <PersonIcon displayName={display} person={record.person} size="md" />
+                            <span className={clsx('ph-no-capture', 'truncate')}>{display}</span>
+                        </Link>
+                    </PersonDisplay>
+                </span>
+            </div>
+        )
+    }
+
+    function renderTitle(record: ErrorEventType): JSX.Element {
+        return (
+            <LemonTableLink
+                title={renderPerson(record)}
+                description={
+                    <>
+                        <TZLabel time={record.timestamp} />
+                    </>
+                }
+            />
+        )
+    }
+
+    return (
+        <DataSourceTable<ErrorEventType>
+            dataSource={dataSource}
+            embedded
+            onRowClick={onEventSelect}
+            className="overflow-auto"
+        >
+            <DataSourceTableColumn<ErrorEventType> cellRenderer={renderTitle} />
+            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={renderActions} />
         </DataSourceTable>
     )
 }

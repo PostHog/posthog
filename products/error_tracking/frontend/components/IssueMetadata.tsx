@@ -53,7 +53,7 @@ export const Metadata = ({ children }: { children: React.ReactNode }): JSX.Eleme
     )
 
     return (
-        <LemonCard className="p-0" hoverEffect={false}>
+        <LemonCard className="p-0 flex flex-col h-full min-h-0" hoverEffect={false}>
             <div className="flex justify-between items-center h-[40px] px-2">
                 <div className="flex justify-end items-center h-full">
                     {match(hoveredDatum)
