@@ -33,3 +33,5 @@ Error: locator.click: Error: strict mode violation: locator('text=Set a billing 
 1) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-product_analytics').getByRole('button', { name: 'Set a billing limit' })
 2) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-session_replay').getByRole('button', { name: 'Set a billing limit' })
 ```
+
+<!-- Test 4-core runner performance -->
