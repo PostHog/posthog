@@ -142,6 +142,12 @@ class ActivityLog(UUIDTModel):
                 opclasses=["jsonb_path_ops"],
                 condition=models.Q(detail__isnull=False),
             ),
+            # User-specific filtered queries
+            models.Index(
+                fields=["team_id", "activity", "scope", "user_id"],
+                name="idx_alog_team_act_scope_usr",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
             # Advanced activity logs: team-scoped queries with ordering
             models.Index(
                 fields=["team_id", "scope", "-created_at"],
