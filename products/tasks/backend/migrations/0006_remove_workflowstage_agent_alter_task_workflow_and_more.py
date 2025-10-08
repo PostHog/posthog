@@ -10,9 +10,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="workflowstage",
-            name="agent",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="workflowstage",
+                    name="agent",
+                ),
+            ],
+            database_operations=[],
         ),
         migrations.AlterField(
             model_name="task",
@@ -27,16 +32,11 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS posthog_agent_definition CASCADE;",
-                    reverse_sql=migrations.RunSQL.noop,
-                )
-            ],
             state_operations=[
                 migrations.DeleteModel(
                     name="AgentDefinition",
                 )
             ],
+            database_operations=[],
         ),
     ]

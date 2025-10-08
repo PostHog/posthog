@@ -31,6 +31,7 @@ from .serializers import (
     TaskProgressDetailSerializer,
     TaskProgressResponseSerializer,
     TaskProgressStreamResponseSerializer,
+    TaskProgressTaskRequestSerializer,
     TaskSerializer,
     TaskSetBranchRequestSerializer,
     TaskUpdatePositionRequestSerializer,
@@ -100,17 +101,25 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         repository = params.get("repository")
 
         if repository:
-            if "/" in repository:
-                org_part, repo_part = repository.split("/", 1)
-                qs = qs.filter(
-                    repository_config__organization=org_part,
-                    repository_config__repository=repo_part,
-                )
+            repo_str = repository.strip()
+            if "/" in repo_str:
+                org_part, repo_part = repo_str.split("/", 1)
+                org_part = org_part.strip()
+                repo_part = repo_part.strip()
+                if org_part and repo_part:
+                    qs = qs.filter(
+                        repository_config__organization__iexact=org_part,
+                        repository_config__repository__iexact=repo_part,
+                    )
+                elif repo_part:
+                    qs = qs.filter(repository_config__repository__iexact=repo_part)
+                elif org_part:
+                    qs = qs.filter(repository_config__organization__iexact=org_part)
             else:
-                qs = qs.filter(repository_config__repository=repository)
+                qs = qs.filter(repository_config__repository__iexact=repo_str)
 
         if organization:
-            qs = qs.filter(repository_config__organization=organization)
+            qs = qs.filter(repository_config__organization__iexact=organization.strip())
 
         return qs
 
@@ -486,7 +495,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "If 'next_stage_id' is provided, the task will move to that stage. "
             "Otherwise, the task will be moved to the next stage in its workflow."
         ),
-        parameters=[],
+        request=TaskProgressTaskRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task progressed to next stage"),
             400: OpenApiResponse(
@@ -499,8 +508,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def progress_task(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
 
-        provided_stage_id = request.data.get("next_stage_id")
-        auto = bool(request.data.get("auto", False))
+        payload = TaskProgressTaskRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        provided_stage_id = payload.validated_data.get("next_stage_id")
+        auto = bool(payload.validated_data.get("auto", False))
 
         new_stage = None
         if provided_stage_id:
@@ -582,20 +593,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="attach_pr", required_scopes=["task:write"])
     def attach_pr(self, request, pk=None, **kwargs):
-        pr_url = request.data.get("pr_url")
-        branch = request.data.get("branch")
+        payload = TaskAttachPullRequestRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
 
-        if not pr_url or not isinstance(pr_url, str):
-            return Response(
-                ErrorResponseSerializer({"error": "pr_url is required"}).data, status=status.HTTP_400_BAD_REQUEST
-            )
+        data = payload.validated_data
 
         task = cast(Task, self.get_object())
-        task.github_pr_url = pr_url
+        task.github_pr_url = data["pr_url"]
 
         update_fields = ["github_pr_url", "updated_at"]
 
-        if branch and isinstance(branch, str):
+        branch = data.get("branch")
+        if branch:
             task.github_branch = branch
             update_fields.append("github_branch")
 

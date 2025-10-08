@@ -349,6 +349,11 @@ class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
     branch = serializers.CharField(required=False, allow_blank=True, help_text="Optional branch name")
 
 
+class TaskProgressTaskRequestSerializer(serializers.Serializer):
+    next_stage_id = serializers.UUIDField(required=False, help_text="UUID of the next workflow stage")
+    auto = serializers.BooleanField(required=False, default=False, help_text="Automatically progress to next stage")
+
+
 class TaskProgressDetailSerializer(serializers.ModelSerializer):
     progress_percentage = serializers.SerializerMethodField(read_only=True)
 
