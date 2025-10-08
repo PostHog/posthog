@@ -251,17 +251,11 @@ jobs:
     playwright:
         name: Playwright E2E tests
         needs: [changes]
+        if: needs.changes.outputs.shouldRun == 'true'
         runs-on: depot-ubuntu-latest-8
         timeout-minutes: 30
         steps:
-            - name: Skip E2E checks
-              if: ${{ needs.changes.outputs.shouldRun == 'false' }}
-              run: |
-                  echo "Skipping E2E checks - no changes detected"
-                  exit 0
-
             - uses: actions/checkout@v4
-              if: needs.changes.outputs.shouldRun == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -269,7 +263,6 @@ jobs:
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
 
             - name: Stop/Start stack with Docker Compose
-              if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.6.9.98
@@ -306,12 +299,10 @@ jobs:
                   ) &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
-              if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-python@v5
               with:
                   python-version: 3.11.13
@@ -319,14 +310,12 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
 
             - name: Determine if hogql-parser has changed compared to master
-              if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               id: hogql-parser-diff
               run: |
@@ -341,11 +330,9 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
@@ -356,17 +343,14 @@ jobs:
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
-              if: needs.changes.outputs.shouldRun == 'true'
 
             - name: Install plugin_transpiler
-              if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: |
                   pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-transpiler build
 
             - name: Install Python dependencies
-              if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -398,7 +382,6 @@ jobs:
                   pip install ./common/hogql_parser
 
             - name: Set up needed files
-              if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: |
                   mkdir -p frontend/dist
@@ -408,12 +391,10 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Get pnpm cache directory path
-              if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v4
-              if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
@@ -421,32 +402,27 @@ jobs:
                   restore-keys: ${{ runner.os }}-pnpm-playwright-
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Wait for services to be available
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
             - name: Build frontend
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   pnpm --filter=@posthog/frontend... install --frozen-lockfile
                   pnpm --filter=@posthog/frontend build:products
                   pnpm --filter=@posthog/frontend build
 
             - name: Collect static files
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
                   # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
                   cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   createdb posthog_e2e_test || echo "Database already exists"
                   # Drop and recreate clickhouse test database
@@ -454,7 +430,6 @@ jobs:
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
             - name: Apply postgres and clickhouse migrations and setup dev
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
@@ -478,24 +453,20 @@ jobs:
                   wait
 
             - name: Source celery queues
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
             - name: Start PostHog web & Celery worker
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py runserver 8000 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
-              if: needs.changes.outputs.shouldRun == 'true'
               run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
 
             - name: Wait for PostHog to be ready
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
                   resource: http://localhost:8000
@@ -504,13 +475,11 @@ jobs:
                   verbose: true
 
             - name: Run Playwright tests
-              if: needs.changes.outputs.shouldRun == 'true'
               continue-on-error: true
               id: playwright-tests
               run: pnpm --filter=@posthog/playwright exec playwright test
 
             - name: Configure global git diff log
-              if: needs.changes.outputs.shouldRun == 'true'
               run: git config --global --add safe.directory '*'
 
             - name: Count and optimize updated screenshots
@@ -651,14 +620,11 @@ jobs:
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
-              if: needs.changes.outputs.shouldRun == 'true'
               run: cat /tmp/celery.log
             - name: Show server logs
-              if: needs.changes.outputs.shouldRun == 'true'
               run: cat /tmp/server.log
 
             - name: Show server logs
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   docker ps
                   docker logs posthog-proxy-1
@@ -672,7 +638,6 @@ jobs:
                   retention-days: 30
 
             - name: Archive screenshots
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-screenshots
