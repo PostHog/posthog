@@ -208,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrl(StrEnum):
+class AssistantNavigateUrls(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -1260,6 +1260,7 @@ class ExternalDataSourceType(StrEnum):
     DO_IT = "DoIt"
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
+    TIK_TOK_ADS = "TikTokAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1663,6 +1664,7 @@ class IntegrationKind(StrEnum):
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
+    TIKTOK_ADS = "tiktok-ads"
 
 
 class IntervalType(StrEnum):
