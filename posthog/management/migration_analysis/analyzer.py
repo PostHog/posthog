@@ -149,7 +149,7 @@ class RiskAnalyzer:
         schema_refs = categorizer.format_operation_refs(categorizer.schema_ops)
 
         return [
-            f"⚠️  WARNING: {runpython_refs} + {schema_refs}    "
+            f"❌ BLOCKED: {runpython_refs} + {schema_refs}    "
             "RunPython data migration combined with schema changes. "
             "Data migrations can hold locks during execution, especially on large tables. "
             "Split into separate migrations: 1) schema changes, 2) data migration."
@@ -163,7 +163,7 @@ class RiskAnalyzer:
         ddl_refs = categorizer.format_operation_refs(categorizer.ddl_ops)
 
         return [
-            f"⚠️  WARNING: {ddl_refs} mixed with other operations    "
+            f"❌ BLOCKED: {ddl_refs} mixed with other operations    "
             "RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
             "to avoid lock conflicts."
         ]
@@ -176,7 +176,7 @@ class RiskAnalyzer:
         high_risk_refs = categorizer.format_operation_refs(categorizer.high_risk_ops)
 
         return [
-            f"⚠️  WARNING: Multiple high-risk operations in one migration: {high_risk_refs}    "
+            f"❌ BLOCKED: Multiple high-risk operations in one migration: {high_risk_refs}    "
             "Each high-risk operation (score 4+) should be isolated to make rollback easier and reduce deployment risk. "
             "Consider splitting into separate migrations."
         ]
@@ -189,7 +189,7 @@ class RiskAnalyzer:
         index_refs = categorizer.format_operation_refs(categorizer.addindex_ops)
 
         return [
-            f"⚠️  WARNING: Multiple index creations in one migration: {index_refs}    "
+            f"❌ BLOCKED: Multiple index creations in one migration: {index_refs}    "
             "Creating multiple indexes can cause I/O overload and extended lock times. "
             "Consider splitting into separate migrations to reduce system load."
         ]

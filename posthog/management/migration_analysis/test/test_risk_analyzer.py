@@ -593,7 +593,7 @@ class TestCombinationRisks:
         combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
 
         assert len(combination_risks) > 0
-        assert any("WARNING" in warning or "DDL" in warning for warning in combination_risks)
+        assert any("BLOCKED" in warning or "DDL" in warning for warning in combination_risks)
 
     def test_runsql_concurrent_index_no_ddl_warning(self):
         """CREATE INDEX CONCURRENTLY should NOT trigger DDL isolation warning"""
