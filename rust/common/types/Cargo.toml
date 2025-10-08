@@ -14,4 +14,3 @@ rdkafka = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
-thiserror.workspace = true
