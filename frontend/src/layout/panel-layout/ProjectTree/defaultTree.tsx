@@ -431,7 +431,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
                 'var(--color-product-heatmaps-dark)',
             ] as FileSystemIconColor,
             href: urls.heatmaps(),
-            flag: FEATURE_FLAGS.HEATMAPS_UI,
             tags: ['beta'],
         } as FileSystemImport,
     ].sort((a, b) => {
