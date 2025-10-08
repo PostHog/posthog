@@ -48,9 +48,11 @@ class ExperimentQueryBuilder:
 
         # Derive which field we should look for the variants
         # TODO: move to it's own function?
-        if isinstance(exposure_config, ExperimentEventExposureConfig):
-            if exposure_config.event == "$feature_flag_called":
-                self.variant_property = "$feature_flag_response"
+        if (
+            isinstance(exposure_config, ExperimentEventExposureConfig)
+            and exposure_config.event == "$feature_flag_called"
+        ):
+            self.variant_property = "$feature_flag_response"
         else:
             self.variant_property = f"$feature/{feature_flag_key}"
 
