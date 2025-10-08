@@ -62,7 +62,6 @@ class ProcessConditionBatchInputs:
 
 @dataclasses.dataclass
 class CohortMembershipResult:
-    memberships_count: int  # Just the count, not the actual data
     conditions_processed: int
     batch_number: int
 
@@ -188,8 +187,6 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
     if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-    memberships_count = 0
-
     async with Heartbeater():
         for idx, condition_data in enumerate(inputs.conditions, 1):
             team_id = condition_data["team_id"]
@@ -262,7 +259,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                     product=Product.MESSAGING,
                     query_type="get_cohort_memberships_batch",
                 ):
-                    results = sync_execute(
+                    sync_execute(
                         query,
                         {
                             "team_id": team_id,
@@ -275,9 +272,6 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         workload=Workload.OFFLINE,
                     )
 
-                # Just count the memberships, don't store them
-                memberships_count += len(results)
-
             except Exception as e:
                 logger.exception(
                     "Error processing condition in batch",
@@ -288,14 +282,12 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                 continue
 
     logger.info(
-        f"Batch {inputs.batch_number} completed: {memberships_count} memberships from {len(inputs.conditions)} conditions",
+        f"Batch {inputs.batch_number} completed: processed {len(inputs.conditions)} conditions",
         batch_number=inputs.batch_number,
-        memberships_count=memberships_count,
         conditions_count=len(inputs.conditions),
     )
 
     return CohortMembershipResult(
-        memberships_count=memberships_count,
         conditions_processed=len(inputs.conditions),
         batch_number=inputs.batch_number,
     )
@@ -373,7 +365,6 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         if not all_conditions:
             workflow_logger.warning("No conditions found for this workflow's range")
             return {
-                "total_memberships": 0,
                 "conditions_processed": 0,
                 "batches_processed": 0,
             }
@@ -403,13 +394,10 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
             ),
         )
 
-        workflow_logger.info(
-            f"Child workflow completed: {result.memberships_count} memberships from {result.conditions_processed} conditions"
-        )
+        workflow_logger.info(f"Child workflow completed: processed {result.conditions_processed} conditions")
 
         # Return summary statistics
         return {
-            "total_memberships": result.memberships_count,
             "conditions_processed": result.conditions_processed,
             "batches_processed": 1,
         }
