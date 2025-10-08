@@ -39,8 +39,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         organizationBased: false,
         name: 'Activity logs',
-        description:
-            'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -53,19 +51,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
-        description: 'You can change anything you like and it is persisted to the URL for easy sharing.',
         layout: 'app-full-scene-height',
         defaultDocsPath: '/blog/introducing-notebooks',
         hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
-    [Scene.Cohorts]: {
-        projectBased: true,
-        name: 'Cohorts',
-        description: 'A catalog of identified persons and your created cohorts.',
-        defaultDocsPath: '/docs/data/cohorts',
-    },
+    [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
@@ -85,7 +78,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
 
     [Scene.DataPipelines]: {
         name: 'Data pipelines',
-        description: 'Ingest, transform, and send data between hundreds of tools.',
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp',
     },
@@ -177,8 +169,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
-        description:
-            'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
@@ -219,7 +209,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Notebooks]: {
         projectBased: true,
         name: 'Notebooks',
-        description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
     },
@@ -251,7 +240,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Persons]: {
         projectBased: true,
         name: 'Persons',
-        description: 'A catalog of all the people behind your events',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
     },
@@ -320,7 +308,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
-        description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
     },
