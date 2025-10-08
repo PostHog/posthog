@@ -136,7 +136,7 @@ const PanelTabs = (): JSX.Element => {
                     </div>
                     <ErrorFilters.FilterGroup />
                 </ErrorFilters.Root>
-                <Metadata>
+                <Metadata className="flex flex-col h-full min-h-0">
                     <div className="flex-1 min-h-0 overflow-auto">
                         <EventsV2Table
                             query={eventsQuery}

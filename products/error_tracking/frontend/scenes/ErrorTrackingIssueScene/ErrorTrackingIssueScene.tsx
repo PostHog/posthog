@@ -41,12 +41,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
     )
 
-    if (false) {
+    if (hasNewIssueLayout) {
         return <V2Layout />
     }
 
