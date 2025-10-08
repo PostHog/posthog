@@ -77,7 +77,7 @@ RUN npm install -g @posthog/agent
 
 # Download agent runner script from GitHub
 RUN mkdir -p /scripts && \
-    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/array/use-agent/products/tasks/scripts/runAgent.mjs \
+    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
     -o /scripts/runAgent.mjs && \
     chmod +x /scripts/runAgent.mjs
 
