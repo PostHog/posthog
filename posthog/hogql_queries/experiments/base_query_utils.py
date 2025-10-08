@@ -10,6 +10,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -125,7 +126,9 @@ def get_metric_value(
     return get_source_value_expr(actual_source)
 
 
-def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, ActionsNode]) -> ast.Expr:
+def event_or_action_to_filter(
+    team: Team, entity_node: Union[EventsNode, ActionsNode, ExperimentEventExposureConfig]
+) -> ast.Expr:
     """
     Returns the filter for a single entity node.
     """
