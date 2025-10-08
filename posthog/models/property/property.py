@@ -1,4 +1,5 @@
 import json
+import math
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, cast
 
@@ -306,7 +307,7 @@ class Property:
         return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
-    def _parse_value(value: ValueT, convert_to_number: bool = False) -> Any:
+    def _parse_value(value: Any, convert_to_number: bool = False) -> Any:
         if isinstance(value, list):
             return [Property._parse_value(v, convert_to_number) for v in value]
         if value == "true" or value == "True":
@@ -330,7 +331,7 @@ class Property:
         try:
             parsed = json.loads(value)
             # Don't allow infinity values from json parsing either
-            if parsed == float("inf") or parsed == float("-inf"):
+            if math.isinf(parsed):
                 return value
             return parsed
         except (json.JSONDecodeError, TypeError):
