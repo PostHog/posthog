@@ -45,18 +45,12 @@ from posthog.warehouse.data_load.saved_query_service import (
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
 )
-from posthog.warehouse.models import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    DataModelingJob,
-    DataWarehouseJoin,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    clean_type,
-)
+from posthog.warehouse.models import DataModelingJob, DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from posthog.warehouse.models.util import convert_clickhouse_type_to_hogql_type
 
 logger = structlog.get_logger(__name__)
 
@@ -86,6 +80,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "edited_history_id",
             "latest_history_id",
+            "managed_view_id",
             "soft_update",
             "is_materialized",
         ]
@@ -98,6 +93,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "last_run_at",
             "latest_error",
             "latest_history_id",
+            "managed_view_id",
             "is_materialized",
         ]
         extra_kwargs = {
@@ -169,7 +165,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 else:
                     columns = {
                         str(item[0]): {
-                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                            "hogql": convert_clickhouse_type_to_hogql_type(str(item[1])).__name__,
                             "clickhouse": item[1],
                             "valid": True,
                         }
@@ -222,6 +218,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        if instance.managed_view_id is not None:
+            raise serializers.ValidationError("Cannot update a managed view")
+
         try:
             before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
         except DataWarehouseSavedQuery.DoesNotExist:
@@ -273,7 +272,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     else:
                         columns = {
                             str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "hogql": convert_clickhouse_type_to_hogql_type(str(item[1])).__name__,
                                 "clickhouse": item[1],
                                 "valid": True,
                             }
@@ -411,6 +410,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
+            .exclude(managed_view_id__isnull=True)  # Exclude managed views for now
             .order_by(self.ordering)
         )
 

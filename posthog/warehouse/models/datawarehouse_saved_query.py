@@ -21,9 +21,8 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.util import (
-    CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
-    clean_type,
+    convert_clickhouse_type_to_hogql_type,
     remove_named_tuples,
 )
 
@@ -77,12 +76,21 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     )
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
-    # In case the saved query is materialized to a table, this will be set
+    # In case the saved query is materialized to a table, these will be set
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
+
+    # The package that this saved query belongs to. If not set, this is a standalone saved query.
+    managed_view = models.OneToOneField(
+        "posthog.DataWarehouseManagedView",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="saved_query",
+    )
 
     class Meta:
         constraints = [
@@ -112,7 +120,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                 self.table.soft_delete()
                 self.table_id = None
 
-            delete_saved_query_schedule(str(self.id))
+            # delete the scheduled run if transaction commits
+            transaction.on_commit(lambda: delete_saved_query_schedule(str(self.id)))
 
             self.save()
 
@@ -137,12 +146,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             raise Exception("No columns types provided by clickhouse in get_columns")
 
         columns = {
-            str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                "clickhouse": item[1],
+            str(column_name): {
+                "hogql": convert_clickhouse_type_to_hogql_type(str(column_type)).__name__,
+                "clickhouse": column_type,
                 "valid": True,
             }
-            for item in result
+            for column_name, column_type in result
         }
 
         return columns
@@ -209,8 +218,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
-        from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
-
         for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
@@ -230,7 +237,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+                hogql_type = convert_clickhouse_type_to_hogql_type(hogql_type_str)
             elif isinstance(type, dict):
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
             else:

@@ -592,6 +592,7 @@ def create_hogql_database(
         with timings.measure("select"):
             saved_queries = list(
                 DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .filter(managed_view_id__isnull=True)  # TODO: Do not create saved queries for managed views for now
                 .exclude(deleted=True)
                 .select_related("table", "table__credential")
             )
@@ -1124,6 +1125,7 @@ def serialize_database(
     # Fetch all views in a single query
     all_views = (
         DataWarehouseSavedQuery.objects.select_related("table")
+        .filter(managed_view_id__isnull=True)  # TODO: Do not create saved queries for managed views for now
         .exclude(deleted=True)
         .filter(team_id=context.team_id)
         .all()

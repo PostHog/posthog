@@ -13,10 +13,10 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     XDIST_SUFFIX,
 )
-from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.models.util import convert_clickhouse_type_to_hogql_type
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -84,7 +84,7 @@ def create_data_warehouse_table_from_csv(
     if any(isinstance(value, str) for value in table_columns.values()):
         table_columns = {
             str(key): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(value))].__name__,
+                "hogql": convert_clickhouse_type_to_hogql_type(str(value)).__name__,
                 "clickhouse": value,
                 "valid": True,
             }

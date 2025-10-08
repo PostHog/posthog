@@ -5,6 +5,7 @@ from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
@@ -44,7 +45,6 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
 
 def remove_named_tuples(type):
     """Remove named tuples from query"""
-    from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
     tokenified_type = re.split(r"(\W)", type)
     filtered_tokens = []
@@ -95,7 +95,7 @@ def clean_type(column_type: str) -> str:
     return column_type
 
 
-CLICKHOUSE_HOGQL_MAPPING = {
+CLICKHOUSE_HOGQL_MAPPING: dict[str, type[DatabaseField]] = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
@@ -123,6 +123,31 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
 }
+
+
+def convert_clickhouse_type_to_hogql_type(clickhouse_type: str) -> type[DatabaseField]:
+    clean_clickhouse_type = clean_type(clickhouse_type)
+    return CLICKHOUSE_HOGQL_MAPPING.get(clean_clickhouse_type, UnknownDatabaseField)
+
+
+HOGQL_CLICKHOUSE_MAPPING: dict[type[DatabaseField], str] = {
+    StringDatabaseField: "String",
+    IntegerDatabaseField: "Int64",
+    FloatDatabaseField: "Float64",
+    DecimalDatabaseField: "Decimal",
+    BooleanDatabaseField: "Bool",
+    DateDatabaseField: "Date",
+    DateTimeDatabaseField: "DateTime",
+    UnknownDatabaseField: "Unknown",
+}
+
+
+def convert_hogql_type_to_clickhouse_type(hogql_type: DatabaseField) -> str:
+    base = HOGQL_CLICKHOUSE_MAPPING[hogql_type.__class__]
+    if hogql_type.nullable:
+        base = f"Nullable({base})"
+    return base
+
 
 STR_TO_HOGQL_MAPPING = {
     "BooleanDatabaseField": BooleanDatabaseField,

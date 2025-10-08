@@ -476,6 +476,13 @@ class Team(UUIDTClassicModel):
     )
 
     @cached_property
+    def data_warehouse_config(self):
+        from .team_data_warehouse_config import TeamDataWarehouseConfig
+
+        config, _ = TeamDataWarehouseConfig.objects.get_or_create(team=self)
+        return config
+
+    @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 

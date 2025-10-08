@@ -1,12 +1,12 @@
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING
+from posthog.warehouse.models.util import convert_clickhouse_type_to_hogql_type
 
 
 def _convert_columns(basic_types: dict[str, str]):
     return {
         str(key): {
-            "hogql": CLICKHOUSE_HOGQL_MAPPING[value].__name__,
+            "hogql": convert_clickhouse_type_to_hogql_type(value).__name__,
             "clickhouse": value,
             "valid": True,
         }
