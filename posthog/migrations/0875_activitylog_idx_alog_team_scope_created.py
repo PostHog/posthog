@@ -31,4 +31,24 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="activitylog",
+                    index=models.Index(
+                        condition=models.Q(("was_impersonated", False), ("is_system", False)),
+                        fields=["team_id", "activity", "scope", "user"],
+                        name="idx_alog_team_act_scope_usr",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql=[
+                        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_alog_team_act_scope_usr ON posthog_activitylog (team_id, activity, scope, user_id) WHERE (NOT was_impersonated) AND (NOT is_system);"
+                    ],
+                    reverse_sql=["DROP INDEX CONCURRENTLY IF EXISTS idx_alog_team_act_scope_usr;"],
+                ),
+            ],
+        ),
     ]
