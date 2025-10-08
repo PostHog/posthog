@@ -363,7 +363,9 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.DEFAULT.value)
-def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str) -> None:
+def collect_cohort_query_stats(
+    tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
+) -> None:
     """
     Delayed task to collect cohort query statistics
 
@@ -372,6 +374,7 @@ def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso:
         cohort_id: Cohort ID for the calculation
         start_time_iso: Start time in ISO format
         history_id: CohortCalculationHistory UUID to update
+        query: The SQL query that was executed
     """
     try:
         from dateutil import parser
@@ -385,10 +388,11 @@ def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso:
             return
 
         start_time = parser.parse(start_time_iso)
-        query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time)
+        query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
 
         if query_stats:
             history.add_query_info(
+                query=query,
                 query_id=query_stats.get("query_id"),
                 query_ms=query_stats.get("query_duration_ms"),
                 memory_mb=query_stats.get("memory_mb"),
