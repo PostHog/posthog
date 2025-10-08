@@ -206,22 +206,52 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                 )
 
             query = """
+                INSERT INTO cohort_membership_changed (team_id, cohort_id, person_id, last_updated, status)
                 SELECT
-                    person_id
-                FROM (
-                    SELECT
-                        person_id,
-                        SUM(matches) as total_matches
+                    COALESCE(bcm.team_id, cmc.team_id) as team_id,
+                    COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
+                    COALESCE(bcm.person_id, cmc.person_id) as person_id,
+                    now64() as last_updated,
+                    CASE
+                        WHEN
+                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
+                            THEN 'member' -- so, new member
+                        WHEN
+                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                            AND cmc.status = 'not_member' -- it left the cohort at some point
+                            AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
+                            THEN 'member' -- so, it re-entered the cohort
+                        WHEN
+                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                            AND cmc.status = 'member' -- it is a member at some point
+                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                            THEN 'not_member' -- so, it left the cohort
+                        ELSE
+                            'unchanged' -- for all other cases, the membership did not change
+                    END as status
+                FROM
+                (
+                    SELECT team_id, cohort_id, person_id
                     FROM behavioral_cohorts_matches
                     WHERE
                         team_id = %(team_id)s
                         AND cohort_id = %(cohort_id)s
                         AND condition = %(condition)s
                         AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY person_id
-                    HAVING total_matches >= %(min_matches)s
-                )
-                LIMIT 100000
+                    GROUP BY team_id, cohort_id, person_id
+                    HAVING sum(matches) >= %(min_matches)s
+                ) bcm
+                FULL OUTER JOIN
+                (
+                    SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
+                    FROM cohort_membership_changed
+                    WHERE
+                        team_id = %(team_id)s
+                        AND cohort_id = %(cohort_id)s
+                    GROUP BY team_id, cohort_id, person_id
+                ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
+                WHERE status != 'unchanged'
+                SETTINGS join_use_nulls = 1, async_insert=1, wait_for_async_insert=1;
             """
 
             try:

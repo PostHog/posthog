@@ -27,6 +27,7 @@ class Product(StrEnum):
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    EXPERIMENTS = "experiments"
 
 
 class Feature(StrEnum):
