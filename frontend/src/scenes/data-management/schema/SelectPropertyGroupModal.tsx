@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -106,13 +106,13 @@ export function SelectPropertyGroupModal({
                 <LemonButton
                     type="primary"
                     size="small"
-                    icon={<IconCheck />}
+                    icon={<IconPlus />}
                     onClick={() => {
                         onSelect(propertyGroup.id)
                         onClose()
                     }}
                 >
-                    Select
+                    Add
                 </LemonButton>
             ),
         },
@@ -120,7 +120,7 @@ export function SelectPropertyGroupModal({
 
     return (
         <>
-            <LemonModal isOpen={isOpen} onClose={onClose} title="Select Property Group" width={900}>
+            <LemonModal isOpen={isOpen} onClose={onClose} title="Add property group" width={900}>
                 <div className="space-y-4">
                     <div className="flex gap-2">
                         <LemonInput
