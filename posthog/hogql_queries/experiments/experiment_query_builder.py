@@ -1,6 +1,6 @@
-from typing import Union
-
 from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
@@ -17,51 +18,52 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
-from posthog.hogql_queries.experiments.exposure_query_logic import get_exposure_event_and_property
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
 
 
 class ExperimentQueryBuilder:
     def __init__(
         self,
-        experiment: Experiment,
         team: Team,
-        metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
+        feature_flag_key: str,
+        metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+        exposure_config: ExperimentEventExposureConfig | ActionsNode,
+        filter_test_accounts: bool,
+        multiple_variant_handling: MultipleVariantHandling,
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
-        multiple_variant_handling: MultipleVariantHandling,
     ):
-        self.experiment = experiment
         self.team = team
         self.metric = metric
+        self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
         self.entity_key = entity_key
+        self.exposure_config = exposure_config
+        self.filter_test_accounts = filter_test_accounts
         self.multiple_variant_handling = multiple_variant_handling
 
-        self.feature_flag = experiment.feature_flag
-        self.exposure_criteria = experiment.exposure_criteria
-
-        # Get exposure event details
-        self.exposure_event, self.feature_flag_variant_property = get_exposure_event_and_property(
-            feature_flag_key=self.feature_flag.key,
-            exposure_criteria=self.exposure_criteria,
-        )
-
-        # Determine if this is a funnel metric
-        self.is_funnel_metric = isinstance(metric, ExperimentFunnelMetric)
+        # Derive which field we should look for the variants
+        # TODO: move to it's own function?
+        if isinstance(exposure_config, ExperimentEventExposureConfig):
+            if exposure_config.event == "$feature_flag_called":
+                self.variant_property = "$feature_flag_response"
+        else:
+            self.variant_property = f"$feature/{feature_flag_key}"
 
     def build_query(self) -> ast.SelectQuery:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
         """
-        if self.is_funnel_metric:
-            return self._build_funnel_query()
-        else:
-            return self._build_mean_query()
+        match self.metric:
+            case ExperimentFunnelMetric():
+                return self._build_funnel_query()
+            case ExperimentMeanMetric():
+                return self._build_mean_query()
+            case _:
+                raise NotImplementedError(f"Only mean and funnel metrics are supported. Got {type(self.metric)}")
 
     def _build_mean_query(self) -> ast.SelectQuery:
         """
@@ -128,17 +130,25 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _build_test_accounts_filter(self) -> ast.Expr:
+        if (
+            self.filter_test_accounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            return ast.And(exprs=[property_to_expr(property, self.team) for property in self.team.test_account_filters])
+        return ast.Constant(value=True)
+
     def _build_variant_expr(self) -> ast.Expr:
         """
         Builds the variant selection expression based on multiple variant handling.
         """
-        variant_property = ast.Field(chain=["properties", self.feature_flag_variant_property])
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
                 "argMinIf({variant_property}, timestamp, {exposure_predicate})",
                 placeholders={
-                    "variant_property": variant_property,
+                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
                     "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
@@ -146,7 +156,7 @@ class ExperimentQueryBuilder:
             return parse_expr(
                 "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
                 placeholders={
-                    "variant_property": variant_property,
+                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
                     "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
@@ -156,31 +166,46 @@ class ExperimentQueryBuilder:
         """
         Builds the exposure predicate as an AST expression.
         """
-        base_predicate = parse_expr(
+        event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
+
+        if (
+            isinstance(self.exposure_config, ExperimentEventExposureConfig)
+            and self.exposure_config.event == "$feature_flag_called"
+        ):
+            # $feature_flag_called events are special. We need to check that the property
+            # $feature_flag matches the flag
+            # TODO: Is there a nicer way to express this logic?
+            flag_property = f"$feature_flag"
+            event_predicate = ast.And(
+                exprs=[
+                    event_predicate,
+                    parse_expr(
+                        "{flag_property} = {feature_flag_key}",
+                        placeholders={
+                            "flag_property": ast.Field(chain=["properties", flag_property]),
+                            "feature_flag_key": ast.Constant(value=self.feature_flag_key),
+                        },
+                    ),
+                ]
+            )
+
+        return parse_expr(
             """
             timestamp >= {date_from}
             AND timestamp <= {date_to}
-            AND event = {exposure_event}
+            AND {event_predicate}
+            AND {test_accounts_filter}
             AND {variant_property} IN {variants}
             """,
             placeholders={
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": self.date_range_query.date_to_as_hogql(),
-                "exposure_event": ast.Constant(value=self.exposure_event),
-                "variant_property": ast.Field(chain=["properties", self.feature_flag_variant_property]),
+                "event_predicate": event_predicate,
+                "variant_property": ast.Field(chain=["properties", self.variant_property]),
                 "variants": ast.Constant(value=self.variants),
+                "test_accounts_filter": self._build_test_accounts_filter(),
             },
         )
-
-        # Add feature flag filter for $feature_flag_called events
-        if self.exposure_event == "$feature_flag_called":
-            flag_filter = parse_expr(
-                "properties.`$feature_flag` = {flag_key}",
-                placeholders={"flag_key": ast.Constant(value=self.feature_flag.key)},
-            )
-            return ast.And(exprs=[base_predicate, flag_filter])
-
-        return base_predicate
 
     def _build_metric_predicate(self) -> ast.Expr:
         """
@@ -309,7 +334,6 @@ class ExperimentQueryBuilder:
                 "exposure_predicate": self._build_exposure_predicate(),
                 "funnel_steps_filter": self._build_funnel_steps_filter(),
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
-                "uuid_to_session_map": self._build_uuid_to_session_map(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
             },
         )
@@ -337,7 +361,7 @@ class ExperimentQueryBuilder:
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
             step_column = ast.Alias(
-                alias=f"step_{i}",
+                alias=f"step_{i+1}",
                 expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
             )
             step_columns.append(step_column)
