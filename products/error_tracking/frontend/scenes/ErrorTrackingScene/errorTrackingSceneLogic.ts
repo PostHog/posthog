@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -13,13 +13,8 @@ import { errorTrackingQuery } from '../../queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from '../../utils'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
-interface ErrorTrackingSceneLogicProps {
-    personId?: string
-}
-
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
-    key((props: ErrorTrackingSceneLogicProps) => props?.personId || 'scene'),
 
     actions({
         setActiveTab: (activeTab: string) => ({ activeTab }),
@@ -55,7 +50,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.filterGroup,
                 s.searchQuery,
                 s.orderDirection,
-                (_, props) => props.personId,
             ],
             (
                 orderBy,
@@ -65,8 +59,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterTestAccounts,
                 filterGroup,
                 searchQuery,
-                orderDirection,
-                personId
+                orderDirection
             ): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
@@ -79,7 +72,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
-                    personId,
                 }),
         ],
         breadcrumbs: [
