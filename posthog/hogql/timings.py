@@ -42,7 +42,8 @@ class HogQLTimings:
     def to_dict(self) -> dict[str, float]:
         timings = {**self.timings}
         for key, start in reversed(self._timing_starts.items()):
-            timings[key] = timings.get(key, 0.0) + (perf_counter() - start)
+            value = timings.get(key, 0.0) + (perf_counter() - start)
+            timings[key] = round(value, 3)  # round to milliseconds, we don't need to store more precision than that
         return timings
 
     def to_list(self, back_out_stack=True) -> list[QueryTiming]:
