@@ -354,7 +354,7 @@ function convertTeamToMenuItem(
                                 iconOnly: true,
                                 isSideActionRight: true,
                             }}
-                            tooltip="Go to this environment's settings"
+                            tooltip={`Go to this environment's settings`}
                             tooltipPlacement="right"
                             to={urls.project(team.id, urls.settings('environment'))}
                             onClick={active ? handleActiveClick : undefined}

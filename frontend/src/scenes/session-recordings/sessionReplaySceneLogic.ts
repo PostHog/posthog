@@ -57,7 +57,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
 
     actionToUrl(({ values }) => {
         return {
-            setTab: () => [urls.replay(values.tab), router.values.searchParams, router.values.hashParams],
+            setTab: () => [urls.replay(values.tab), router.values.searchParams],
         }
     }),
 

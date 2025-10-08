@@ -42,7 +42,7 @@ export const SidePanelDocs = (): JSX.Element => {
             },
             '*'
         )
-    }, [isDarkModeOn])
+    }, [isDarkModeOn, ref.current])
 
     useOnMountEffect(() => {
         window.addEventListener('beforeunload', unmountIframe)

@@ -61,7 +61,7 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
         updateHeight()
 
         return () => clearInterval(interval)
-    }, [ref, height])
+    }, [ref, offsetRef.current, height])
 
     return (
         <div
