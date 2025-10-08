@@ -3838,7 +3838,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -3897,7 +3897,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3965,7 +3965,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -4040,7 +4040,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
@@ -4115,7 +4115,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -4190,7 +4190,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
@@ -4258,7 +4258,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -4317,7 +4317,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -4378,7 +4378,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -4437,7 +4437,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -4505,7 +4505,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -4580,7 +4580,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
@@ -4655,7 +4655,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -4730,7 +4730,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
@@ -4798,7 +4798,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -4857,7 +4857,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -4918,7 +4918,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -4977,7 +4977,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -5045,7 +5045,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -5120,7 +5120,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
@@ -5195,7 +5195,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
@@ -5270,7 +5270,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
@@ -5338,7 +5338,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -5397,7 +5397,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
