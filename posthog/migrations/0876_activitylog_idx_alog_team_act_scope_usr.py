@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
                     model_name="activitylog",
                     index=models.Index(
                         condition=models.Q(("was_impersonated", False), ("is_system", False)),
-                        fields=["team_id", "activity", "scope", "user_id"],
+                        fields=["team_id", "activity", "scope", "user"],
                         name="idx_alog_team_act_scope_usr",
                     ),
                 ),

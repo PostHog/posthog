@@ -144,7 +144,7 @@ class ActivityLog(UUIDTModel):
             ),
             # User-specific filtered queries
             models.Index(
-                fields=["team_id", "activity", "scope", "user_id"],
+                fields=["team_id", "activity", "scope", "user"],
                 name="idx_alog_team_act_scope_usr",
                 condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
             ),
