@@ -145,6 +145,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <LemonLabel className="text-base">
                             Link to a specific flag variant{' '}
                             <Tooltip
+                                delayMs={200}
                                 title={
                                     <>
                                         <p>Record for "any" variant, or only for a specific variant.</p>
@@ -667,6 +668,7 @@ function MinimumDurationSetting(): JSX.Element | null {
                     </AccessControlAction>
                 </div>
                 <Tooltip
+                    delayMs={200}
                     title={
                         <>
                             The JS SDK has an in-memory queue. This means that for traditional web apps the minimum
@@ -837,6 +839,12 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
         <LemonBanner type="info">
             <div className="flex flex-col gap-1">
                 <strong>{hasAnyTriggers ? 'Active triggers:' : 'No triggers — all sessions recorded'}</strong>
+                <Link
+                    to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
+                    target="blank"
+                >
+                    Read about how to start and stop sessions in our docs.
+                </Link>
                 <div className="flex flex-col gap-0.5 mt-1">
                     {triggers.map((trigger, i) => (
                         <div key={i} className="flex items-center gap-2">
@@ -902,15 +910,6 @@ export function ReplayTriggers(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-2">
-            <p>
-                Control when recordings start.{' '}
-                <Link
-                    to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
-                    target="blank"
-                >
-                    Learn more
-                </Link>
-            </p>
             <LemonTabs activeKey={selectedPlatform} onChange={selectPlatform} tabs={tabs} />
         </div>
     )
