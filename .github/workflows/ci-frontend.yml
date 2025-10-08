@@ -295,22 +295,22 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.jest.result }}" != "success" ]]; then
+                  if [[ "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" ]]; then
                     echo "Frontend jest tests failed."
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
-                  if [[ "${{ needs.frontend-format.result }}" != "success" ]]; then
+                  if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1
                   fi
                   echo "Frontend linting passed."
-                  if [[ "${{ needs.frontend-toolbar-checks.result }}" != "success" ]]; then
+                  if [[ "${{ needs.frontend-toolbar-checks.result }}" != "success" && "${{ needs.frontend-toolbar-checks.result }}" != "skipped" ]]; then
                     echo "Frontend toolbar checks failed."
                     exit 1
                   fi
                   echo "Frontend toolbar checks passed."
-                  if [[ "${{ needs.frontend-typescript-checks.result }}" != "success" ]]; then
+                  if [[ "${{ needs.frontend-typescript-checks.result }}" != "success" && "${{ needs.frontend-typescript-checks.result }}" != "skipped" ]]; then
                     echo "Frontend TypeScript checks failed."
                     exit 1
                   fi

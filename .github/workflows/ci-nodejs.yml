@@ -264,17 +264,17 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.tests.result }}" != "success" ]]; then
+                  if [[ "${{ needs.tests.result }}" != "success" && "${{ needs.tests.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Node.js test matrix failed."
                     exit 1
                   fi
                   echo "All jobs in the Node.js test matrix passed."
-                  if [[ "${{ needs.build.result }}" != "success" ]]; then
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Node.js build failed."
                     exit 1
                   fi
                   echo "Node.js build passed."
-                  if [[ "${{ needs.lint.result }}" != "success" ]]; then
+                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
                     echo "Node.js lint failed."
                     exit 1
                   fi

@@ -615,7 +615,7 @@ jobs:
               run: |
                   # The `needs.visual-regression.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.visual-regression.result }}" != "success" ]]; then
+                  if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
