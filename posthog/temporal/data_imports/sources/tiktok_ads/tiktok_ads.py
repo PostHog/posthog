@@ -24,8 +24,6 @@ def get_tiktok_resource(
     endpoint_name: str,
     advertiser_id: str,
     should_use_incremental_field: bool = False,
-    start_date: str | None = None,
-    end_date: str | None = None,
 ):
     """Get TikTok resource configuration for rest_api_resources."""
     if endpoint_name not in TIKTOK_ADS_CONFIG:
@@ -47,7 +45,7 @@ def get_tiktok_resource(
 
     # Replace template variables in params
     params = {
-        key: value.format(advertiser_id=advertiser_id, start_date=start_date or "", end_date=end_date or "")
+        key: value.format(advertiser_id=advertiser_id, start_date="{start_date}", end_date="{end_date}")
         if isinstance(value, str)
         else value
         for key, value in params.items()
@@ -92,12 +90,12 @@ def tiktok_ads_source(
             starts_at = (datetime.now() - timedelta(days=MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS)).strftime("%Y-%m-%d")
 
         # Get base resource configuration (dates will be set per chunk)
-        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field, starts_at, ends_at)
+        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
 
         resources = create_date_chunked_resources(base_resource, starts_at, ends_at, advertiser_id)
     else:
         # For non-report endpoints, use single resource without dates
-        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field, None, None)
+        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
         resources = [base_resource]
 
     # Create REST API config

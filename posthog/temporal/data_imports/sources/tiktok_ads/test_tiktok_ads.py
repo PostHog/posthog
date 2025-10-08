@@ -159,8 +159,7 @@ class TestGetResource:
 
     def test_get_tiktok_resource_report_endpoint_incremental(self):
         """Test resource configuration for report endpoint with incremental sync."""
-        last_value_str = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, last_value_str)
+        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True)
 
         assert resource["name"] == "campaign_report"
         assert resource["table_name"] == "campaign_report"
@@ -180,38 +179,20 @@ class TestGetResource:
         assert "start_date" in resource["endpoint"]["params"]
         assert "end_date" in resource["endpoint"]["params"]
 
-        # When no dates are provided, they should be empty strings
-        assert resource["endpoint"]["params"]["start_date"] == ""
-        assert resource["endpoint"]["params"]["end_date"] == ""
-
-        start_date_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        end_date_str = datetime.now().strftime("%Y-%m-%d")
-        resource_with_dates = get_tiktok_resource(
-            "campaign_report", self.advertiser_id, False, start_date_str, end_date_str
-        )
-
-        start_date = datetime.strptime(resource_with_dates["endpoint"]["params"]["start_date"], "%Y-%m-%d")
-        end_date = datetime.strptime(resource_with_dates["endpoint"]["params"]["end_date"], "%Y-%m-%d")
-        days_diff = (end_date - start_date).days
-
-        assert days_diff > 0
+        # When no dates are provided in the base resource, they should be template placeholders
+        assert resource["endpoint"]["params"]["start_date"] == "{start_date}"
+        assert resource["endpoint"]["params"]["end_date"] == "{end_date}"
 
     def test_get_tiktok_resource_with_date_chunking(self):
-        """Test resource configuration with date chunking for large ranges."""
-        old_date_str = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-        end_date_str = datetime.now().strftime("%Y-%m-%d")
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, old_date_str, end_date_str)
+        """Test resource configuration shows template placeholders for date chunking."""
+        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True)
 
         assert "start_date" in resource["endpoint"]["params"]
         assert "end_date" in resource["endpoint"]["params"]
 
-        start_date = datetime.strptime(resource["endpoint"]["params"]["start_date"], "%Y-%m-%d")
-        end_date = datetime.strptime(resource["endpoint"]["params"]["end_date"], "%Y-%m-%d")
-        expected_start = datetime.strptime(old_date_str, "%Y-%m-%d")
-        expected_end = datetime.strptime(end_date_str, "%Y-%m-%d")
-
-        assert start_date == expected_start
-        assert end_date == expected_end
+        # Base resource should have template placeholders that will be filled by chunking logic
+        assert resource["endpoint"]["params"]["start_date"] == "{start_date}"
+        assert resource["endpoint"]["params"]["end_date"] == "{end_date}"
 
 
 class TestTikTokAdsSource:
