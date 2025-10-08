@@ -270,11 +270,7 @@ impl KafkaSink {
                             &[("reason", "force_limited")]
                         )
                         .increment(1);
-                        if self.partition.as_ref().unwrap().should_preserve_locality() {
-                            (&self.overflow_topic, Some(event_key.as_str()))
-                        } else {
-                            (&self.overflow_topic, None)
-                        }
+                        (&self.overflow_topic, None)
                     }
                     OverflowLimiterResult::Limited => {
                         counter!(
