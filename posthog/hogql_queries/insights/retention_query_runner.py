@@ -507,6 +507,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
+        event_filters = self.global_event_filters.copy()
         if (
             self.query.breakdownFilter
             and self.query.breakdownFilter.breakdowns
@@ -516,7 +517,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             cohort_id = self.query.breakdownFilter.breakdowns[0].property
             # Don't add cohort filter for "all users" (cohort_id = 0)
             if int(cohort_id) != ALL_USERS_COHORT_ID:
-                self.global_event_filters.append(
+                event_filters.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.InCohort,
                         left=ast.Field(chain=["person_id"]),
@@ -584,21 +585,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             is_first_interval_after_start_event = parse_expr(
                 "has(start_event_timestamps, date_range[start_interval_index + 1])"
             )
-
-        if self.group_type_index is not None:
-            group_index = int(self.group_type_index)
-            if 0 <= group_index <= 4:
-                self.global_event_filters.append(
-                    ast.Not(
-                        expr=ast.Call(
-                            name="has",
-                            args=[
-                                ast.Array(exprs=[ast.Constant(value="")]),
-                                ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
-                            ],
-                        ),
-                    ),
-                )
 
         intervals_from_base_array_aggregator = "arrayJoin"
         if cumulative:
@@ -693,7 +679,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=self.global_event_filters),
+            where=ast.And(exprs=event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(
                 exprs=[
