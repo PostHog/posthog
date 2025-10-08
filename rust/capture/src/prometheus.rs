@@ -4,8 +4,6 @@ use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
-use crate::metrics_middleware::METRIC_CAPTURE_REQUEST_SIZE_BYTES;
-
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
@@ -41,18 +39,6 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
     const BATCH_SIZES: &[f64] = &[
         1.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0,
     ];
-    // Buckets for request content-length in bytes (1KB to 20MB)
-    const REQUEST_SIZE_BYTES: &[f64] = &[
-        1024.0,       // 1 KB
-        10_240.0,     // 10 KB
-        102_400.0,    // 100 KB
-        512_000.0,    // 500 KB
-        1_048_576.0,  // 1 MB
-        5_242_880.0,  // 5 MB
-        10_485_760.0, // 10 MB
-        20_971_520.0, // 20 MB
-        52_428_800.0, // 50 MB (for edge cases)
-    ];
 
     PrometheusBuilder::new()
         .set_buckets_for_metric(
@@ -61,11 +47,6 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
         )
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_batch_size".to_string()), BATCH_SIZES)
-        .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Full(METRIC_CAPTURE_REQUEST_SIZE_BYTES.to_string()),
-            REQUEST_SIZE_BYTES,
-        )
         .unwrap()
         .install_recorder()
         .unwrap()
