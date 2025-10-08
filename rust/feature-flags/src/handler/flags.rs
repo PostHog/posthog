@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use axum::extract::State;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -18,12 +18,33 @@ use uuid::Uuid;
 use super::{evaluation, types::FeatureFlagEvaluationContext};
 use crate::router;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EvaluationRuntime {
     All,
     Client,
     Server,
+}
+
+impl<'de> Deserialize<'de> for EvaluationRuntime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "all" => Ok(EvaluationRuntime::All),
+            "client" => Ok(EvaluationRuntime::Client),
+            "server" => Ok(EvaluationRuntime::Server),
+            invalid => {
+                tracing::warn!(
+                    "Invalid evaluation_runtime value '{}', defaulting to 'all'",
+                    invalid
+                );
+                Ok(EvaluationRuntime::All)
+            }
+        }
+    }
 }
 
 impl From<String> for EvaluationRuntime {

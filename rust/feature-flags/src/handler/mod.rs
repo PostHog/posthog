@@ -148,10 +148,7 @@ async fn process_request_inner(
                 team.project_id,
                 &context.meta,
                 &context.headers,
-                request
-                    .evaluation_runtime
-                    .as_deref()
-                    .map(flags::EvaluationRuntime::from),
+                request.evaluation_runtime,
                 request.evaluation_environments.as_ref(),
             )
             .await?;
