@@ -1,10 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 
 import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfo, IconPlus, IconX } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonDivider,
@@ -12,7 +11,6 @@ import {
     LemonSegmentedButtonOption,
     LemonSelect,
     LemonSwitch,
-    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -139,33 +137,59 @@ export function SupportedPlatforms(props: {
     )
 }
 
+export function Since(props: {
+    web?: false | { version?: string }
+    android?: false | { version?: string }
+    ios?: false | { version?: string }
+    reactNative?: false | { version?: string }
+    flutter?: false | { version?: string }
+}): JSX.Element {
+    const tooltipContent = useMemo(() => {
+        return Object.entries(props)
+            .filter(([_, value]) => !!value)
+            .map(([key, value]) => {
+                const since = isObject(value) && !!value.version ? <span>since {value.version}</span> : <IconCheck />
+                return (
+                    <li key={key} className="flex flex-row justify-between gap-x-2">
+                        <span>{key}:</span>
+                        {since}
+                    </li>
+                )
+            })
+    }, [props])
+
+    return (
+        <Tooltip title={<ul>{tooltipContent}</ul>}>
+            <IconInfo className="text-muted-alt cursor-help" />
+        </Tooltip>
+    )
+}
+
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <div>
-            <h3>Log capture</h3>
-            <SupportedPlatforms
-                android={{ version: '1.0.0' }}
-                ios={{ version: '3.26.0' }}
-                flutter={false}
-                web={{ version: '1.18.0' }}
-                reactNative={{
-                    version: '3.9.0',
-                    note: <>Android only</>,
-                }}
-            />
+            <div className="flex flex-row justify-between">
+                <h3>Log capture</h3>
+                <SupportedPlatforms
+                    android={{ version: '1.0.0' }}
+                    ios={{ version: '3.26.0' }}
+                    flutter={false}
+                    web={{ version: '1.18.0' }}
+                    reactNative={{
+                        version: '3.9.0',
+                        note: <>Android only</>,
+                    }}
+                />
+            </div>
+            <p>Show browser or app logs in session recordings to spot issues faster.</p>
             <p>
-                This setting controls if browser console logs or app logs will be captured as a part of recordings. The
-                logs will be shown in the recording player to help you debug any issues.
-            </p>
-            <p>
-                Log capture is also available for{' '}
                 <Link to="https://posthog.com/docs/session-replay/console-log-recording" target="_blank">
-                    Mobile session replay
+                    Mobile log capture’s supported too
                 </Link>{' '}
-                , where they can be configured directly in code.
+                — just set it up in your app’s code.
             </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
@@ -194,29 +218,30 @@ function CanvasCaptureSettings(): JSX.Element | null {
 
     return (
         <div>
-            <h3>Canvas capture</h3>
-            <SupportedPlatforms
-                android={false}
-                ios={false}
-                flutter={{
-                    version: '4.7.0',
-                    note: (
-                        <>
-                            If you're using the <code>canvaskit</code> renderer on Flutter Web, you must also enable
-                            canvas capture
-                        </>
-                    ),
-                }}
-                web={{ version: '1.101.0' }}
-                reactNative={false}
-            />
+            <div className="flex flex-row justify-between">
+                <h3>Canvas capture</h3>
+                <SupportedPlatforms
+                    android={false}
+                    ios={false}
+                    flutter={{
+                        version: '4.7.0',
+                        note: (
+                            <>
+                                If you're using the <code>canvaskit</code> renderer on Flutter Web, you must also enable
+                                canvas capture
+                            </>
+                        ),
+                    }}
+                    web={{ version: '1.101.0' }}
+                    reactNative={false}
+                />
+            </div>
             <p>
                 This setting controls if browser canvas elements will be captured as part of recordings.{' '}
                 <b>
                     <i>There is no way to mask canvas elements right now so please make sure they are free of PII.</i>
                 </b>
             </p>
-            <p>Canvas capture is only available for JavaScript Web.</p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
@@ -231,12 +256,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                             },
                         })
                     }}
-                    label={
-                        <div className="deprecated-space-x-1">
-                            <LemonTag type="success">New</LemonTag>
-                            <LemonLabel>Capture canvas elements</LemonLabel>
-                        </div>
-                    }
+                    label={<LemonLabel>Capture canvas elements</LemonLabel>}
                     bordered
                     checked={
                         currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
@@ -276,23 +296,22 @@ export function NetworkCaptureSettings(): JSX.Element {
 
     return (
         <>
-            <SupportedPlatforms
-                android={{ version: '3.1.0' }}
-                ios={{ version: '3.12.6' }}
-                flutter={false}
-                web={{ version: '1.39.0' }}
-                reactNative={{ note: <>RN network capture is only supported on iOS</> }}
-            />
+            <div className="flex flex-row justify-between">
+                <h3>Capture requests</h3>
+                <SupportedPlatforms
+                    android={{ version: '3.1.0' }}
+                    ios={{ version: '3.12.6' }}
+                    flutter={false}
+                    web={{ version: '1.39.0' }}
+                    reactNative={{ note: <>RN network capture is only supported on iOS</> }}
+                />
+            </div>
             <p>
-                This setting controls if performance and network information will be captured alongside recordings. The
-                network requests and timings will be shown in the recording player to help you debug any issues.
-            </p>
-            <p>
-                Network capture is also available for{' '}
+                Capture performance and network data with your session recordings. You’ll see requests and timings right
+                in the recording player to help debug issues faster. Mobile session replay supports this too —{' '}
                 <Link to="https://posthog.com/docs/session-replay/network-recording" target="_blank">
-                    Mobile session replay
-                </Link>{' '}
-                , where they can be configured directly in code.
+                    just configure it in your app’s code.
+                </Link>
             </p>
 
             <AccessControlAction
@@ -304,7 +323,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     onChange={(checked) => {
                         updateCurrentTeam({ capture_performance_opt_in: checked })
                     }}
-                    label="Capture network performance"
+                    label="Capture network requests"
                     bordered
                     checked={!!currentTeam?.capture_performance_opt_in}
                     disabledReason={
@@ -314,23 +333,24 @@ export function NetworkCaptureSettings(): JSX.Element {
             </AccessControlAction>
 
             <div className="mt-4">
+                <div className="flex flex-row justify-between">
+                    <h3>Capture headers and payloads</h3>
+                    <SupportedPlatforms
+                        android={false}
+                        ios={false}
+                        flutter={false}
+                        web={{ version: '1.104.4' }}
+                        reactNative={false}
+                    />
+                </div>
                 <p>
-                    When network capture is enabled, we always capture network timings. Use these switches to choose
-                    whether to also capture headers and payloads of requests.{' '}
+                    When network capture’s on, we’ll always record request timings. Use these options to also capture
+                    headers and payloads if you need them.
                     <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
                         Learn how to mask header and payload values in our docs
                     </Link>
                 </p>
-                <LemonBanner type="info" className="mb-4">
-                    <PayloadWarning />
-                </LemonBanner>
-                <SupportedPlatforms
-                    android={false}
-                    ios={false}
-                    flutter={false}
-                    web={{ version: '1.104.4' }}
-                    reactNative={false}
-                />
+
                 <div className="flex flex-row deprecated-space-x-2">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
@@ -339,12 +359,32 @@ export function NetworkCaptureSettings(): JSX.Element {
                         <LemonSwitch
                             data-attr="opt-in-capture-network-headers-switch"
                             onChange={(checked) => {
-                                updateCurrentTeam({
-                                    session_recording_network_payload_capture_config: {
-                                        ...currentTeam?.session_recording_network_payload_capture_config,
-                                        recordHeaders: checked,
-                                    },
-                                })
+                                if (checked) {
+                                    LemonDialog.open({
+                                        maxWidth: '650px',
+                                        title: 'Network body capture',
+                                        description: <PayloadWarning />,
+                                        primaryButton: {
+                                            'data-attr': 'network-payload-capture-accept-warning-and-enable',
+                                            children: 'Enable body capture',
+                                            onClick: () => {
+                                                updateCurrentTeam({
+                                                    session_recording_network_payload_capture_config: {
+                                                        ...currentTeam?.session_recording_network_payload_capture_config,
+                                                        recordHeaders: true,
+                                                    },
+                                                })
+                                            },
+                                        },
+                                    })
+                                } else {
+                                    updateCurrentTeam({
+                                        session_recording_network_payload_capture_config: {
+                                            ...currentTeam?.session_recording_network_payload_capture_config,
+                                            recordHeaders: checked,
+                                        },
+                                    })
+                                }
                             }}
                             label="Capture headers"
                             bordered
@@ -621,14 +661,13 @@ export function ReplayMaskingSettings(): JSX.Element {
     return (
         <div>
             <SupportedPlatforms web={{ version: '1.227.0' }} />
-            <p>This controls what data is masked during session recordings.</p>
+            <p>Choose what data gets masked in your session recordings.</p>
             <p>
-                You can configure more advanced settings or change masking for other platforms directly in code.{' '}
+                For more control (or to adjust masking on other platforms), set it up directly in your code{' '}
                 <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
                     Learn more
                 </Link>
             </p>
-            <p>If you specify this in code, it will take precedence over the setting here.</p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
@@ -774,13 +813,6 @@ export function ReplayGeneral(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div>
-                <SupportedPlatforms
-                    android={{ version: '3.11.0' }}
-                    ios={{ version: '3.19.2' }}
-                    flutter={{ version: '4.7.0' }}
-                    web={{ version: '1.5.0' }}
-                    reactNative={{ version: '3.9.0' }}
-                />
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved.{' '}
                     <Link

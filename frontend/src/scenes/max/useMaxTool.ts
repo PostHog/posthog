@@ -77,12 +77,13 @@ export function useMaxTool({
         definition.name,
         definition.description,
         icon,
-        JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
+        JSON.stringify(context),
         introOverride,
         suggestions,
         callback,
         registerTool,
         deregisterTool,
+        context,
     ])
 
     return {

@@ -131,7 +131,7 @@ export const LemonFileInput = ({
             div?.removeEventListener('dragover', handleDrag)
             div?.removeEventListener('drop', handleDrop)
         }
-    }, [value, handleDrop, handleDragOut, alternativeDropTargetRef, dropRef, handleDragIn])
+    }, [value, handleDragOut, alternativeDropTargetRef, dropRef, handleDragIn])
 
     useEffect(() => {
         const extraDragTarget = alternativeDropTargetRef?.current

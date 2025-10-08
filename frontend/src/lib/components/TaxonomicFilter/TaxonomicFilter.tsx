@@ -97,7 +97,7 @@ export function TaxonomicFilter({
         if (taxonomicFilterRef.current) {
             setRefReady(true)
         }
-    }, [taxonomicFilterRef.current])
+    }, [])
 
     const style = {
         ...(width ? { width } : {}),

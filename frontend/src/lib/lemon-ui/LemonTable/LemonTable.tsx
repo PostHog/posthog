@@ -197,7 +197,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting, columns])
+    }, [dataSource, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -210,7 +210,7 @@ export function LemonTable<T extends Record<string, any>>({
                 window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
             }
         }
-    }, [paginationState.currentPage, scrollRef.current])
+    }, [paginationState.currentPage])
 
     if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column

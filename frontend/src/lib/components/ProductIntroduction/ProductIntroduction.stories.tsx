@@ -44,7 +44,7 @@ export function emptyNoAction(): JSX.Element {
             productName="Feature Flags"
             productKey={ProductKey.FEATURE_FLAGS}
             thingName="history record"
-            description={`History shows any feature flag changes that have been made. After making changes you'll see them logged here.`}
+            description="History shows any feature flag changes that have been made. After making changes you'll see them logged here."
         />
     )
 }

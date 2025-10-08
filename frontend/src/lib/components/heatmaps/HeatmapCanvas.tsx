@@ -130,7 +130,7 @@ export function HeatmapCanvas({
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })
-    }, [heatmapJSColorGradient])
+    }, [heatmapJSColorGradient, heatmapConfig])
 
     if (!heatmapFilters.enabled) {
         return null

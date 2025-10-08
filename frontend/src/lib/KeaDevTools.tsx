@@ -1743,7 +1743,7 @@ export function KeaDevtools({
     // keys + default selection
     const allKeys = useMemo(
         () => Object.keys(mounted).sort((a, b) => displayName(mounted[a]).localeCompare(displayName(mounted[b]))),
-        [mounted]
+        []
     )
 
     useEffect(() => {
@@ -1769,7 +1769,7 @@ export function KeaDevtools({
             base.sort((a, b) => (recent.current.get(b) ?? 0) - (recent.current.get(a) ?? 0))
         }
         return base
-    }, [allKeys, sortMode, debouncedQuery, mounted])
+    }, [allKeys, sortMode, debouncedQuery])
 
     const selectedLogic = selectedKey ? mounted[selectedKey] : undefined
 

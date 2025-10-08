@@ -21,7 +21,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     useEffect(() => {
         // React cleverly stops js links from working, so we need to set the href manually
         ref.current?.setAttribute('href', href)
-    }, [ref.current, href])
+    }, [href])
 
     return (
         <>
