@@ -680,6 +680,88 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
 }
 
 #[tokio::test]
+async fn it_should_not_set_force_disable_person_processing_header_when_rate_limited() -> Result<()>
+{
+    setup_tracing();
+
+    let token1 = String::from("token1");
+    let distinct_id1 = String::from("user1");
+
+    let topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
+
+    let mut config = DEFAULT_CONFIG.clone();
+    // NO forced overflow keys - only rate limiting
+    config.ingestion_force_overflow_by_token_distinct_id = None;
+    config.kafka.kafka_hosts = "localhost:9092".to_string();
+    config.kafka.kafka_producer_linger_ms = 0;
+    config.kafka.kafka_message_timeout_ms = 10000;
+    config.kafka.kafka_producer_max_retries = 3;
+    config.kafka.kafka_topic = topic.topic_name().to_string();
+    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.overflow_enabled = true;
+    // Very low limits to trigger rate-based overflow
+    config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
+    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // First event should go to main topic
+    let batch_1 = json!([{
+        "token": token1,
+        "event": "event1",
+        "distinct_id": distinct_id1,
+    }]);
+
+    let res = server.capture_events(batch_1.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Second event should go to overflow due to rate limiting
+    let batch_2 = json!([{
+        "token": token1,
+        "event": "event2",
+        "distinct_id": distinct_id1,
+    }]);
+
+    let res = server.capture_events(batch_2.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // First event in main topic should NOT have the header
+    let (event, headers) = topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token1,
+            "distinct_id": distinct_id1,
+        })
+    );
+    assert!(
+        !headers.contains_key("force_disable_person_processing"),
+        "Main topic events should not have force_disable_person_processing header"
+    );
+
+    topic.assert_empty();
+
+    // Rate-limited overflow event should NOT have the header
+    let (event, headers) = overflow_topic.next_message_with_headers()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token1,
+            "distinct_id": distinct_id1,
+        })
+    );
+    assert!(
+        !headers.contains_key("force_disable_person_processing"),
+        "Rate-limited overflow events should NOT have force_disable_person_processing header"
+    );
+
+    overflow_topic.assert_empty();
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_reroutes_to_historical_on_specified_keys() -> Result<()> {
     setup_tracing();
 

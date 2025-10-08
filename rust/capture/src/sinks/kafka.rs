@@ -6,7 +6,7 @@ use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use common_types::CapturedEventHeaders;
 use health::HealthHandle;
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
@@ -257,31 +257,42 @@ impl KafkaSink {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // TODO: deprecate capture-led overflow or move logic in handler
-                let is_limited = match &self.partition {
-                    None => false,
+                let overflow_result = match &self.partition {
+                    None => OverflowLimiterResult::NotLimited,
                     Some(partition) => partition.is_limited(&event_key),
                 };
 
-                if is_limited {
-                    // Analytics overflow goes to the overflow topic
-                    // we configure to retain partition key or not.
-                    // if is_limited is true, the OverflowLimiter is
-                    // configured and is safe to unwrap here.
-                    counter!(
-                        "capture_events_rerouted_overflow",
-                        &[("reason", "event_key")]
-                    )
-                    .increment(1);
-                    headers.set_force_disable_person_processing(true);
-                    if self.partition.as_ref().unwrap().should_preserve_locality() {
-                        (&self.overflow_topic, Some(event_key.as_str()))
-                    } else {
-                        (&self.overflow_topic, None)
+                match overflow_result {
+                    OverflowLimiterResult::ForceLimited => {
+                        headers.set_force_disable_person_processing(true);
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "force_limited")]
+                        )
+                        .increment(1);
+                        if self.partition.as_ref().unwrap().should_preserve_locality() {
+                            (&self.overflow_topic, Some(event_key.as_str()))
+                        } else {
+                            (&self.overflow_topic, None)
+                        }
                     }
-                } else {
-                    // event_key is "<token>:<distinct_id>" for std events or
-                    // "<token>:<ip_addr>" for cookieless events
-                    (&self.main_topic, Some(event_key.as_str()))
+                    OverflowLimiterResult::Limited => {
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "rate_limited")]
+                        )
+                        .increment(1);
+                        if self.partition.as_ref().unwrap().should_preserve_locality() {
+                            (&self.overflow_topic, Some(event_key.as_str()))
+                        } else {
+                            (&self.overflow_topic, None)
+                        }
+                    }
+                    OverflowLimiterResult::NotLimited => {
+                        // event_key is "<token>:<distinct_id>" for std events or
+                        // "<token>:<ip_addr>" for cookieless events
+                        (&self.main_topic, Some(event_key.as_str()))
+                    }
                 }
             }
             DataType::ClientIngestionWarning => (
