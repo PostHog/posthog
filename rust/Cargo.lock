@@ -1857,7 +1857,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 2.0.16",
  "time",
  "uuid",
 ]
@@ -2467,6 +2466,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedding-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-types",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "posthog-rs",
+ "reqwest 0.12.15",
+ "serde",
+ "sqlx",
+ "tiktoken-rs",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "ena"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2538,31 +2562,6 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "et-embedding-worker"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.7.5",
- "common-alloc",
- "common-kafka",
- "common-metrics",
- "common-types",
- "envconfig",
- "futures",
- "health",
- "metrics",
- "posthog-rs",
- "reqwest 0.12.15",
- "serde",
- "sqlx",
- "tiktoken-rs",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
