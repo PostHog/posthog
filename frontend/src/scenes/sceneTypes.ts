@@ -243,6 +243,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 
+    // Surveys
+    [Scene.Survey]: AccessControlResourceType.Survey,
+    [Scene.Surveys]: AccessControlResourceType.Survey,
+    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
+
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
