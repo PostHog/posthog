@@ -5247,6 +5247,119 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         assert canada_day0_cohort is not None
         self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
 
+    def test_retention_24h_window_calculation(self):
+        # This test validates that 24-hour window retention works differently from calendar-based retention
+        # Key difference: with 24h windows, intervals are calculated from each user's first event timestamp,
+        # not from calendar day boundaries
+
+        # Create a user who:
+        # - Does first event at 11 PM on Day 0
+        # - Does return event at 1 AM on Day 1 (only 2 hours later, same 24h window)
+        # - Does return event at 11 PM on Day 1 (24 hours later, next 24h window)
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 23, 0).isoformat()),  # Day 0, 11 PM (t_0)
+                ("person1", datetime(2020, 6, 11, 1, 0).isoformat()),  # Day 1, 1 AM (2 hours after t_0)
+                ("person1", datetime(2020, 6, 11, 23, 0).isoformat()),  # Day 1, 11 PM (24 hours after t_0)
+            ],
+            event="$pageview",
+        )
+
+        # Test with calendar-based retention (default)
+        calendar_result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                },
+            }
+        )
+
+        # With calendar dates:
+        # - Day 0: user did event (11 PM)
+        # - Day 1: user did event (both 1 AM and 11 PM count as Day 1)
+        # Expected: Day 0 retention = 1, Day 1 retention = 1
+        calendar_day_0 = next(row for row in calendar_result if row["label"] == "Day 0")
+        self.assertEqual(calendar_day_0["values"][0]["count"], 1)  # Day 0
+        self.assertEqual(calendar_day_0["values"][1]["count"], 1)  # Day 1 (both events count)
+
+        # Test with 24-hour window retention
+        window_result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # With 24-hour windows (relative to user's first event at 11 PM):
+        # - Interval 0 (0-24h): events at 11 PM Day 0 and 1 AM Day 1 (2h after start)
+        # - Interval 1 (24-48h): event at 11 PM Day 1 (24h after start)
+        # Expected: Interval 0 retention = 1, Interval 1 retention = 1
+        window_day_0 = next(row for row in window_result if row["label"] == "Day 0")
+        self.assertEqual(window_day_0["values"][0]["count"], 1)  # Interval 0 (includes 1 AM event)
+        self.assertEqual(window_day_0["values"][1]["count"], 1)  # Interval 1 (11 PM event)
+
+        # Create another test case where the difference is more obvious
+        # User 2:
+        # - Does first event at 1 AM on Day 1
+        # - Does return event at 11 PM on Day 1 (22 hours later, same 24h window)
+        # - Does return event at 2 AM on Day 2 (25 hours later, next 24h window)
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        _create_events(
+            self.team,
+            [
+                ("person2", datetime(2020, 6, 11, 1, 0).isoformat()),  # Day 1, 1 AM (t_0)
+                ("person2", datetime(2020, 6, 11, 23, 0).isoformat()),  # Day 1, 11 PM (22 hours after t_0)
+                ("person2", datetime(2020, 6, 12, 2, 0).isoformat()),  # Day 2, 2 AM (25 hours after t_0)
+            ],
+            event="$pageview",
+        )
+
+        # With calendar dates: person2 starts on Day 1
+        calendar_result_2 = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                },
+            }
+        )
+
+        # Day 1 cohort: person2 did event on Day 1 (1 AM) and Day 2 (2 AM)
+        calendar_day_1 = next(row for row in calendar_result_2 if row["label"] == "Day 1")
+        self.assertEqual(calendar_day_1["values"][0]["count"], 1)  # Day 0 (same day, includes 11 PM)
+        self.assertEqual(calendar_day_1["values"][1]["count"], 1)  # Day 1 (next day, 2 AM)
+
+        # With 24-hour windows
+        window_result_2 = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Interval 0 (0-24h from 1 AM): includes 1 AM and 11 PM events
+        # Interval 1 (24-48h from 1 AM): includes 2 AM Day 2 event
+        window_day_1 = next(row for row in window_result_2 if row["label"] == "Day 1")
+        self.assertEqual(window_day_1["values"][0]["count"], 1)  # Interval 0 (includes 11 PM same day)
+        self.assertEqual(window_day_1["values"][1]["count"], 1)  # Interval 1 (2 AM next day)
+
     # TRICKY: for later if/when we want a different ranking logic for breakdowns
     # def test_retention_breakdown_ranking_by_unique_users(self):
     #     # This test validates that breakdown ranking is based on unique users, not sum of cohort sizes.
