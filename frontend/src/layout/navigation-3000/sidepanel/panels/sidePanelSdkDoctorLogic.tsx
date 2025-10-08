@@ -1119,61 +1119,37 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     error,
                                 }
                             } else if (info.type === 'php') {
-                                // DIRECT IMPLEMENTATION FOR PHP SDK - simplified logic
+                                // PHP SDK - use smart semver detection
+                                console.info(`[SDK Doctor] PHP SDK async check for version ${info.version}`)
 
-                                // Get PHP SDK data directly
-                                const sdkData = await fetchSdkData('php')
+                                const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
+                                const {
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    error,
+                                } = versionCheckResult
 
-                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
-                                    console.warn('[SDK Doctor] PHP SDK: No version data available')
-                                    updatedMap[key] = {
-                                        ...info,
-                                        isOutdated: false,
-                                        releasesAhead: 0,
-                                        latestVersion: undefined,
-                                        releaseDate: undefined,
-                                        daysSinceRelease: undefined,
-                                        isAgeOutdated: false,
-                                        deviceContext: 'desktop',
-                                        eventVolume: categorizeEventVolume(info.count),
-                                        lastSeenTimestamp: new Date().toISOString(),
-                                        error: 'The Doctor is unavailable. Please try again later.',
-                                    }
-                                    continue
-                                }
-
-                                const latestVersion = sdkData.versions[0]
-                                const versions = sdkData.versions
-
-                                // Calculate releases behind
-                                const currentIndex = versions.findIndex((v) => v === info.version)
-                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
-
-                                // Simplified logic: 0 = current, 1-2 = close enough, 3+ = outdated
-                                let isOutdated = false
-                                if (releasesBehind >= 3) {
-                                    isOutdated = true
-                                    console.info(
-                                        `[SDK Doctor] PHP SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
-                                    )
-                                } else {
-                                    console.info(
-                                        `[SDK Doctor] PHP SDK ${info.version} is ${releasesBehind} releases behind - marking as ${releasesBehind === 0 ? 'current' : 'close enough'}`
-                                    )
-                                }
+                                const deviceContext =
+                                    'deviceContext' in versionCheckResult && versionCheckResult.deviceContext
+                                        ? (versionCheckResult.deviceContext as 'mobile' | 'desktop' | 'mixed')
+                                        : determineDeviceContext(info.type)
 
                                 updatedMap[key] = {
                                     ...info,
                                     isOutdated,
-                                    releasesAhead: releasesBehind,
+                                    releasesAhead,
                                     latestVersion,
-                                    releaseDate: undefined,
-                                    daysSinceRelease: undefined,
-                                    isAgeOutdated: false,
-                                    deviceContext: 'desktop',
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    deviceContext,
                                     eventVolume: categorizeEventVolume(info.count),
                                     lastSeenTimestamp: new Date().toISOString(),
-                                    error: undefined,
+                                    error,
                                 }
                             } else if (info.type === 'ruby') {
                                 // DIRECT IMPLEMENTATION FOR RUBY SDK - simplified logic
