@@ -123,7 +123,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            await this.runWithHeartbeat(() => this.handleBatch(messages))
+            await this.handleBatch(messages)
         })
 
         logger.info('✅', `${this.name} started successfully`)
