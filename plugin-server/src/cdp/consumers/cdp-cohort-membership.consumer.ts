@@ -83,8 +83,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             try {
                 const messageValue = message.value?.toString()
                 if (!messageValue) {
-                    logger.error('Empty message received')
-                    continue
+                    throw new Error('Empty message received')
                 }
 
                 const parsedMessage = parseJSON(messageValue)
@@ -111,7 +110,6 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             }
         }
 
-        // Process all changes in a single batch
         await this.handleBatchCohortMembership(cohortMembershipChanges)
     }
 
