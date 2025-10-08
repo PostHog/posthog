@@ -15,7 +15,7 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons) AS cohort_people__new_person ON equals(cohort_people.cohort_people___person_id, cohort_people__new_person.cohort_people__new_person___id) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_lazy_join_on_lazy_table_with_person_properties
@@ -32,7 +32,7 @@
   SELECT events.event AS event, event AS persons__events___event 
   FROM events 
   WHERE equals(events.team_id, 420)) AS persons__events ON equals(persons.persons___properties___email, persons__events.persons__events___event) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_lazy_join_on_lazy_table_with_properties
@@ -51,7 +51,7 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons) AS cohort_people__new_person ON equals(cohort_people.cohort_people___person_id, cohort_people__new_person.cohort_people__new_person___properties___email) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_table_as_select_table
@@ -65,7 +65,7 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_table_as_table_in_join
@@ -107,7 +107,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_table_indirectly_referenced
@@ -128,7 +128,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables
@@ -143,7 +143,7 @@
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties
@@ -163,7 +163,7 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties_deep
@@ -183,7 +183,7 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_3)s), person.version), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_traversed_fields
@@ -198,7 +198,7 @@
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels
@@ -219,7 +219,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties
@@ -240,7 +240,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties_duplicate
@@ -261,7 +261,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_traversed
@@ -282,7 +282,7 @@
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestLazyJoins.test_select_count_from_lazy_table
@@ -296,6 +296,6 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
