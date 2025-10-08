@@ -25,7 +25,7 @@ function isValidPropertyName(name: string): boolean {
 
 interface PropertyGroupModalProps {
     logicKey?: string
-    onAfterSave?: () => void
+    onAfterSave?: () => void | Promise<void>
 }
 
 export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModalProps = {}): JSX.Element {
@@ -60,10 +60,9 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
 
         handleClose()
 
-        // Small delay to ensure database transaction is visible to other connections
-        setTimeout(() => {
-            onAfterSave?.()
-        }, 200)
+        // Call the callback which may be async
+        // This allows the parent to reload its data with the fresh updates
+        await onAfterSave?.()
     }
 
     const hasInvalidPropertyNames = properties.some((prop) => !isValidPropertyName(prop.name))

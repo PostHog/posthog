@@ -1,9 +1,10 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { schemaManagementLogic } from '../schema/schemaManagementLogic'
 import type { SchemaPropertyGroup } from '../schema/schemaManagementLogic'
 import type { eventDefinitionSchemaLogicType } from './eventDefinitionSchemaLogicType'
 
@@ -25,6 +26,12 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
     path(['scenes', 'data-management', 'events', 'eventDefinitionSchemaLogic']),
     props({} as EventDefinitionSchemaLogicProps),
     key((props) => props.eventDefinitionId),
+    connect((props: EventDefinitionSchemaLogicProps) => ({
+        actions: [
+            schemaManagementLogic({ key: `event-${props.eventDefinitionId}` }),
+            ['updatePropertyGroupSuccess', 'createPropertyGroupSuccess'],
+        ],
+    })),
     actions({
         addPropertyGroup: (propertyGroupId: string) => ({ propertyGroupId }),
         removePropertyGroup: (eventSchemaId: string) => ({ eventSchemaId }),
@@ -60,7 +67,7 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         addPropertyGroup: async ({ propertyGroupId }) => {
             try {
                 await api.eventSchemas.create({
@@ -83,6 +90,23 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             } catch (error: any) {
                 lemonToast.error(`Failed to remove property group: ${error.detail || error.message}`)
             }
+        },
+        // Listen for property group updates from schemaManagementLogic
+        updatePropertyGroupSuccess: async ({ propertyGroups }) => {
+            // Check if any of the updated property groups are used in our event schemas
+            const usedGroupIds = new Set(values.eventSchemas.map((schema: EventSchema) => schema.property_group.id))
+            const wasUpdated = propertyGroups.some((group: SchemaPropertyGroup) => usedGroupIds.has(group.id))
+
+            if (wasUpdated) {
+                // Reload event schemas to get fresh embedded property group data
+                await actions.loadEventSchemas()
+            }
+            // Always reload all property groups to ensure we have the latest list
+            await actions.loadAllPropertyGroups()
+        },
+        createPropertyGroupSuccess: async () => {
+            // Reload property groups to include the new one in available list
+            await actions.loadAllPropertyGroups()
         },
     })),
     afterMount(({ actions }) => {

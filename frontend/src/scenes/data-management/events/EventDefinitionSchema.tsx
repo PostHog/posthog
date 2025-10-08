@@ -36,7 +36,7 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
 export function EventDefinitionSchema({ definition }: { definition: EventDefinition }): JSX.Element {
     const logic = eventDefinitionSchemaLogic({ eventDefinitionId: definition.id })
     const { eventSchemas, allPropertyGroups, eventSchemasLoading } = useValues(logic)
-    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups, loadEventSchemas } = useActions(logic)
+    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups } = useActions(logic)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const schemaLogic = schemaManagementLogic({ key: `event-${definition.id}` })
@@ -46,11 +46,6 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
         () => new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id)),
         [eventSchemas]
     )
-
-    const handleAfterPropertyGroupSave = (): void => {
-        loadEventSchemas()
-        loadAllPropertyGroups()
-    }
 
     return (
         <SceneSection
@@ -135,7 +130,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                 )}
             </div>
 
-            <PropertyGroupModal logicKey={`event-${definition.id}`} onAfterSave={handleAfterPropertyGroupSave} />
+            <PropertyGroupModal logicKey={`event-${definition.id}`} />
         </SceneSection>
     )
 }
