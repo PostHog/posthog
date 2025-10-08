@@ -10,6 +10,7 @@
          memory_usage
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
     AND query_kind = 'Insert'
