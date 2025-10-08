@@ -577,7 +577,10 @@ mod tests {
         });
         let bytes = Bytes::from(json.to_string());
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
-        assert_eq!(flag_payload.evaluation_runtime, Some(EvaluationRuntime::Server));
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::Server)
+        );
 
         // Test with evaluation_runtime: "client"
         let json = json!({
@@ -587,7 +590,10 @@ mod tests {
         });
         let bytes = Bytes::from(json.to_string());
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
-        assert_eq!(flag_payload.evaluation_runtime, Some(EvaluationRuntime::Client));
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::Client)
+        );
 
         // Test with evaluation_runtime: "all"
         let json = json!({
@@ -597,7 +603,10 @@ mod tests {
         });
         let bytes = Bytes::from(json.to_string());
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
-        assert_eq!(flag_payload.evaluation_runtime, Some(EvaluationRuntime::All));
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::All)
+        );
 
         // Test without evaluation_runtime field
         let json = json!({
@@ -617,7 +626,10 @@ mod tests {
         let bytes = Bytes::from(json.to_string());
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
         // Invalid values default to "all" per our custom deserializer
-        assert_eq!(flag_payload.evaluation_runtime, Some(EvaluationRuntime::All));
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::All)
+        );
 
         // Test with case-insensitive values
         let json = json!({
@@ -627,6 +639,9 @@ mod tests {
         });
         let bytes = Bytes::from(json.to_string());
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
-        assert_eq!(flag_payload.evaluation_runtime, Some(EvaluationRuntime::Client));
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::Client)
+        );
     }
 }
