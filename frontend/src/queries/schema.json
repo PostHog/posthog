@@ -435,6 +435,18 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 }
             ],
             "description": "The union type with all supported base queries for the assistant."
@@ -788,7 +800,8 @@
                 "search_docs",
                 "search_insights",
                 "session_summarization",
-                "create_dashboard"
+                "create_dashboard",
+                "filter_revenue_analytics"
             ],
             "type": "string"
         },
@@ -1937,6 +1950,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ActionsUnstackedBar",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsAreaGraph",
                     "type": "string"
                 },
@@ -2050,6 +2067,7 @@
                     "enum": [
                         "ActionsLineGraph",
                         "ActionsBar",
+                        "ActionsUnstackedBar",
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
@@ -6838,6 +6856,7 @@
             "enum": [
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsUnstackedBar",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
@@ -11265,11 +11284,21 @@
             "required": ["event", "kind", "properties"],
             "type": "object"
         },
+        "ExperimentExposureConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
                 "exposure_config": {
-                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                    "$ref": "#/definitions/ExperimentExposureConfig"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
@@ -11383,6 +11412,9 @@
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
                 },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
@@ -11575,7 +11607,10 @@
                     "type": ["string", "null"]
                 },
                 "filters": {
-                    "type": "object"
+                    "items": {
+                        "$ref": "#/definitions/FeatureFlagGroupType"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": ["number", "null"]
@@ -11599,8 +11634,14 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11639,6 +11680,9 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -11678,6 +11722,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -11713,6 +11760,9 @@
         "ExperimentMetricOutlierHandling": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -11942,6 +11992,9 @@
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -12012,6 +12065,21 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12039,6 +12107,21 @@
                 },
                 "numerator_denominator_sum_product": {
                     "type": "number"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12219,6 +12302,21 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12270,6 +12368,21 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12333,7 +12446,8 @@
                 "TemporalIO",
                 "DoIt",
                 "LinkedinAds",
-                "RedditAds"
+                "RedditAds",
+                "TikTokAds"
             ],
             "type": "string"
         },
@@ -12373,6 +12487,33 @@
                 }
             },
             "required": ["type"],
+            "type": "object"
+        },
+        "FeatureFlagGroupType": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "rollout_percentage": {
+                    "type": ["number", "null"]
+                },
+                "sort_key": {
+                    "type": ["string", "null"]
+                },
+                "users_affected": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -12492,7 +12633,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
-                "embedded_analytics",
+                "endpoints",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -12526,7 +12667,9 @@
                 "insight/paths",
                 "insight/lifecycle",
                 "insight/stickiness",
-                "insight/hog"
+                "insight/hog",
+                "team_activity",
+                "home"
             ],
             "type": "string"
         },
@@ -15117,7 +15260,9 @@
                 "github",
                 "meta-ads",
                 "clickup",
-                "reddit-ads"
+                "reddit-ads",
+                "databricks",
+                "tiktok-ads"
             ],
             "type": "string"
         },
@@ -15754,6 +15899,9 @@
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
             "properties": {
+                "isCurrency": {
+                    "type": "boolean"
+                },
                 "required": {
                     "type": "boolean"
                 },
@@ -15764,7 +15912,7 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "required"],
+            "required": ["type", "required", "isCurrency"],
             "type": "object"
         },
         "MarketingAnalyticsSchemaFieldTypes": {
@@ -15807,6 +15955,10 @@
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeAllConversions": {
+                    "description": "Include conversion goal rows even when they don't match campaign costs table",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -16570,6 +16722,19 @@
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
+        "NamedQueryLastExecutionTimesRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["names"],
+            "type": "object"
+        },
         "NamedQueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -17255,6 +17420,51 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
+        },
+        "PlaywrightWorkspaceSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_name": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "PlaywrightWorkspaceSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "personal_api_key": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "organization_id",
+                "team_id",
+                "organization_name",
+                "team_name",
+                "user_id",
+                "user_email",
+                "personal_api_key"
+            ],
+            "type": "object"
         },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
@@ -21903,6 +22113,28 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsBreakdown"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties", "breakdown"],
+            "type": "object"
+        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -23328,6 +23560,22 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "SessionData": {
+            "additionalProperties": false,
+            "properties": {
+                "event_uuid": {
+                    "type": "string"
+                },
+                "person_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["person_id", "session_id", "event_uuid"],
             "type": "object"
         },
         "SessionEventsItem": {
@@ -24863,6 +25111,38 @@
             ],
             "type": "object"
         },
+        "TestSetupRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "TestSetupResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "available_tests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "result": {},
+                "success": {
+                    "type": "boolean"
+                },
+                "test_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["success", "test_name"],
+            "type": "object"
+        },
         "TileFilters": {
             "additionalProperties": false,
             "properties": {
@@ -25034,6 +25314,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "personId": {
+                    "description": "Person who performed the event",
+                    "type": "string"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -25525,6 +25809,9 @@
                 "is_email_verified": {},
                 "last_name": {
                     "type": "string"
+                },
+                "role_at_organization": {
+                    "type": ["string", "null"]
                 },
                 "uuid": {
                     "type": "string"

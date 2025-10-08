@@ -1,12 +1,16 @@
 import uuid
-from typing import Optional
+from typing import Optional, cast
 
-from django.db import models
+from django.contrib.postgres.fields import ArrayField
+from django.db import models, transaction
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
+from posthog.models.integration import Integration
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDModel
 
 from products.tasks.backend.agents import get_agent_by_id
+from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
 
 
 class TaskWorkflow(models.Model):
@@ -32,134 +36,121 @@ class TaskWorkflow(models.Model):
     def __str__(self):
         return f"{self.name} ({self.team.name})"
 
-    def get_active_stages(self):
-        """Get all non-archived stages."""
+    @property
+    def active_stages(self):
         return self.stages.filter(is_archived=False)
 
-    def get_tasks_in_workflow(self):
-        """Get all tasks currently using this workflow."""
-        return Task.objects.filter(workflow=self)
-
-    def can_delete(self) -> tuple[bool, str]:
-        """Workflows can always be deleted; tasks will be moved to backlog (no workflow)."""
-        return True, ""
-
-    def delete(self, *args, **kwargs):
-        """Override delete to remove workflow from tasks so they go to backlog."""
-        from django.db import transaction
-
-        with transaction.atomic():
-            Task.objects.filter(workflow=self).update(workflow=None, current_stage=None)
-            super().delete(*args, **kwargs)
-
-    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow"):
+    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow") -> int:
         """Migrate all tasks from this workflow to another workflow. Returns number of tasks updated."""
-        from django.db import transaction
 
-        # No-op if migrating to self
         if target_workflow.id == self.id:
             return 0
 
-        # Extra safety: ensure both workflows belong to the same team
         if self.team_id != target_workflow.team_id:
             raise ValueError("Source and target workflows must belong to the same team")
 
-        tasks_qs = self.get_tasks_in_workflow().select_related("current_stage")
-        if not tasks_qs.exists():
+        current_workflow_tasks_qs = self.tasks.select_related("current_stage")
+
+        if not current_workflow_tasks_qs.exists():
             return 0
 
         # Prefetch target stages once; preserve deterministic fallback using stage position ordering
         active_stages = list(target_workflow.stages.filter(is_archived=False).order_by("position"))
+
         stages_by_key = {stage.key: stage for stage in active_stages}
+
         fallback_stage = active_stages[0] if active_stages else None
 
         updated_tasks = []
-        with transaction.atomic():
-            for task in tasks_qs:
-                # Match by stage key when possible, otherwise fallback (which can be None)
-                next_stage = None
-                if task.current_stage and task.current_stage.key in stages_by_key:
-                    next_stage = stages_by_key[task.current_stage.key]
-                else:
-                    next_stage = fallback_stage
 
-                if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
-                    task.workflow = target_workflow
-                    task.current_stage = next_stage
-                    updated_tasks.append(task)
+        for task in current_workflow_tasks_qs:
+            # Match by stage key when possible, otherwise fallback (which can be None)
+            next_stage = None
 
-            if updated_tasks:
-                Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+            if task.current_stage and task.current_stage.key in stages_by_key:
+                next_stage = stages_by_key[task.current_stage.key]
+            else:
+                next_stage = fallback_stage
+
+            if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
+                task.workflow = target_workflow
+                task.current_stage = next_stage
+                updated_tasks.append(task)
+
+        if len(updated_tasks) > 0:
+            Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
 
         return len(updated_tasks)
 
+    def unassign_tasks(self):
+        tasks = self.tasks.all()
+
+        updated_tasks = []
+
+        for task in tasks:
+            task.workflow = None
+            task.current_stage = None
+            updated_tasks.append(task)
+
+        Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+
     def deactivate_safely(self):
         """Deactivate workflow and move tasks to team default."""
+
+        if not self.is_active:
+            return
+
         if self.is_default:
             raise ValueError("Cannot deactivate the default workflow")
 
-        # Find team's default workflow
-        default_workflow = (
-            TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).exclude(id=self.id).first()
-        )
-
-        if default_workflow:
-            self.migrate_tasks_to_workflow(default_workflow)
-        else:
-            # No default workflow, revert tasks to no workflow
-            tasks = self.get_tasks_in_workflow()
-            for task in tasks:
-                task.workflow = None
-                task.current_stage = None
-                task.save(update_fields=["workflow", "current_stage"])
-
-        self.is_active = False
-        self.save(update_fields=["is_active"])
-
-    @classmethod
-    def create_default_workflow(cls, team):
-        """Create a default workflow that matches the current hardcoded behavior."""
-        from django.db import transaction
+        default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
 
         with transaction.atomic():
-            # Create the workflow
+            if default_workflow:
+                self.migrate_tasks_to_workflow(default_workflow)
+            else:
+                self.unassign_tasks()
+
+            self.is_active = False
+            self.save(update_fields=["is_active"])
+
+    @classmethod
+    def from_template(cls, template: WorkflowTemplate, team: Team, *, is_default=True):
+        with transaction.atomic():
             workflow = cls.objects.create(
                 team=team,
-                name="Default Code Generation Workflow",
-                description="Default workflow for code generation tasks",
-                is_default=True,
+                name=template.name,
+                description=template.description,
+                is_default=is_default,
                 is_active=True,
             )
 
-            stages_data = [
-                {"key": "backlog", "name": "Backlog", "position": 0, "color": "#6b7280", "is_manual_only": True},
-                {"key": "todo", "name": "To Do", "position": 1, "color": "#3b82f6", "is_manual_only": True},
-                {
-                    "key": "in_progress",
-                    "name": "In Progress",
-                    "position": 2,
-                    "color": "#f59e0b",
-                    "is_manual_only": False,
-                },
-                {"key": "testing", "name": "Testing", "position": 3, "color": "#8b5cf6", "is_manual_only": False},
-                {"key": "done", "name": "Done", "position": 4, "color": "#10b981", "is_manual_only": True},
+            stages = [
+                WorkflowStage(
+                    key=stage.key,
+                    name=stage.name,
+                    position=idx,
+                    color=stage.color,
+                    is_manual_only=stage.is_manual_only,
+                    workflow=workflow,
+                )
+                for idx, stage in enumerate(template.stages)
             ]
 
-            stages = {}
-            for stage_data in stages_data:
-                stage = WorkflowStage.objects.create(workflow=workflow, **stage_data)
-                stages[stage.key] = stage
+            WorkflowStage.objects.bulk_create(stages)
 
-            # Assign agents to appropriate stages using agent names
-            stages["in_progress"].agent_name = "code_generation"  # Agent processes this stage
-            stages["testing"].agent_name = "code_generation"  # Agent processes this stage
-            # Other stages remain manual (no agent_name)
+        return workflow
 
-            # Update stages with agent assignments
-            for stage in stages.values():
-                stage.save()
+    @classmethod
+    def create_default_workflow(cls, team: Team):
+        return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, team, is_default=True)
 
-            return workflow
+    def can_delete(self):
+        """Check if this workflow can be safely deleted"""
+        if self.is_default:
+            return False, "Cannot delete the default workflow"
+
+        return True, ""
 
 
 class WorkflowStage(models.Model):
@@ -171,31 +162,26 @@ class WorkflowStage(models.Model):
     key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-    agent = deprecate_field(
-        models.ForeignKey(
-            "AgentDefinition",
-            on_delete=models.SET_NULL,
-            null=True,
-            blank=True,
-            help_text="DEPRECATED: Agent responsible for processing tasks in this stage",
-        )
-    )
+
     agent_name = models.CharField(
         max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
     )
+
     is_manual_only = models.BooleanField(
         default=True, help_text="Whether only manual transitions are allowed from this stage"
     )
+
     is_archived = models.BooleanField(
         default=False, help_text="Whether this stage is archived (hidden from UI but keeps tasks)"
     )
+
     fallback_stage = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         help_text="Stage to move tasks to if this stage is deleted",
-    )
+    )  # NOTE: We probably don't need this? We can just move it to the previous stage, we're rarely going to bother setting this
 
     class Meta:
         db_table = "posthog_workflow_stage"
@@ -207,14 +193,12 @@ class WorkflowStage(models.Model):
 
     def delete(self, *args, **kwargs):
         """Override delete to handle tasks in this stage."""
-        from django.db import transaction
 
         with transaction.atomic():
             # Move tasks to fallback stage or first available stage
             target_stage = self.fallback_stage or self.workflow.stages.exclude(id=self.id).first()
 
             if target_stage:
-                # Move all tasks to the target stage
                 Task.objects.filter(current_stage=self).update(current_stage=target_stage)
             else:
                 # No other stages available, remove workflow association
@@ -222,44 +206,19 @@ class WorkflowStage(models.Model):
 
             super().delete(*args, **kwargs)
 
+    @property
+    def next_stage(self):
+        return self.workflow.stages.filter(position__gt=self.position, is_archived=False).order_by("position").first()
+
     def archive(self):
-        """Archive this stage instead of deleting it."""
         self.is_archived = True
         self.save(update_fields=["is_archived"])
 
-    def get_agent_definition(self):
-        """Get the hardcoded agent definition for this stage."""
+    @property
+    def agent_definition(self):
         if hasattr(self, "agent_name") and self.agent_name:
             return get_agent_by_id(self.agent_name)
         return None
-
-
-class AgentDefinition(models.Model):
-    """DEPRECATED: This model is being removed. Agents are now hardcoded in agents.py"""
-
-    class AgentType(models.TextChoices):
-        CODE_GENERATION = "code_generation", "Code Generation Agent"
-        TRIAGE = "triage", "Triage Agent"
-        REVIEW = "review", "Review Agent"
-        TESTING = "testing", "Testing Agent"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    name = models.CharField(max_length=255, help_text="Human-readable name for this agent")
-    agent_type = models.CharField(max_length=50, choices=AgentType.choices)
-    description = models.TextField(blank=True, help_text="Description of what this agent does")
-    config = models.JSONField(default=dict, help_text="Agent-specific configuration")
-    is_active = models.BooleanField(default=True, help_text="Whether this agent is available for use")
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_agent_definition"
-        unique_together = [("team", "name")]
-        ordering = ["name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.get_agent_type_display()})"
 
 
 class Task(models.Model):
@@ -272,6 +231,8 @@ class Task(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
@@ -283,8 +244,10 @@ class Task(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name="tasks",
         help_text="Custom workflow for this task (if not using default)",
     )
+
     current_stage = models.ForeignKey(
         WorkflowStage,
         on_delete=models.SET_NULL,
@@ -324,17 +287,43 @@ class Task(models.Model):
         return f"{self.title} (no workflow)"
 
     def save(self, *args, **kwargs):
-        """Override save to handle workflow consistency."""
+        if self.task_number is None:
+            self._assign_task_number()
+
+        # Auto-assign default workflow if no workflow is set
+        if not self.workflow:
+            default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
+            if default_workflow:
+                self.workflow = default_workflow
+
+        # Auto-assign first stage if workflow is set but no stage
         if self.workflow and not self.current_stage:
-            first_stage = self.workflow.get_active_stages().first()
+            first_stage = self.workflow.active_stages.first()
             if first_stage:
                 self.current_stage = first_stage
 
+        # Clear stage if it doesn't belong to the current workflow
         if self.current_stage and self.workflow and self.current_stage.workflow != self.workflow:
             self.current_stage = None
 
         super().save(*args, **kwargs)
 
+    @staticmethod
+    def generate_team_prefix(team_name: str) -> str:
+        clean_name = "".join(c for c in team_name if c.isalnum())
+        uppercase_letters = [c for c in clean_name if c.isupper()]
+        if len(uppercase_letters) >= 3:
+            return "".join(uppercase_letters[:3])
+        return clean_name[:3].upper() if clean_name else "TSK"
+
+    @property
+    def slug(self) -> str:
+        if self.task_number is None:
+            return ""
+        prefix = self.generate_team_prefix(self.team.name)
+        return f"{prefix}-{self.task_number}"
+
+    # TODO: Support only one repository, 1 Task = 1 PR probably makes the most sense for scoping
     @property
     def repository_list(self) -> list[dict]:
         """
@@ -343,12 +332,13 @@ class Task(models.Model):
         """
         config = self.repository_config
         if config.get("organization") and config.get("repository"):
+            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
             return [
                 {
                     "org": config.get("organization"),
                     "repo": config.get("repository"),
                     "integration_id": self.github_integration_id,
-                    "full_name": f"{config.get('organization')}/{config.get('repository')}",
+                    "full_name": full_name,
                 }
             ]
         return []
@@ -374,9 +364,6 @@ class Task(models.Model):
         if self.github_integration:
             return self.github_integration
 
-        # Fallback to team's first GitHub integration
-        from posthog.models.integration import Integration
-
         try:
             return Integration.objects.filter(team_id=self.team_id, kind="github").first()
         except Exception:
@@ -397,41 +384,24 @@ class Task(models.Model):
     def get_next_stage(self):
         """Get the next stage in the linear workflow"""
         workflow = self.effective_workflow
+
         if not workflow:
             return None
 
-        current_stage = self.current_stage
+        current_stage = cast(Optional[WorkflowStage], self.current_stage)
+
         if not current_stage:
             return workflow.stages.filter(is_archived=False).order_by("position").first()
 
-        return (
-            workflow.stages.filter(position__gt=current_stage.position, is_archived=False).order_by("position").first()
-        )
+        return current_stage.next_stage
 
-    def resolve_orphaned_stage(self):
-        """Fix this task if its current stage is archived or invalid."""
-        if not self.current_stage or self.current_stage.is_archived:
-            workflow = self.effective_workflow
-            if workflow:
-                # Find a suitable stage to move to
-                fallback_stage = None
-
-                if self.current_stage and self.current_stage.fallback_stage:
-                    fallback_stage = self.current_stage.fallback_stage
-                else:
-                    fallback_stage = workflow.get_active_stages().first()
-
-                if fallback_stage:
-                    self.current_stage = fallback_stage
-                    self.save(update_fields=["current_stage"])
-                else:
-                    self.workflow = None
-                    self.current_stage = None
-                    self.save(update_fields=["workflow", "current_stage"])
+    def _assign_task_number(self) -> None:
+        max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
+        self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
 
 class TaskProgress(models.Model):
-    """Tracks real-time progress of Claude Code execution for tasks."""
+    """Tracks real-time progress of execution for tasks."""
 
     class Status(models.TextChoices):
         STARTED = "started", "Started"
@@ -511,3 +481,90 @@ class TaskProgress(models.Model):
         if self.total_steps and self.total_steps > 0:
             return min(100, (self.completed_steps / self.total_steps) * 100)
         return 0
+
+
+class SandboxSnapshot(UUIDModel):
+    """Tracks sandbox snapshots used for sandbox environments in tasks."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETE = "complete", "Complete"
+        ERROR = "error", "Error"
+
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.SET_NULL,
+        related_name="snapshots",
+        null=True,
+        blank=True,
+    )
+
+    external_id = models.CharField(
+        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
+    )
+
+    repos = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        help_text="List of repositories in format 'org/repo'",
+    )
+
+    metadata = models.JSONField(default=dict, blank=True, help_text="Additional metadata for the snapshot.")
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.IN_PROGRESS,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_sandbox_snapshot"
+        indexes = [
+            models.Index(fields=["integration", "status", "-created_at"]),
+        ]
+
+    def __str__(self):
+        repo_count = len(self.repos)
+        return f"Snapshot {self.external_id} ({self.get_status_display()}, {repo_count} repos)"
+
+    def is_complete(self) -> bool:
+        return self.status == self.Status.COMPLETE
+
+    def has_repo(self, repo: str) -> bool:
+        repo_lower = repo.lower()
+        return any(r.lower() == repo_lower for r in self.repos)
+
+    def has_repos(self, repos: list[str]) -> bool:
+        return all(self.has_repo(repo) for repo in repos)
+
+    def update_status(self, status: Status):
+        self.status = status
+        self.save(update_fields=["status"])
+
+    @classmethod
+    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
+        return (
+            cls.objects.filter(
+                integration_id=integration_id,
+                status=cls.Status.COMPLETE,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    @classmethod
+    def get_latest_snapshot_with_repos(
+        cls, integration_id: int, required_repos: list[str]
+    ) -> Optional["SandboxSnapshot"]:
+        snapshots = cls.objects.filter(
+            integration_id=integration_id,
+            status=cls.Status.COMPLETE,
+        ).order_by("-created_at")
+
+        for snapshot in snapshots:
+            if snapshot.has_repos(required_repos):
+                return snapshot
+        return None

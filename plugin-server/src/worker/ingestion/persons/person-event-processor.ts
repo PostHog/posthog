@@ -4,9 +4,9 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ONE_HOUR } from '../../../config/constants'
+import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/results'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
-import { PipelineStepResult, dlq, redirect, success } from '../event-pipeline/pipeline-step-result'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
@@ -35,7 +35,7 @@ export class PersonEventProcessor {
         private mergeService: PersonMergeService
     ) {}
 
-    async processEvent(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
+    async processEvent(): Promise<[PipelineResult<Person>, Promise<void>]> {
         if (!this.context.processPerson) {
             return await this.handlePersonlessMode()
         }
@@ -65,10 +65,7 @@ export class PersonEventProcessor {
             try {
                 const [updatedPerson, updateKafkaAck] =
                     await this.propertyService.updatePersonProperties(personFromMerge)
-                return [
-                    success(updatedPerson),
-                    Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined),
-                ]
+                return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
@@ -77,10 +74,10 @@ export class PersonEventProcessor {
 
         // Handle regular property updates
         const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return [success(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+        return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
     }
 
-    private async handlePersonlessMode(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
+    private async handlePersonlessMode(): Promise<[PipelineResult<Person>, Promise<void>]> {
         let existingPerson = await this.context.personStore.fetchForChecking(
             this.context.team.id,
             this.context.distinctId
@@ -135,7 +132,7 @@ export class PersonEventProcessor {
                 person.force_upgrade = true
             }
 
-            return [success(person), Promise.resolve()]
+            return [ok(person), Promise.resolve()]
         }
 
         // We need a value from the `person_created_column` in ClickHouse. This should be
@@ -150,14 +147,14 @@ export class PersonEventProcessor {
             uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
             created_at: createdAt,
         }
-        return [success(fakePerson), Promise.resolve()]
+        return [ok(fakePerson), Promise.resolve()]
     }
 
     getContext(): PersonContext {
         return this.context
     }
 
-    private handleMergeError(error: unknown, event: PluginEvent): PipelineStepResult<Person> | null {
+    private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person> | null {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {

@@ -34,6 +34,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
@@ -55,6 +56,7 @@ import {
     formatLLMUsage,
     getEventType,
     getSessionID,
+    getTraceTimestamp,
     hasSessionID,
     isLLMTraceEvent,
     normalizeMessages,
@@ -100,6 +102,7 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative deprecated-space-y-4 flex flex-col">
+                    <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <TraceMetadata
                             trace={trace}
@@ -365,7 +368,7 @@ const TreeNode = React.memo(function TraceNode({
             <Link
                 to={urls.llmAnalyticsTrace(topLevelTrace.id, {
                     event: item.id,
-                    timestamp: removeMilliseconds(topLevelTrace.createdAt),
+                    timestamp: getTraceTimestamp(topLevelTrace.createdAt),
                     ...(searchQuery?.trim() && { search: searchQuery }),
                 })}
                 className={classNames(

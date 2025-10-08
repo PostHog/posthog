@@ -32,7 +32,8 @@ class create_and_query_insight(BaseModel):
             "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
             "If an existing insight has been used as a starting point, include that insight's filters and query in the description. "
             "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
-            "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
+            "If the users seems to ask for a list of entities, rather than a count, state this explicitly. "
+            "Explicitly include the time range, time grain, metric/aggregation, events/steps, and breakdown/filters provided by the user; if any are missing, choose sensible defaults and state them."
         )
     )
 
@@ -40,10 +41,16 @@ class create_and_query_insight(BaseModel):
 class search_insights(BaseModel):
     """
     Search through existing insights to find matches based on the user's query.
-    Use this tool when users ask to find, search for, or look up existing insights.
-    IMPORTANT: NEVER CALL THIS TOOL IF THE USER ASKS TO CREATE A DASHBOARD.
-    Only use this tool when users ask to find, search for, or look up insights.
-    If the user asks to create a dashboard, use the `create_dashboard` tool instead.
+
+    WHEN TO USE THIS TOOL:
+    - The user explicitly asks to find/search/look up existing insights
+    - The request is ambiguous or exploratory and likely to be satisfied by reusing a saved insight
+
+    WHEN NOT TO USE THIS TOOL:
+    - The user gives a specific, actionable analysis request (metric/aggregation, events, filters, and/or a time range)
+    - The user asks to create a dashboard (use `create_dashboard` instead)
+
+    If the request has enough information to generate an insight, use `create_and_query_insight` directly.
     """
 
     search_query: str = Field(
@@ -178,12 +185,14 @@ class MaxTool(AssistantContextMixin, BaseTool):
     """The message shown to let the user know this tool is being used. One sentence, no punctuation.
     For example, "Updating filters"
     """
+
     root_system_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's system prompt.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+
     show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]

@@ -1,9 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconPencil } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,9 +17,46 @@ import { Breadcrumb, FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
-import { SceneActions } from '../SceneActions'
+import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
+function SceneTitlePanelButton(): JSX.Element | null {
+    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
+        useValues(sceneLayoutLogic)
+    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+
+    if (!scenePanelIsPresent) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            onClick={() =>
+                scenePanelIsRelative
+                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                    : setScenePanelOpen(!scenePanelOpen)
+            }
+            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
+            tooltip={
+                !scenePanelOpen
+                    ? 'Open Info & actions panel'
+                    : scenePanelIsRelative
+                      ? 'Force close Info & actions panel'
+                      : 'Close Info & actions panel'
+            }
+            data-attr="info-actions-panel"
+            aria-label={
+                !scenePanelOpen
+                    ? 'Open Info & actions panel'
+                    : scenePanelIsRelative
+                      ? 'Force close Info & actions panel'
+                      : 'Close Info & actions panel'
+            }
+            active={scenePanelOpen}
+            size="small"
+        />
+    )
+}
 type ResourceType = {
     to?: string
     /** pass in a value from the FileSystemIconType enum, or a string if not available */
@@ -31,7 +68,11 @@ type ResourceType = {
 }
 
 type SceneMainTitleProps = {
-    name?: string
+    /**
+     * null to hide the name,
+     * undefined to show the default name
+     */
+    name?: string | null
     /**
      * null to hide the description,
      * undefined to show the default description
@@ -68,7 +109,7 @@ type SceneMainTitleProps = {
      * If true, the actions from PageHeader will be shown
      * @default false
      */
-    actions?: boolean
+    actions?: JSX.Element
     /**
      * If provided, the back button will be forced to this breadcrumb
      * @default undefined
@@ -88,7 +129,7 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
-    actions = true,
+    actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -102,45 +143,64 @@ export function SceneTitleSection({
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
     return (
-        <div className="scene-title-section w-full flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
-            <div className="w-full flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
+        <div
+            className="scene-title-section w-full flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start group"
+            data-editable={canEdit}
+        >
+            <div className="w-full flex flex-col flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
                 {/* If we're showing breadcrumbs, we want to show the actions inline with the back button */}
                 {willShowBreadcrumbs && (
-                    <div className="flex justify-between w-full">
+                    <div className="flex justify-between w-full items-center mb-1">
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
-                        {actions && <SceneActions className="shrink-0 ml-auto" />}
+                        <div className="pt-1 shrink-0">
+                            {actions && (
+                                <div className="flex gap-2 shrink-0 ml-auto">
+                                    {actions}
+                                    <SceneTitlePanelButton />
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
-                <div className="flex w-full justify-between gap-2">
-                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
-                        <span
-                            className={buttonPrimitiveVariants({
-                                size: 'base',
-                                iconOnly: true,
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
-                                inert: true,
-                            })}
-                            aria-hidden
-                        >
-                            {icon}
-                        </span>
-                        <SceneName
-                            name={name}
-                            isLoading={isLoading}
-                            onChange={onNameChange}
-                            canEdit={canEdit}
-                            forceEdit={forceEdit}
-                            renameDebounceMs={renameDebounceMs}
-                            saveOnBlur={saveOnBlur}
-                        />
-                    </div>
+                <div className="flex w-full justify-between items-start gap-2">
+                    {name !== null && (
+                        <div className="flex gap-1 [&_svg]:size-6 items-center w-full">
+                            <span
+                                className={buttonPrimitiveVariants({
+                                    size: 'base',
+                                    iconOnly: true,
+                                    className: 'rounded-sm',
+                                    inert: true,
+                                })}
+                                aria-hidden
+                            >
+                                {icon}
+                            </span>
+                            <SceneName
+                                name={name}
+                                isLoading={isLoading}
+                                onChange={onNameChange}
+                                canEdit={canEdit}
+                                forceEdit={forceEdit}
+                                renameDebounceMs={renameDebounceMs}
+                                saveOnBlur={saveOnBlur}
+                            />
+                        </div>
+                    )}
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
                     {!willShowBreadcrumbs && (
-                        <div className="pt-1 shrink-0">{actions && <SceneActions className="shrink-0 ml-auto" />}</div>
+                        <div className="shrink-0">
+                            {actions && (
+                                <div className="flex gap-2 shrink-0 ml-auto">
+                                    {actions}
+                                    <SceneTitlePanelButton />
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
                 {description !== null && (description || canEdit) && (
-                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
+                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full group-data-[editable=true]:mt-1">
                         <SceneDescription
                             description={description}
                             markdown={markdown}
@@ -181,7 +241,7 @@ function SceneName({
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] leading-[1.4] select-auto'
+        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] group-data-[editable=false]:py-0 leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading) {
@@ -261,7 +321,7 @@ function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 h-auto'
+                                'flex text-left [&_.LemonIcon]:size-4 h-auto pl-[var(--button-padding-x-sm)]'
                             )}
                             onClick={() => setIsEditing(true)}
                             fullWidth
@@ -313,7 +373,7 @@ function SceneDescription({
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
 
-    const textClasses = 'text-sm my-0 select-auto'
+    const textClasses = 'text-sm my-0 select-auto group-data-[editable=false]:py-0'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 

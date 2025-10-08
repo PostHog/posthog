@@ -11,6 +11,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { DefinitionHeader } from './DefinitionHeader'
@@ -69,12 +70,10 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
     ]
 
     return (
-        <div>
-            <h3>Top properties</h3>
-            <p>
-                Please note that description and tags are shared across events. PostHog properties are excluded from
-                this list.
-            </p>
+        <SceneSection
+            title="Top properties"
+            description="Please note that description and tags are shared across events. PostHog properties are excluded from this list."
+        >
             <LemonTable
                 id={`event-properties-definition-table-${definition.id}`}
                 data-attr="event-properties-definition-nested-table"
@@ -100,6 +99,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 }}
                 loading={eventDefinitionPropertiesLoading.includes(definition.id)}
             />
-        </div>
+        </SceneSection>
     )
 }

@@ -26,12 +26,15 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
@@ -196,7 +199,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
             id: undefined,
         })),
         id: NEW_SURVEY.id,
-        name: `${survey.name} (copy)`,
+        name: `${survey.name} (duplicated at ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
         archived: false,
         start_date: null,
         end_date: null,
@@ -227,11 +230,12 @@ function extractPersonData(row: SurveyResponseRow): {
     // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
     // from those values. We use them to have a display name for the person
     const personProperties: Record<string, any> = {}
+    const personDisplayProperties = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     let hasAnyProperties = false
-    for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
+    for (let i = 0; i < personDisplayProperties.length; i++) {
         const value = row.at(-3 - i) as string
         if (value && value !== null && value !== '') {
-            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+            personProperties[personDisplayProperties[i]] = value
             hasAnyProperties = true
         }
     }
@@ -484,6 +488,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ['user'],
             teamLogic,
             ['currentTeam'],
+            propertyDefinitionsModel,
+            ['propertyDefinitionsByType'],
         ],
     })),
     actions({
@@ -691,6 +697,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         },
                     })
 
+                    actions.setIsDuplicateToProjectModalOpen(false)
                     actions.reportSurveyCreated(createdSurvey, true)
                     actions.addProductIntent({
                         product_type: ProductKey.SURVEYS,
@@ -1378,12 +1385,25 @@ export const surveyLogic = kea<surveyLogicType>([
                     key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
+                    iconType: 'survey',
                 },
                 {
                     key: [Scene.Survey, survey?.id || 'new'],
                     name: survey.name,
+                    iconType: 'survey',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.survey],
+            (survey: Survey): SidePanelSceneContext | null => {
+                return survey?.id && survey.id !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.SURVEY,
+                          activity_item_id: `${survey.id}`,
+                      }
+                    : null
+            },
         ],
         projectTreeRef: [
             () => [(_, props: SurveyLogicProps) => props.id],

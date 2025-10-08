@@ -1,4 +1,6 @@
 import json
+import uuid
+import asyncio
 import builtins
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -28,7 +30,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
+from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, SESSION_REPLAY_TASK_QUEUE, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
@@ -61,13 +63,16 @@ from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrot
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 DEFAULT_PAGE_LIMIT = 100
-# Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
+# Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
 PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "email",
     "Email",
+    "$email",
     "name",
     "Name",
     "username",
@@ -356,6 +361,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Once the person is deleted, queue deletion of associated data, if that was requested
             if "delete_events" in request.GET:
                 self._queue_event_deletion(person)
+            if "delete_recordings" in request.GET:
+                self._queue_delete_recordings(person)
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -857,6 +864,38 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
+    def _queue_delete_recordings(self, person: Person) -> None:
+        temporal = sync_connect()
+        input = RecordingsWithPersonInput(
+            distinct_ids=person.distinct_ids,
+            team_id=person.team.id,
+        )
+        workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
+
+        asyncio.run(
+            temporal.start_workflow(
+                "delete-recordings-with-person",
+                input,
+                id=workflow_id,
+                task_queue=SESSION_REPLAY_TASK_QUEUE,
+            )
+        )
+
+    @extend_schema(
+        description="Queue deletion of all recordings associated with this person.",
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
+    def delete_recordings(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        """
+        Queue deletion of all recordings for a person without deleting the person record itself.
+        """
+        try:
+            person = self.get_object()
+            self._queue_delete_recordings(person)
+            return response.Response(status=202)
+        except Person.DoesNotExist:
+            raise NotFound(detail="Person not found.")
 
     def _queue_event_deletion(self, person: Person) -> None:
         """Helper to queue deletion of all events for a person."""

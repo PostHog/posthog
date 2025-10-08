@@ -19,7 +19,6 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
@@ -129,7 +128,9 @@ export function PipelinePluginConfiguration({
 
     return (
         <div className="deprecated-space-y-3">
-            <PageHeader buttons={buttons} />
+            <div className="flex justify-end w-full">
+                <div className="shrink-0">{buttons}</div>
+            </div>
 
             {plugin?.hog_function_migration_available && (
                 <LemonBanner
@@ -175,7 +176,7 @@ export function PipelinePluginConfiguration({
                                         {plugin.name}
                                     </div>
                                     {plugin.description ? (
-                                        <div className="mt-1 text-xs text-text-3000 text-tertiary">
+                                        <div className="mt-1 text-xs text-tertiary">
                                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                                 {plugin.description}
                                             </LemonMarkdown>

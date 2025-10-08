@@ -54,6 +54,14 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.behavioral_cohorts.sql import (
+    BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+)
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -108,7 +116,7 @@ from posthog.models.raw_sessions.sql_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
-    DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_TABLE_SQL_V3,
     DROP_RAW_SESSION_VIEW_SQL_V3,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
@@ -403,6 +411,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(
         r"\"href\" = '[^']+'",
         "\"href\" = '__skipped__'",
+        query,
+    )
+
+    # replace cohort calculation IDs in SQL comments and query content
+    query = re.sub(
+        r"/\* cohort_calculation:cohort_calc:[0-9a-f]+ \*/",
+        r"/* cohort_calculation:cohort_calc:00000000 */",
+        query,
+    )
+    query = re.sub(
+        r"cohort_calc:[0-9a-f]+",
+        r"cohort_calc:00000000",
         query,
     )
 
@@ -1199,7 +1219,7 @@ def reset_clickhouse_database() -> None:
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
+            DROP_RAW_SESSION_TABLE_SQL_V3(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
@@ -1215,13 +1235,16 @@ def reset_clickhouse_database() -> None:
             DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
             TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
@@ -1269,6 +1292,9 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1329,7 +1355,8 @@ def snapshot_clickhouse_queries(fn_or_class):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
     return wrapped
 

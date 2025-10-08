@@ -14,15 +14,16 @@ import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
-    {
-        type: 'function_email',
-        name: 'Email',
-        description: 'Send an email to the user.',
-        config: {
-            template_id: 'template-email',
-            inputs: {},
-        },
-    },
+    // TODO: Re-enable email action once we have full SES support
+    // {
+    //     type: 'function_email',
+    //     name: 'Email',
+    //     description: 'Send an email to the user.',
+    //     config: {
+    //         template_id: 'template-email',
+    //         inputs: {},
+    //     },
+    // },
     {
         type: 'function_sms',
         name: 'SMS',
@@ -213,7 +214,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                         <LemonInput
                             placeholder="Search..."
                             value={filters.search ?? ''}
-                            onChange={(e) => setFilters({ search: e })}
+                            onChange={(e) => setFilters({ ...filters, search: e })}
                             autoFocus
                         />
 
@@ -250,7 +251,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                 }
             >
                 <LemonButton fullWidth onClick={() => setPopoverOpen(!popoverOpen)}>
-                    More actions
+                    More
                 </LemonButton>
             </LemonDropdown>
         </div>
@@ -261,7 +262,7 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
-                Actions <LemonDivider className="flex-1" />
+                Dispatch <LemonDivider className="flex-1" />
             </span>
             {ACTION_NODES_TO_SHOW.map((node, index) => (
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />

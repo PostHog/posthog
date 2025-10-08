@@ -13,7 +13,6 @@ import { decompressEvent } from 'scenes/session-recordings/player/snapshot-proce
 import {
     ViewportResolution,
     patchMetaEventIntoMobileData,
-    patchMetaEventIntoWebData,
 } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
@@ -48,8 +47,7 @@ export function processAllSnapshots(
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
 
-    let metaCount = 0
-    let fullSnapshotCount = 0
+    let hasSeenMeta = false
 
     // we loop over this data as little as possible,
     // since it could be large and processed more than once,
@@ -107,12 +105,52 @@ export function processAllSnapshots(
             }
 
             if (snapshot.type === EventType.Meta) {
-                metaCount += 1
+                hasSeenMeta = true
             }
 
             // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
-                fullSnapshotCount += 1
+                // Check if we need to patch a meta event before this full snapshot
+                if (!hasSeenMeta) {
+                    const viewport = viewportForTimestamp(snapshot.timestamp)
+                    if (viewport && viewport.width && viewport.height) {
+                        const metaEvent: RecordingSnapshot = {
+                            type: EventType.Meta,
+                            timestamp: snapshot.timestamp,
+                            windowId: snapshot.windowId,
+                            data: {
+                                width: parseInt(viewport.width, 10),
+                                height: parseInt(viewport.height, 10),
+                                href: viewport.href || 'unknown',
+                            },
+                        }
+                        result.push(metaEvent)
+                        sourceResult.push(metaEvent)
+                        throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
+                            posthog.capture('patched meta into web recording', {
+                                throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
+                                sessionRecordingId,
+                                sourceKey: sourceKey,
+                                feature: 'session-recording-meta-patching',
+                            })
+                        })
+                    } else {
+                        throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                            posthog.captureException(
+                                new Error('No event viewport or meta snapshot found for full snapshot'),
+                                {
+                                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
+                                    sessionRecordingId,
+                                    sourceKey: sourceKey,
+                                    feature: 'session-recording-meta-patching',
+                                }
+                            )
+                        })
+                    }
+                }
+
+                // Reset for next potential full snapshot
+                hasSeenMeta = false
 
                 const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
@@ -149,9 +187,7 @@ export function processAllSnapshots(
     // sorting is very cheap for already sorted lists
     result.sort((a, b) => a.timestamp - b.timestamp)
 
-    // Optional second pass: patch meta-events on the sorted array
-    const needToPatchMeta = fullSnapshotCount > 0 && fullSnapshotCount > metaCount
-    return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
+    return result
 }
 
 let postHogEEModule: PostHogEE
@@ -217,7 +253,7 @@ export const parseEncodedSnapshots = async (
         try {
             let snapshotLine: { windowId: string } | EncodedRecordingSnapshot
             if (typeof l === 'string') {
-                // is loaded from blob or realtime storage
+                // is loaded from blob v1 storage
                 snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
                 if (Array.isArray(snapshotLine)) {
                     snapshotLine = {
@@ -234,7 +270,7 @@ export const parseEncodedSnapshots = async (
                 // is loaded from file export
                 snapshotData = [snapshotLine]
             } else {
-                // is loaded from blob or realtime storage
+                // is loaded from blob storage
                 snapshotData = snapshotLine['data']
             }
 

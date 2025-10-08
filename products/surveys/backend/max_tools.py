@@ -183,12 +183,12 @@ class SurveyToolkit(TaxonomyAgentToolkit):
 
         return [lookup_feature_flag, final_answer]
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "lookup_feature_flag":
             result = self._lookup_feature_flag(tool_input.arguments.flag_key)
             return tool_name, result
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _lookup_feature_flag(self, flag_key: str) -> str:
         """Look up feature flag information by key."""
@@ -513,12 +513,12 @@ class SurveyAnalysisTool(MaxTool):
             lines.append("\n**📝 Question Breakdown:**")
             for question, breakdown in list(analysis.question_breakdown.items())[:3]:  # Top 3 questions
                 lines.append(f"\n**Q: {question}**")
-                lines.append(f"Theme: {breakdown.theme}")
-                lines.append(f"Sentiment: {breakdown.sentiment.title()}")
+                lines.append(f"\nTheme: {breakdown.theme}")
+                lines.append(f"\nSentiment: {breakdown.sentiment.title()}")
                 if breakdown.key_insights:
-                    lines.append("Key insights:")
+                    lines.append("\nKey insights:")
                     for insight in breakdown.key_insights[:2]:  # Limit to 2 insights per question
-                        lines.append(f"• {insight}")
+                        lines.append(f"- {insight}")
 
         lines.append("\n---")
         lines.append("💡 *Need more detail? Ask me to dive deeper into any specific aspect.*")

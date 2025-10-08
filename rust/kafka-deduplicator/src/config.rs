@@ -13,6 +13,11 @@ pub struct Config {
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
 
+    // supplied by k8s deploy env, used as part of kafka
+    // consumer client ID for sticky partition mappings
+    #[envconfig(from = "HOSTNAME")]
+    pub pod_hostname: Option<String>,
+
     #[envconfig(default = "events")]
     pub kafka_consumer_topic: String,
 
@@ -89,16 +94,16 @@ pub struct Config {
     pub port: u16,
 
     // Checkpoint configuration - integrated from checkpoint::config
-    #[envconfig(default = "900")] // 15 minutes in seconds
+    #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "1680")] // 28 minutes in seconds
+    #[envconfig(default = "900")] // 15 minutes in seconds
     pub checkpoint_cleanup_interval_secs: u64,
 
-    #[envconfig(default = "72")] // 72 hours
+    #[envconfig(default = "2")] // 2 hours
     pub max_checkpoint_retention_hours: u32,
 
-    #[envconfig(default = "3")]
+    #[envconfig(default = "8")]
     pub max_concurrent_checkpoints: usize,
 
     #[envconfig(default = "200")]
@@ -107,7 +112,7 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub checkpoint_worker_shutdown_timeout_secs: u64,
 
-    #[envconfig(default = "5")]
+    #[envconfig(default = "2")]
     pub max_local_checkpoints: usize,
 
     #[envconfig(default = "/tmp/checkpoints")]
@@ -144,6 +149,9 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: tracing::Level,
+
+    #[envconfig(default = "false")]
+    pub enable_pprof: bool,
 }
 
 impl Config {

@@ -17,7 +17,7 @@ services:
                 {
                 ${CADDY_TLS_BLOCK:-}
                 }
-                ${CADDY_HOST:-'http://localhost:8000'} {
+                ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
                         path /s
                         path /s/
@@ -136,13 +136,15 @@ services:
             - --rpc-addr kafka:33145
             - --advertise-rpc-addr kafka:33145
             - --mode dev-container
-            - --smp 1
-            - --memory 1G
-            - --reserve-memory 200M
+            - --smp 2
+            - --memory 3G
+            - --reserve-memory 500M
             - --overprovisioned
             - --set redpanda.empty_seed_starts_cluster=false
             - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
+        volumes:
+            - redpanda-data:/var/lib/redpanda/data
         environment:
             ALLOW_PLAINTEXT_LISTENER: 'true'
         healthcheck:
@@ -440,6 +442,20 @@ services:
         networks:
             - otel_network
 
+    localstack:
+        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+        image: localstack/localstack
+        ports:
+            - '127.0.0.1:4566:4566' # LocalStack Gateway
+            - '127.0.0.1:4510-4559:4510-4559' # external services port range
+        environment:
+            - DEBUG=${DEBUG:-0}
+        volumes:
+            - '/var/run/docker.sock:/var/run/docker.sock'
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    redpanda-data:

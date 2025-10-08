@@ -146,8 +146,8 @@
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -324,8 +324,8 @@
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -469,16 +469,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "$session_id_uuid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$session_id_uuid`",
-                  "id": null,
-                  "name": "$session_id_uuid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "$window_id": {
                   "chain": null,
@@ -1793,6 +1783,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "exception_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception_name",
+                  "id": null,
+                  "name": "exception_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "is_personal_api_key_request": {
                   "chain": null,
                   "fields": null,
@@ -2962,16 +2962,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "$session_id_uuid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$session_id_uuid`",
-                  "id": null,
-                  "name": "$session_id_uuid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "$window_id": {
                   "chain": null,
@@ -4250,6 +4240,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "exception_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception_name",
+                  "id": null,
+                  "name": "exception_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "is_personal_api_key_request": {
                   "chain": null,

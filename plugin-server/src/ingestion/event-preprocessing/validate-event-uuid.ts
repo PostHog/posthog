@@ -1,9 +1,9 @@
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { Hub, IncomingEventWithTeam } from '../../types'
 import { UUID } from '../../utils/utils'
-import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { AsyncPreprocessingStep } from '../processing-pipeline'
+import { drop, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
 async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<Hub, 'db'>): Promise<boolean> {
     const { event, team } = eventWithTeam
@@ -39,13 +39,13 @@ async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<
 
 export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     hub: Hub
-): AsyncPreprocessingStep<T, T> {
-    return async (input) => {
+): ProcessingStep<T, T> {
+    return async function validateEventUuidStep(input) {
         const { eventWithTeam } = input
         const isValid = await isEventUuidValid(eventWithTeam, hub)
         if (!isValid) {
             return drop('Event has invalid UUID')
         }
-        return success(input)
+        return ok(input)
     }
 }

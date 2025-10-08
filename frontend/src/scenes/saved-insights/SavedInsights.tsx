@@ -34,7 +34,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -726,6 +725,18 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
+            title: 'Last viewed',
+            sorter: true,
+            dataIndex: 'last_viewed_at',
+            render: function renderLastViewed(last_viewed_at: string | null) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {last_viewed_at ? <TZLabel time={last_viewed_at} /> : <span className="text-muted">Never</span>}
+                    </div>
+                )
+            },
+        },
+        {
             width: 0,
             render: function Render(_, insight) {
                 return (
@@ -802,13 +813,13 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <SceneContent className={cn('saved-insights')}>
-            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <SceneTitleSection
                 name="Product analytics"
                 description="Track, analyze, and experiment with user behavior."
                 resourceType={{
                     type: 'product_analytics',
                 }}
+                actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
             />
             <SceneDivider />
             <LemonTabs

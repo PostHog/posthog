@@ -34,8 +34,9 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState } = useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
+        useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -110,6 +111,7 @@ export function Cohorts(): JSX.Element {
                                         }).url
                                     }
                                     fullWidth
+                                    targetBlank
                                 >
                                     View session recordings
                                 </LemonButton>
@@ -211,18 +213,7 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey="cohorts"
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr="new-cohort"
-                        onClick={() => router.actions.push(urls.cohort('new'))}
-                    >
-                        New cohort
-                    </LemonButton>
-                }
-            />
+            <PersonsManagementSceneTabs tabKey="cohorts" />
 
             <SceneTitleSection
                 name="Cohorts"
@@ -230,6 +221,16 @@ export function Cohorts(): JSX.Element {
                 resourceType={{
                     type: RESOURCE_TYPE,
                 }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        data-attr="new-cohort"
+                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    >
+                        New cohort
+                    </LemonButton>
+                }
             />
             <SceneDivider />
 
@@ -253,6 +254,11 @@ export function Cohorts(): JSX.Element {
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
+                sorting={cohortSorting}
+                onSort={(sorting) => {
+                    setCohortSorting(sorting)
+                }}
+                useURLForSorting={false}
             />
         </SceneContent>
     )

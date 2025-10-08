@@ -270,6 +270,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        reportInsightsViewed: (insights: QueryBasedInsightModel[]) => ({ insights }),
 
         /**
          * Dashboard result colors.
@@ -1203,6 +1204,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         key: Scene.Dashboards,
                         name: 'Dashboards',
                         path: urls.dashboards(),
+                        iconType: 'dashboard',
                     },
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
@@ -1213,6 +1215,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               : error404
                                 ? 'Not found'
                                 : '...',
+                        iconType: 'dashboard',
                     },
                 ]
             },
@@ -1226,8 +1229,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
             (dashboard): SidePanelSceneContext | null => {
-                // Only render the new access control  on side panel if they are not using the old dashboard permissions (v1)
-                return dashboard && dashboard.access_control_version === 'v2'
+                return dashboard
                     ? {
                           activity_scope: ActivityScope.DASHBOARD,
                           activity_item_id: `${dashboard.id}`,
@@ -1287,7 +1289,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
     })),
-    sharedListeners(({ values, props }) => ({
+    sharedListeners(({ values, props, actions }) => ({
         reportRefreshTiming: ({ shortId }) => {
             const refreshStatus = values.refreshStatus[shortId]
 
@@ -1300,6 +1302,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.loadTimer) {
                 const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
                 eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+            }
+        },
+        handleDashboardLoadComplete: () => {
+            // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
+            if (values.placement !== DashboardPlacement.Export) {
+                // access stored values from dashboardLoadData
+                // as we can't pass them down to this listener
+                const loadAction = values.dashboardLoadData.action!
+                actions.refreshDashboardItems({ action: loadAction, forceRefresh: false })
+            }
+
+            if (values.shouldReportOnAPILoad) {
+                actions.setShouldReportOnAPILoad(false)
+                actions.reportDashboardViewed()
             }
         },
     })),
@@ -1679,38 +1695,44 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }, values.autoRefresh.interval * 1000)
             }
         },
-        loadDashboardSuccess: (...args) => {
-            void sharedListeners.reportLoadTiming(...args)
-
-            if (!values.dashboard) {
-                actions.dashboardNotFound()
-                return // We hit a 404
-            }
-
-            if (values.placement !== DashboardPlacement.Export) {
-                // access stored values from dashboardLoadData
-                // as we can't pass them down to this listener
-                const action = values.dashboardLoadData.action!
-                actions.refreshDashboardItems({ action, forceRefresh: false })
-            }
-
-            if (values.shouldReportOnAPILoad) {
-                actions.setShouldReportOnAPILoad(false)
-                actions.reportDashboardViewed()
-            }
-        },
+        loadDashboardSuccess: [
+            sharedListeners.reportLoadTiming,
+            () => {
+                if (!values.dashboard) {
+                    actions.dashboardNotFound()
+                    return // We hit a 404
+                }
+            },
+            sharedListeners.handleDashboardLoadComplete,
+        ],
         loadDashboardMetadataSuccess: ({ dashboard }) => {
             if (!dashboard) {
                 actions.dashboardNotFound()
                 return // We hit a 404
             }
         },
+        tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
+        reportInsightsViewed: ({ insights }: { insights: QueryBasedInsightModel[] }) => {
+            const insightIds = insights
+                .map((insight: QueryBasedInsightModel) => insight?.id)
+                .filter((id): id is number => !!id)
+
+            if (insightIds.length > 0 && values.currentTeamId) {
+                void api.create(`api/environments/${values.currentTeamId}/insights/viewed`, {
+                    insight_ids: insightIds,
+                })
+            }
+        },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
-            const { dashboard, lastDashboardRefresh } = values
+            const { dashboard, lastDashboardRefresh, tiles } = values
             if (dashboard) {
                 eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
+
+                const insights = tiles.map((t) => t.insight).filter((i): i is QueryBasedInsightModel => !!i)
+                actions.reportInsightsViewed(insights)
+
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
                     router.values.location.pathname === urls.dashboard(dashboard.id) ||

@@ -60,8 +60,6 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 
 @dataclass(kw_only=True)
 class Type(AST):
-    nullable: bool = field(default=True)
-
     def get_child(self, name: str, context: "HogQLContext") -> "Type":
         raise NotImplementedError("Type.get_child not overridden")
 
@@ -93,6 +91,7 @@ class CTE(Expr):
 @dataclass(kw_only=True)
 class ConstantType(Type):
     data_type: ConstantDataType
+    nullable: bool = field(default=True)
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         return self

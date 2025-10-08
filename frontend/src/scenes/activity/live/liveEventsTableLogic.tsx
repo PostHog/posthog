@@ -126,6 +126,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 {
                     key: Scene.LiveEvents,
                     name: 'Live',
+                    iconType: 'dashboard',
                 },
             ],
         ],

@@ -469,6 +469,12 @@ class Team(UUIDTClassicModel):
         blank=True,
     )
 
+    experiment_recalculation_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+    )
+
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -748,26 +754,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.explicit_team_membership import ExplicitTeamMembership
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
-
-        # This path is deprecated, and will be removed soon
-        if self.access_control:
-            user_ids_queryset = (
-                OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
-                )
-                .values_list("user_id", flat=True)
-                .union(
-                    ExplicitTeamMembership.objects.filter(team_id=self.id).values_list(
-                        "parent_membership__user_id", flat=True
-                    )
-                )
-            )
-            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
-
-        # New access control checks
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(

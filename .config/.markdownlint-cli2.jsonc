@@ -1,0 +1,17 @@
+{
+  "gitignore": true,
+  "config": {
+    "MD013": false,
+    "MD033": false,
+    "MD034": false,
+    "MD036": false,
+    "MD041": false,
+    "MD024": false,
+    "MD001": false,
+    "MD025": false,
+    "MD026": false,
+    "MD028": false,
+    "MD045": false,
+    "MD029": false
+  }
+}

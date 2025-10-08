@@ -153,6 +153,11 @@ export function Annotations(): JSX.Element {
                     type: 'annotation',
                     forceIcon: <IconNotification />,
                 }}
+                actions={
+                    <LemonButton type="primary" onClick={() => openModalToCreateAnnotation()} size="small">
+                        New annotation
+                    </LemonButton>
+                }
             />
             <SceneDivider />
             <div className="flex flex-row items-center gap-2 justify-end">

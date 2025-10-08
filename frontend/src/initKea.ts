@@ -142,15 +142,12 @@ export function initKea({
         }
     }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
-        plugins.push(
-            posthogKeaLogger({
-                logger: (title, stateEvent) => {
-                    const ph: PostHog | undefined = window.posthog
-                    ph?.sessionRecording?.tryAddCustomEvent('app-state', { title, stateEvent })
-                },
-            })
-        )
+    // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
+    const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
+    const localStorageDisablesLogging = localStorageLoggingFlag === 'false'
+    const localStorageEnablesLogging = localStorageLoggingFlag === 'true'
+    if (!localStorageDisablesLogging && (localStorageEnablesLogging || window.JS_KEA_VERBOSE_LOGGING)) {
+        plugins.push(posthogKeaLogger())
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {

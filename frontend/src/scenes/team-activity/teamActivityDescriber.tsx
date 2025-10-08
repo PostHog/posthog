@@ -96,7 +96,7 @@ function createArrayChangeHandler(
             return null
         }
 
-        const array = change.after as any[]
+        const array = (change.after || []) as any[]
         const displayArray = map ? array.map(map).filter(Boolean) : array
         const fieldNameElement = useEmphasis ? <em>{fieldName}</em> : fieldName
 
@@ -729,10 +729,10 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     effective_membership_level: () => null,
     default_modifiers: () => null,
     is_demo: () => null,
-    access_control: () => null,
     has_group_types: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
+    experiment_recalculation_time: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

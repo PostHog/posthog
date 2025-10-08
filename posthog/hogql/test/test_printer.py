@@ -856,6 +856,17 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
+        self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
+        self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5)(event, event is not null)"),
+            "groupArraySampleIf(5)(events.event, isNotNull(events.event))",
+        )
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
+            "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -1288,14 +1299,14 @@ class TestPrinter(BaseTest):
                 "argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) "
+                "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
-                "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
+                "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
+                "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -1314,14 +1325,14 @@ class TestPrinter(BaseTest):
                 "argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) "
+                "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
-                "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
+                "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
+                "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -1332,18 +1343,18 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
-            got = self._select(
+            expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
                 context,
             )
             self.assertEqual(
+                expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-                got,
             )
 
             context = HogQLContext(
@@ -1351,18 +1362,18 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
-            got = self._select(
+            expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
                 context,
             )
             self.assertEqual(
+                expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-                got,
             )
 
     def test_count_distinct(self):
@@ -1608,15 +1619,16 @@ class TestPrinter(BaseTest):
             f"SELECT "
             # start_time = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))) AS a, "
+            f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
             # 1 = 1
             f"1 AS b, "
             # click_count = 1
-            f"equals(session_replay_events.click_count, 1) AS c, "
+            f"ifNull(equals(session_replay_events.click_count, 1), 0) AS c, "
             # 1 = click_count
-            f"equals(1, session_replay_events.click_count) AS d, "
+            f"ifNull(equals(1, session_replay_events.click_count), 0) AS d, "
             # click_count = keypress_count
-            f"equals(session_replay_events.click_count, session_replay_events.keypress_count) AS e, "
+            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)) AS e, "
             # click_count = null
             f"isNull(session_replay_events.click_count) AS f, "
             # null = click_count
@@ -1641,15 +1653,16 @@ class TestPrinter(BaseTest):
             f"SELECT "
             # start_time = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))) AS a, "
+            f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
             # 1 = 1
             f"0 AS b, "
             # click_count = 1
-            f"notEquals(session_replay_events.click_count, 1) AS c, "
+            f"ifNull(notEquals(session_replay_events.click_count, 1), 1) AS c, "
             # 1 = click_count
-            f"notEquals(1, session_replay_events.click_count) AS d, "
+            f"ifNull(notEquals(1, session_replay_events.click_count), 1) AS d, "
             # click_count = keypress_count
-            f"notEquals(session_replay_events.click_count, session_replay_events.keypress_count) AS e, "
+            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)) AS e, "
             # click_count = null
             f"isNotNull(session_replay_events.click_count) AS f, "
             # null = click_count

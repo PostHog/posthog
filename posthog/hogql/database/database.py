@@ -711,23 +711,31 @@ def create_hogql_database(
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in table.fields.keys() or not isinstance(
-            table.fields.get("timestamp"), DateTimeDatabaseField
-        ):
+        table_has_no_timestamp_field = "timestamp" not in table.fields.keys()
+        timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
+
+        if table_has_no_timestamp_field or not timestamp_field_is_datetime:
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+            modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
 
             # If field type is none or datetime, we can use the field directly
             if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                table.fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
-                )
+                if modifier_timestamp_field_is_timestamp:
+                    table.fields["timestamp"] = DateTimeDatabaseField(name="timestamp")
+                else:
+                    table.fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                    )
             else:
-                table.fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                )
+                if modifier_timestamp_field_is_timestamp:
+                    table.fields["timestamp"] = UnknownDatabaseField(name="timestamp")
+                else:
+                    table.fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                    )
 
         # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
         if "distinct_id" not in table.fields.keys():
@@ -969,6 +977,7 @@ DatabaseSchemaTable: TypeAlias = (
 
 def serialize_database(
     context: HogQLContext,
+    include_only: Optional[set[str]] = None,
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -985,6 +994,9 @@ def serialize_database(
     # PostHog tables
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         field_input: dict[str, Any] = {}
         table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
@@ -999,6 +1011,9 @@ def serialize_database(
     # System tables
     system_tables = context.database.get_system_tables()
     for table_key in system_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         system_field_input: dict[str, Any] = {}
         table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
@@ -1082,6 +1097,9 @@ def serialize_database(
         else:
             table_key = warehouse_table.name
 
+        if include_only and table_key not in include_only:
+            continue
+
         field_input = {}
         table = context.database.get_table(table_key)
         if isinstance(table, Table):
@@ -1116,6 +1134,9 @@ def serialize_database(
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
     for view_name in views:
+        if include_only and view_name not in include_only:
+            continue
+
         view: Table | TableGroup | None = getattr(context.database, view_name, None)
         if view is None:
             continue

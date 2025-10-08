@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
@@ -42,14 +42,27 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+    tabId?: string
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        if (props.id === 'new' || !props.id) {
+            if (props.tabId == null) {
+                return 'new'
+            }
+            return `new-${props.tabId}`
+        }
+        if (props.tabId == null) {
+            return props.id
+        }
+        return `${props.id}-${props.tabId}`
+    }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
+        logic: [cohortsModel],
     })),
 
     actions({
@@ -78,6 +91,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setCreationPersonQuery: (query: Node) => ({ query }),
         addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
+        removePersonFromCohort: (personId: string) => ({ personId }),
     }),
 
     reducers(({ props }) => ({
@@ -196,6 +210,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+                setCohort: (state, { cohort }) => ({
+                    ...state,
+                    source: {
+                        ...state.source,
+                        select: cohort.is_static
+                            ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
+                            : ['person_display_name -- Person', 'id', 'created_at'],
+                    },
+                }),
             },
         ],
         creationPersonQuery: [
@@ -233,6 +256,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
     })),
+
+    selectors({
+        canRemovePersonFromCohort: [
+            (s) => [s.cohort],
+            (cohort: CohortType) => {
+                return cohort.is_static && typeof cohort.id === 'number'
+            },
+        ],
+    }),
 
     forms(({ actions, values }) => ({
         cohort: {
@@ -425,10 +457,36 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+
+        removePersonFromCohort: [
+            null as any,
+            {
+                removePersonFromCohort: async ({ personId }) => {
+                    if (!values.cohort.id || values.cohort.id === 'new') {
+                        throw new Error('Cannot remove person from unsaved cohort')
+                    }
+
+                    try {
+                        await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
+                        lemonToast.success('Person removed from cohort')
+                    } catch (error: any) {
+                        throw error
+                    }
+                    // Refresh cohort data + count
+                    const dataLogic = dataNodeLogic.findMounted({
+                        key: createCohortDataNodeLogicKey(values.cohort.id),
+                    })
+                    if (dataLogic) {
+                        dataLogic.actions.loadData('force_blocking')
+                    }
+                    actions.updateCohortCount()
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         deleteCohort: () => {
-            cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
+            cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
         submitCohortFailure: () => {

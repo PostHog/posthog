@@ -4,10 +4,13 @@ import { useState } from 'react'
 import { IconPencil, IconSearch } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
+
+import { AccessControlResourceType } from '~/types'
 
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -15,9 +18,11 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
 
     return (
         <>
-            <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                New action
-            </LemonButton>
+            <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel="editor">
+                <LemonButton size="small" type="primary" onClick={() => setVisible(true)} data-attr="create-action">
+                    New action
+                </LemonButton>
+            </AccessControlAction>
             <LemonModal
                 isOpen={visible}
                 onClose={() => {

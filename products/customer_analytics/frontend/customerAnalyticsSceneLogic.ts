@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,7 +20,8 @@ export interface CustomerDashboard {
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
-    connect({
+    tabAwareScene(),
+    connect(() => ({
         actions: [
             newDashboardLogic({ initialTags: ['customer-analytics'] }),
             ['showNewDashboardModal', 'hideNewDashboardModal', 'submitNewDashboardSuccessWithResult'],
@@ -30,7 +32,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             teamLogic,
             ['currentTeamId'],
         ],
-    }),
+    })),
     actions({
         createNewDashboard: true,
         handleEditDashboard: () => {},
@@ -59,10 +61,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     reducers({
         selectedDashboardId: [
             null as number | null,
+            { persist: true },
             {
                 selectDashboard: (_, { dashboardId }) => dashboardId,
-                loadCustomerDashboardsSuccess: (_, { availableDashboards }) =>
-                    availableDashboards.length > 0 ? availableDashboards[0].id : null,
             },
         ],
     }),
@@ -94,7 +95,24 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             }
         },
     })),
-    afterMount(({ actions }) => {
+    urlToAction(({ actions }) => ({
+        '/customer_analytics': (_, queryParams) => {
+            const id = queryParams?.dashboardId
+            if (id && !isNaN(id)) {
+                actions.selectDashboard(id)
+            }
+        },
+    })),
+    actionToUrl(() => ({
+        selectDashboard: ({ dashboardId }) => {
+            const params = dashboardId ? { dashboardId: dashboardId.toString() } : {}
+            return ['/customer_analytics', params]
+        },
+    })),
+    afterMount(({ actions, values }) => {
         actions.loadCustomerDashboards()
+        if (values.selectedDashboardId) {
+            actions.selectDashboard(values.selectedDashboardId)
+        }
     }),
 ])

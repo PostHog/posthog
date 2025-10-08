@@ -38,7 +38,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
@@ -88,7 +88,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -155,7 +157,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))))
@@ -254,7 +256,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))
@@ -304,7 +306,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -400,7 +404,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
@@ -431,7 +435,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
                                                        ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
@@ -442,13 +446,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_customer.country, 'US'))
@@ -498,7 +502,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -617,7 +623,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
@@ -667,7 +673,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -763,7 +771,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))))
@@ -813,7 +821,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -909,7 +919,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
@@ -940,7 +950,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
                                                        ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
@@ -951,13 +961,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
   LEFT JOIN
@@ -1016,7 +1026,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1140,7 +1152,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
@@ -1199,7 +1211,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1300,7 +1314,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))
@@ -1350,7 +1364,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1446,7 +1462,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
@@ -1496,7 +1512,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1593,7 +1611,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
@@ -1643,7 +1661,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1739,7 +1759,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
@@ -1798,7 +1818,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1899,7 +1921,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
@@ -1958,7 +1980,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -2059,7 +2083,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
@@ -2118,7 +2142,9 @@
                posthog_test_stripe_invoice.discount AS discount,
                arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                JSONExtractString(data, 'id') AS invoice_item_id,
-               JSONExtractString(data, 'amount') AS amount_captured,
+               JSONExtractUInt(data, 'amount') AS amount_before_discount,
+               coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+               greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                JSONExtractString(data, 'currency') AS currency,
                JSONExtractString(data, 'price', 'product') AS product_id,
                fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
