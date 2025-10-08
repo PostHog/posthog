@@ -104,6 +104,7 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    exported_asset_id: Optional[int] = None
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
