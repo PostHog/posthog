@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError
+from django.db import ProgrammingError, models
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -75,6 +75,12 @@ UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 DEFAULT_DATE_FROM_DAYS = 7
 
 logger = structlog.get_logger(__name__)
+
+
+class WeekStartDay(models.IntegerChoices):
+    SUNDAY = 0, "Sunday"
+    MONDAY = 1, "Monday"
+
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -170,6 +176,7 @@ def relative_date_parse_with_delta_mapping(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[WeekStartDay] = WeekStartDay.SUNDAY,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
     """
     Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
@@ -212,10 +219,15 @@ def relative_date_parse_with_delta_mapping(
     if match_group_dict["kind"] == "w":
         # Get the weekday index (Monday=0, Sunday=6)
         weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).weekday()
+        if team_week_start_day == WeekStartDay.SUNDAY:
+            # Get the weekday index for monday (Monday=1, Sunday=7)
+            weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).isoweekday()
+            # Sunday should be set as zero when week start day is sunday
+            if weekday_index == 7:
+                weekday_index = 0
         if match_group_dict["position"] == "Start":
             parsed_dt -= datetime.timedelta(days=weekday_index)
         elif match_group_dict["position"] == "End":
-            weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).weekday()
             days_to_add = 6 - weekday_index
             parsed_dt += datetime.timedelta(days=days_to_add)
 
@@ -309,6 +321,7 @@ def relative_date_parse(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[WeekStartDay],
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
         input,
@@ -317,6 +330,7 @@ def relative_date_parse(
         human_friendly_comparison_periods=human_friendly_comparison_periods,
         now=now,
         increase=increase,
+        team_week_start_day=team_week_start_day,
     )[0]
 
 
