@@ -35,6 +35,7 @@ export function NotebookCanvas(): JSX.Element {
         <SceneContent className="h-full">
             <SceneTitleSection
                 name="Canvas"
+                description="You can change anything you like and it is persisted to the URL for easy sharing."
                 resourceType={{
                     type: 'notebook',
                 }}

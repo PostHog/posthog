@@ -161,7 +161,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
-        setForAnotherAgenticIteration: (value: boolean) => ({ value }),
     }),
 
     reducers(({ props }) => ({
@@ -224,16 +223,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
             },
         ],
-
-        // Whether generation should be immediately continued due to tool execution
-        isAnotherAgenticIterationScheduled: [
-            false,
-            {
-                setForAnotherAgenticIteration: (_, { value }) => value,
-                askMax: () => false,
-                completeThreadGeneration: () => false,
-            },
-        ],
     })),
 
     listeners(({ actions, values, cache, props }) => ({
@@ -289,6 +278,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
 
+                // For reconnection, we only need conversation ID
+                if (!streamData.content && streamData.conversation) {
+                    // Remove all other fields to ensure clean reconnection call
+                    delete apiData.contextual_tools
+                    delete apiData.ui_context
+                }
+
                 // Generate a new trace ID for this interaction
                 const traceId = uuid()
                 actions.setTraceId(traceId)
@@ -312,10 +308,92 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 const decoder = new TextDecoder()
-                const pendingEventHandlers: Promise<void>[] = []
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
-                        pendingEventHandlers.push(onEventImplementation(event as string, data, { actions, values }))
+                        // A Conversation object is only received when the conversation is new
+                        if (event === AssistantEventType.Conversation) {
+                            const parsedResponse = parseResponse<Conversation>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+                            const conversationWithTitle = {
+                                ...parsedResponse,
+                                title: parsedResponse.title || 'New chat',
+                            }
+
+                            actions.setConversation(conversationWithTitle)
+                            actions.updateGlobalConversationCache(conversationWithTitle)
+                        } else if (event === AssistantEventType.Message) {
+                            const parsedResponse = parseResponse<RootAssistantMessage>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+                            if (isHumanMessage(parsedResponse)) {
+                                actions.replaceMessage(values.threadRaw.length - 1, {
+                                    ...parsedResponse,
+                                    status: 'completed',
+                                })
+                            } else if (isAssistantToolCallMessage(parsedResponse)) {
+                                for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                                    // Empty message in askMax effectively means "just resume generation with current context"
+                                    await values.toolMap[toolName]?.callback?.(toolResult)
+                                    // The `navigate` tool is the only one doing client-side formatting currently
+                                    if (toolName === 'navigate') {
+                                        actions.askMax(null) // Continue generation
+                                        parsedResponse.content = parsedResponse.content.replace(
+                                            toolResult.page_key,
+                                            breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
+                                        )
+                                    }
+                                }
+                                actions.addMessage({
+                                    ...parsedResponse,
+                                    status: 'completed',
+                                })
+                            } else {
+                                if (isNotebookUpdateMessage(parsedResponse)) {
+                                    actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                                    if (!parsedResponse.id) {
+                                        // we do not want to show partial notebook update messages
+                                        return
+                                    }
+                                }
+                                // Check if a message with the same ID already exists
+                                const existingMessageIndex = parsedResponse.id
+                                    ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
+                                    : -1
+
+                                if (existingMessageIndex >= 0) {
+                                    // Replace existing message with same ID
+                                    actions.replaceMessage(existingMessageIndex, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else if (
+                                    values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
+                                    values.threadRaw.length === 0
+                                ) {
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else if (parsedResponse) {
+                                    actions.replaceMessage(values.threadRaw.length - 1, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                }
+                            }
+                        } else if (event === AssistantEventType.Status) {
+                            const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+
+                            if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
+                                actions.setMessageStatus(values.threadRaw.length - 1, 'error')
+                            }
+                        }
                     },
                 })
 
@@ -323,12 +401,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const { done, value } = await reader.read()
                     parser.feed(decoder.decode(value))
                     if (done) {
-                        await Promise.all(pendingEventHandlers) // Wait for all onEvent handlers to complete
                         break
                     }
                 }
             } catch (e) {
-                actions.setForAnotherAgenticIteration(false) // Cancel any next iteration
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
 
@@ -371,14 +447,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
-            if (values.isAnotherAgenticIterationScheduled) {
-                // Continue generation after applying tool - null message in askMax "just resume generation with current context"
-                actions.askMax(null)
-            } else {
-                // Otherwise wrap things up
-                actions.completeThreadGeneration()
-                actions.setActiveStreamingThreads(-1)
-            }
+
+            actions.completeThreadGeneration()
+            actions.setActiveStreamingThreads(-1)
             cache.generationController = undefined
         },
 
@@ -671,97 +742,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 ])
-
-/** Assistant streaming event handler. */
-async function onEventImplementation(
-    event: string,
-    data: string,
-    { actions, values }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values'>
-): Promise<void> {
-    // A Conversation object is only received when the conversation is new
-    if (event === AssistantEventType.Conversation) {
-        const parsedResponse = parseResponse<Conversation>(data)
-        if (!parsedResponse) {
-            return
-        }
-        const conversationWithTitle = {
-            ...parsedResponse,
-            title: parsedResponse.title || 'New chat',
-        }
-
-        actions.setConversation(conversationWithTitle)
-        actions.updateGlobalConversationCache(conversationWithTitle)
-    } else if (event === AssistantEventType.Message) {
-        const parsedResponse = parseResponse<RootAssistantMessage>(data)
-        if (!parsedResponse) {
-            return
-        }
-        if (isHumanMessage(parsedResponse)) {
-            actions.replaceMessage(values.threadRaw.length - 1, {
-                ...parsedResponse,
-                status: 'completed',
-            })
-        } else if (isAssistantToolCallMessage(parsedResponse)) {
-            for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                await values.toolMap[toolName]?.callback?.(toolResult)
-                // The `navigate` tool is the only one doing client-side formatting currently
-                if (toolName === 'navigate') {
-                    parsedResponse.content = parsedResponse.content.replace(
-                        toolResult.page_key,
-                        breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
-                    )
-                }
-            }
-            actions.addMessage({
-                ...parsedResponse,
-                status: 'completed',
-            })
-            actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the tool(s)
-        } else {
-            if (isNotebookUpdateMessage(parsedResponse)) {
-                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
-                if (!parsedResponse.id) {
-                    // we do not want to show partial notebook update messages
-                    return
-                }
-            }
-            // Check if a message with the same ID already exists
-            const existingMessageIndex = parsedResponse.id
-                ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
-                : -1
-
-            if (existingMessageIndex >= 0) {
-                // Replace existing message with same ID
-                actions.replaceMessage(existingMessageIndex, {
-                    ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
-                })
-            } else if (
-                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                values.threadRaw.length === 0
-            ) {
-                actions.addMessage({
-                    ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
-                })
-            } else if (parsedResponse) {
-                actions.replaceMessage(values.threadRaw.length - 1, {
-                    ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
-                })
-            }
-        }
-    } else if (event === AssistantEventType.Status) {
-        const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
-        if (!parsedResponse) {
-            return
-        }
-
-        if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-            actions.setMessageStatus(values.threadRaw.length - 1, 'error')
-        }
-    }
-}
 
 /**
  * Parses the generation result from the API. Some generation chunks might be sent in batches.

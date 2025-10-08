@@ -1562,7 +1562,7 @@
                 }
             ]
         },
-        "AssistantNavigateUrl": {
+        "AssistantNavigateUrls": {
             "description": "Exact possible `urls` keys for the `navigate` tool.",
             "enum": [
                 "actions",
@@ -12446,7 +12446,8 @@
                 "TemporalIO",
                 "DoIt",
                 "LinkedinAds",
-                "RedditAds"
+                "RedditAds",
+                "TikTokAds"
             ],
             "type": "string"
         },
@@ -15260,7 +15261,9 @@
                 "github",
                 "meta-ads",
                 "clickup",
-                "reddit-ads"
+                "reddit-ads",
+                "databricks",
+                "tiktok-ads"
             ],
             "type": "string"
         },

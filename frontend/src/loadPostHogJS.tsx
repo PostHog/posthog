@@ -86,6 +86,8 @@ export function loadPostHogJS(): void {
                 return
             }
 
+            posthog.capture('saw feature flags error toast', { toastId })
+
             lemonToast.warning(
                 <div className="flex flex-col gap-2">
                     <span>We couldn't load our internal feature flags.</span>
@@ -103,7 +105,10 @@ export function loadPostHogJS(): void {
                 </div>,
                 {
                     toastId: toastId,
-                    onClose: () => window.localStorage.setItem(toastId, 'true'),
+                    onClose: () => {
+                        posthog.capture('closed feature flags error toast', { toastId })
+                        window.localStorage.setItem(toastId, 'true')
+                    },
                     autoClose: false,
                 }
             )
