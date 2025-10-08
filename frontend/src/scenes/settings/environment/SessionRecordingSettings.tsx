@@ -52,7 +52,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
             className={cn(
                 props.supportedSinceVersion ? 'bg-fill-success-highlight' : 'bg-fill-warning-highlight',
                 'px-1 py-0.5 h-full flex items-center gap-1',
-                props.note && props.supportedSinceVersion && 'cursor-pointer'
+                props.note && props.supportedSinceVersion && 'cursor-help'
             )}
         >
             {props.note ? <IconInfo /> : props.supportedSinceVersion ? <IconCheck /> : <IconX />} {props.label}
@@ -87,12 +87,12 @@ export const SupportedPlatforms = memo(
     }): JSX.Element | null {
         const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
         return allSupported ? null : (
-            <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit cursor-help">
+            <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
                 <Tooltip
                     delayMs={200}
                     title="We support lots of platforms! But not every feature works everywhere (yet)"
                 >
-                    <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
+                    <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
                 </Tooltip>
                 <LemonDivider vertical className="h-full" />
                 <SupportedPlatform
