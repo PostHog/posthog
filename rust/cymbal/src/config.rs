@@ -50,6 +50,9 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
+    pub persons_url: String,
+
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
