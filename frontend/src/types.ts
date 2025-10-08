@@ -343,6 +343,8 @@ export interface UserType extends UserBaseType {
         plugin_disabled: boolean
         project_weekly_digest_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
+        error_tracking_issue_assigned: boolean
+        discussions_mentioned: boolean
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -405,6 +407,8 @@ export interface NotificationSettings {
     plugin_disabled: boolean
     project_weekly_digest_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
+    error_tracking_issue_assigned: boolean
+    discussions_mentioned: boolean
 }
 
 export interface PluginAccess {
@@ -4682,6 +4686,8 @@ export type CommentType = {
     /** only on the type to support patching for soft delete */
     deleted?: boolean
 }
+
+export type CommentCreationParams = { mentions?: number[]; slug?: string }
 
 export interface DataWarehouseCredential {
     access_key: string
