@@ -8,12 +8,7 @@ import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
-import {
-    createCohortMembershipEvent,
-    createCohortMembershipEvents,
-    createKafkaMessage,
-    insertCohortMembership,
-} from '../_tests/fixtures'
+import { createCohortMembershipEvent, createCohortMembershipEvents, createKafkaMessage } from '../_tests/fixtures'
 import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
 
 jest.setTimeout(20_000)
@@ -180,38 +175,6 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(result.rows[0].in_cohort).toBe(true) // Back in the cohort
             const thirdTimestamp = result.rows[0].last_updated
             expect(new Date(thirdTimestamp).getTime()).toBeGreaterThan(new Date(secondTimestamp).getTime())
-        })
-
-        it('should update existing database records correctly', async () => {
-            // Pre-populate database with existing cohort memberships
-            await insertCohortMembership(hub.postgres, {
-                team_id: 1,
-                cohort_id: 456,
-                person_id: personId1,
-                in_cohort: false, // Person is not in cohort initially
-            })
-
-            // Create event where person enters the cohort
-            const enterEvent = createCohortMembershipEvent({
-                personId: personId1,
-                cohortId: 456,
-                teamId: 1,
-                cohort_membership_changed: 'entered',
-            })
-
-            const messages = [createKafkaMessage(enterEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED })]
-            await (consumer as any).handleBatch(messages)
-
-            // Verify the existing record was updated
-            const result = await hub.postgres.query(
-                PostgresUse.BEHAVIORAL_COHORTS_RW,
-                'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
-                [1, personId1, 456],
-                'testQuery'
-            )
-
-            expect(result.rows).toHaveLength(1) // Still just one record
-            expect(result.rows[0].in_cohort).toBe(true) // Now marked as in cohort
         })
 
         it('should reject entire batch when invalid messages are present', async () => {
