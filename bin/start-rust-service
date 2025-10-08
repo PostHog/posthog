@@ -77,7 +77,7 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS="true"
     ;;
 
-  et-embedding-worker)
+  embedding-worker)
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_CONSUMER_GROUP=embedding-worker
