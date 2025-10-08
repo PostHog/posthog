@@ -124,8 +124,5 @@ procs:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
 
-    dmypy-daemon:
-        shell: 'bin/start-dmypy'
-
 mouse_scroll_speed: 1
 scrollback: 10000
