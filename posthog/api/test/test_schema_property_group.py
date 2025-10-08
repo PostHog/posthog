@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from posthog.models import EventDefinition, EventSchema, Project, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 
 class TestSchemaPropertyGroupAPI(APIBaseTest):
@@ -212,8 +212,12 @@ class TestEventSchemaAPI(APIBaseTest):
         assert not EventSchema.objects.filter(id=event_schema.id).exists()
 
     def test_cross_team_property_group_rejection(self):
-        other_team = self.organization.teams.create(name="Other Team")
-        other_project = self.organization.projects.create(name="Other Project")
+        other_project, other_team = Project.objects.create_with_team(
+            organization=self.organization,
+            name="Other Project",
+            initiating_user=self.user,
+            team_fields={"name": "Other Team"},
+        )
         other_property_group = SchemaPropertyGroup.objects.create(
             team=other_team, project=other_project, name="Other Team Group"
         )
@@ -228,4 +232,5 @@ class TestEventSchemaAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "same team" in str(response.json())
+        # The queryset filter prevents cross-team access, so the object "does not exist" from this team's perspective
+        assert "does not exist" in str(response.json())
