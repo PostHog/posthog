@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import { AttributionMode, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
@@ -12,6 +12,8 @@ import { generateUniqueName } from './utils'
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
     conversion_goals: [],
+    attribution_window_weeks: 52,
+    attribution_mode: AttributionMode.LastTouch,
 })
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
@@ -38,6 +40,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         removeConversionGoal: (goalId: string) => ({
             goalId,
+        }),
+        updateAttributionWindowWeeks: (weeks: number) => ({
+            weeks,
+        }),
+        updateAttributionMode: (mode: AttributionMode) => ({
+            mode,
         }),
     }),
     reducers(({ values }) => ({
@@ -118,6 +126,18 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, sources_map: updatedSourcesMap }
                 },
+                updateAttributionWindowWeeks: (state: MarketingAnalyticsConfig | null, { weeks }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), attribution_window_weeks: weeks }
+                    }
+                    return { ...state, attribution_window_weeks: weeks }
+                },
+                updateAttributionMode: (state: MarketingAnalyticsConfig | null, { mode }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), attribution_mode: mode }
+                    }
+                    return { ...state, attribution_mode: mode }
+                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -140,6 +160,18 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.conversion_goals || []
             },
         ],
+        attribution_window_weeks: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.attribution_window_weeks ?? 52
+            },
+        ],
+        attribution_mode: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.attribution_mode ?? AttributionMode.LastTouch
+            },
+        ],
     }),
     listeners(({ actions, values }) => {
         const updateCurrentTeam = (): void => {
@@ -154,6 +186,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateConversionGoals: updateCurrentTeam,
             addOrUpdateConversionGoal: updateCurrentTeam,
             removeConversionGoal: updateCurrentTeam,
+            updateAttributionWindowWeeks: updateCurrentTeam,
+            updateAttributionMode: updateCurrentTeam,
         }
     }),
     loaders(({ values }) => ({

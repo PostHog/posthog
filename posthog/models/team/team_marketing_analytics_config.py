@@ -5,9 +5,11 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from posthog.schema import NodeKind, SourceMap
+from posthog.schema import AttributionMode, NodeKind, SourceMap
 
 from posthog.models.team import Team
+
+# ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
 # Based on team_revenue_analytics_config.py
 
@@ -35,6 +37,23 @@ def validate_sources_map(sources_map: dict) -> None:
                 raise ValidationError(
                     f"Source '{source_id}' field mapping for '{schema_field}' must be a string or None, got {type(mapped_field)}"
                 )
+
+
+def validate_attribution_window_weeks(weeks: int) -> None:
+    """Validate attribution window weeks is between 1 and 52."""
+    if not isinstance(weeks, int):
+        raise ValidationError("attribution_window_weeks must be an integer")
+    if weeks < 1 or weeks > 52:
+        raise ValidationError("attribution_window_weeks must be between 1 and 52")
+
+
+def validate_attribution_mode(mode: str) -> None:
+    """Validate attribution mode is a valid AttributionMode value."""
+    if not isinstance(mode, str):
+        raise ValidationError("attribution_mode must be a string")
+    valid_modes = [attr_mode.value for attr_mode in AttributionMode]
+    if mode not in valid_modes:
+        raise ValidationError(f"attribution_mode must be one of {valid_modes}")
 
 
 def validate_conversion_goals(conversion_goals: list) -> None:
@@ -110,11 +129,31 @@ def validate_conversion_goals(conversion_goals: list) -> None:
 class TeamMarketingAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
+    # Attribution settings
+    attribution_window_weeks = models.IntegerField(default=52, help_text="Attribution window in weeks (1-52)")
+    attribution_mode = models.CharField(
+        max_length=20,
+        default=AttributionMode.LAST_TOUCH,
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+        help_text="Attribution mode: first_touch or last_touch",
+    )
+
     # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
     _sources_map = models.JSONField(default=dict, db_column="sources_map", null=False, blank=True)
     _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
+
+    def clean(self):
+        """Validate model fields"""
+        super().clean()
+        validate_attribution_window_weeks(self.attribution_window_weeks)
+        validate_attribution_mode(self.attribution_mode)
+
+    def save(self, *args, **kwargs):
+        """Override save to run validation"""
+        self.clean()
+        super().save(*args, **kwargs)
 
     @property
     def sources_map(self) -> dict[str, dict]:
@@ -139,6 +178,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
             else:
                 response[source_id] = SourceMap(**field_mapping)
         return response
+
+    @property
+    def conversion_goals(self) -> list:
+        return self._conversion_goals or []
+
+    @conversion_goals.setter
+    def conversion_goals(self, value: list) -> None:
+        value = value or []
+        try:
+            validate_conversion_goals(value)
+            self._conversion_goals = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid conversion goals: {str(e)}")
 
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
@@ -176,23 +228,12 @@ class TeamMarketingAnalyticsConfig(models.Model):
             del current_sources[source_id]
             self.sources_map = current_sources
 
-    @property
-    def conversion_goals(self) -> list:
-        return self._conversion_goals or []
-
-    @conversion_goals.setter
-    def conversion_goals(self, value: list) -> None:
-        value = value or []
-        try:
-            validate_conversion_goals(value)
-            self._conversion_goals = value
-        except ValidationError as e:
-            raise ValidationError(f"Invalid conversion goals: {str(e)}")
-
     def to_cache_key_dict(self) -> dict:
         return {
             "base_currency": self.team.base_currency,
             "sources_map": self.sources_map,
+            "attribution_window_weeks": self.attribution_window_weeks,
+            "attribution_mode": self.attribution_mode,
         }
 
 

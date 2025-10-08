@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsHelperForColumnNames
+from posthog.schema import AttributionMode, MarketingAnalyticsBaseColumns, MarketingAnalyticsHelperForColumnNames
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 from .adapters.base import MarketingSourceAdapter
 from .constants import (
@@ -64,9 +68,36 @@ class MarketingAnalyticsConfig:
     # Precision settings
     decimal_precision: int = DECIMAL_PRECISION
 
-    # Attribution settings
-    max_attribution_window_days: int = 365
-    default_attribution_mode: str = AttributionModeOperator.LAST_TOUCH.value
+    # Attribution settings (can be overridden by team settings)
+    attribution_window_weeks: int = 52
+    attribution_mode: str = AttributionMode.LAST_TOUCH
+
+    @classmethod
+    def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
+        """Create config instance with team-specific attribution settings"""
+        config = cls()
+        if hasattr(team, "marketing_analytics_config"):
+            ma_config = team.marketing_analytics_config
+            config.attribution_window_weeks = ma_config.attribution_window_weeks
+            config.attribution_mode = ma_config.attribution_mode
+        return config
+
+    @property
+    def attribution_window_days(self) -> int:
+        """Get attribution window in days"""
+        return self.attribution_window_weeks * 7
+
+    @property
+    def attribution_mode_operator(self) -> str:
+        """Get the HogQL operator for the attribution mode"""
+        if self.attribution_mode == AttributionMode.FIRST_TOUCH:
+            return AttributionModeOperator.FIRST_TOUCH.value
+        elif self.attribution_mode == AttributionMode.LAST_TOUCH:
+            return AttributionModeOperator.LAST_TOUCH.value
+        else:
+            # Future attribution modes could be added here
+            # For now, default to last touch
+            return AttributionModeOperator.LAST_TOUCH.value
 
     @property
     def group_by_fields(self) -> list[str]:

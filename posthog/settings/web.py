@@ -35,6 +35,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [

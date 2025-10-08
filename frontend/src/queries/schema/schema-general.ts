@@ -3882,9 +3882,16 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     schema_map: SchemaMap
 }
 
+export enum AttributionMode {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
+    attribution_window_weeks?: number
+    attribution_mode?: AttributionMode
 }
 
 export enum MarketingAnalyticsBaseColumns {
