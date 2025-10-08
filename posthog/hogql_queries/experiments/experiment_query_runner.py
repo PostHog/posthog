@@ -512,7 +512,9 @@ class ExperimentQueryRunner(QueryRunner):
                     exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
                 else:
                     exposure_config = criteria.exposure_config
-                filter_test_accounts = criteria.filterTestAccounts or True
+                filter_test_accounts = (
+                    bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else False
+                )
                 multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
             builder = ExperimentQueryBuilder(
