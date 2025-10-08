@@ -966,7 +966,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps = None
+    apps: Optional[any] = None
     assert_snapshots = False
 
     def setUp(self):
