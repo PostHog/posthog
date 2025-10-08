@@ -57,6 +57,7 @@ import {
     BatchExportRun,
     BatchExportService,
     CohortType,
+    CommentCreationParams,
     CommentType,
     ConversationDetail,
     CoreMemory,
@@ -147,6 +148,7 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
+    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -1516,6 +1518,11 @@ export class ApiRequest {
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
+
+    // Session summary
+    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1959,7 +1966,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType> & { mentions?: number[] },
+            data: Partial<CommentType> & CommentCreationParams,
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1968,7 +1975,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType> & { new_mentions?: number[] },
+            data: Partial<CommentType> & CommentCreationParams,
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -4347,6 +4354,12 @@ const api = {
             url = next
         }
         return results
+    },
+
+    sessionSummaries: {
+        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
+            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
     },
 }
 

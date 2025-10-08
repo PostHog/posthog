@@ -222,11 +222,10 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     hasSideActionRight
                     className={cn(
                         'w-full',
-                        'relative p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent',
+                        'relative py-0.5 pl-2 pr-5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent',
                         tab.active
                             ? 'rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
                             : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
-                        canRemoveTab ? 'pl-2 pr-1' : 'px-3',
                         'focus:outline-none',
                         className
                     )}
