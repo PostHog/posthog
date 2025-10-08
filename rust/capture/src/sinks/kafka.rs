@@ -4,12 +4,12 @@ use crate::prometheus::report_dropped_events;
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
+use common_types::CapturedEventHeaders;
 use health::HealthHandle;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
@@ -237,13 +237,19 @@ impl KafkaSink {
             CaptureError::NonRetryableSinkError
         })?;
 
-        let token = event.token.clone();
+        let mut headers = CapturedEventHeaders {
+            token: Some(event.token.clone()),
+            distinct_id: Some(event.distinct_id.clone()),
+            timestamp: metadata
+                .computed_timestamp
+                .map(|ts| ts.timestamp_millis().to_string()),
+            event: Some(metadata.event_name.clone()),
+            uuid: Some(event.uuid.to_string()),
+            force_disable_person_processing: None,
+        };
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
-        let distinct_id = event.distinct_id.clone();
-        let uuid = event.uuid.to_string();
-        let event_name = metadata.event_name.clone();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -266,6 +272,7 @@ impl KafkaSink {
                         &[("reason", "event_key")]
                     )
                     .increment(1);
+                    headers.set_force_disable_person_processing(true);
                     if self.partition.as_ref().unwrap().should_preserve_locality() {
                         (&self.overflow_topic, Some(event_key.as_str()))
                     } else {
@@ -300,38 +307,13 @@ impl KafkaSink {
             }
         };
 
-        // Use the computed event timestamp for Kafka timestamp header
-        let computed_timestamp = metadata.computed_timestamp.map(|ts| ts.timestamp_millis());
-
         match self.producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(
-                OwnedHeaders::new()
-                    .insert(Header {
-                        key: "token",
-                        value: Some(&token),
-                    })
-                    .insert(Header {
-                        key: "distinct_id",
-                        value: Some(&distinct_id),
-                    })
-                    .insert(Header {
-                        key: "timestamp",
-                        value: computed_timestamp.map(|ts| ts.to_string()).as_deref(),
-                    })
-                    .insert(Header {
-                        key: "event",
-                        value: Some(&event_name),
-                    })
-                    .insert(Header {
-                        key: "uuid",
-                        value: Some(&uuid),
-                    }),
-            ),
+            headers: Some(headers.into()),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {

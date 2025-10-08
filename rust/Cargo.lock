@@ -1854,6 +1854,7 @@ name = "common-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "rdkafka",
  "serde",
  "serde_json",
  "sqlx",
