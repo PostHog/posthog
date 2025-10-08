@@ -143,11 +143,14 @@ export function SceneTitleSection({
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
     return (
-        <div className="scene-title-section w-full flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
-            <div className="w-full flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
+        <div
+            className="scene-title-section w-full flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start group"
+            data-editable={canEdit}
+        >
+            <div className="w-full flex flex-col flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
                 {/* If we're showing breadcrumbs, we want to show the actions inline with the back button */}
                 {willShowBreadcrumbs && (
-                    <div className="flex justify-between w-full items-center">
+                    <div className="flex justify-between w-full items-center mb-1">
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
                         <div className="pt-1 shrink-0">
                             {actions && (
@@ -159,14 +162,14 @@ export function SceneTitleSection({
                         </div>
                     </div>
                 )}
-                <div className="flex w-full justify-between gap-2">
+                <div className="flex w-full justify-between items-start gap-2">
                     {name !== null && (
-                        <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
+                        <div className="flex gap-1 [&_svg]:size-6 items-center w-full">
                             <span
                                 className={buttonPrimitiveVariants({
                                     size: 'base',
                                     iconOnly: true,
-                                    className: 'rounded-sm h-[var(--button-height-lg)]',
+                                    className: 'rounded-sm',
                                     inert: true,
                                 })}
                                 aria-hidden
@@ -186,7 +189,7 @@ export function SceneTitleSection({
                     )}
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
                     {!willShowBreadcrumbs && (
-                        <div className="pt-1 shrink-0">
+                        <div className="shrink-0">
                             {actions && (
                                 <div className="flex gap-2 shrink-0 ml-auto">
                                     {actions}
@@ -197,7 +200,7 @@ export function SceneTitleSection({
                     )}
                 </div>
                 {description !== null && (description || canEdit) && (
-                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
+                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full group-data-[editable=true]:mt-1">
                         <SceneDescription
                             description={description}
                             markdown={markdown}
@@ -238,7 +241,7 @@ function SceneName({
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] leading-[1.4] select-auto'
+        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] group-data-[editable=false]:py-0 leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading) {
@@ -318,7 +321,7 @@ function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 h-auto'
+                                'flex text-left [&_.LemonIcon]:size-4 h-auto pl-[var(--button-padding-x-sm)]'
                             )}
                             onClick={() => setIsEditing(true)}
                             fullWidth
@@ -370,7 +373,7 @@ function SceneDescription({
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
 
-    const textClasses = 'text-sm my-0 select-auto'
+    const textClasses = 'text-sm my-0 select-auto group-data-[editable=false]:py-0'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 

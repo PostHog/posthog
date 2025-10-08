@@ -299,6 +299,7 @@ export type WithAccessControl = {
 export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
+    Action = 'action',
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
@@ -677,6 +678,7 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_message: string
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    experiment_recalculation_time?: string | null
 }
 
 export interface ProductIntentType {
@@ -689,7 +691,7 @@ export interface ProductIntentType {
 // scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
 export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
 
-export interface ActionType {
+export interface ActionType extends WithAccessControl {
     count?: number
     created_at: string
     deleted?: boolean
@@ -4332,6 +4334,8 @@ export const INTEGRATION_KINDS = [
     'meta-ads',
     'clickup',
     'reddit-ads',
+    'databricks',
+    'tiktok-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4596,6 +4600,7 @@ export type AccessControlResponseType = {
     available_access_levels: AccessControlLevel[]
     user_access_level: AccessControlLevel
     default_access_level: AccessControlLevel
+    minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
 }
 
@@ -4965,8 +4970,23 @@ export type BatchExportServiceRedshift = {
     }
 }
 
+export type BatchExportServiceDatabricks = {
+    type: 'Databricks'
+    integration: number
+    config: {
+        http_path: string
+        catalog: string
+        schema: string
+        table_name: string
+        use_variant_type: boolean
+        table_partition_field: string | null
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 // When adding a new option here also add a icon for it to
-// src/scenes/pipeline/icons/
+// frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'S3',
@@ -4975,6 +4995,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'BigQuery',
     'Redshift',
     'HTTP',
+    'Databricks',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
@@ -4983,6 +5004,7 @@ export type BatchExportService =
     | BatchExportServiceBigQuery
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
+    | BatchExportServiceDatabricks
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
@@ -5821,4 +5843,53 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Session Summaries
+export interface SessionSummaryResponse {
+    patterns: EnrichedSessionGroupSummaryPattern[]
+}
+
+export interface EnrichedSessionGroupSummaryPattern {
+    pattern_id: number
+    pattern_name: string
+    pattern_description: string
+    severity: 'low' | 'medium' | 'high' | 'critical'
+    indicators: string[]
+    events: PatternAssignedEventSegmentContext[]
+    stats: EnrichedSessionGroupSummaryPatternStats
+}
+
+export interface EnrichedSessionGroupSummaryPatternStats {
+    occurences: number
+    sessions_affected: number
+    sessions_affected_ratio: number
+    segments_success_ratio: number
+}
+
+export interface PatternAssignedEventSegmentContext {
+    segment_name: string
+    segment_outcome: string
+    segment_success: boolean
+    segment_index: number
+    previous_events_in_segment: EnrichedPatternAssignedEvent[]
+    target_event: EnrichedPatternAssignedEvent
+    next_events_in_segment: EnrichedPatternAssignedEvent[]
+}
+
+export interface EnrichedPatternAssignedEvent {
+    event_id: string
+    event_uuid: string
+    session_id: string
+    description: string
+    abandonment: boolean
+    confusion: boolean
+    exception: string | null
+    timestamp: string
+    milliseconds_since_start: number
+    window_id: string | null
+    current_url: string | null
+    event: string
+    event_type: string | null
+    event_index: number
 }
