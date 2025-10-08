@@ -774,7 +774,8 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
     const hasEventTriggers = (eventTriggerConfig?.length ?? 0) > 0
     const hasFeatureFlag = !!currentTeam.session_recording_linked_flag
     const sampleRate = currentTeam.session_recording_sample_rate
-    const hasSampling = sampleRate && sampleRate !== '1.00'
+    const numericSampleRate = !!sampleRate && parseFloat(sampleRate) * 100
+    const hasSampling = isNumeric(numericSampleRate) && sampleRate < 100
     const hasMinDuration = !!currentTeam.session_recording_minimum_duration_milliseconds
     const hasUrlBlocklist = (currentTeam.session_recording_url_blocklist_config?.length ?? 0) > 0
 
@@ -809,7 +810,7 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
                   {
                       enabled: hasSampling,
                       label: 'Sampling',
-                      detail: hasSampling && sampleRate ? `${parseFloat(sampleRate) * 100}%` : null,
+                      detail: hasSampling ? `numericSampleRate%` : null,
                   },
                   {
                       enabled: hasMinDuration,
