@@ -5665,6 +5665,155 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
         self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
 
+    def test_retention_24h_window_weekly_cohorts(self):
+        # Test 24-hour windows with weekly retention cohorts
+        # Week period with 24h windows uses 7-day (168 hour) rolling windows
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: start June 10, return within 7 days and after 7 days
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),  # Wed 2 PM
+                ("person1", datetime(2020, 6, 16, 12, 0).isoformat()),  # Tue 12 PM (6d 22h later, same 7d window)
+                ("person1", datetime(2020, 6, 18, 14, 0).isoformat()),  # Thu 2 PM (8 days later, next 7d window)
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(15)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Week",
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Verify we have results (weekly cohorts with 24h windows)
+        # Note: This validates the query runs successfully with Week period + 24h windows
+        self.assertIsInstance(result, list)
+
+    def test_retention_24h_window_monthly_cohorts(self):
+        # Test 24-hour windows with monthly retention cohorts
+        # Month period with 24h windows uses 30-day (720 hour) rolling windows
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: start June 10, return within 30 days
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),  # June 10, 2 PM
+                ("person1", datetime(2020, 7, 9, 12, 0).isoformat()),  # July 9, 12 PM (29d 22h later, same 30d window)
+                ("person1", datetime(2020, 7, 15, 14, 0).isoformat()),  # July 15, 2 PM (35 days later, next 30d window)
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": datetime(2020, 6, 1).isoformat(),
+                    "date_to": datetime(2020, 8, 1).isoformat(),
+                },
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Month",
+                    "timeWindowMode": "24_hour_windows",
+                },
+            }
+        )
+
+        # Verify we have results (monthly cohorts with 24h windows)
+        # Note: This validates the query runs successfully with Month period + 24h windows
+        self.assertIsInstance(result, list)
+
+    def test_retention_24h_window_weekly_with_breakdown(self):
+        # Test 24-hour windows with weekly cohorts and breakdown
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
+
+        _create_events(
+            self.team,
+            [
+                # USA person: start Week 0, return within 7 days
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),
+                ("person1", datetime(2020, 6, 16, 13, 0).isoformat()),  # 5d 23h later
+                # Canada person: start Week 0, no return
+                ("person2", datetime(2020, 6, 10, 15, 0).isoformat()),
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(15)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Week",
+                    "timeWindowMode": "24_hour_windows",
+                },
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        # Verify we have breakdown results
+        self.assertGreater(len(result), 0)
+        # Should have USA and Canada breakdowns
+        breakdown_values = {r.get("breakdown_value") for r in result}
+        self.assertIn("USA", breakdown_values)
+        self.assertIn("Canada", breakdown_values)
+
+    def test_retention_24h_window_monthly_first_time_ever(self):
+        # Test 24-hour windows with monthly cohorts and first-ever retention
+        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                # First event on June 10
+                ("person1", datetime(2020, 6, 10, 14, 0).isoformat()),
+                # Return within 30 days
+                ("person1", datetime(2020, 7, 8, 14, 0).isoformat()),  # 28 days later
+                # Return after 30 days
+                ("person1", datetime(2020, 7, 15, 14, 0).isoformat()),  # 35 days later
+            ],
+            event="$pageview",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": datetime(2020, 6, 1).isoformat(),
+                    "date_to": datetime(2020, 8, 1).isoformat(),
+                },
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalIntervals": 3,
+                    "period": "Month",
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": "retention_first_ever_occurrence",
+                },
+            }
+        )
+
+        # Verify we have results (monthly cohorts with 24h windows and first-ever)
+        # Note: This validates the query runs successfully with Month period + 24h windows + first-ever
+        self.assertIsInstance(result, list)
+
     # TRICKY: for later if/when we want a different ranking logic for breakdowns
     # def test_retention_breakdown_ranking_by_unique_users(self):
     #     # This test validates that breakdown ranking is based on unique users, not sum of cohort sizes.
