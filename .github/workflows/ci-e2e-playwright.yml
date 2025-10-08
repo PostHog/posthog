@@ -324,7 +324,7 @@ jobs:
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.shouldRun == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl

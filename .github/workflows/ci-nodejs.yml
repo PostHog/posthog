@@ -188,7 +188,7 @@ jobs:
               run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.nodejs == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
