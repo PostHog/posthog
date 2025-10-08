@@ -86,6 +86,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 60
         needs: [changes]
+        if: needs.changes.outputs.shouldRun == 'true'
         permissions:
             contents: read
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -94,10 +95,8 @@ jobs:
             build-id: ${{ steps.build.outputs.build-id }}
         steps:
             - name: Checkout
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/checkout@v4
             - name: Build the Docker image with Depot
-              if: needs.changes.outputs.shouldRun == 'true'
               # Build the container image in preparation for the E2E tests
               uses: ./.github/actions/build-n-cache-image
               id: build
@@ -111,32 +110,28 @@ jobs:
         runs-on: depot-ubuntu-latest-arm-4
         timeout-minutes: 60
         needs: [changes, container]
+        if: needs.changes.outputs.shouldRun == 'true'
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
 
         steps:
             - name: Checkout
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/checkout@v4
 
             - name: Install pnpm
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: 'pnpm'
 
             - name: Get pnpm cache directory path
-              if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v4
-              if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache
               with:
                   path: |
@@ -146,38 +141,32 @@ jobs:
                       ${{ runner.os }}-pnpm-playwright-
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.shouldRun == 'true'
               run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
 
             - name: Stop/Start stack with Docker Compose
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d &
 
             # Install playwright and dependencies whilst we wait for the stack to start
             - name: Install playwright and dependencies
-              if: needs.changes.outputs.shouldRun == 'true'
               run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
 
             - name: Wait for services to be available
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
             - name: Install Depot CLI
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
             - name: Get Docker image cached in Depot
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
               with:
                   build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
 
-            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
+            - name: Write .env
               run: |
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
@@ -203,8 +192,6 @@ jobs:
                   EOT
 
             - name: Start PostHog
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   mkdir -p /tmp/logs
 
@@ -228,8 +215,6 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Wait for PostHog
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
@@ -241,8 +226,6 @@ jobs:
                   resource: http://localhost:8000
 
             - name: Playwright run
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
               run: pnpm --filter=@posthog/playwright test
               env:
                   E2E_TESTING: 1
@@ -373,6 +356,7 @@ jobs:
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+              if: needs.changes.outputs.shouldRun == 'true'
 
             - name: Install plugin_transpiler
               if: needs.changes.outputs.shouldRun == 'true'
