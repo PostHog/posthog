@@ -38,7 +38,8 @@ jobs:
               with:
                   filters: |
                       nodejs:
-                        - .github/workflows/ci-nodejs.yml
+                        # TEMPORARILY REMOVED TO TEST SKIP BEHAVIOR
+                        # - .github/workflows/ci-nodejs.yml
                         - 'plugin-server/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'

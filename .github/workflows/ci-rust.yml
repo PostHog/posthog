@@ -30,8 +30,9 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
-                        - '.github/workflows/ci-rust.yml'
-                        - '.github/workflows/rust.yml'
+                        # TEMPORARILY REMOVED TO TEST SKIP BEHAVIOR
+                        # - '.github/workflows/ci-rust.yml'
+                        # - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'

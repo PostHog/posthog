@@ -40,7 +40,8 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'playwright/**'
                         # Make sure we run if someone is explicitly change the workflow
-                        - .github/workflows/ci-frontend.yml
+                        # TEMPORARILY REMOVED TO TEST SKIP BEHAVIOR
+                        # - .github/workflows/ci-frontend.yml
                         # various JS config files
                         - .oxlintrc.json
                         - .prettier*
