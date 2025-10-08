@@ -67,6 +67,8 @@ pub struct FlagRequest {
     pub cookieless_hash_extra: Option<String>,
     #[serde(default)]
     pub evaluation_environments: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation_runtime: Option<String>,
 }
 
 impl FlagRequest {
@@ -560,5 +562,47 @@ mod tests {
         assert_eq!(flag_keys[0], "flag1");
         assert_eq!(flag_keys[1], "flag2");
         assert_eq!(flag_keys[2], "flag3");
+    }
+
+    #[test]
+    fn test_evaluation_runtime_field() {
+        // Test with evaluation_runtime: "server"
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "server"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.evaluation_runtime, Some("server".to_string()));
+
+        // Test with evaluation_runtime: "client"
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "client"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.evaluation_runtime, Some("client".to_string()));
+
+        // Test with evaluation_runtime: "all"
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "all"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.evaluation_runtime, Some("all".to_string()));
+
+        // Test without evaluation_runtime field
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.evaluation_runtime, None);
     }
 }

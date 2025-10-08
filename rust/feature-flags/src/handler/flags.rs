@@ -731,4 +731,43 @@ mod tests {
         assert!(filtered.iter().any(|f| f.key == "no-tags"));
         assert!(!filtered.iter().any(|f| f.key == "marketing-only"));
     }
+
+    #[test]
+    fn test_explicit_runtime_overrides_detection() {
+        // This test verifies that when an explicit runtime is provided,
+        // it takes precedence over any auto-detection based on headers
+        
+        let mut headers = axum::http::HeaderMap::new();
+        // Add a browser user-agent that would normally be detected as "client"
+        headers.insert(
+            "user-agent",
+            "Mozilla/5.0 Chrome/120.0.0.0".parse().unwrap(),
+        );
+        headers.insert("origin", "https://app.posthog.com".parse().unwrap());
+        
+        // Test 1: Explicit "server" should override client detection
+        let runtime = detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::Server));
+        assert_eq!(runtime, Some(EvaluationRuntime::Server), 
+            "Explicit server runtime should override client headers");
+        
+        // Test 2: Explicit "client" with server-like headers
+        headers.clear();
+        headers.insert(
+            "user-agent",
+            "posthog-python/3.0.0".parse().unwrap(),
+        );
+        let runtime = detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::Client));
+        assert_eq!(runtime, Some(EvaluationRuntime::Client),
+            "Explicit client runtime should override server headers");
+        
+        // Test 3: Explicit "all" overrides any detection
+        let runtime = detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::All));
+        assert_eq!(runtime, Some(EvaluationRuntime::All),
+            "Explicit all runtime should be preserved");
+        
+        // Test 4: No explicit runtime falls back to auto-detection
+        let runtime = detect_evaluation_runtime_from_request(&headers, None);
+        assert_eq!(runtime, Some(EvaluationRuntime::Server),
+            "Without explicit runtime, should detect server from python user-agent");
+    }
 }
