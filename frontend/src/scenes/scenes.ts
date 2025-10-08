@@ -56,6 +56,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
     [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
@@ -72,7 +73,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
-        activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
 
@@ -181,7 +181,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
-    [Scene.HogFunction]: { projectBased: true, name: 'Hog function' },
+    [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -201,11 +201,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true,
         name: 'Notebook',
-        layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
+        canvasBackground: true,
     },
     [Scene.Notebooks]: {
         projectBased: true,
@@ -279,7 +278,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
@@ -292,7 +290,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
         layout: 'app-full-scene-height',
     },
     [Scene.RevenueAnalytics]: {
@@ -527,6 +524,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
+    [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
@@ -600,8 +598,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
-    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],

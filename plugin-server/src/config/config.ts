@@ -31,17 +31,25 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            ? 'postgres://posthog:posthog@localhost:5434/test_persons'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              ? 'postgres://posthog:posthog@localhost:5434/posthog_persons'
               : '',
-        PERSONS_READONLY_DATABASE_URL: '',
+        PERSONS_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5434/test_persons'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5434/posthog_persons'
+              : '',
         PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+            ? 'postgres://posthog:posthog@localhost:5434/test_persons_migration'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration'
+              ? 'postgres://posthog:posthog@localhost:5434/posthog_persons'
               : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: '',
+        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5434/test_persons_migration'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5434/posthog_persons'
+              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -327,6 +335,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: 'us-east-1',
+
+        // Pod termination
+        POD_TERMINATION_ENABLED: false,
+        POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30, // Default: 30 minutes
+        POD_TERMINATION_JITTER_MINUTES: 60, // Default: 1 hour, so timeout is between 30 minutes and 1h30m
     }
 }
 

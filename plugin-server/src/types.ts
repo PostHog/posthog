@@ -474,6 +474,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     HEAP_DUMP_S3_PREFIX: string
     HEAP_DUMP_S3_ENDPOINT: string
     HEAP_DUMP_S3_REGION: string
+
+    // Pod termination
+    POD_TERMINATION_ENABLED: boolean
+    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
+    POD_TERMINATION_JITTER_MINUTES: number
 }
 
 export interface Hub extends PluginsServerConfig {

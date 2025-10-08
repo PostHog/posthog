@@ -19,6 +19,7 @@ import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
+import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
 import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -63,7 +64,7 @@ export async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>[]) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<unknown>[]) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -114,7 +115,19 @@ describe('processEvent', () => {
         const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         if (isOkResult(res)) {
-            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+            // Use emit event step to emit the event
+            const emitEventStep = createEmitEventStep({
+                kafkaProducer: hub.kafkaProducer,
+                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            })
+            const emitResult = await emitEventStep(res.value)
+
+            // Handle side effects using side effect handling pipeline
+            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                await Promise.allSettled(emitResult.sideEffects)
+            }
+
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
         }
         await groupStoreForBatch.flush()
     }
@@ -225,7 +238,19 @@ describe('processEvent', () => {
         const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         if (isOkResult(res)) {
-            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+            // Use emit event step to emit the event
+            const emitEventStep = createEmitEventStep({
+                kafkaProducer: hub.kafkaProducer,
+                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            })
+            const emitResult = await emitEventStep(res.value)
+
+            // Handle side effects using side effect handling pipeline
+            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                await Promise.allSettled(emitResult.sideEffects)
+            }
+
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
         }
         await groupStoreForBatch.flush()
     }
