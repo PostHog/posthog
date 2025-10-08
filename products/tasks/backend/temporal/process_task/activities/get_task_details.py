@@ -18,6 +18,7 @@ class TaskDetails:
     github_integration_id: int
     repository: str
     distinct_id: str
+    workflow_id: str
 
 
 @activity.defn
@@ -73,4 +74,5 @@ def get_task_details(task_id: str) -> TaskDetails:
         github_integration_id=task.github_integration_id,
         repository=repository_full_name,
         distinct_id=distinct_id,
+        workflow_id=task.workflow_id,
     )
