@@ -13,4 +13,3 @@ uuid = { workspace = true }
 time = { workspace = true }
 sqlx = { workspace = true }
 chrono = { workspace = true }
-thiserror.workspace = true

@@ -291,7 +291,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFilters: () => {
             actions.loadHeatmap()
         },
-        patchHeatmapFilters: () => {
+        patchHeatmapFilters: ({ filters }) => {
+            // Clear old data when switching heatmap types
+            if (filters.type) {
+                actions.resetHeatmapData()
+            }
             actions.loadHeatmap()
         },
         setHeatmapFixedPositionMode: () => {

@@ -185,7 +185,6 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-billing
-    HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
@@ -201,6 +200,7 @@ export const FEATURE_FLAGS = {
     QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
     DASHBOARD_THREADS: 'dashboard-threads', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
+    BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     ENVIRONMENTS: 'environments', // owner: #team-platform-features
@@ -319,6 +319,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_BREAKDOWN_FILTER: 'experiments-breakdown-filter', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_UNIFIED_CREATE_FORM: 'experiments-unified-create-form', // owner: @rodrigoi #team-experiments
     TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
+    COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
