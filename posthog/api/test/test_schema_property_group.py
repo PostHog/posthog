@@ -112,8 +112,8 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             {"name": "Duplicate Name", "description": "Should fail"},
         )
 
-        # Database constraint causes 500 error, not 400
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in str(response.json())
 
     def test_property_name_validation(self):
         response = self.client.post(
@@ -213,7 +213,10 @@ class TestEventSchemaAPI(APIBaseTest):
 
     def test_cross_team_property_group_rejection(self):
         other_team = self.organization.teams.create(name="Other Team")
-        other_property_group = SchemaPropertyGroup.objects.create(team=other_team, name="Other Team Group")
+        other_project = self.organization.projects.create(name="Other Project")
+        other_property_group = SchemaPropertyGroup.objects.create(
+            team=other_team, project=other_project, name="Other Team Group"
+        )
         event_def = EventDefinition.objects.create(team=self.team, project=self.project, name="test_event")
 
         response = self.client.post(

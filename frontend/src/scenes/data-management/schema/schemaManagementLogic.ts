@@ -7,10 +7,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
+export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration'
+
 export interface SchemaPropertyGroupProperty {
     id: string
     name: string
-    property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration'
+    property_type: PropertyType
     is_required: boolean
     description: string
     order: number
@@ -57,14 +59,24 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                     return response.results || response || []
                 },
                 createPropertyGroup: async (data: Partial<SchemaPropertyGroup>) => {
-                    const response = await api.create(`api/projects/@current/schema_property_groups/`, data)
-                    lemonToast.success('Property group created')
-                    return [response, ...values.propertyGroups]
+                    try {
+                        const response = await api.create(`api/projects/@current/schema_property_groups/`, data)
+                        lemonToast.success('Property group created')
+                        return [response, ...values.propertyGroups]
+                    } catch {
+                        lemonToast.error('Failed to create property group')
+                        throw new Error('Failed to create property group')
+                    }
                 },
                 updatePropertyGroup: async ({ id, data }: { id: string; data: Partial<SchemaPropertyGroup> }) => {
-                    const response = await api.update(`api/projects/@current/schema_property_groups/${id}/`, data)
-                    lemonToast.success('Property group updated')
-                    return values.propertyGroups.map((pg) => (pg.id === id ? response : pg))
+                    try {
+                        const response = await api.update(`api/projects/@current/schema_property_groups/${id}/`, data)
+                        lemonToast.success('Property group updated')
+                        return values.propertyGroups.map((pg) => (pg.id === id ? response : pg))
+                    } catch {
+                        lemonToast.error('Failed to update property group')
+                        throw new Error('Failed to update property group')
+                    }
                 },
             },
         ],

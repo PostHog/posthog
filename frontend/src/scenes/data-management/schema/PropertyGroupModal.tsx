@@ -6,9 +6,9 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonT
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
+import { PropertyType, SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
 
-const PROPERTY_TYPE_OPTIONS = [
+const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
     { value: 'String', label: 'String' },
     { value: 'Numeric', label: 'Numeric' },
     { value: 'Boolean', label: 'Boolean' },
@@ -141,7 +141,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonSelect
                     value={property.property_type}
-                    onChange={(value) => updateProperty(index, { property_type: value as any })}
+                    onChange={(value) => updateProperty(index, { property_type: value as PropertyType })}
                     options={PROPERTY_TYPE_OPTIONS}
                     fullWidth
                 />

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -106,7 +106,7 @@ export function SelectPropertyGroupModal({
                 <LemonButton
                     type="primary"
                     size="small"
-                    icon={<IconPlus />}
+                    icon={<IconPlusSmall />}
                     onClick={() => {
                         onSelect(propertyGroup.id)
                         onClose()
@@ -131,7 +131,7 @@ export function SelectPropertyGroupModal({
                             className="flex-1"
                             autoFocus
                         />
-                        <LemonButton type="primary" icon={<IconPlus />} onClick={handleCreateNewGroup}>
+                        <LemonButton type="primary" icon={<IconPlusSmall />} onClick={handleCreateNewGroup}>
                             New Property Group
                         </LemonButton>
                     </div>

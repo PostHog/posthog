@@ -1,6 +1,6 @@
 import re
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from rest_framework import mixins, serializers, viewsets
 
@@ -71,17 +71,24 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
         properties_data = validated_data.pop("properties", [])
         request = self.context.get("request")
 
-        property_group = SchemaPropertyGroup.objects.create(
-            **validated_data,
-            team_id=self.context["team_id"],
-            project_id=self.context["project_id"],
-            created_by=request.user if request else None,
-        )
+        try:
+            property_group = SchemaPropertyGroup.objects.create(
+                **validated_data,
+                team_id=self.context["team_id"],
+                project_id=self.context["project_id"],
+                created_by=request.user if request else None,
+            )
 
-        for property_data in properties_data:
-            SchemaPropertyGroupProperty.objects.create(property_group=property_group, **property_data)
+            for property_data in properties_data:
+                SchemaPropertyGroupProperty.objects.create(property_group=property_group, **property_data)
 
-        return property_group
+            return property_group
+        except IntegrityError as e:
+            if "unique_schema_property_group_team_name" in str(e):
+                raise serializers.ValidationError(
+                    {"name": "A property group with this name already exists for this team"}
+                )
+            raise serializers.ValidationError(f"Database integrity error: {str(e)}")
 
     def update(self, instance, validated_data):
         properties_data = validated_data.pop("properties", None)

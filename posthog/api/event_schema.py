@@ -8,8 +8,17 @@ from posthog.models import EventSchema, SchemaPropertyGroup
 class EventSchemaSerializer(serializers.ModelSerializer):
     property_group = SchemaPropertyGroupSerializer(read_only=True)
     property_group_id = serializers.PrimaryKeyRelatedField(
-        queryset=SchemaPropertyGroup.objects.all(), source="property_group", write_only=True
+        queryset=SchemaPropertyGroup.objects.none(), source="property_group", write_only=True
     )
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        if request and hasattr(request, "user"):
+            team_id = self.context.get("team_id")
+            if team_id:
+                fields["property_group_id"].queryset = SchemaPropertyGroup.objects.filter(team_id=team_id)
+        return fields
 
     class Meta:
         model = EventSchema

@@ -207,7 +207,9 @@ export function SchemaManagement(): JSX.Element {
                                 </div>
                             </div>
                         ),
-                        rowExpandable: () => true,
+                        rowExpandable: (propertyGroup) =>
+                            (propertyGroup.events && propertyGroup.events.length > 0) ||
+                            (propertyGroup.properties && propertyGroup.properties.length > 0),
                     }}
                     emptyState="No property groups yet. Create one to get started!"
                 />

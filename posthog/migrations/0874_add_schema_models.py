@@ -7,6 +7,14 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
+PROPERTY_TYPE_CHOICES = [
+    ("DateTime", "DateTime"),
+    ("String", "String"),
+    ("Numeric", "Numeric"),
+    ("Boolean", "Boolean"),
+    ("Duration", "Duration"),
+]
+
 
 class Migration(migrations.Migration):
     atomic = False
@@ -98,13 +106,7 @@ class Migration(migrations.Migration):
                 (
                     "property_type",
                     models.CharField(
-                        choices=[
-                            ("DateTime", "DateTime"),
-                            ("String", "String"),
-                            ("Numeric", "Numeric"),
-                            ("Boolean", "Boolean"),
-                            ("Duration", "Duration"),
-                        ],
+                        choices=PROPERTY_TYPE_CHOICES,
                         max_length=50,
                     ),
                 ),
@@ -141,7 +143,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration"])),
+                check=models.Q(("property_type__in", [choice[0] for choice in PROPERTY_TYPE_CHOICES])),
                 name="property_type_is_valid_schema",
             ),
         ),

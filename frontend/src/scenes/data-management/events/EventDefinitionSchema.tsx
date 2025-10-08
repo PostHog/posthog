@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -42,7 +42,10 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
     const schemaLogic = schemaManagementLogic({ key: `event-${definition.id}` })
     const { setPropertyGroupModalOpen, setEditingPropertyGroup } = useActions(schemaLogic)
 
-    const selectedPropertyGroupIds = new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id))
+    const selectedPropertyGroupIds = useMemo(
+        () => new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id)),
+        [eventSchemas]
+    )
 
     const handleAfterPropertyGroupSave = (): void => {
         loadEventSchemas()
@@ -72,7 +75,6 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                     availablePropertyGroups={allPropertyGroups}
                     selectedPropertyGroupIds={selectedPropertyGroupIds}
                     onPropertyGroupCreated={() => {
-                        // Reload property groups when a new one is created
                         loadAllPropertyGroups()
                     }}
                 />
