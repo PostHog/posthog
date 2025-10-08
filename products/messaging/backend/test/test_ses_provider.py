@@ -58,10 +58,9 @@ class TestSESProvider(TestCase):
             mock_tenant_client.get_caller_identity.return_value = {"Account": "123456789012"}
             mock_tenant_client.create_tenant_resource_association.return_value = {}
 
-            provider.create_email_domain(TEST_DOMAIN, team_id=1) @ patch(
-                "products.messaging.backend.providers.ses.boto3.client"
-            )
+            provider.create_email_domain(TEST_DOMAIN, team_id=1)
 
+    @patch("products.messaging.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
