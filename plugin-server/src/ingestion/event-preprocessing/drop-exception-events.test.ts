@@ -1,4 +1,4 @@
-import { PipelineResultType } from '../pipelines/results'
+import { drop, ok } from '../pipelines/results'
 import { createDropExceptionEventsStep } from './drop-exception-events'
 
 describe('createDropExceptionEventsStep', () => {
@@ -27,10 +27,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.DROP,
-                reason: 'Exception events are processed separately in Rust',
-            })
+            expect(result).toEqual(drop('Exception events are processed separately in Rust'))
         })
 
         it('should allow non-exception events', async () => {
@@ -55,10 +52,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow regular events', async () => {
@@ -83,10 +77,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow identify events', async () => {
@@ -111,10 +102,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow group identify events', async () => {
@@ -139,10 +127,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow heatmap events', async () => {
@@ -167,10 +152,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
     })
 })
