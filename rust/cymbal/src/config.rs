@@ -39,8 +39,8 @@ pub struct Config {
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
 
-    #[envconfig(default = "error_tracking_new_fingerprints")]
-    pub new_fingerprints_topic: String,
+    #[envconfig(default = "document_embeddings_input")]
+    pub embedding_worker_topic: String,
 
     pub embedding_enabled_team_id: Option<i32>,
 
