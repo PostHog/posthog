@@ -516,6 +516,11 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  sparse-checkout: |
+                      frontend/dist/
+                      frontend/public/
+                      frontend/src/queries/schema.json
+                  sparse-checkout-cone-mode: false
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               if: ${{ needs.changes.outputs.backend == 'true' }}
