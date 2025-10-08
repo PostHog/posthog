@@ -20,14 +20,14 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
+import type { dataWarehouseSettingsSceneLogicType } from './dataWarehouseSettingsSceneLogicType'
 
 export interface DataWarehouseSceneLogicProps {
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
 
-export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSceneLogicType>([
+export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSceneLogic']),
     props({} as DataWarehouseSceneLogicProps),
     connect(() => ({
