@@ -305,8 +305,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     break
 
             if prior_required_step_index is None:
-                # No prior required step found, shouldn't happen
-                raise Exception("Missing prior required step in actors query")
+                raise ValueError("Missing prior required step in actors query")
 
             # User completed the prior required step but not the target step
             conditions.append(parse_expr(f"bitTest(steps_bitfield, {prior_required_step_index})"))
