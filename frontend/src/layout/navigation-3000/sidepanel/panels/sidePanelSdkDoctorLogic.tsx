@@ -1218,55 +1218,59 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     error,
                                 }
                             } else if (info.type === 'dotnet') {
-                                // DIRECT IMPLEMENTATION FOR .NET SDK - simplified logic
-                                // Get .NET SDK data directly
-                                const sdkData = await fetchSdkData('dotnet')
-                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
-                                    console.warn('[SDK Doctor] .NET SDK: No version data available')
+                                // .NET SDK - use smart semver detection
+                                console.info(`[SDK Doctor] .NET SDK async check for version ${info.version}`)
+
+                                const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
+
+                                if (versionCheckResult.error) {
+                                    console.warn(
+                                        '[SDK Doctor] .NET SDK: Version check error:',
+                                        versionCheckResult.error
+                                    )
                                     updatedMap[key] = {
                                         ...info,
                                         isOutdated: false,
                                         releasesAhead: 0,
-                                        latestVersion: undefined,
+                                        latestVersion: versionCheckResult.latestVersion,
                                         releaseDate: undefined,
                                         daysSinceRelease: undefined,
                                         isAgeOutdated: false,
                                         deviceContext: 'desktop',
                                         eventVolume: categorizeEventVolume(info.count),
                                         lastSeenTimestamp: new Date().toISOString(),
-                                        error: 'The Doctor is unavailable. Please try again later.',
+                                        error: versionCheckResult.error,
                                     }
                                     continue
                                 }
-                                const latestVersion = sdkData.versions[0]
-                                const versions = sdkData.versions
-                                // Calculate releases behind
-                                const currentIndex = versions.findIndex((v) => v === info.version)
-                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
-                                // Simplified logic: 0 = current, 1-2 = close enough, 3+ = outdated
-                                let isOutdated = false
-                                if (releasesBehind >= 3) {
-                                    isOutdated = true
-                                    console.info(
-                                        `[SDK Doctor] .NET SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
-                                    )
-                                } else {
-                                    console.info(
-                                        `[SDK Doctor] .NET SDK ${info.version} is ${releasesBehind} releases behind - marking as ${releasesBehind === 0 ? 'current' : 'close enough'}`
-                                    )
-                                }
+
+                                const {
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    error,
+                                } = versionCheckResult
+
+                                const deviceContext =
+                                    'deviceContext' in versionCheckResult && versionCheckResult.deviceContext
+                                        ? (versionCheckResult.deviceContext as 'mobile' | 'desktop' | 'mixed')
+                                        : determineDeviceContext(info.type)
+
                                 updatedMap[key] = {
                                     ...info,
                                     isOutdated,
-                                    releasesAhead: releasesBehind,
+                                    releasesAhead,
                                     latestVersion,
-                                    releaseDate: undefined,
-                                    daysSinceRelease: undefined,
-                                    isAgeOutdated: false,
-                                    deviceContext: 'desktop',
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    deviceContext,
                                     eventVolume: categorizeEventVolume(info.count),
                                     lastSeenTimestamp: new Date().toISOString(),
-                                    error: undefined,
+                                    error,
                                 }
                             } else if (info.type === 'python' || info.type === 'node') {
                                 // Use async version check for Python and Node SDKs

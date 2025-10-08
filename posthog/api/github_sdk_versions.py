@@ -476,10 +476,10 @@ def fetch_elixir_sdk_data() -> Optional[dict[str, Any]]:
 
 
 def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
-    """Fetch .NET SDK data from GitHub releases API (simplified logic)"""
+    """Fetch .NET SDK data from GitHub releases API"""
     try:
         # Fetch GitHub releases for versions
-        response = requests.get("https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=4", timeout=10)
+        response = requests.get("https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=50", timeout=10)
         if not response.ok:
             return None
 
@@ -487,7 +487,7 @@ def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
         if not releases:
             return None
 
-        # Extract versions from tag names
+        # Extract versions from tag names (format: v2.0.1)
         versions = []
         for release in releases:
             tag_name = release.get("tag_name", "")
@@ -500,7 +500,10 @@ def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
 
         latest_version = versions[0]
 
-        return {"latestVersion": latest_version, "versions": versions, "releaseDates": {}}
+        # Fetch GitHub release dates using shared helper
+        release_dates = fetch_github_release_dates("PostHog/posthog-dotnet")
+
+        return {"latestVersion": latest_version, "versions": versions, "releaseDates": release_dates}
     except Exception:
         return None
 
@@ -604,6 +607,8 @@ def fetch_github_release_dates(repo: str) -> dict[str, str]:
                     "PostHog/posthog-python",
                     "PostHog/posthog-flutter",
                     "PostHog/posthog-ios",
+                    "PostHog/posthog-go",
+                    "PostHog/posthog-dotnet",
                 ]:
                     # Standard repos: v1.2.3
                     if tag_name.startswith("v"):
