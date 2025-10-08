@@ -40,7 +40,7 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
 
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
