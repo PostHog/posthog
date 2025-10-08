@@ -211,7 +211,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
-        cancelFullRefreshWarningModal: true,
         updateSyncTimeOfDay: (schema: ExternalDataSourceSyncSchema, syncTimeOfDay: string) => ({
             schema,
             syncTimeOfDay,
@@ -329,13 +328,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 openSyncMethodModal: () => true,
                 cancelSyncMethodModal: () => false,
-            },
-        ],
-        fullRefreshWarningModalOpen: [
-            false as boolean,
-            {
-                openFullRefreshWarningModal: () => true,
-                cancelFullRefreshWarningModal: () => false,
             },
         ],
         currentSyncMethodModalSchema: [

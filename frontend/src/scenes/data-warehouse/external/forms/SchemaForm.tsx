@@ -269,7 +269,6 @@ export default function SchemaForm(): JSX.Element {
                 </div>
             </div>
             <SyncMethodModal />
-            <FullRefreshWarningModal />
         </>
     )
 }
@@ -311,27 +310,6 @@ const SyncMethodModal = (): JSX.Element => {
                     cancelSyncMethodModal()
                 }}
             />
-        </LemonModal>
-    )
-}
-
-const FullRefreshWarningModal = (): JSX.Element => {
-    const { cancelFullRefreshWarningModal } = useActions(sourceWizardLogic)
-    const { fullRefreshWarningModalOpen } = useValues(sourceWizardLogic)
-    const { databaseSchema } = useValues(sourceWizardLogic)
-
-    return (
-        <LemonModal
-            title={<>Heads up! Full refresh sync methods can rapidly increase your expense!</>}
-            isOpen={fullRefreshWarningModalOpen}
-            onClose={cancelFullRefreshWarningModal}
-        >
-            You currently have full refresh enabled as the sync method for the following tables:{' '}
-            <ul>
-                {databaseSchema.forEach((schema) => {
-                    return <li className="font-mono">{schema.table} </li>
-                })}
-            </ul>
         </LemonModal>
     )
 }
