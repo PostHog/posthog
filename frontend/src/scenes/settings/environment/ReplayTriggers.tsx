@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCheck, IconCircleDashed, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -766,6 +766,108 @@ function TriggerMatchTypeTag(): JSX.Element {
     )
 }
 
+function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web' | 'mobile' }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    if (!currentTeam?.session_recording_opt_in) {
+        return (
+            <LemonBanner type="warning">
+                <strong>Recording is disabled.</strong> Enable session recording in the General settings to start
+                capturing sessions.
+            </LemonBanner>
+        )
+    }
+
+    const hasUrlTriggers = (urlTriggerConfig?.length ?? 0) > 0
+    const hasEventTriggers = (eventTriggerConfig?.length ?? 0) > 0
+    const hasFeatureFlag = !!currentTeam.session_recording_linked_flag
+    const sampleRate = currentTeam.session_recording_sample_rate
+    const hasSampling = sampleRate && sampleRate !== '1.00'
+    const hasMinDuration = !!currentTeam.session_recording_minimum_duration_milliseconds
+    const hasUrlBlocklist = (currentTeam.session_recording_url_blocklist_config?.length ?? 0) > 0
+
+    const isWebPlatform = selectedPlatform === 'web'
+
+    const triggers = [
+        ...(isWebPlatform
+            ? [
+                  {
+                      enabled: hasUrlTriggers,
+                      label: 'URL matching',
+                      detail: hasUrlTriggers
+                          ? `${urlTriggerConfig?.length} pattern${urlTriggerConfig?.length === 1 ? '' : 's'}`
+                          : null,
+                  },
+                  {
+                      enabled: hasEventTriggers,
+                      label: 'Event triggers',
+                      detail: hasEventTriggers
+                          ? `${eventTriggerConfig?.length} event${eventTriggerConfig?.length === 1 ? '' : 's'}`
+                          : null,
+                  },
+              ]
+            : []),
+        {
+            enabled: hasFeatureFlag,
+            label: 'Feature flag',
+            detail: hasFeatureFlag ? currentTeam.session_recording_linked_flag?.key : null,
+        },
+        ...(isWebPlatform
+            ? [
+                  {
+                      enabled: hasSampling,
+                      label: 'Sampling',
+                      detail: hasSampling && sampleRate ? `${parseFloat(sampleRate) * 100}%` : null,
+                  },
+                  {
+                      enabled: hasMinDuration,
+                      label: 'Minimum duration',
+                      detail: hasMinDuration
+                          ? `${(currentTeam.session_recording_minimum_duration_milliseconds ?? 0) / 1000}s`
+                          : null,
+                  },
+                  {
+                      enabled: hasUrlBlocklist,
+                      label: 'URL blocklist',
+                      detail: hasUrlBlocklist
+                          ? `${currentTeam.session_recording_url_blocklist_config?.length} pattern${currentTeam.session_recording_url_blocklist_config?.length === 1 ? '' : 's'}`
+                          : null,
+                  },
+              ]
+            : []),
+    ]
+
+    const hasAnyTriggers = triggers.some((t) => t.enabled)
+
+    return (
+        <LemonBanner type="info">
+            <div className="flex flex-col gap-1">
+                <strong>
+                    {hasAnyTriggers
+                        ? 'Recording triggers configured:'
+                        : 'No triggers configured - all sessions will be recorded'}
+                </strong>
+                <div className="flex flex-col gap-0.5 mt-1">
+                    {triggers.map((trigger, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                            {trigger.enabled ? (
+                                <IconCheck className="text-success" />
+                            ) : (
+                                <IconCircleDashed className="text-muted" />
+                            )}
+                            <span className={trigger.enabled ? '' : 'text-muted'}>
+                                {trigger.label}
+                                {trigger.detail && <span className="text-muted"> ({trigger.detail})</span>}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </LemonBanner>
+    )
+}
+
 export function ReplayTriggers(): JSX.Element {
     const { selectedPlatform } = useValues(replayTriggersLogic)
     const { selectPlatform } = useActions(replayTriggersLogic)
@@ -817,6 +919,7 @@ export function ReplayTriggers(): JSX.Element {
                     Learn more in our docs.
                 </Link>
             </p>
+            <RecordingTriggersSummary selectedPlatform={selectedPlatform} />
             <LemonTabs activeKey={selectedPlatform} onChange={selectPlatform} tabs={tabs} />
         </div>
     )
