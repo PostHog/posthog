@@ -1,5 +1,5 @@
 import re
-
+import logging
 from django.db import IntegrityError, transaction
 
 from rest_framework import mixins, serializers, viewsets
@@ -88,8 +88,8 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"name": "A property group with this name already exists for this team"}
                 )
-            raise serializers.ValidationError(f"Database integrity error: {str(e)}")
-
+            logging.error(f"Database integrity error while creating property group: {e}", exc_info=True)
+            raise serializers.ValidationError("Could not create property group due to a database error.")
     def update(self, instance, validated_data):
         properties_data = validated_data.pop("properties", None)
 
