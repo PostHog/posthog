@@ -47,22 +47,43 @@ export function processCohort(cohort: CohortType): CohortType {
         filters: {
             properties: {
                 ...cohort.filters.properties,
-                values: (cohort.filters.properties?.values?.map((group) => {
-                    if ('values' in group) {
-                        return {
-                            ...group,
-                            values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
-                            sort_key: group.sort_key || uuidv4(),
+                values: (() => {
+                    const values = cohort.filters.properties?.values ?? []
+                    if (values.length === 0) {
+                        return []
+                    }
+
+                    const hasGroup = values.some((v) => 'values' in v)
+                    const hasFlat = values.some((v) => !('values' in v))
+
+                    if (hasFlat && !hasGroup) {
+                        return [
+                            {
+                                id: uuidv4(),
+                                type: cohort.filters.properties?.type || FilterLogicalOperator.Or,
+                                values: values.map((c) => processCohortCriteria(c as AnyCohortCriteriaType)),
+                                sort_key: uuidv4(),
+                            },
+                        ]
+                    }
+
+                    return values.map((group) => {
+                        if ('values' in group) {
+                            return {
+                                ...group,
+                                values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
+                                sort_key: group.sort_key || uuidv4(),
+                            }
                         }
-                    }
-                    const processedCriteria = processCohortCriteria(group as AnyCohortCriteriaType)
-                    return {
-                        id: processedCriteria.sort_key || uuidv4(),
-                        type: cohort.filters.properties?.type || FilterLogicalOperator.Or,
-                        values: [processedCriteria],
-                        sort_key: uuidv4(),
-                    }
-                }) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        const processedCriteria = processCohortCriteria(group as AnyCohortCriteriaType)
+                        return {
+                            id: processedCriteria.sort_key || uuidv4(),
+                            type: cohort.filters.properties?.type || FilterLogicalOperator.Or,
+                            values: [processedCriteria],
+                            sort_key: uuidv4(),
+                        }
+                    })
+                })() as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },
     }

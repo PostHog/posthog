@@ -203,27 +203,27 @@ describe('cohortsModel', () => {
 
             const processed = processCohort(cohortWithFlatCriteria)
 
-            // Should wrap flat criteria in group structure
             expect(processed.filters.properties.values).toHaveLength(1)
             expect(processed.filters.properties.values[0]).toMatchObject({
                 type: FilterLogicalOperator.Or,
-                values: [
+                values: expect.arrayContaining([
                     expect.objectContaining({
                         type: 'person',
                         key: 'email',
                         operator: 'icontains',
                         value: 'domain1',
-                        value_property: 'domain1', // Should be processed by processCohortCriteria
+                        value_property: 'domain1',
                     }),
                     expect.objectContaining({
                         type: 'person',
                         key: 'email',
                         operator: 'exact',
                         value: 'user@example.com',
-                        value_property: 'user@example.com', // Should be processed by processCohortCriteria
+                        value_property: 'user@example.com',
                     }),
-                ],
+                ]),
             })
+            expect(processed.filters.properties.values[0].values).toHaveLength(2)
         })
 
         it('correctly processes cohort with existing group structure', () => {
