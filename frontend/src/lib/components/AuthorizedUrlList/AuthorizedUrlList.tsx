@@ -140,8 +140,8 @@ export function AuthorizedUrlList({
                                             tooltip={
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS ||
                                                 type === AuthorizedUrlListType.WEB_ANALYTICS
-                                                    ? 'Launch toolbar'
-                                                    : 'Launch url'
+                                                    ? 'Open the toolbar on this page'
+                                                    : 'Open the browser at this page'
                                             }
                                             center
                                             data-attr="toolbar-open"

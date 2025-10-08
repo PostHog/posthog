@@ -93,7 +93,7 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
 
     from posthog.clickhouse.query_tagging import tag_queries
 
-    tag_queries(exported_asset_id=exported_asset.id)
+    tag_queries(exported_asset_id=exported_asset.id, export_format=exported_asset.export_format)
 
     posthoganalytics.capture(
         distinct_id=distinct_id,

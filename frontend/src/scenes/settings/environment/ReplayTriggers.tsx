@@ -813,7 +813,7 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
                   {
                       enabled: hasSampling,
                       label: 'Sampling',
-                      detail: hasSampling ? `numericSampleRate%` : null,
+                      detail: hasSampling ? `${numericSampleRate}%` : null,
                   },
                   {
                       enabled: hasMinDuration,
