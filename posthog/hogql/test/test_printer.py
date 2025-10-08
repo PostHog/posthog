@@ -115,7 +115,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nUNION DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT\n    1 AS id\nLIMIT 100000\nUNION DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_intersect(self):
@@ -123,7 +123,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT\n    1 AS id\nLIMIT 100000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_intersect_distinct(self):
@@ -131,7 +131,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT\n    1 AS id\nLIMIT 100000\nINTERSECT DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_except(self):
@@ -139,7 +139,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT\n    1 AS id\nLIMIT 100000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     # these share the same priority, should stay in order
@@ -151,15 +151,15 @@ class TestPrinter(BaseTest):
             (
                 "SELECT\n"
                 "    1 AS id\n"
-                "LIMIT 50000\n"
+                "LIMIT 100000\n"
                 "EXCEPT\n"
                 "SELECT\n"
                 "    2 AS id\n"
-                "LIMIT 50000\n"
+                "LIMIT 100000\n"
                 "UNION ALL\n"
                 "SELECT\n"
                 "    3 AS id\n"
-                "LIMIT 50000"
+                "LIMIT 100000"
             ),
         )
 
@@ -171,15 +171,15 @@ class TestPrinter(BaseTest):
             (
                 "SELECT\n"
                 "    1 AS id\n"
-                "LIMIT 50000\n"
+                "LIMIT 100000\n"
                 "UNION ALL\n"
                 "SELECT\n"
                 "    2 AS id\n"
-                "LIMIT 50000\n"
+                "LIMIT 100000\n"
                 "EXCEPT\n"
                 "SELECT\n"
                 "    3 AS id\n"
-                "LIMIT 50000"
+                "LIMIT 100000"
             ),
         )
 
@@ -190,15 +190,15 @@ class TestPrinter(BaseTest):
             response,
             "SELECT\n"
             "    1 AS id\n"
-            "LIMIT 50000\n"
+            "LIMIT 100000\n"
             "INTERSECT\n"
             "SELECT\n"
             "    2 AS id\n"
-            "LIMIT 50000\n"
+            "LIMIT 100000\n"
             "INTERSECT\n"
             "SELECT\n"
             "    3 AS id\n"
-            "LIMIT 50000",
+            "LIMIT 100000",
         )
 
     def test_union3(self):
@@ -208,15 +208,15 @@ class TestPrinter(BaseTest):
             response,
             "SELECT\n"
             "    1 AS id\n"
-            "LIMIT 50000\n"
+            "LIMIT 100000\n"
             "UNION ALL\n"
             "SELECT\n"
             "    2 AS id\n"
-            "LIMIT 50000\n"
+            "LIMIT 100000\n"
             "UNION ALL\n"
             "SELECT\n"
             "    3 AS id\n"
-            "LIMIT 50000",
+            "LIMIT 100000",
         )
 
     def test_intersect_and_union_parens(self):
@@ -224,7 +224,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
+            "SELECT\n    1 AS id\nLIMIT 100000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
@@ -236,15 +236,15 @@ class TestPrinter(BaseTest):
             (
                 "SELECT\n"
                 "    1 AS id\n"
-                "LIMIT 50000\n"
+                "LIMIT 100000\n"
                 "UNION ALL\n"
                 "SELECT\n"
                 "    2 AS id\n"
-                "LIMIT 50000\n"
+                "LIMIT 100000\n"
                 "INTERSECT\n"
                 "SELECT\n"
                 "    3 AS id\n"
-                "LIMIT 50000"
+                "LIMIT 100000"
             ),
         )
 
@@ -819,7 +819,7 @@ class TestPrinter(BaseTest):
             "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
             "FROM events "
             f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) "
-            "LIMIT 50000"
+            "LIMIT 100000"
         )
 
         # TODO: Ideally we'd be able to optimize queries that compare aliases, but this is a bit tricky since we need
@@ -1218,7 +1218,7 @@ class TestPrinter(BaseTest):
     def test_select_limit_by(self):
         self.assertEqual(
             self._select("select event from events limit 10 offset 0 by 1,event"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 BY 1, events.event LIMIT 50000",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 BY 1, events.event LIMIT 100000",
         )
 
     def test_select_group_by(self):
@@ -1468,38 +1468,38 @@ class TestPrinter(BaseTest):
         # Simple example without ROWS
         self.assertEqual(
             self._select("SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp) FROM events"),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
         self.assertEqual(
             self._select("SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp) FROM events"),
-            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
         # Example with ROWS specified
         self.assertEqual(
             self._select(
                 "SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events"
             ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
         self.assertEqual(
             self._select(
                 "SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events"
             ),
-            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
         # Example with named windows
         self.assertEqual(
             self._select(
                 "SELECT distinct_id, lag(timestamp) over win1 as prev_ts FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp)"
             ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_2)s) ASC) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_2)s) ASC) LIMIT 100000",
         )
         # Example with multiple named windows, to make sure we don't add ROWS BETWEEN for non lag/lead functions
         self.assertEqual(
             self._select(
                 "SELECT distinct_id, lag(timestamp) over win1 as prev_ts, min(timestamp) over win1 as min_ts FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp)"
             ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts, min(toTimeZone(events.timestamp, %(hogql_val_2)s)) OVER win1 AS min_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_3)s) ASC) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts, min(toTimeZone(events.timestamp, %(hogql_val_2)s)) OVER win1 AS min_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_3)s) ASC) LIMIT 100000",
         )
         # Simple example with partiton by
         # Simple example with partition by
@@ -1507,7 +1507,7 @@ class TestPrinter(BaseTest):
             self._select(
                 "SELECT distinct_id, lag(timestamp) OVER (PARTITION BY distinct_id ORDER BY timestamp) FROM events"
             ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
 
         # No rows but order by exists
@@ -1515,7 +1515,7 @@ class TestPrinter(BaseTest):
             self._select(
                 "SELECT distinct_id, lag(event) OVER (PARTITION BY distinct_id ORDER BY timestamp) FROM events"
             ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(events.event)) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(events.event)) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
 
     def test_window_functions_with_window(self):
@@ -1531,7 +1531,7 @@ class TestPrinter(BaseTest):
             self._select(
                 "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
             ),
-            f"SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(events.distinct_id) OVER () AS values FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            f"SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(events.distinct_id) OVER () AS values FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000",
         )
 
     def test_nullish_concat(self):
@@ -2082,7 +2082,7 @@ class TestPrinter(BaseTest):
             "(coalesce(%(hogql_val_0)s, ''), 'source')), "
             "dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
-            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
@@ -2101,7 +2101,7 @@ class TestPrinter(BaseTest):
             "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
             "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
-            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
@@ -2135,7 +2135,7 @@ class TestPrinter(BaseTest):
             "(coalesce(%(hogql_val_0)s, ''), 'source')), "
             "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
-            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
@@ -2167,7 +2167,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+                "LIMIT 100000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
             ),
             printed,
         )
@@ -2183,7 +2183,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+                "LIMIT 100000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
             ),
             printed,
         )
@@ -2469,7 +2469,7 @@ class TestPrinter(BaseTest):
         )
         assert (
             printed
-            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id IN COHORT 'some fake cohort') LIMIT 50000"
+            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id IN COHORT 'some fake cohort') LIMIT 100000"
         )
 
     def test_print_hogql_not_in_cohort(self):
@@ -2484,7 +2484,7 @@ class TestPrinter(BaseTest):
         )
         assert (
             printed
-            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id NOT IN COHORT 'some fake cohort') LIMIT 50000"
+            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id NOT IN COHORT 'some fake cohort') LIMIT 100000"
         )
 
     def test_can_call_parametric_function(self):
@@ -2495,7 +2495,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
         )
         assert printed == (
-            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 100000"
         )
 
     def test_can_call_parametric_function_from_placeholder(self):
@@ -2506,7 +2506,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
         )
         assert printed == (
-            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 100000"
         )
 
     def test_fails_on_parametric_function_with_no_arguments(self):
@@ -2585,7 +2585,7 @@ class TestPrinter(BaseTest):
             "SELECT event FROM events",
         )
         assert (
-            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
+            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 100000"
         )
 
     @parameterized.expand([[True], [False]])
