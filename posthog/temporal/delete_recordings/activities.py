@@ -108,7 +108,7 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[list[Record
             base_key = urlunparse((scheme, netloc, path, None, None, None))
             block_map[base_key].append(block)
 
-        block_groups: list[list[RecordingBlock]] = block_map.values()
+        block_groups: list[list[RecordingBlock]] = list(block_map.values())
 
         logger.info(f"Grouped {block_count} blocks into {len(block_groups)} groups")
         return block_groups
