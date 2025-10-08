@@ -867,6 +867,7 @@ export function ReplayTriggers(): JSX.Element {
             label: 'Web',
             content: (
                 <div className="flex flex-col gap-y-2">
+                    <RecordingTriggersSummary selectedPlatform={selectedPlatform} />
                     <div className="border rounded py-2 px-4 mb-2">
                         <TriggerMatchChoice />
                         <LemonDivider />
@@ -889,9 +890,12 @@ export function ReplayTriggers(): JSX.Element {
             key: 'mobile',
             label: 'Mobile',
             content: (
-                <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
-                    <LinkedFlagSelector />
-                </PayGateMini>
+                <div className="flex flex-col gap-y-2">
+                    <RecordingTriggersSummary selectedPlatform={selectedPlatform} />
+                    <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
+                        <LinkedFlagSelector />
+                    </PayGateMini>
+                </div>
             ),
         },
     ]
@@ -907,7 +911,6 @@ export function ReplayTriggers(): JSX.Element {
                     Learn more
                 </Link>
             </p>
-            <RecordingTriggersSummary selectedPlatform={selectedPlatform} />
             <LemonTabs activeKey={selectedPlatform} onChange={selectPlatform} tabs={tabs} />
         </div>
     )

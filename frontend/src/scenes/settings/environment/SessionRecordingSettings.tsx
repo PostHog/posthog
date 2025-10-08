@@ -351,7 +351,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     </Link>
                 </p>
 
-                <div className="flex flex-row deprecated-space-x-2">
+                <div className="flex flex-row gap-x-2">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -460,7 +460,7 @@ export function NetworkCaptureSettings(): JSX.Element {
  */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <SupportedPlatforms
                 android={false}
                 ios={false}
@@ -477,7 +477,7 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
+            <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} showLaunch={true} allowAdd={false} />
         </div>
     )
 }
