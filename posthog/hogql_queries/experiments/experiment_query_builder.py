@@ -79,38 +79,53 @@ class ExperimentQueryBuilder:
         # Get metric source details
         math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
 
+        # Calculate conversion window in seconds
+        conversion_window_seconds = 0
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            conversion_window_seconds = conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+
+        # Build conversion window constraint for the join
+        if conversion_window_seconds > 0:
+            join_time_constraint = """AND metric_events.timestamp >= exposures.first_exposure_time
+                    AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
+        else:
+            join_time_constraint = "AND metric_events.timestamp >= exposures.first_exposure_time"
+
         # Build the query with placeholders
         query = parse_select(
-            """
+            f"""
             WITH exposures AS (
                 SELECT
-                    {entity_key} AS entity_id,
-                    {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    {{entity_key}} AS entity_id,
+                    {{variant_expr}} AS variant,
+                    minIf(timestamp, {{exposure_predicate}}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {{exposure_predicate}}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {{exposure_predicate}}) AS exposure_session_id
                 FROM events
-                WHERE {exposure_predicate}
+                WHERE {{exposure_predicate}}
                 GROUP BY entity_id
             ),
 
             metric_events AS (
                 SELECT
-                    {entity_key} AS entity_id,
+                    {{entity_key}} AS entity_id,
                     timestamp,
-                    {value_expr} AS value
+                    {{value_expr}} AS value
                 FROM events
-                WHERE {metric_predicate}
+                WHERE {{metric_predicate}}
             ),
 
             entity_metrics AS (
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {value_agg} AS value
+                    {{value_agg}} AS value
                 FROM exposures
                 LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    AND metric_events.timestamp >= exposures.first_exposure_time
+                    {join_time_constraint}
                 GROUP BY exposures.entity_id, exposures.variant
             )
 
@@ -129,6 +144,7 @@ class ExperimentQueryBuilder:
                 "metric_predicate": self._build_metric_predicate(),
                 "value_expr": self._build_value_expr(),
                 "value_agg": self._build_value_aggregation_expr(math_type),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
             },
         )
 
@@ -261,13 +277,21 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
 
-        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            # Count distinct values, filtering out null UUIDs and empty strings
+            # This matches the old implementation's behavior
             return parse_expr(
-                "toFloat(length(arrayDistinct(groupArrayIf(metric_events.value, and(isNotNull(metric_events.value), notEquals(toString(metric_events.value), ''))))))"
-            )
-        elif math_type in [ExperimentMetricMathType.DAU, ExperimentMetricMathType.UNIQUE_GROUP]:
-            return parse_expr(
-                "toFloat(length(arrayDistinct(groupArrayIf(metric_events.value, and(isNotNull(metric_events.value), notEquals(toString(metric_events.value), ''))))))"
+                """toFloat(count(distinct
+                    multiIf(
+                        toTypeName(metric_events.value) = 'UUID' AND reinterpretAsUInt128(metric_events.value) = 0, NULL,
+                        toString(metric_events.value) = '', NULL,
+                        metric_events.value
+                    )
+                ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
             return parse_expr("coalesce(min(toFloat(metric_events.value)), 0.0)")
@@ -295,29 +319,44 @@ class ExperimentQueryBuilder:
 
         num_steps = len(self.metric.series)
 
+        # Calculate conversion window in seconds
+        conversion_window_seconds = 0
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            conversion_window_seconds = conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+
+        # Build conversion window constraint for the join
+        if conversion_window_seconds > 0:
+            join_time_constraint = """AND metric_events.timestamp >= exposures.first_exposure_time
+                    AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
+        else:
+            join_time_constraint = "AND metric_events.timestamp >= exposures.first_exposure_time"
+
         # Build the base query using parse_select
         query = parse_select(
-            """
+            f"""
             WITH exposures AS (
                 SELECT
-                    {entity_key} AS entity_id,
-                    {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    {{entity_key}} AS entity_id,
+                    {{variant_expr}} AS variant,
+                    minIf(timestamp, {{exposure_predicate}}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {{exposure_predicate}}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {{exposure_predicate}}) AS exposure_session_id
                 FROM events
-                WHERE {exposure_predicate}
+                WHERE {{exposure_predicate}}
                 GROUP BY entity_id
             ),
 
             metric_events AS (
                 SELECT
-                    {entity_key} AS entity_id,
+                    {{entity_key}} AS entity_id,
                     timestamp,
                     uuid,
                     properties.$session_id AS session_id
                 FROM events
-                WHERE {funnel_steps_filter}
+                WHERE {{funnel_steps_filter}}
             ),
 
             entity_metrics AS (
@@ -326,19 +365,19 @@ class ExperimentQueryBuilder:
                     exposures.variant AS variant,
                     any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                     any(exposures.exposure_session_id) AS exposure_session_id,
-                    {funnel_aggregation} AS value,
-                    {uuid_to_session_map} AS uuid_to_session
+                    {{funnel_aggregation}} AS value,
+                    {{uuid_to_session_map}} AS uuid_to_session
                 FROM exposures
                 LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    AND metric_events.timestamp >= exposures.first_exposure_time
+                    {join_time_constraint}
                 GROUP BY exposures.entity_id, exposures.variant
             )
 
             SELECT
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
-                countIf(entity_metrics.value.1 = {num_steps_minus_1}) AS total_sum,
-                countIf(entity_metrics.value.1 = {num_steps_minus_1}) AS total_sum_of_squares
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
             FROM entity_metrics
             GROUP BY entity_metrics.variant
             """,
@@ -349,6 +388,8 @@ class ExperimentQueryBuilder:
                 "funnel_steps_filter": self._build_funnel_steps_filter(),
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "uuid_to_session_map": self._build_uuid_to_session_map(),
             },
         )
 
