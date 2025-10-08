@@ -1,3 +1,5 @@
+"""Tests for TikTok Ads source integration."""
+
 from datetime import datetime, timedelta
 from uuid import uuid4
 
