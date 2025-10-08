@@ -25,6 +25,7 @@ from posthog.warehouse.api.lineage import LineageViewSet
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -841,6 +842,10 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
+)
 
 environments_router.register(
     r"user_interviews",

@@ -185,7 +185,6 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-billing
-    HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c

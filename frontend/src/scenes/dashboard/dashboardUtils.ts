@@ -3,9 +3,9 @@ import { Layouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
