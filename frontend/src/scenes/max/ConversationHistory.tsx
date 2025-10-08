@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -81,7 +82,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
-            to={urls.max(conversation.id)}
+            to={combineUrl(urls.max(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
                     e.preventDefault()

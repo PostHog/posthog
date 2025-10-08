@@ -68,6 +68,8 @@ export const maxLogic = kea<maxLogicType>([
 
     connect(() => ({
         values: [
+            router,
+            ['searchParams'],
             maxGlobalLogic,
             ['dataProcessingAccepted', 'tools', 'toolSuggestions'],
             maxSettingsLogic,
@@ -152,6 +154,7 @@ export const maxLogic = kea<maxLogicType>([
             {
                 toggleConversationHistory: (state, { visible }) => visible ?? !state,
                 startNewConversation: () => false,
+                setConversationId: () => false,
             },
         ],
 
@@ -302,8 +305,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.conversationId, s.chatTitle, s.conversationHistoryVisible],
-            (conversationId, chatTitle, conversationHistoryVisible): Breadcrumb[] => {
+            (s) => [s.conversationId, s.chatTitle, s.conversationHistoryVisible, s.searchParams],
+            (conversationId, chatTitle, conversationHistoryVisible, searchParams): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Max,
@@ -311,7 +314,17 @@ export const maxLogic = kea<maxLogicType>([
                         path: urls.max(),
                         iconType: 'chat',
                     },
-                    ...(conversationId
+                    ...(conversationHistoryVisible || searchParams.from === 'history'
+                        ? [
+                              {
+                                  key: Scene.Max,
+                                  name: 'Chat history',
+                                  path: urls.maxHistory(),
+                                  iconType: 'chat' as const,
+                              },
+                          ]
+                        : []),
+                    ...(!conversationHistoryVisible && conversationId
                         ? [
                               {
                                   key: Scene.Max,
@@ -320,16 +333,7 @@ export const maxLogic = kea<maxLogicType>([
                                   iconType: 'chat' as const,
                               },
                           ]
-                        : conversationHistoryVisible
-                          ? [
-                                {
-                                    key: Scene.Max,
-                                    name: 'Chat history',
-                                    path: urls.max(),
-                                    iconType: 'chat' as const,
-                                },
-                            ]
-                          : []),
+                        : []),
                 ]
             },
         ],
@@ -480,10 +484,12 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        /**
-         * When the URL contains a conversation ID, we want to make that conversation the active one.
-         */
-        '*': (_, search) => {
+        [urls.maxHistory()]: () => {
+            if (!values.conversationHistoryVisible) {
+                actions.toggleConversationHistory()
+            }
+        },
+        [urls.max()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
@@ -494,14 +500,23 @@ export const maxLogic = kea<maxLogicType>([
 
             if (!search.chat && values.conversationId) {
                 actions.startNewConversation()
-            }
-            if (search.chat && search.chat !== values.conversationId) {
+            } else if (search.chat && search.chat !== values.conversationId) {
                 actions.openConversation(search.chat)
+            } else if (values.conversationHistoryVisible) {
+                actions.toggleConversationHistory()
             }
         },
     })),
 
     tabAwareActionToUrl(({ values }) => ({
+        toggleConversationHistory: () => {
+            if (values.conversationHistoryVisible) {
+                return [urls.maxHistory(), {}, router.values.location.hash]
+            } else if (values.conversationId) {
+                return [urls.max(values.conversationId), {}, router.values.location.hash]
+            }
+            return [urls.max(), {}, router.values.location.hash]
+        },
         startNewConversation: () => {
             return [urls.max(), {}, router.values.location.hash]
         },

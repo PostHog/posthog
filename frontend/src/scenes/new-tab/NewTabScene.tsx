@@ -127,7 +127,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 {/* if the filtered results length is 0, this will be the first to focus */}
                                 <ListBox.Item
                                     asChild
-                                    focusFirst={filteredItemsGrid.filter((a) => a.types.length > 0).length === 0}
+                                    focusFirst={filteredItemsGrid.filter((a) => a.types?.length > 0).length === 0}
                                 >
                                     <ButtonPrimitive
                                         size="xxs"
