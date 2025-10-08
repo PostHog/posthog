@@ -218,17 +218,23 @@ export async function resetTestDatabase(
 
 // Helper function to determine which database a table belongs to
 function getPostgresUseForTable(table: string): PostgresUse {
+    // Behavioral cohorts tables
+    if (table === 'cohort_membership') {
+        return PostgresUse.BEHAVIORAL_COHORTS_RW
+    }
+
+    // Persons-related tables
     const personsTablesRegex =
         /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
-    return personsTablesRegex.test(table) ? PostgresUse.PERSONS_WRITE : PostgresUse.COMMON_WRITE
+    if (personsTablesRegex.test(table)) {
+        return PostgresUse.PERSONS_WRITE
+    }
+
+    // Default to common tables
+    return PostgresUse.COMMON_WRITE
 }
 
-export async function insertRow(
-    db: PostgresRouter,
-    table: string,
-    objectProvided: Record<string, any>,
-    target: PostgresUse = PostgresUse.COMMON_WRITE
-) {
+export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
