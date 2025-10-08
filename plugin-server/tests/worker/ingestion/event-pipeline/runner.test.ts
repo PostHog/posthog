@@ -31,7 +31,6 @@ import {
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
-import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
@@ -42,7 +41,6 @@ import { PostgresPersonRepository } from '../../../../src/worker/ingestion/perso
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/emitEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -68,7 +66,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
 
     protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
         step: Step,
-        args: Parameters<Step>,
+        [runner, ...args]: Parameters<Step>,
         teamId: number,
         sendtoDLQ: boolean = true
     ) {
@@ -78,8 +76,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        const [runner, ...restArgs] = args
-        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(restArgs))])
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
         return super.runPipelineStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
     }
@@ -177,6 +174,8 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
+    let personsStoreForBatch: BatchWritingPersonsStoreForBatch
+    let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
         queueMessages: jest.fn() as any,
@@ -184,6 +183,7 @@ describe('EventPipelineRunner', () => {
     } as any
 
     beforeEach(() => {
+        jest.clearAllMocks()
         jest.mocked(mockProducer.queueMessages).mockImplementation(() => Promise.resolve())
         jest.mocked(mockProducer.produce).mockImplementation(() => Promise.resolve())
 
@@ -200,11 +200,11 @@ describe('EventPipelineRunner', () => {
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0.0,
         }
 
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+        groupStoreForBatch = new BatchWritingGroupStoreForBatch(
             hub.db,
             hub.groupRepository,
             hub.clickhouseGroupRepository
@@ -228,8 +228,6 @@ describe('EventPipelineRunner', () => {
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
         jest.mocked(createEventStep).mockResolvedValue(createdEvent)
-
-        jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
     })
 
     describe('runEventPipeline()', () => {
@@ -244,25 +242,20 @@ describe('EventPipelineRunner', () => {
                 'prepareEventStep',
                 'extractHeatmapDataStep',
                 'createEventStep',
-                'emitEventStep',
             ])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
         it('emits metrics for every step', async () => {
-            const eventProcessedAndIngestedCounterSpy = jest.spyOn(metrics.eventProcessedAndIngestedCounter, 'inc')
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-
             const result = await runner.runEventPipeline(pluginEvent, team)
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
-            expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -428,5 +421,187 @@ describe('EventPipelineRunner', () => {
                 })
             }
         )
+    })
+
+    describe('force_disable_person_processing header', () => {
+        it('should set processPerson to false and pass forceDisablePersonProcessing to processPersonsStep when header is true', async () => {
+            const testRunner = new TestEventPipelineRunner(
+                hub,
+                pipelineEvent,
+                null,
+                personsStoreForBatch,
+                groupStoreForBatch,
+                { force_disable_person_processing: true }
+            )
+
+            jest.mocked(processPersonsStep).mockResolvedValue(
+                ok([
+                    pluginEvent,
+                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                    Promise.resolve(),
+                ])
+            )
+            jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+
+            await testRunner.runEventPipeline(pluginEvent, team)
+
+            // Verify that processPersonsStep was called with processPerson = false and forceDisablePersonProcessing = true
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                false, // processPerson should be false
+                expect.any(Object), // personStoreBatch
+                true // forceDisablePersonProcessing should be true
+            )
+        })
+
+        it('should set processPerson to true and pass forceDisablePersonProcessing false to processPersonsStep when header is false', async () => {
+            const testRunner = new TestEventPipelineRunner(
+                hub,
+                pipelineEvent,
+                null,
+                personsStoreForBatch,
+                groupStoreForBatch,
+                { force_disable_person_processing: false }
+            )
+
+            jest.mocked(processPersonsStep).mockResolvedValue(
+                ok([
+                    pluginEvent,
+                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                    Promise.resolve(),
+                ])
+            )
+            jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+
+            await testRunner.runEventPipeline(pluginEvent, team)
+
+            // Verify that processPersonsStep was called with processPerson = true and forceDisablePersonProcessing = false
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                true, // processPerson should be true (default)
+                expect.any(Object), // personStoreBatch
+                false // forceDisablePersonProcessing should be false
+            )
+        })
+
+        it('should set processPerson to true and pass forceDisablePersonProcessing false to processPersonsStep when header is undefined', async () => {
+            const testRunner = new TestEventPipelineRunner(
+                hub,
+                pipelineEvent,
+                null,
+                personsStoreForBatch,
+                groupStoreForBatch,
+                { force_disable_person_processing: false } // Use false instead of undefined since it's always defined now
+            )
+
+            jest.mocked(processPersonsStep).mockResolvedValue(
+                ok([
+                    pluginEvent,
+                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                    Promise.resolve(),
+                ])
+            )
+            jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+
+            await testRunner.runEventPipeline(pluginEvent, team)
+
+            // Verify that processPersonsStep was called with processPerson = true and forceDisablePersonProcessing = false
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                true, // processPerson should be true (default)
+                expect.any(Object), // personStoreBatch
+                false // forceDisablePersonProcessing should be false
+            )
+        })
+
+        it('should override $process_person_profile property when force_disable_person_processing header is true', async () => {
+            const eventWithProcessPersonTrue = {
+                ...pipelineEvent,
+                properties: { $process_person_profile: true },
+            }
+
+            const testRunner = new TestEventPipelineRunner(
+                hub,
+                eventWithProcessPersonTrue,
+                null,
+                personsStoreForBatch,
+                groupStoreForBatch,
+                { force_disable_person_processing: true }
+            )
+
+            jest.mocked(processPersonsStep).mockResolvedValue(
+                ok([
+                    pluginEvent,
+                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                    Promise.resolve(),
+                ])
+            )
+            jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+
+            await testRunner.runEventPipeline(eventWithProcessPersonTrue, team)
+
+            // Verify that processPersonsStep was called with processPerson = false (header overrides property)
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                false, // processPerson should be false (header overrides property)
+                expect.any(Object), // personStoreBatch
+                true // forceDisablePersonProcessing should be true
+            )
+        })
+
+        it('should respect $process_person_profile=false when force_disable_person_processing header is false', async () => {
+            const eventWithProcessPersonFalse = {
+                ...pipelineEvent,
+                properties: { $process_person_profile: false },
+            }
+
+            const testRunner = new TestEventPipelineRunner(
+                hub,
+                eventWithProcessPersonFalse,
+                null,
+                personsStoreForBatch,
+                groupStoreForBatch,
+                { force_disable_person_processing: false }
+            )
+
+            jest.mocked(processPersonsStep).mockResolvedValue(
+                ok([
+                    pluginEvent,
+                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                    Promise.resolve(),
+                ])
+            )
+            jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+
+            await testRunner.runEventPipeline(eventWithProcessPersonFalse, team)
+
+            // Verify that processPersonsStep was called with processPerson = false (from property) and forceDisablePersonProcessing = false (from header)
+            expect(processPersonsStep).toHaveBeenCalledWith(
+                expect.any(Object), // runner
+                expect.any(Object), // event
+                expect.any(Object), // team
+                expect.any(Object), // timestamp
+                false, // processPerson should be false (from $process_person_profile property)
+                expect.any(Object), // personStoreBatch
+                false // forceDisablePersonProcessing should be false (from header)
+            )
+        })
     })
 })

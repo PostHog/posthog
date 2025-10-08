@@ -1,6 +1,10 @@
 """Utility classes and functions for migration analysis."""
 
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from posthog.management.migration_analysis.models import OperationRisk
 
 
 class VolatileFunctionDetector:
@@ -47,15 +51,15 @@ class OperationCategorizer:
     DML_KEYWORDS = ["UPDATE", "DELETE", "INSERT"]
     DDL_KEYWORDS = ["CREATE INDEX", "ALTER TABLE", "ADD COLUMN"]
 
-    def __init__(self, operation_risks: list):
+    def __init__(self, operation_risks: list["OperationRisk"]):
         self.operation_risks = operation_risks
-        self.dml_ops: list[tuple[int, object]] = []
-        self.ddl_ops: list[tuple[int, object]] = []
-        self.schema_ops: list[tuple[int, object]] = []
-        self.runsql_ops: list[tuple[int, object]] = []
-        self.runpython_ops: list[tuple[int, object]] = []
-        self.addindex_ops: list[tuple[int, object]] = []
-        self.high_risk_ops: list[tuple[int, object]] = []
+        self.dml_ops: list[tuple[int, OperationRisk]] = []
+        self.ddl_ops: list[tuple[int, OperationRisk]] = []
+        self.schema_ops: list[tuple[int, OperationRisk]] = []
+        self.runsql_ops: list[tuple[int, OperationRisk]] = []
+        self.runpython_ops: list[tuple[int, OperationRisk]] = []
+        self.addindex_ops: list[tuple[int, OperationRisk]] = []
+        self.high_risk_ops: list[tuple[int, OperationRisk]] = []
         self._categorize()
 
     def _categorize(self):
@@ -79,6 +83,22 @@ class OperationCategorizer:
         self.runsql_ops.append((idx, op_risk))
 
         sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
+
+        # Skip categorization for safe non-blocking operations
+        # These don't need DDL isolation warnings
+        if "CONCURRENTLY" in sql_upper and ("INDEX" in sql_upper or "REINDEX" in sql_upper):
+            return  # Don't categorize as DDL or DML
+
+        # Skip for safe constraint operations
+        if (
+            ("ADD" in sql_upper and "CONSTRAINT" in sql_upper and "NOT VALID" in sql_upper)
+            or ("VALIDATE" in sql_upper and "CONSTRAINT" in sql_upper)
+            or ("DROP" in sql_upper and "CONSTRAINT" in sql_upper)
+            or ("COMMENT ON" in sql_upper)
+            or ("SET STATISTICS" in sql_upper)
+            or ("SET (FILLFACTOR" in sql_upper)
+        ):
+            return  # Don't categorize as DDL - these are safe/metadata operations
 
         # Use word boundaries to avoid false positives like UPDATE_TIME matching UPDATE
         for kw in self.DML_KEYWORDS:
@@ -117,6 +137,6 @@ class OperationCategorizer:
     def has_multiple_high_risk(self) -> bool:
         return len(self.high_risk_ops) > 1
 
-    def format_operation_refs(self, ops: list[tuple[int, object]]) -> str:
+    def format_operation_refs(self, ops: list[tuple[int, "OperationRisk"]]) -> str:
         """Format operation references like '#3 RunSQL, #5 AddField'."""
-        return ", ".join(f"#{idx+1} {getattr(op, 'type', 'Unknown')}" for idx, op in ops)
+        return ", ".join(f"#{idx+1} {op.type}" for idx, op in ops)

@@ -49,6 +49,9 @@ pub struct Config {
     // Output topic for deduplicated events (optional - if not set, events are only consumed for metrics)
     pub output_topic: Option<String>,
 
+    // Topic for publishing duplicate detection results (optional)
+    pub duplicate_events_topic: Option<String>,
+
     // RocksDB storage configuration
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
