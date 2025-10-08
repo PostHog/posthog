@@ -329,7 +329,7 @@ def fetch_android_sdk_data() -> Optional[dict[str, Any]]:
 
 
 def fetch_go_sdk_data() -> Optional[dict[str, Any]]:
-    """Fetch Go SDK data from CHANGELOG.md (simplified logic)"""
+    """Fetch Go SDK data from CHANGELOG.md + GitHub releases API"""
     try:
         # Fetch CHANGELOG.md for versions (Go SDK uses master branch, not main)
         changelog_response = requests.get(
@@ -348,7 +348,10 @@ def fetch_go_sdk_data() -> Optional[dict[str, Any]]:
         latest_version = matches[0]
         versions = matches
 
-        return {"latestVersion": latest_version, "versions": versions, "releaseDates": {}}
+        # Fetch GitHub release dates
+        release_dates = fetch_github_release_dates("PostHog/posthog-go")
+
+        return {"latestVersion": latest_version, "versions": versions, "releaseDates": release_dates}
     except Exception:
         return None
 
@@ -510,11 +513,15 @@ def fetch_github_release_dates(repo: str) -> dict[str, str]:
                     "PostHog/posthog-python",
                     "PostHog/posthog-flutter",
                     "PostHog/posthog-ios",
-                    "PostHog/posthog-android",
                 ]:
                     # Standard repos: v1.2.3
                     if tag_name.startswith("v"):
                         version = tag_name[1:]
+                        release_dates[version] = published_at
+                elif repo == "PostHog/posthog-android":
+                    # Android monorepo: android-v3.23.0
+                    if tag_name.startswith("android-v"):
+                        version = tag_name[9:]  # Strip "android-v" prefix
                         release_dates[version] = published_at
 
             return release_dates
