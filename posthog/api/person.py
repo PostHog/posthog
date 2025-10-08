@@ -30,7 +30,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
+from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, SESSION_REPLAY_TASK_QUEUE, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
@@ -878,7 +878,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "delete-recordings-with-person",
                 input,
                 id=workflow_id,
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=SESSION_REPLAY_TASK_QUEUE,
             )
         )
 
