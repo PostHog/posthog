@@ -89,6 +89,7 @@ class QueryDateRange:
                 self._timezone_info,
                 always_truncate=False,
                 now=self.now_with_timezone,
+                team_week_start_day=self._team.week_start_day,
             )
         elif self._exact_timerange:
             return date_to
@@ -124,6 +125,7 @@ class QueryDateRange:
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
                 always_truncate=not (self.interval_name == "minute" or self._exact_timerange),
+                team_week_start_day=self._team.week_start_day,
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
