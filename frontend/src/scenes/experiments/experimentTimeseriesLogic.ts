@@ -240,18 +240,30 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         backgroundColor: (context: any) => {
                             if (context.parsed) {
                                 const index = context.dataIndex
-                                return trimmedData[index]?.significant
-                                    ? 'rgba(34, 197, 94, 0.15)'
-                                    : 'rgba(200, 200, 200, 0.15)'
+                                const dataPoint = trimmedData[index]
+                                if (dataPoint?.significant) {
+                                    // Check if delta is positive or negative
+                                    const isPositive = dataPoint.value !== null && dataPoint.value > 0
+                                    return isPositive
+                                        ? 'rgba(34, 197, 94, 0.15)' // Green for positive
+                                        : 'rgba(239, 68, 68, 0.15)' // Red for negative
+                                }
+                                return 'rgba(200, 200, 200, 0.15)'
                             }
                             return 'rgba(200, 200, 200, 0.15)'
                         },
                         segment: {
                             backgroundColor: (ctx: any) => {
                                 const index = ctx.p0DataIndex
-                                return trimmedData[index]?.significant
-                                    ? 'rgba(34, 197, 94, 0.15)'
-                                    : 'rgba(200, 200, 200, 0.15)'
+                                const dataPoint = trimmedData[index]
+                                if (dataPoint?.significant) {
+                                    // Check if delta is positive or negative
+                                    const isPositive = dataPoint.value !== null && dataPoint.value > 0
+                                    return isPositive
+                                        ? 'rgba(34, 197, 94, 0.15)' // Green for positive
+                                        : 'rgba(239, 68, 68, 0.15)' // Red for negative
+                                }
+                                return 'rgba(200, 200, 200, 0.15)'
                             },
                         },
                         tension: 0,
