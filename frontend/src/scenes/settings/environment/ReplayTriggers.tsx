@@ -442,27 +442,27 @@ function EventSelectButton(): JSX.Element {
 
     const [open, setOpen] = useState<boolean>(false)
     return (
-        <Popover
-            visible={open}
-            onClickOutside={() => setOpen(false)}
-            overlay={
-                <TaxonomicFilter
-                    onChange={(_, value) => {
-                        if (isStringWithLength(value)) {
-                            updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value]))))
-                        }
-                        setOpen(false)
-                    }}
-                    excludedProperties={{
-                        [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
-                    }}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                />
-            }
+        <AccessControlAction
+            resourceType={AccessControlResourceType.SessionRecording}
+            minAccessLevel={AccessControlLevel.Editor}
         >
-            <AccessControlAction
-                resourceType={AccessControlResourceType.SessionRecording}
-                minAccessLevel={AccessControlLevel.Editor}
+            <Popover
+                visible={open}
+                onClickOutside={() => setOpen(false)}
+                overlay={
+                    <TaxonomicFilter
+                        onChange={(_, value) => {
+                            if (isStringWithLength(value)) {
+                                updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value]))))
+                            }
+                            setOpen(false)
+                        }}
+                        excludedProperties={{
+                            [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
+                        }}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    />
+                }
             >
                 <LemonButton
                     size="small"
@@ -473,8 +473,8 @@ function EventSelectButton(): JSX.Element {
                 >
                     Add event
                 </LemonButton>
-            </AccessControlAction>
-        </Popover>
+            </Popover>
+        </AccessControlAction>
     )
 }
 
