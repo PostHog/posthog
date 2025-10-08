@@ -776,7 +776,7 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
     const hasFeatureFlag = !!currentTeam.session_recording_linked_flag
     const sampleRate = currentTeam.session_recording_sample_rate
     const numericSampleRate = !!sampleRate && parseFloat(sampleRate) * 100
-    const hasSampling = isNumeric(numericSampleRate) && sampleRate < 100
+    const hasSampling = isNumeric(numericSampleRate) && numericSampleRate < 100
     const hasMinDuration = !!currentTeam.session_recording_minimum_duration_milliseconds
     const hasUrlBlocklist = (currentTeam.session_recording_url_blocklist_config?.length ?? 0) > 0
 
