@@ -454,7 +454,7 @@ describe('CookielessManager', () => {
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({})
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
             })
         })
 
@@ -597,7 +597,7 @@ describe('CookielessManager', () => {
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({})
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
             })
             it('should preserve headers when passing through non-cookieless events', async () => {
                 const testHeaders = {
