@@ -226,7 +226,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         setIsHovering(isHovering && isMovingRecently)
-    }, [isHovering, isMovingRecently, setIsHovering])
+    }, [isHovering, isMovingRecently])
 
     useEffect(() => {
         // just once per recording clear the flag that forces the player chrome to show
@@ -235,7 +235,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             allowPlayerChromeToHide()
         }, 1500)
         return () => clearTimeout(timeout)
-    }, [sessionRecordingId, allowPlayerChromeToHide])
+    }, [sessionRecordingId])
 
     if (isNotFound) {
         return (

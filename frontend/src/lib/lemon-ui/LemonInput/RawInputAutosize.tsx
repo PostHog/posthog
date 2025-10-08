@@ -47,7 +47,7 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
         if (newInputWidth !== inputWidth) {
             setInputWidth(newInputWidth)
         }
-    }, [inputProps.placeholder, inputProps.value, inputWidth])
+    }, [sizerRef.current, inputProps.placeholder, inputProps.value, inputWidth])
 
     return (
         <div className={clsx('relative min-w-0', wrapperClassName)}>

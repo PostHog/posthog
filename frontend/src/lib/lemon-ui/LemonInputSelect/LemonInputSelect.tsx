@@ -253,6 +253,7 @@ export function LemonInputSelect<T = string>({
         stringKeys,
         getDisplayLabel,
         getStringKey,
+        values,
         disableFiltering,
         values.length,
         virtualized,
@@ -445,6 +446,7 @@ export function LemonInputSelect<T = string>({
         values.length,
         mode,
         options,
+        _onActionItem,
     ])
 
     const valuesAndEditButtonSuffix = useMemo(() => {
@@ -493,6 +495,7 @@ export function LemonInputSelect<T = string>({
         displayMode,
         _onFocus,
         options,
+        setInputValue,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string

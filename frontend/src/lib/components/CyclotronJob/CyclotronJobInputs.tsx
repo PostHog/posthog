@@ -279,7 +279,7 @@ function DictionaryField({
 
         const val = Object.fromEntries(filteredEntries)
         onChange?.({ ...input, value: val }) // oxlint-disable-line react-hooks/exhaustive-deps
-    }, [entries, onChange, input])
+    }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
         setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])

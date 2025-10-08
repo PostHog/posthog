@@ -356,7 +356,6 @@ export function BillingLineGraph({
         hideBillingTooltip,
         isDarkModeOn,
         billingPeriodMarkers,
-        stableChartAreaLeft,
     ])
 
     return (

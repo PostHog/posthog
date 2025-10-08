@@ -473,7 +473,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 ...(focusFirst ? { 'data-focus-first': 'true' } : {}),
                 ...props,
             }),
-            [handleFocus, handleBlur, ref, virtualFocusIgnore, focusFirst, props, row, column]
+            [handleItemClick, handleFocus, handleBlur, ref, virtualFocusIgnore, focusFirst, props, row, column]
         )
 
         if (asChild && isValidElement(children)) {
