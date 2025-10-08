@@ -320,4 +320,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Data warehouse sources
+    [Scene.DataWarehouse]: AccessControlResourceType.ExternalDataSource,
+    [Scene.DataWarehouseSource]: AccessControlResourceType.ExternalDataSource,
+    [Scene.DataWarehouseSourceNew]: AccessControlResourceType.ExternalDataSource,
 }

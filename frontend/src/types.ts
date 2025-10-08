@@ -288,6 +288,7 @@ export enum AccessControlResourceType {
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
+    ExternalDataSource = 'external_data_source',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
 }
@@ -4858,6 +4859,7 @@ export type APIScopeObject =
     | 'experiment'
     | 'experiment_saved_metric'
     | 'export'
+    | 'external_data_source'
     | 'feature_flag'
     | 'group'
     | 'hog_function'
@@ -5009,6 +5011,7 @@ export enum ActivityScope {
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
     COMMENT = 'Comment',
     COHORT = 'Cohort',
+    DATA_WAREHOUSE_SOURCE = 'DataWarehouseSource',
     TEAM = 'Team',
     ORGANIZATION = 'Organization',
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',

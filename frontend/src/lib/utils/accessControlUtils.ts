@@ -45,6 +45,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     } else if (resource === AccessControlResourceType.ActivityLog) {
         return 'activity logs'
     }
+    if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse sources'
+    }
 
     return resource.replace(/_/g, ' ') + 's'
 }
@@ -78,6 +81,9 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    }
+    if (resourceType === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse source'
     }
 
     return resourceType.replace(/_/g, ' ')
