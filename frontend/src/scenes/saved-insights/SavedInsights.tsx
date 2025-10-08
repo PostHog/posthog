@@ -815,6 +815,7 @@ export function SavedInsights(): JSX.Element {
         <SceneContent className={cn('saved-insights')}>
             <SceneTitleSection
                 name="Product analytics"
+                description="Track, analyze, and experiment with user behavior."
                 resourceType={{
                     type: 'product_analytics',
                 }}

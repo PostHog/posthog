@@ -78,11 +78,11 @@ export class PluginServer {
     }
 
     private setupPodTermination(): void {
-        // Base timeout: 1 hour (3600000 ms)
-        const baseTimeoutMs = 60 * 60 * 1000
+        // Base timeout from config (convert minutes to milliseconds)
+        const baseTimeoutMs = this.config.POD_TERMINATION_BASE_TIMEOUT_MINUTES * 60 * 1000
 
-        // Add jitter: random value between 0-15 minutes (0-900000 ms)
-        const jitterMs = Math.random() * 15 * 60 * 1000
+        // Add jitter: random value between 0 and configured jitter (convert minutes to milliseconds)
+        const jitterMs = Math.random() * this.config.POD_TERMINATION_JITTER_MINUTES * 60 * 1000
 
         const totalTimeoutMs = baseTimeoutMs + jitterMs
 

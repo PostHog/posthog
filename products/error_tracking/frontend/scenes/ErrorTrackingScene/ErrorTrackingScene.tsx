@@ -41,7 +41,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     return (
-        <SceneContent className="py-2">
+        <SceneContent>
             <ErrorTrackingSetupPrompt>
                 <Header />
 
@@ -99,6 +99,7 @@ const Header = (): JSX.Element => {
         <>
             <SceneTitleSection
                 name="Error tracking"
+                description="Track and analyze errors in your website or application to understand and fix issues."
                 resourceType={{
                     type: 'error_tracking',
                 }}

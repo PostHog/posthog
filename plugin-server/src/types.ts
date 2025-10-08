@@ -477,6 +477,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
+    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
+    POD_TERMINATION_JITTER_MINUTES: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -1354,6 +1356,7 @@ export interface EventHeaders {
     timestamp?: string
     event?: string
     uuid?: string
+    force_disable_person_processing: boolean
 }
 
 export interface IncomingEvent {
