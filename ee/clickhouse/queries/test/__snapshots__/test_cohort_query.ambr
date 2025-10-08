@@ -159,17 +159,21 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
          memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
@@ -324,17 +328,21 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
          memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
@@ -718,17 +726,21 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.4
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
          memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
@@ -1945,17 +1957,21 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
          memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
@@ -2282,17 +2298,21 @@
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
          memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
