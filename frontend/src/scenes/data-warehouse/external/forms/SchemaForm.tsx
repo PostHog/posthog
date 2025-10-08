@@ -10,12 +10,12 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
-    Link,
     Tooltip,
     lemonToast,
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { SyncTypeLabelMap, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -25,6 +25,7 @@ import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
+    const containerRef = useFloatingContainer()
     const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, updateSchemaSyncType } =
         useActions(sourceWizardLogic)
     const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
@@ -102,20 +103,16 @@ export default function SchemaForm(): JSX.Element {
     }
 
     useEffect(() => {
-        window.scrollTo(0, 0)
+        smartConfigureTables(databaseSchema)
     }, [])
+
+    // scroll to top of container
+    useEffect(() => {
+        containerRef?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
+    }, [containerRef])
 
     return (
         <>
-            <div className="my-1">
-                Configure sync methods for your tables below or{' '}
-                <Link
-                    tooltip="Incremental refresh is the default where supported. If incremental refresh is not available, we fallback to append-only refresh. Full refresh is only selected if no other option is available. We also attempt to identify appropriate columns to use as keys for incremental and append-only sync methods."
-                    onClick={() => smartConfigureTables(databaseSchema)}
-                >
-                    let us choose reasonable defaults to start from.
-                </Link>
-            </div>
             <div className="flex flex-col gap-2">
                 <div>
                     <LemonTable
