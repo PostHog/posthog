@@ -1958,7 +1958,7 @@
     AND type = 'QueryFinish'
     AND query_kind = 'Insert'
     AND event_date >= '2025-10-08'
-    AND event_time >= '2025-10-08 16:56:41'
+    AND event_time >= '2025-10-08 17:07:16'
   ORDER BY event_time DESC
   '''
 # ---
@@ -2298,7 +2298,7 @@
     AND type = 'QueryFinish'
     AND query_kind = 'Insert'
     AND event_date >= '2025-10-08'
-    AND event_time >= '2025-10-08 16:56:48'
+    AND event_time >= '2025-10-08 17:07:21'
   ORDER BY event_time DESC
   '''
 # ---
