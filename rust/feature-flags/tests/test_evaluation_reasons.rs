@@ -755,8 +755,8 @@ async fn test_large_number_of_disabled_flags() -> Result<()> {
         let disabled_flag = feature_flags::flags::flag_models::FeatureFlagRow {
             id: 2000 + i,
             team_id: team.id,
-            name: Some(format!("Disabled Flag {}", i)),
-            key: format!("disabled-flag-{}", i),
+            name: Some(format!("Disabled Flag {i}")),
+            key: format!("disabled-flag-{i}"),
             filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
             deleted: false,
             active: false,
@@ -790,7 +790,7 @@ async fn test_large_number_of_disabled_flags() -> Result<()> {
 
     // Check that disabled flags are present
     for i in 0..10 {
-        let key = format!("disabled-flag-{}", i);
+        let key = format!("disabled-flag-{i}");
         assert!(json[&key].is_object());
         assert_eq!(json[&key]["value"], json!(false));
         assert_eq!(json[&key]["evaluation"]["reason"], "disabled");
