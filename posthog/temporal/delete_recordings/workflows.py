@@ -5,54 +5,67 @@ from datetime import timedelta
 from temporalio import common, workflow
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_recordings.activities import (
     delete_recording_blocks,
+    group_recording_blocks,
     load_recording_blocks,
     load_recordings_with_person,
 )
-from posthog.temporal.delete_recordings.types import (
-    DeleteRecordingBlocksInput,
-    RecordingInput,
-    RecordingsWithPersonInput,
-)
+from posthog.temporal.delete_recordings.types import Recording, RecordingsWithPersonInput, RecordingWithBlocks
 from posthog.temporal.delete_recordings.utils import batched
 
 
 @workflow.defn(name="delete-recording")
 class DeleteRecordingWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(input: list[str]) -> RecordingInput:
+    def parse_inputs(input: list[str]) -> Recording:
         """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
-        return RecordingInput(**loaded)
+        return Recording(**loaded)
 
     @workflow.run
-    async def run(self, input: RecordingInput) -> None:
-        recording_input = RecordingInput(session_id=input.session_id, team_id=input.team_id)
+    async def run(self, input: Recording) -> None:
+        recording_input = Recording(session_id=input.session_id, team_id=input.team_id)
 
         recording_blocks = await workflow.execute_activity(
             load_recording_blocks,
             recording_input,
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(seconds=10),
+            heartbeat_timeout=timedelta(minutes=1),
         )
 
         if len(recording_blocks) > 0:
-            await workflow.execute_activity(
-                delete_recording_blocks,
-                DeleteRecordingBlocksInput(recording=recording_input, blocks=recording_blocks),
-                start_to_close_timeout=timedelta(minutes=10),
+            block_groups: list[list[RecordingBlock]] = await workflow.execute_activity(
+                group_recording_blocks,
+                RecordingWithBlocks(recording=recording_input, blocks=recording_blocks),
+                start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),
                 ),
                 heartbeat_timeout=timedelta(seconds=10),
             )
+
+            async with asyncio.TaskGroup() as delete_blocks:
+                for group in block_groups:
+                    delete_blocks.create_task(
+                        workflow.execute_activity(
+                            delete_recording_blocks,
+                            RecordingWithBlocks(recording=recording_input, blocks=group),
+                            start_to_close_timeout=timedelta(minutes=10),
+                            retry_policy=common.RetryPolicy(
+                                maximum_attempts=2,
+                                initial_interval=timedelta(minutes=1),
+                            ),
+                            heartbeat_timeout=timedelta(minutes=1),
+                        )
+                    )
 
 
 @workflow.defn(name="delete-recordings-with-person")
@@ -68,12 +81,12 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
         session_ids = await workflow.execute_activity(
             load_recordings_with_person,
             RecordingsWithPersonInput(distinct_ids=input.distinct_ids, team_id=input.team_id),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(seconds=10),
+            heartbeat_timeout=timedelta(minutes=1),
         )
 
         for batch in batched(session_ids, input.batch_size):
@@ -82,7 +95,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                     delete_recordings.create_task(
                         workflow.execute_child_workflow(
                             DeleteRecordingWorkflow.run,
-                            RecordingInput(session_id=session_id, team_id=input.team_id),
+                            Recording(session_id=session_id, team_id=input.team_id),
                             parent_close_policy=ParentClosePolicy.ABANDON,
                             execution_timeout=timedelta(minutes=10),
                             retry_policy=common.RetryPolicy(

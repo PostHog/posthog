@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Optional, cast
 from uuid import uuid4
 
@@ -20,6 +21,7 @@ from django.utils import timezone
 
 from flaky import flaky
 from rest_framework import status
+from temporalio import common
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
@@ -409,6 +411,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
                     task_queue=SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        initial_interval=timedelta(seconds=60),
+                        backoff_coefficient=2.0,
+                        maximum_interval=None,
+                        maximum_attempts=2,
+                        non_retryable_error_types=None,
+                    ),
                 )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
@@ -443,6 +452,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
                     task_queue=SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        initial_interval=timedelta(seconds=60),
+                        backoff_coefficient=2.0,
+                        maximum_interval=None,
+                        maximum_attempts=2,
+                        non_retryable_error_types=None,
+                    ),
                 )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)

@@ -32,7 +32,8 @@ export class PersonEventProcessor {
     constructor(
         private context: PersonContext,
         private propertyService: PersonPropertyService,
-        private mergeService: PersonMergeService
+        private mergeService: PersonMergeService,
+        private forceDisablePersonProcessing: boolean = false
     ) {}
 
     async processEvent(): Promise<[PipelineResult<Person>, Promise<void>]> {
@@ -78,6 +79,11 @@ export class PersonEventProcessor {
     }
 
     private async handlePersonlessMode(): Promise<[PipelineResult<Person>, Promise<void>]> {
+        // If forceDisablePersonProcessing is true, skip all personless processing and just return a fake person
+        if (this.forceDisablePersonProcessing) {
+            return [ok(this.createFakePerson()), Promise.resolve()]
+        }
+
         let existingPerson = await this.context.personStore.fetchForChecking(
             this.context.team.id,
             this.context.distinctId
@@ -135,19 +141,23 @@ export class PersonEventProcessor {
             return [ok(person), Promise.resolve()]
         }
 
+        const fakePerson = this.createFakePerson()
+        return [ok(fakePerson), Promise.resolve()]
+    }
+
+    private createFakePerson(): Person {
         // We need a value from the `person_created_column` in ClickHouse. This should be
         // hidden from users for events without a real person, anyway. It's slightly offset
         // from the 0 date (by 5 seconds) in order to assist in debugging by being
         // harmlessly distinct from Unix UTC "0".
         const createdAt = DateTime.utc(1970, 1, 1, 0, 0, 5)
 
-        const fakePerson: Person = {
+        return {
             team_id: this.context.team.id,
             properties: {},
             uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
             created_at: createdAt,
         }
-        return [ok(fakePerson), Promise.resolve()]
     }
 
     getContext(): PersonContext {

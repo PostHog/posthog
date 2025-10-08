@@ -45,17 +45,24 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchP
             stepResults = await instrumentFn({ key: this.stepName, sendException: false }, () =>
                 this.currentStep(successfulValues)
             )
+            if (stepResults.length !== successfulValues.length) {
+                throw new Error(
+                    `Batch pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
+                )
+            }
         }
         let stepIndex = 0
 
         // Map results back, preserving context and non-successful results
         return previousResults.map((resultWithContext) => {
             if (isOkResult(resultWithContext.result)) {
+                const stepResult = stepResults[stepIndex++]
                 return {
-                    result: stepResults[stepIndex++],
+                    result: stepResult,
                     context: {
                         ...resultWithContext.context,
                         lastStep: this.stepName,
+                        sideEffects: [...resultWithContext.context.sideEffects, ...stepResult.sideEffects],
                     },
                 }
             } else {
