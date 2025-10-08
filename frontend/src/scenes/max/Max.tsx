@@ -123,7 +123,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             className={
                                 sidePanel
                                     ? '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
-                                    : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-100px)]'
+                                    : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                             }
                         >
                             <div className="flex-1 items-center justify-center flex flex-col gap-3">

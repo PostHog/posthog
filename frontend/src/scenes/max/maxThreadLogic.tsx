@@ -84,7 +84,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (!props.tabId) {
             throw new Error('Max thread logic must have a tabId prop')
         }
-        return props.conversationId
+        return `${props.conversationId}-${props.tabId}`
     }),
 
     props({} as MaxThreadLogicProps),
@@ -725,10 +725,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
 
     afterMount((logic) => {
-        const { actions, values, cache, mount } = logic as BuiltLogic<maxThreadLogicType>
+        const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
         // Prevent unmounting of the logic until the streaming finishes.
         // Increment a counter of active logics by one and then decrement it when the logic unmounts or finishes
         cache.unmount = mount()
+
+        for (const l of maxThreadLogic.findAllMounted()) {
+            if (l !== logic && l.props.conversationId === props.conversationId) {
+                // We found a logic with the same conversationId, but a different tabId
+                if (l.values.conversation) {
+                    actions.setConversation(l.values.conversation)
+                }
+                if (l.values.threadRaw) {
+                    actions.setThread(l.values.threadRaw)
+                }
+                break
+            }
+        }
 
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
