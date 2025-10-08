@@ -125,8 +125,7 @@ procs:
         autostart: false
 
     dmypy-daemon:
-        shell: 'dmypy daemon -- --config-file mypy.ini'
-        autostart: false
+        shell: 'bin/start-dmypy'
 
 mouse_scroll_speed: 1
 scrollback: 10000
