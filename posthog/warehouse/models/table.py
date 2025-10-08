@@ -31,9 +31,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.util import (
-    CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
-    clean_type,
+    convert_clickhouse_type_to_hogql_type,
     remove_named_tuples,
 )
 
@@ -225,7 +224,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         columns = {
             str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "hogql": convert_clickhouse_type_to_hogql_type(str(item[1])).__name__,
                 "clickhouse": item[1],
                 "valid": True,
             }
@@ -350,7 +349,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+                hogql_type = convert_clickhouse_type_to_hogql_type(hogql_type_str)
             else:
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
 

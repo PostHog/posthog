@@ -11,6 +11,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
     data_warehouse,
+    data_warehouse_config,
     external_data_schema,
     external_data_source,
     modeling,
@@ -377,6 +378,12 @@ register_grandfathered_environment_nested_viewset(
     r"data_warehouse",
     data_warehouse.DataWarehouseViewSet,
     "environment_data_warehouse",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
+    r"data_warehouse_config",
+    data_warehouse_config.DataWarehouseConfigViewSet,
+    "environment_data_warehouse_config",
     ["team_id"],
 )
 projects_router.register(

@@ -21,7 +21,8 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
-from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+from posthog.warehouse.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+from posthog.warehouse.models.util import convert_clickhouse_type_to_hogql_type
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -252,7 +253,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 columns[key] = {}
 
             columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
-            columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
+            columns[key]["hogql"] = convert_clickhouse_type_to_hogql_type(
+                SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]
+            ).__name__
 
         table.columns = columns
         table.save()
