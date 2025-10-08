@@ -12,6 +12,7 @@ import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
     InsightErrorState,
@@ -23,10 +24,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import {
-    accessLevelSatisfied,
-    getAccessControlDisabledReason,
-} from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'

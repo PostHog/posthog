@@ -6,9 +6,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
-import { accessLevelSatisfied } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 

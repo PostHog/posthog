@@ -13,10 +13,9 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { getAccessControlDisabledReason } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 
 import { settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'

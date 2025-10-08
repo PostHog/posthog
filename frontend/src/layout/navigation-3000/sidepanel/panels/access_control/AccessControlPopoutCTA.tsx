@@ -5,8 +5,8 @@ import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { toSentenceCase } from 'lib/utils'
+import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 
-import { resourceTypeToString } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccessControlResourceType, SidePanelTab } from '~/types'
 

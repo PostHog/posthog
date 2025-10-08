@@ -13,6 +13,7 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
@@ -27,7 +28,6 @@ import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
-import { userHasAccess } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import {
     ScenePanel,
     ScenePanelActionsSection,

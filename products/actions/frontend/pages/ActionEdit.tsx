@@ -16,14 +16,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    getAccessControlDisabledReason,
-    userHasAccess,
-} from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import {
     ScenePanel,
     ScenePanelActionsSection,

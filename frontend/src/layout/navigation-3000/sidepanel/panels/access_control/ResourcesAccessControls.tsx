@@ -18,11 +18,8 @@ import {
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { fullName } from 'lib/utils'
+import { getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 
-import {
-    getMinimumAccessLevel,
-    pluralizeResource,
-} from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
 import {

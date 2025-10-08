@@ -1,6 +1,7 @@
 import React from 'react'
 
-import { getAccessControlDisabledReason } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 interface AccessControlActionChildrenProps {
