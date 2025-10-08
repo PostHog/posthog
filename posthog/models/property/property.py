@@ -328,7 +328,11 @@ class Property:
                 pass
 
         try:
-            return json.loads(value)
+            parsed = json.loads(value)
+            # Don't allow infinity values from json parsing either
+            if parsed == float("inf") or parsed == float("-inf"):
+                return value
+            return parsed
         except (json.JSONDecodeError, TypeError):
             return value
 
