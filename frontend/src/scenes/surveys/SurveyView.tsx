@@ -11,6 +11,7 @@ import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -51,8 +52,15 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
-        useActions(surveyLogic)
+    const {
+        editingSurvey,
+        updateSurvey,
+        stopSurvey,
+        resumeSurvey,
+        duplicateSurvey,
+        setIsDuplicateToProjectModalOpen,
+        createDynamicCohortForSurvey,
+    } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -94,6 +102,15 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
                         <ScenePanelActionsSection>
+                            <ButtonPrimitive
+                                onClick={() => createDynamicCohortForSurvey()}
+                                disabledReasons={{
+                                    'New survey cannot create cohort': survey.id === 'new',
+                                }}
+                                menuItem
+                            >
+                                <IconCohort /> Create dynamic cohort
+                            </ButtonPrimitive>
                             <ButtonPrimitive
                                 menuItem
                                 variant="danger"

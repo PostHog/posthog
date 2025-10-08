@@ -40,6 +40,7 @@ import {
     Breadcrumb,
     ChoiceQuestionProcessedResponses,
     ChoiceQuestionResponseData,
+    CohortType,
     ConsolidatedSurveyResults,
     EventPropertyFilter,
     FeatureFlagFilters,
@@ -86,6 +87,7 @@ import {
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
+    createDynamicCohortFormData,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyResponse,
@@ -546,6 +548,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
+        createDynamicCohortForSurvey: true,
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -1001,6 +1004,31 @@ export const surveyLogic = kea<surveyLogicType>([
             setDateRange: ({ reloadResults }) => {
                 if (reloadResults) {
                     reloadAllSurveyResults()
+                }
+            },
+            createDynamicCohortForSurvey: async () => {
+                if (values.survey.id === NEW_SURVEY.id) {
+                    return
+                }
+                const toastId = `create-dynamic-cohort-for-survey${values.survey.id}-${Date.now()}`
+                lemonToast.info('Creating cohort...', { toastId, autoClose: false })
+                try {
+                    const cohortFormData = createDynamicCohortFormData(values.survey as Survey)
+                    const cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
+                    lemonToast.dismiss(toastId)
+                    lemonToast.success('Cohort created. Please wait up to a few minutes for it to be calculated', {
+                        toastId: `cohort-created-${cohort.id}`,
+                        button: {
+                            label: 'View cohort',
+                            action: () => {
+                                router.actions.push(urls.cohort(cohort.id))
+                            },
+                        },
+                    })
+                } catch (error: any) {
+                    lemonToast.dismiss(toastId)
+                    lemonToast.error('Failed to create cohort. Please try again.')
+                    console.error('Cohort creation failed:', error)
                 }
             },
         }
