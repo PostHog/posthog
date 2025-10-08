@@ -8,6 +8,7 @@ import {
     PipelineResultType,
     dlq,
     isDlqResult,
+    isOkResult,
     isRedirectResult,
     ok,
     redirect,
@@ -241,6 +242,19 @@ describe('EventPipelineRunner', () => {
                 'createEventStep',
             ])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
+        })
+
+        it('emits metrics for every step', async () => {
+            const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
+            const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
+            const result = await runner.runEventPipeline(pluginEvent, team)
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.value.error).toBeUndefined()
+            }
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
+            expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
         describe('errors during processing', () => {
