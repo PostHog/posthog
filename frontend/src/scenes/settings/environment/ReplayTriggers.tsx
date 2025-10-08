@@ -635,7 +635,7 @@ function Sampling(): JSX.Element {
                     />
                 </AccessControlAction>
             </div>
-            <p>Choose how many sessions to record. 100% = record every session, 50% = record half.</p>
+            <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
         </>
     )
 }
