@@ -50,6 +50,10 @@ Can you:
 2. Explain in detail why this error occurred. Provide code examples if applicable.
 3. Suggest the most likely fix, enumerating multiple possible solutions and choosing the best one.
 4. Attempt to fix this error.
+
+The final output of your efforts should be:
+- An implemented fix for the issue
+- A detailed explanation of the fix and how it addresses the root cause
 `
     }
 
