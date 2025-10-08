@@ -223,7 +223,12 @@ function getPostgresUseForTable(table: string): PostgresUse {
     return personsTablesRegex.test(table) ? PostgresUse.PERSONS_WRITE : PostgresUse.COMMON_WRITE
 }
 
-export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(
+    db: PostgresRouter,
+    table: string,
+    objectProvided: Record<string, any>,
+    target: PostgresUse = PostgresUse.COMMON_WRITE
+) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 

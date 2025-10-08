@@ -325,20 +325,7 @@ export const insertCohortMembership = async (
         ...membership,
     }
 
-    const query = `
-        INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, last_updated)
-        VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_TIMESTAMP))
-        RETURNING *
-    `
-
-    const result = await db.query(
-        PostgresUse.BEHAVIORAL_COHORTS_RW,
-        query,
-        [record.team_id, record.cohort_id, record.person_id, record.in_cohort, record.last_updated || null],
-        'insertCohortMembership'
-    )
-
-    return result.rows[0]
+    return await insertRow(db, 'cohort_membership', record, PostgresUse.BEHAVIORAL_COHORTS_RW)
 }
 
 export const insertCohortMemberships = async (
