@@ -972,6 +972,13 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'hour',
     },
     {
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(1, 'week').startOf('week'), date.subtract(1, 'week').endOf('week')),
+        defaultInterval: 'day',
+    },
+    {
         key: 'Last 7 days',
         values: ['-7d'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
@@ -1013,13 +1020,6 @@ export const dateMapping: DateMappingOption[] = [
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         inactive: true,
-        defaultInterval: 'day',
-    },
-    {
-        key: 'Last week',
-        values: ['-1wStart', '-1wEnd'],
-        getFormattedDate: (date: dayjs.Dayjs): string =>
-            formatDateRange(date.subtract(1, 'week').startOf('week'), date.subtract(1, 'week').endOf('week')),
         defaultInterval: 'day',
     },
     {
