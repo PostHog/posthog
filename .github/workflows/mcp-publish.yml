@@ -46,7 +46,7 @@ jobs:
               id: check-package-version
               uses: PostHog/check-package-version@v2
               with:
-                  path: mcp/typescript/
+                  path: products/mcp/typescript/
 
     release:
         name: Publish release if new version
