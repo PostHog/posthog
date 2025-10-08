@@ -2557,6 +2557,7 @@ dependencies = [
  "posthog-rs",
  "reqwest 0.12.15",
  "serde",
+ "serde_json",
  "sqlx",
  "tiktoken-rs",
  "tokio",
