@@ -362,11 +362,11 @@ export function NetworkCaptureSettings(): JSX.Element {
                                 if (checked) {
                                     LemonDialog.open({
                                         maxWidth: '650px',
-                                        title: 'Network body capture',
+                                        title: 'Network header capture',
                                         description: <PayloadWarning />,
                                         primaryButton: {
-                                            'data-attr': 'network-payload-capture-accept-warning-and-enable',
-                                            children: 'Enable body capture',
+                                            'data-attr': 'network-header-capture-accept-warning-and-enable',
+                                            children: 'Enable header capture',
                                             onClick: () => {
                                                 updateCurrentTeam({
                                                     session_recording_network_payload_capture_config: {

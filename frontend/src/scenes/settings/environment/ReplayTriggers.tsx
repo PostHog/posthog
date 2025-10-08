@@ -136,9 +136,8 @@ function LinkedFlagSelector(): JSX.Element | null {
                     </div>
                 </div>
 
-                <p>Linking a flag means that recordings will only be collected for users who have the flag enabled. </p>
                 <p>
-                    <strong>NB: the linked flag is shared between web and mobile recording.</strong>
+                    Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
                 </p>
                 {flagHasVariants && (
                     <>
@@ -147,15 +146,8 @@ function LinkedFlagSelector(): JSX.Element | null {
                             <Tooltip
                                 title={
                                     <>
-                                        <p>
-                                            This is a multi-variant flag. You can link to "any" variant of the flag, and
-                                            recordings will start whenever the flag is enabled for a user.
-                                        </p>
-                                        <p>
-                                            Alternatively, you can link to a specific variant of the flag, and
-                                            recordings will only start when the user has that specific variant enabled.
-                                            Variant targeting support requires posthog-js v1.110.0 or greater
-                                        </p>
+                                        <p>Record for "any" variant, or only for a specific variant.</p>
+                                        <p>Variant targeting requires posthog-js v1.110.0+</p>
                                     </>
                                 }
                             >
@@ -773,8 +765,7 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
     if (!currentTeam?.session_recording_opt_in) {
         return (
             <LemonBanner type="warning">
-                <strong>Recording is disabled.</strong> Enable session recording in the General settings to start
-                capturing sessions.
+                <strong>Recording is disabled.</strong> Enable it in General settings.
             </LemonBanner>
         )
     }
@@ -843,11 +834,7 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
     return (
         <LemonBanner type="info">
             <div className="flex flex-col gap-1">
-                <strong>
-                    {hasAnyTriggers
-                        ? 'Recording triggers configured:'
-                        : 'No triggers configured - all sessions will be recorded'}
-                </strong>
+                <strong>{hasAnyTriggers ? 'Active triggers:' : 'No triggers — all sessions recorded'}</strong>
                 <div className="flex flex-col gap-0.5 mt-1">
                     {triggers.map((trigger, i) => (
                         <div key={i} className="flex items-center gap-2">
@@ -910,13 +897,12 @@ export function ReplayTriggers(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-2">
             <p>
-                Use the settings below to control when recordings are started. If no triggers are selected, then
-                recordings will always start if enabled.
+                Control when recordings start.{' '}
                 <Link
                     to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
                     target="blank"
                 >
-                    Learn more in our docs.
+                    Learn more
                 </Link>
             </p>
             <RecordingTriggersSummary selectedPlatform={selectedPlatform} />
