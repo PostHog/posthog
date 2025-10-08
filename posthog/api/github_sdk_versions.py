@@ -387,7 +387,7 @@ def fetch_php_sdk_data() -> Optional[dict[str, Any]]:
 
 
 def fetch_ruby_sdk_data() -> Optional[dict[str, Any]]:
-    """Fetch Ruby SDK data from CHANGELOG.md (simplified logic)"""
+    """Fetch Ruby SDK data from CHANGELOG.md with date parsing from CHANGELOG and PR merge dates"""
     try:
         # Fetch CHANGELOG.md for versions
         changelog_response = requests.get(
@@ -397,16 +397,50 @@ def fetch_ruby_sdk_data() -> Optional[dict[str, Any]]:
             return None
 
         changelog_content = changelog_response.text
-        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+)$", re.MULTILINE)
-        matches = version_pattern.findall(changelog_content)
 
-        if not matches:
+        # Pattern 1: Versions with dates directly in CHANGELOG (## 3.0.1 - 2025-05-20)
+        version_with_date_pattern = re.compile(r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})$", re.MULTILINE)
+        versions_with_dates = version_with_date_pattern.findall(changelog_content)
+
+        # Build release_dates dict from CHANGELOG dates
+        release_dates = {}
+        for version, date in versions_with_dates:
+            release_dates[version] = f"{date}T00:00:00Z"
+
+        # Combine all versions preserving CHANGELOG order
+        # Use regex to find all version headers in order
+        all_versions_pattern = re.compile(r"^## (\d+\.\d+\.\d+)", re.MULTILINE)
+        all_versions = all_versions_pattern.findall(changelog_content)
+
+        if not all_versions:
             return None
 
-        latest_version = matches[0]
-        versions = matches
+        latest_version = all_versions[0]
 
-        return {"latestVersion": latest_version, "versions": versions, "releaseDates": {}}
+        # For versions without dates, try to extract PR numbers and fetch merge dates
+        # Split changelog into sections by version header
+        version_sections = re.split(r"^## (\d+\.\d+\.\d+)", changelog_content, flags=re.MULTILINE)
+
+        for i in range(1, len(version_sections), 2):
+            version = version_sections[i]
+            content = version_sections[i + 1] if i + 1 < len(version_sections) else ""
+
+            # Skip if we already have a date for this version
+            if version in release_dates:
+                continue
+
+            # Extract PR number from content (e.g., [#72](https://github.com/PostHog/posthog-ruby/pull/72))
+            pr_pattern = re.compile(r"\[#(\d+)\]\(")
+            pr_match = pr_pattern.search(content)
+
+            if pr_match:
+                pr_number = pr_match.group(1)
+                # Fetch merge date from GitHub PR API
+                merge_date = fetch_pr_merge_date("PostHog/posthog-ruby", pr_number)
+                if merge_date:
+                    release_dates[version] = merge_date
+
+        return {"latestVersion": latest_version, "versions": all_versions, "releaseDates": release_dates}
     except Exception:
         return None
 
@@ -465,6 +499,55 @@ def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
         return {"latestVersion": latest_version, "versions": versions, "releaseDates": {}}
     except Exception:
         return None
+
+
+def fetch_pr_merge_date(repo: str, pr_number: str) -> Optional[str]:
+    """
+    Fetch PR merge date from GitHub PR API with exponential backoff.
+    Returns ISO date string or None if not available.
+    """
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}", timeout=10)
+
+            # Handle rate limiting with exponential backoff (403 or 429)
+            if response.status_code in [403, 429]:
+                if attempt < MAX_RETRIES - 1:
+                    backoff_time = INITIAL_BACKOFF * (2**attempt)
+                    logger.warning(
+                        f"[SDK Doctor] GitHub API rate limit hit for {repo} PR#{pr_number} (status {response.status_code}), retrying in {backoff_time}s (attempt {attempt + 1}/{MAX_RETRIES})"
+                    )
+                    time.sleep(backoff_time)
+                    continue
+                else:
+                    logger.error(
+                        f"[SDK Doctor] GitHub API rate limit exceeded for {repo} PR#{pr_number} after {MAX_RETRIES} attempts (status {response.status_code})"
+                    )
+                    return None
+
+            if not response.ok:
+                logger.warning(f"[SDK Doctor] GitHub API error for {repo} PR#{pr_number}: {response.status_code}")
+                return None
+
+            pr_data = response.json()
+            merged_at = pr_data.get("merged_at")
+
+            return merged_at
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                backoff_time = INITIAL_BACKOFF * (2**attempt)
+                logger.warning(
+                    f"[SDK Doctor] Error fetching PR merge date for {repo} PR#{pr_number}, retrying in {backoff_time}s: {str(e)}"
+                )
+                time.sleep(backoff_time)
+                continue
+            else:
+                logger.exception(
+                    f"[SDK Doctor] Failed to fetch PR merge date for {repo} PR#{pr_number} after {MAX_RETRIES} attempts"
+                )
+                return None
+
+    return None
 
 
 def fetch_github_release_dates(repo: str) -> dict[str, str]:
