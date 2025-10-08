@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
-import { resourceTypeToString } from 'lib/components/AccessControlAction'
-
+import { resourceTypeToString } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { AccessControlResourceType } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'

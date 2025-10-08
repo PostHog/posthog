@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
-import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -27,6 +27,7 @@ import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
+import { userHasAccess } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import {
     ScenePanel,
     ScenePanelActionsSection,

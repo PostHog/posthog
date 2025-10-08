@@ -13,7 +13,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -35,6 +35,7 @@ import { captureMaxAISurveyCreationException, isSurveyRunning } from 'scenes/sur
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { userHasAccess } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
