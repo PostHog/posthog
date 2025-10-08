@@ -323,15 +323,19 @@ class Property:
         if not convert_to_number:
             try:
                 # tests if string is a number & returns string if it is a number
-                float(value)
-                return value
+                float_val = float(value)
+                # Don't convert scientific notation that becomes infinity
+                if math.isinf(float_val):
+                    pass  # Continue to try JSON parsing
+                else:
+                    return value
             except (ValueError, TypeError):
                 pass
 
         try:
             parsed = json.loads(value)
             # Don't allow infinity values from json parsing either
-            if math.isinf(parsed):
+            if isinstance(parsed, int | float) and math.isinf(parsed):
                 return value
             return parsed
         except (json.JSONDecodeError, TypeError):

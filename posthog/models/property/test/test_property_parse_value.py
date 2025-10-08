@@ -41,9 +41,9 @@ class TestPropertyParseValue(BaseTest):
             # Edge cases that would convert to infinity
             ("another_infinity_string", "1e400", "1e400"),
             ("negative_infinity_string", "-1e400", "-1e400"),
-            # JSON-like strings (these stay as strings when convert_to_number=False)
-            ("json_string", '{"key": "value"}', '{"key": "value"}'),
-            ("json_array", '["a", "b", "c"]', '["a", "b", "c"]'),
+            # JSON-like strings (these should be parsed)
+            ("json_string", '{"key": "value"}', {"key": "value"}),
+            ("json_array", '["a", "b", "c"]', ["a", "b", "c"]),
             ("json_number", "42", "42"),  # Should remain string when not convert_to_number
             # Special characters and edge cases
             ("empty_string", "", ""),
@@ -183,6 +183,13 @@ class TestPropertyParseValue(BaseTest):
         # Should remain as string to prevent infinity
         self.assertEqual(result, large_number_string)
         self.assertIsInstance(result, str, "The problematic value should remain a string")
+
+        # Test JSON object with infinity-causing value
+        json_with_large_number = '{"id": "68220362511491315356e330"}'
+        result = Property._parse_value(json_with_large_number, convert_to_number=True)
+        expected = {"id": "68220362511491315356e330"}
+        self.assertEqual(result, expected)
+        self.assertIsInstance(result["id"], str, "The problematic value should remain a string")
 
     def test_edge_cases(self):
         """Test various edge cases."""
