@@ -10,15 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveField(
-                    model_name="workflowstage",
-                    name="agent",
-                ),
-            ],
-            database_operations=[],
-        ),
         migrations.AlterField(
             model_name="task",
             name="workflow",
@@ -30,13 +21,5 @@ class Migration(migrations.Migration):
                 related_name="tasks",
                 to="tasks.taskworkflow",
             ),
-        ),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.DeleteModel(
-                    name="AgentDefinition",
-                )
-            ],
-            database_operations=[],
         ),
     ]
