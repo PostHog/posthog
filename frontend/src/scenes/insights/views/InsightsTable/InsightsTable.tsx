@@ -193,8 +193,8 @@ export function InsightsTable({
                 render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
                 key: 'breakdown_addendum',
                 sorter: (a, b) => {
-                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string]
-                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string]
+                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string] || ''
+                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string] || ''
                     return labelA.localeCompare(labelB)
                 },
             })
