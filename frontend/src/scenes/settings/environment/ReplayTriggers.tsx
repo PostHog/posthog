@@ -489,7 +489,7 @@ function EventTriggerOptions(): JSX.Element | null {
                 </LemonLabel>
                 <EventSelectButton />
             </div>
-            <p>Start recording when a PostHog event is queued for capture.</p>
+            <p>Start recording when a PostHog event is queued.</p>
 
             <div className="flex gap-2">
                 {eventTriggerConfig?.map((trigger) => (
