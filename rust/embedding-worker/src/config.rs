@@ -17,7 +17,7 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint_embeddings")]
+    #[envconfig(default = "clickhouse_document_embeddings")]
     pub output_topic: String,
 
     #[envconfig(nested = true)]
@@ -42,11 +42,7 @@ pub struct Config {
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         // Our consumer is used in a transaction, so we disable offset commits.
-        ConsumerConfig::set_defaults(
-            "et-embedding-worker",
-            "error_tracking_new_fingerprints",
-            false,
-        );
+        ConsumerConfig::set_defaults("embedding-worker", "document_embeddings_input", false);
 
         Self::init_from_env()
     }
