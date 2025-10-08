@@ -214,7 +214,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                     now64() as last_updated,
                     CASE
                         WHEN
-                            cmc.person_id IS NULL -- Does not exists in cohort_membership_changed
+                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
                             THEN 'member' -- so, new member
                         WHEN
                             cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
@@ -224,7 +224,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         WHEN
                             cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
                             AND cmc.status = 'member' -- it is a member at some point
-                            AND bcm.person_id IS NULL -- but there is not match in behavioral_cohorts_matches
+                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
                             THEN 'not_member' -- so, it left the cohort
                         ELSE
                             'unchanged' -- for all other cases, the membership did not change
