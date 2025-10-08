@@ -745,7 +745,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -865,7 +866,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -947,7 +949,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1118,7 +1121,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1250,7 +1254,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1498,7 +1503,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1676,11 +1682,15 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.31
   '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboarditem"
-  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboarditem"."deleted"))
+  SELECT COUNT(*)
+  FROM
+    (SELECT "posthog_dashboarditem"."id" AS "col1"
+     FROM "posthog_dashboarditem"
+     INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_insightviewed" ON ("posthog_dashboarditem"."id" = "posthog_insightviewed"."insight_id")
+     WHERE ("posthog_team"."project_id" = 99999
+            AND NOT ("posthog_dashboarditem"."deleted"))
+     GROUP BY 1) subquery
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.32
@@ -1714,6 +1724,7 @@
          "posthog_dashboarditem"."updated_at",
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
+         MAX("posthog_insightviewed"."last_viewed_at") AS "last_viewed_at",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1796,6 +1807,7 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1823,39 +1835,44 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
-         T5."id",
-         T5."password",
-         T5."last_login",
-         T5."first_name",
-         T5."last_name",
-         T5."is_staff",
-         T5."date_joined",
-         T5."uuid",
-         T5."current_organization_id",
-         T5."current_team_id",
-         T5."email",
-         T5."pending_email",
-         T5."temporary_token",
-         T5."distinct_id",
-         T5."is_email_verified",
-         T5."requested_password_reset_at",
-         T5."has_seen_product_intro_for",
-         T5."strapi_id",
-         T5."is_active",
-         T5."role_at_organization",
-         T5."theme_mode",
-         T5."partial_notification_settings",
-         T5."anonymize_data",
-         T5."toolbar_mode",
-         T5."hedgehog_config",
-         T5."events_column_config",
-         T5."email_opt_in"
+         T6."id",
+         T6."password",
+         T6."last_login",
+         T6."first_name",
+         T6."last_name",
+         T6."is_staff",
+         T6."date_joined",
+         T6."uuid",
+         T6."current_organization_id",
+         T6."current_team_id",
+         T6."email",
+         T6."pending_email",
+         T6."temporary_token",
+         T6."distinct_id",
+         T6."is_email_verified",
+         T6."requested_password_reset_at",
+         T6."has_seen_product_intro_for",
+         T6."strapi_id",
+         T6."is_active",
+         T6."role_at_organization",
+         T6."theme_mode",
+         T6."partial_notification_settings",
+         T6."anonymize_data",
+         T6."toolbar_mode",
+         T6."hedgehog_config",
+         T6."events_column_config",
+         T6."email_opt_in"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_insightviewed" ON ("posthog_dashboarditem"."id" = "posthog_insightviewed"."insight_id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
+  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboarditem"."deleted"))
+  GROUP BY "posthog_dashboarditem"."id",
+           "posthog_team"."id",
+           "posthog_user"."id",
+           T6."id"
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
   '''
@@ -1965,6 +1982,7 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2120,6 +2138,7 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -3833,7 +3852,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3915,7 +3935,8 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency"
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21

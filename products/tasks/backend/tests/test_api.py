@@ -2,10 +2,13 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE
 from products.tasks.backend.models import Task, TaskProgress, TaskWorkflow, WorkflowStage
@@ -213,7 +216,7 @@ class TestTaskWorkflowAPI(BaseTaskAPITest):
     def test_permission_denied_without_auth(self):
         self.client.force_authenticate(None)
         response = self.client.get("/api/projects/@current/workflows/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
@@ -536,7 +539,7 @@ class TestTaskProgressAPI(BaseTaskAPITest):
         self.assertEqual(len(data["progress_updates"]), 1)
 
 
-class TestPermissionsAndFeatureFlags(BaseTaskAPITest):
+class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
         # Create another team/org for cross-team tests
@@ -621,7 +624,7 @@ class TestPermissionsAndFeatureFlags(BaseTaskAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url)
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, f"Failed for {method} {url}")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
 
     def test_cross_team_workflow_access_forbidden(self):
         # Create workflow in other team
@@ -718,3 +721,85 @@ class TestPermissionsAndFeatureFlags(BaseTaskAPITest):
         task_ids = [t["id"] for t in response.json()["results"]]
         self.assertIn(str(my_task.id), task_ids)
         self.assertNotIn(str(other_task.id), task_ids)
+
+    @parameterized.expand(
+        [
+            ("task:read", "GET", "/api/projects/@current/tasks/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:read", "GET", "/api/projects/@current/workflows/", True),
+            ("task:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("no_scope", "GET", "/api/projects/@current/agents/", False),
+            ("task:read", "POST", "/api/projects/@current/tasks/", False),
+            ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
+            ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
+            ("task:read", "POST", "/api/projects/@current/workflows/", False),
+            ("task:read", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", False),
+            ("task:write", "GET", "/api/projects/@current/tasks/", True),
+            ("task:write", "POST", "/api/projects/@current/tasks/", True),
+            ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:write", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:write", "POST", "/api/projects/@current/workflows/", True),
+            ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
+            ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
+            ("*", "GET", "/api/projects/@current/tasks/", True),
+            ("*", "POST", "/api/projects/@current/tasks/", True),
+        ]
+    )
+    def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
+        task = self.create_task()
+        workflow = task.workflow
+
+        api_key_value = generate_random_token_personal()
+
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label=f"Test API Key - {scope}",
+            secure_value=hash_key_value(api_key_value),
+            scopes=[scope],
+        )
+
+        url = url_template.format(task_id=task.id, workflow_id=workflow.id)
+
+        self.client.force_authenticate(None)
+
+        data = {}
+        if method == "POST" and "tasks" in url:
+            data = {
+                "title": "New Task",
+                "description": "Description",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            }
+        elif method == "POST" and "workflows" in url:
+            data = {
+                "name": "New Workflow",
+                "description": "Description",
+            }
+        elif method == "PATCH" and "tasks" in url:
+            data = {"title": "Updated Task"}
+        elif method == "PATCH" and "workflows" in url:
+            data = {"name": "Updated Workflow"}
+
+        if method == "GET":
+            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        elif method == "POST":
+            response = self.client.post(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        elif method == "PATCH":
+            response = self.client.patch(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        elif method == "DELETE":
+            response = self.client.delete(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        else:
+            self.fail(f"Unsupported method: {method}")
+
+        if should_have_access:
+            self.assertNotEqual(
+                response.status_code,
+                status.HTTP_403_FORBIDDEN,
+                f"Expected access but got 403 for {scope} on {method} {url}",
+            )
+        else:
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_403_FORBIDDEN,
+                f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
+            )

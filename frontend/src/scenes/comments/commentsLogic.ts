@@ -6,12 +6,15 @@ import api from 'lib/api'
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
+import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
@@ -38,7 +41,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
     connect(() => ({
         actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
     })),
 
     actions({
@@ -142,13 +145,19 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const mentions = values.richContentEditor?.getMentions() ?? []
 
+                    const content = values.richContentEditor?.getJSON()
+
+                    const textContent = getTextContent(content, values.meFirstMembers)
+
                     const newComment = await api.comments.create({
-                        rich_content: values.richContentEditor?.getJSON(),
+                        rich_content: content,
+                        content: textContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
                         mentions,
+                        slug: discussionsSlug(),
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -175,10 +184,13 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const { id, rich_content } = editedComment
 
+                    const textContent = getTextContent(rich_content, values.meFirstMembers)
+
                     const updatedComment = await api.comments.update(id, {
                         rich_content,
-                        content: null,
-                        new_mentions: newMentions,
+                        content: textContent,
+                        mentions: newMentions,
+                        slug: discussionsSlug(),
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },

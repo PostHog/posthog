@@ -127,6 +127,7 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
 
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
+        connection_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(**connection_kwargs)
 
