@@ -129,22 +129,22 @@ class Migration(migrations.Migration):
             model_name="schemapropertygroupproperty",
             index=models.Index(fields=["property_group", "order"], name="schema_pgp_group_order_idx"),
         ),
-        migrations.AddIndex(
-            model_name="schemapropertygroup",
-            index=models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
-        ),
         migrations.AddConstraint(
-            model_name="schemapropertygrouproperty",
+            model_name="schemapropertygroupproperty",
             constraint=models.UniqueConstraint(
                 fields=("property_group", "name"), name="unique_property_group_property_name"
             ),
         ),
         migrations.AddConstraint(
-            model_name="schemapropertygrouproperty",
+            model_name="schemapropertygroupproperty",
             constraint=models.CheckConstraint(
                 check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration"])),
                 name="property_type_is_valid_schema",
             ),
+        ),
+        migrations.AddIndex(
+            model_name="schemapropertygroup",
+            index=models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
         ),
         migrations.AddConstraint(
             model_name="schemapropertygroup",

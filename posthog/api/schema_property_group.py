@@ -92,10 +92,26 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
             instance.save()
 
             if properties_data is not None:
-                instance.properties.all().delete()
+                existing_properties = {prop.id: prop for prop in instance.properties.all()}
+                incoming_property_ids = {prop.get("id") for prop in properties_data if prop.get("id")}
+
+                # Delete properties that are no longer present
+                properties_to_delete = set(existing_properties.keys()) - incoming_property_ids
+                if properties_to_delete:
+                    SchemaPropertyGroupProperty.objects.filter(id__in=properties_to_delete).delete()
+
+                # Update existing properties and create new ones
                 for property_data in properties_data:
-                    property_data.pop("id", None)  # Remove id since we're creating new properties
-                    SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
+                    property_id = property_data.pop("id", None)
+                    if property_id and property_id in existing_properties:
+                        # Update existing property
+                        existing_prop = existing_properties[property_id]
+                        for key, value in property_data.items():
+                            setattr(existing_prop, key, value)
+                        existing_prop.save()
+                    else:
+                        # Create new property
+                        SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
 
         # Query fresh instance with properties to ensure all data is current
         return SchemaPropertyGroup.objects.prefetch_related("properties").get(pk=instance.pk)

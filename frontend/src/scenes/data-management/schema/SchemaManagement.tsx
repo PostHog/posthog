@@ -159,6 +159,7 @@ export function SchemaManagement(): JSX.Element {
                     columns={columns}
                     dataSource={filteredPropertyGroups}
                     loading={propertyGroupsLoading}
+                    rowKey="id"
                     expandable={{
                         expandedRowRender: (propertyGroup) => (
                             <div className="space-y-4 mx-4 mb-2 mt-2">
