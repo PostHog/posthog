@@ -217,6 +217,7 @@ export function Cohorts(): JSX.Element {
 
             <SceneTitleSection
                 name="Cohorts"
+                description="A catalog of identified persons and your created cohorts."
                 resourceType={{
                     type: RESOURCE_TYPE,
                 }}

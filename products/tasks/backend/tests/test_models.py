@@ -513,7 +513,7 @@ class TestTask(TestCase):
         self.assertEqual(repo_list[0]["org"], "PostHog")
         self.assertEqual(repo_list[0]["repo"], "posthog")
         self.assertEqual(repo_list[0]["integration_id"], integration.id)
-        self.assertEqual(repo_list[0]["full_name"], "PostHog/posthog")
+        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
 
     def test_repository_list_empty(self):
         task = Task.objects.create(

@@ -14,11 +14,11 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
+import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
-export function BaseLLMAnalyticsTraces({ logic }: { logic: ReturnType<typeof llmAnalyticsLogic> }): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
-    const { tracesQuery } = useValues(logic)
+export function LLMAnalyticsTraces(): JSX.Element {
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
+    const { tracesQuery } = useValues(llmAnalyticsLogic)
 
     return (
         <DataTable
@@ -81,10 +81,6 @@ export function BaseLLMAnalyticsTraces({ logic }: { logic: ReturnType<typeof llm
     )
 }
 
-export function LLMAnalyticsTraces(): JSX.Element {
-    return <BaseLLMAnalyticsTraces logic={llmAnalyticsLogic()} />
-}
-
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
@@ -92,7 +88,7 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
             <Tooltip title={row.id}>
                 <Link
                     className="ph-no-capture"
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
@@ -107,7 +103,7 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
         <strong>
             <Link
                 className="ph-no-capture"
-                to={urls.llmAnalyticsTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+                to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
             >
                 {row.traceName || '–'}
             </Link>

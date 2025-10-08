@@ -491,6 +491,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     hash_key = models.CharField(max_length=400)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "person", "feature_flag_key"],

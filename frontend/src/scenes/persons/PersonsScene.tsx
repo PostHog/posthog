@@ -44,6 +44,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
             <SceneTitleSection
                 name="People"
+                description="A catalog of all the people behind your events"
                 resourceType={{
                     type: 'person',
                     forceIcon: <IconPeople />,
