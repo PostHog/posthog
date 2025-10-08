@@ -11,6 +11,7 @@ from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.hogql import ast
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -94,10 +95,13 @@ def build_all_revenue_analytics_views(
                 continue
             for kind, builder in per_kind.items():
                 with timings.measure(f"builder.{handle.type}.{kind}"):
-                    built_query = builder(handle)
-                    with timings.measure(f"materialize.{handle.type}.{kind}"):
-                        view = _query_to_view(built_query, kind, handle)
-                        views_by_class[type(view)].append(view)
+                    try:
+                        built_query = builder(handle)
+                        with timings.measure(f"materialize.{handle.type}.{kind}"):
+                            view = _query_to_view(built_query, kind, handle)
+                            views_by_class[type(view)].append(view)
+                    except Exception as e:
+                        capture_exception(e, {"handle_type": handle.type, "kind": kind})
 
     views: list[RevenueAnalyticsBaseView] = []
     for ViewClass in views_by_class:
