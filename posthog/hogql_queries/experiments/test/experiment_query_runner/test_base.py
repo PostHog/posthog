@@ -7,6 +7,30 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+
+def add_query_builder_flag(test_cases):
+    """
+    Helper to add use_new_query_builder flag variants to test cases.
+
+    For each test case, creates two variants:
+    - one with use_new_query_builder=False
+    - one with use_new_query_builder=True
+    """
+    result = []
+    for case in test_cases:
+        name = case[0]
+        args = case[1:]
+        result.append((f"{name}_disable_new_query_builder", *args, False))
+        result.append((f"{name}_enable_new_query_builder", *args, True))
+    return result
+
+
+# Simple decorator for tests that only need the query builder flag
+parameterize_with_query_builder = parameterized.expand([
+    ("disable_new_query_builder", False),
+    ("enable_new_query_builder", True),
+])
+
 from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
@@ -954,107 +978,102 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 0)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @parameterized.expand(
-        [
-            [
-                "person_properties",
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_absolute_exposure": 12,
-                    "test_absolute_exposure": 15,
-                },
-            ],
-            [
-                "event_properties",
-                {
-                    "key": "$host",
-                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                    "operator": "not_regex",
-                    "type": "event",
-                },
-                {
-                    "control_absolute_exposure": 6,
-                    "test_absolute_exposure": 6,
-                },
-            ],
-            [
-                "feature_flags",
-                {
-                    "key": "$feature/flag_doesnt_exist",
-                    "type": "event",
-                    "value": ["test", "control"],
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 0,
-                    "test_absolute_exposure": 0,
-                },
-            ],
-            [
-                "cohort_static",
-                {
-                    "key": "id",
-                    "type": "static-cohort",
-                    # value is generated in the test
-                    "value": None,
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 2,
-                    "test_absolute_exposure": 1,
-                },
-            ],
-            [
-                "cohort_dynamic",
-                {
-                    "key": "id",
-                    "type": "cohort",
-                    # value is generated in the test
-                    "value": None,
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 12,
-                    "test_absolute_exposure": 15,
-                },
-            ],
-            [
-                "group",
-                {
-                    "key": "name",
-                    "type": "group",
-                    # Value is generated in the test
-                    "value": None,
-                    "operator": "exact",
-                    "group_type_index": 0,
-                },
-                {
-                    "control_absolute_exposure": 8,
-                    "test_absolute_exposure": 10,
-                },
-            ],
-            [
-                "element",
-                {
-                    "key": "tag_name",
-                    "type": "element",
-                    "value": ["button"],
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 0,
-                    "test_absolute_exposure": 0,
-                },
-            ],
-        ]
-    )
+    @parameterized.expand(add_query_builder_flag([
+        (
+            "person_properties",
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            },
+            {
+                "control_absolute_exposure": 12,
+                "test_absolute_exposure": 15,
+            },
+        ),
+        (
+            "event_properties",
+            {
+                "key": "$host",
+                "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
+                "operator": "not_regex",
+                "type": "event",
+            },
+            {
+                "control_absolute_exposure": 6,
+                "test_absolute_exposure": 6,
+            },
+        ),
+        (
+            "feature_flags",
+            {
+                "key": "$feature/flag_doesnt_exist",
+                "type": "event",
+                "value": ["test", "control"],
+                "operator": "exact",
+            },
+            {
+                "control_absolute_exposure": 0,
+                "test_absolute_exposure": 0,
+            },
+        ),
+        (
+            "cohort_static",
+            {
+                "key": "id",
+                "type": "static-cohort",
+                "value": None,  # value is generated in the test
+                "operator": "exact",
+            },
+            {
+                "control_absolute_exposure": 2,
+                "test_absolute_exposure": 1,
+            },
+        ),
+        (
+            "cohort_dynamic",
+            {
+                "key": "id",
+                "type": "cohort",
+                "value": None,  # value is generated in the test
+                "operator": "exact",
+            },
+            {
+                "control_absolute_exposure": 12,
+                "test_absolute_exposure": 15,
+            },
+        ),
+        (
+            "group",
+            {
+                "key": "name",
+                "type": "group",
+                "value": None,  # value is generated in the test
+                "operator": "exact",
+                "group_type_index": 0,
+            },
+            {
+                "control_absolute_exposure": 8,
+                "test_absolute_exposure": 10,
+            },
+        ),
+        (
+            "element",
+            {
+                "key": "tag_name",
+                "type": "element",
+                "value": ["button"],
+                "operator": "exact",
+            },
+            {
+                "control_absolute_exposure": 0,
+                "test_absolute_exposure": 0,
+            },
+        ),
+    ]))
     @snapshot_clickhouse_queries
-    def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
+    def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict, use_new_query_builder: bool):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
@@ -1174,7 +1193,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder)
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
@@ -1213,7 +1232,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder)
         result = query_runner.calculate()
         assert result.variant_results is not None
         control_result = result.baseline
@@ -1224,45 +1243,43 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_result.number_of_samples, 14)
         self.assertEqual(test_result.number_of_samples, 16)
 
-    @parameterized.expand(
-        [
-            [
-                "experiment_duration",
-                None,
-                {
-                    "control_count": 3,
-                    "test_count": 3,
-                },
-            ],
-            [
-                "24_hour_window",
-                24,
-                {
-                    "control_count": 1,
-                    "test_count": 1,
-                },
-            ],
-            [
-                "48_hour_window",
-                48,
-                {
-                    "control_count": 6,
-                    "test_count": 6,
-                },
-            ],
-            [
-                "72_hour_window",
-                72,
-                {
-                    "control_count": 7,
-                    "test_count": 7,
-                },
-            ],
-        ]
-    )
+    @parameterized.expand(add_query_builder_flag([
+        (
+            "experiment_duration",
+            None,
+            {
+                "control_count": 3,
+                "test_count": 3,
+            },
+        ),
+        (
+            "24_hour_window",
+            24,
+            {
+                "control_count": 1,
+                "test_count": 1,
+            },
+        ),
+        (
+            "48_hour_window",
+            48,
+            {
+                "control_count": 6,
+                "test_count": 6,
+            },
+        ),
+        (
+            "72_hour_window",
+            72,
+            {
+                "control_count": 7,
+                "test_count": 7,
+            },
+        ),
+    ]))
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_time_window(self, name, time_window_hours, expected_results):
+    def test_query_runner_with_time_window(self, name, time_window_hours, expected_results, use_new_query_builder):
         feature_flag = self.create_feature_flag()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1315,7 +1332,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder)
         result = query_runner.calculate()
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
@@ -1461,23 +1478,21 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)  # 3 control users
         self.assertEqual(test_variant.number_of_samples, 3)  # 3 test users
 
-    @parameterized.expand(
-        [
-            [
-                "exclude",
-                MultipleVariantHandling.EXCLUDE,
-                {"control_count": 3, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
-            ],
-            [
-                "first_seen",
-                MultipleVariantHandling.FIRST_SEEN,
-                {"control_count": 6, "test_count": 5, "control_exposure": 3, "test_exposure": 3},
-            ],
-        ]
-    )
+    @parameterized.expand(add_query_builder_flag([
+        (
+            "exclude",
+            MultipleVariantHandling.EXCLUDE,
+            {"control_count": 3, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
+        ),
+        (
+            "first_seen",
+            MultipleVariantHandling.FIRST_SEEN,
+            {"control_count": 6, "test_count": 5, "control_exposure": 3, "test_exposure": 3},
+        ),
+    ]))
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_multiple_variant_handling_options(self, name, multiple_variant_handling, expected_results):
+    def test_query_runner_multiple_variant_handling_options(self, name, multiple_variant_handling, expected_results, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
@@ -1641,7 +1656,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder)
         result = query_runner.calculate()
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
