@@ -15,12 +15,9 @@ from rest_framework import status
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
 from posthog.models import BatchExportDestination
 
-from products.batch_exports.backend.api.destination_tests import (
-    BigQueryProjectTestStep,
-    DestinationTestStepResult,
-    SnowflakeEstablishConnectionTestStep,
-    Status,
-)
+from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
+from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryProjectTestStep
+from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
 
 pytestmark = [
     pytest.mark.django_db,
@@ -262,7 +259,7 @@ def test_can_run_snowflake_test_step_for_partial_config(
     }
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
+        "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
     ) as run_step_mocked:
         fake_test_step = SnowflakeEstablishConnectionTestStep()
         fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
@@ -374,7 +371,7 @@ def test_can_run_bigquery_test_step_with_castable_type(
     )
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
+        "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
     ) as run_step_mocked:
         fake_test_step = BigQueryProjectTestStep()
         fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
