@@ -5,8 +5,10 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActionsNode,
     CachedExperimentQueryResponse,
     ExperimentDataWarehouseNode,
+    ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
@@ -39,6 +41,7 @@ from posthog.hogql_queries.experiments.experiment_query_builder import Experimen
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    normalize_to_exposure_criteria,
 )
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result,
@@ -492,22 +495,40 @@ class ExperimentQueryRunner(QueryRunner):
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
-        Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
         """
         if self._should_use_new_query_builder():
             assert isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric)
+
+            # TODO: Refactor this. Essentially, we are taking an experiment metric here and
+            # prepare inputs for the query builder. Could be extracted to it's own function.
+            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
+            exposure_config: ExperimentEventExposureConfig | ActionsNode
+            if criteria is None:
+                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+                filter_test_accounts = False
+                multiple_variant_handling = MultipleVariantHandling.FIRST_SEEN
+            else:
+                if criteria.exposure_config is None:
+                    exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+                else:
+                    exposure_config = criteria.exposure_config
+                filter_test_accounts = criteria.filterTestAccounts or True
+                multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.FIRST_SEEN
+
             builder = ExperimentQueryBuilder(
-                experiment=self.experiment,
                 team=self.team,
+                feature_flag_key=self.feature_flag.key,
                 metric=self.metric,
+                exposure_config=exposure_config,
+                filter_test_accounts=filter_test_accounts,
+                multiple_variant_handling=multiple_variant_handling,
                 variants=self.variants,
                 date_range_query=self.date_range_query,
                 entity_key=self.entity_key,
-                multiple_variant_handling=self.multiple_variant_handling,
             )
             return builder.build_query()
 
-        # Legacy implementation (self-join approach)
+        # Old implementation
         # Get all entities that should be included in the experiment
         exposure_query = get_experiment_exposure_query(
             self.experiment,
