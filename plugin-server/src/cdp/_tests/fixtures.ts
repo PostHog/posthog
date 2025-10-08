@@ -5,7 +5,7 @@ import { Message } from 'node-rdkafka'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
 import { CdpInternalEvent } from '../schema'
@@ -325,7 +325,8 @@ export const insertCohortMembership = async (
         ...membership,
     }
 
-    return await insertRow(db, 'cohort_membership', record, PostgresUse.BEHAVIORAL_COHORTS_RW)
+    // insertRow now automatically determines the correct database based on table name
+    return await insertRow(db, 'cohort_membership', record)
 }
 
 export const insertCohortMemberships = async (
