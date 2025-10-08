@@ -1037,6 +1037,7 @@ def get_teams_with_exceptions_captured_in_period(
         FROM events
         WHERE
             event = '$exception' AND
+            not (arrayExists(x -> x != '' AND position(x, 'Script error.') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND toUInt32(splitByChar('.', mat_$lib_version)[2]) < 249) AND
             not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
             timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
