@@ -28,7 +28,9 @@ class Command(BaseCommand):
         run_async = options["async"]
         org_ids_str = options.get("org_ids")
 
-        organization_ids = [oid.strip() for oid in org_ids_str.split(",")] if org_ids_str else None
+        organization_ids = (
+            ([oid.strip() for oid in org_ids_str.split(",") if oid.strip()] or None) if org_ids_str else None
+        )
 
         if run_async:
             send_all_org_usage_reports.delay(
