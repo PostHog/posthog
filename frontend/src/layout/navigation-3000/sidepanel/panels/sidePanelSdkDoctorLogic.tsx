@@ -1058,100 +1058,37 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     error: undefined,
                                 }
                             } else if (info.type === 'flutter') {
-                                // DIRECT IMPLEMENTATION FOR FLUTTER SDK - bypass the complex pipeline
+                                // FLUTTER SDK - use smart semver detection
+                                console.info(`[SDK Doctor] Flutter SDK async check for version ${info.version}`)
 
-                                // Get SDK data directly
-                                const sdkData = await fetchSdkData('flutter')
+                                const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
+                                const {
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    error,
+                                } = versionCheckResult
 
-                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
-                                    console.warn('[SDK Doctor] Flutter SDK: No version data available')
-                                    updatedMap[key] = {
-                                        ...info,
-                                        isOutdated: false,
-                                        releasesAhead: 0,
-                                        latestVersion: undefined,
-                                        releaseDate: undefined,
-                                        daysSinceRelease: undefined,
-                                        isAgeOutdated: false,
-                                        deviceContext: 'mobile',
-                                        eventVolume: categorizeEventVolume(info.count),
-                                        lastSeenTimestamp: new Date().toISOString(),
-                                        error: 'The Doctor is unavailable. Please try again later.',
-                                    }
-                                    continue
-                                }
-
-                                const latestVersion = sdkData.versions[0]
-                                const versions = sdkData.versions
-                                const releaseDates = sdkData.releaseDates || {}
-
-                                console.info(
-                                    `[SDK Doctor] Flutter SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
-                                )
-                                console.info(
-                                    `[SDK Doctor] Flutter SDK release dates available:`,
-                                    Object.keys(releaseDates)
-                                )
-
-                                // Find the index of the current version
-                                const currentIndex = versions.indexOf(info.version)
-                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
-
-                                // Get release date for the current version
-                                let releaseDate: string | undefined
-                                let daysSinceRelease: number | undefined
-                                let isRecentRelease = false
-
-                                if (releaseDates[info.version]) {
-                                    releaseDate = releaseDates[info.version]
-                                    const releaseTimestamp = new Date(releaseDate).getTime()
-                                    const now = Date.now()
-                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
-                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
-                                }
-
-                                // Apply the dual-check logic directly
-                                let isOutdated = false
-                                if (info.version !== latestVersion) {
-                                    if (isRecentRelease) {
-                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
-                                        isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
-                                        )
-                                    } else if (releasesBehind >= 3) {
-                                        // 3 or more releases behind AND not recent - outdated
-                                        isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
-                                        )
-                                    } else if (releasesBehind >= 2) {
-                                        // 2+ releases behind AND not recent - outdated
-                                        isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
-                                        )
-                                    } else {
-                                        // 1 release behind - close enough
-                                        isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
-                                        )
-                                    }
-                                }
+                                const deviceContext =
+                                    'deviceContext' in versionCheckResult && versionCheckResult.deviceContext
+                                        ? (versionCheckResult.deviceContext as 'mobile' | 'desktop' | 'mixed')
+                                        : determineDeviceContext(info.type)
 
                                 updatedMap[key] = {
                                     ...info,
                                     isOutdated,
-                                    releasesAhead: releasesBehind,
+                                    releasesAhead,
                                     latestVersion,
                                     releaseDate,
                                     daysSinceRelease,
-                                    isAgeOutdated: false, // Not used for direct implementation
-                                    deviceContext: 'mobile',
+                                    isAgeOutdated,
+                                    deviceContext,
                                     eventVolume: categorizeEventVolume(info.count),
                                     lastSeenTimestamp: new Date().toISOString(),
-                                    error: undefined,
+                                    error,
                                 }
                             } else if (info.type === 'ios') {
                                 // DIRECT IMPLEMENTATION FOR iOS SDK - bypass the complex pipeline
