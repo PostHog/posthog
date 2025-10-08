@@ -126,10 +126,10 @@ pub struct Config {
     pub max_concurrency: usize,
 
     // Database connection pool settings:
-    // - High traffic: Increase max_pg_connections (e.g., 20-50)
+    // - High traffic: Increase max_pg_connections (e.g., 30-50)
     // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
     // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
-    #[envconfig(default = "10")]
+    #[envconfig(default = "30")]
     pub max_pg_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
@@ -142,16 +142,16 @@ pub struct Config {
     pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
+    // - Increase if seeing "pool timed out" errors under load (e.g., 10-15s)
     // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "3")]
+    #[envconfig(default = "10")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
     // - Set to 0 to disable (connections never close due to idle)
-    // - Increase for bursty traffic to avoid reconnection overhead (e.g., 600-900)
+    // - Increase for bursty traffic to avoid reconnection overhead (e.g., 900-1800)
     // - Decrease to free resources more aggressively (e.g., 60-120)
-    #[envconfig(default = "300")]
+    #[envconfig(default = "900")]
     pub idle_timeout_secs: u64,
 
     // Force refresh connections after this many seconds regardless of activity
@@ -281,9 +281,9 @@ impl Config {
             persons_read_database_url: "postgres://posthog:posthog@localhost:5434/posthog_persons"
                 .to_string(),
             max_concurrency: 1000,
-            max_pg_connections: 10,
-            acquire_timeout_secs: 3,
-            idle_timeout_secs: 300,
+            max_pg_connections: 30,
+            acquire_timeout_secs: 10,
+            idle_timeout_secs: 900,
             max_lifetime_secs: 1800,
             test_before_acquire: FlexBool(true),
             db_monitor_interval_secs: 30,
@@ -417,7 +417,7 @@ mod tests {
             "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.max_pg_connections, 30);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -446,7 +446,7 @@ mod tests {
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
         assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.max_pg_connections, 30);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -472,7 +472,7 @@ mod tests {
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
         assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.max_pg_connections, 30);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
