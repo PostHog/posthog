@@ -50,7 +50,7 @@ result = await executor.ainvoke({
 })
 ```
 
-**[→ See full LangChain example](https://github.com/posthog/mcp/tree/main/examples/langchain)**
+**[→ See full LangChain example](https://github.com/PostHog/posthog/tree/master/products/mcp/examples/langchain)**
 
 ## Available Tools
 
