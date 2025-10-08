@@ -417,8 +417,10 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
             "distinct_id": distinct_id1,
         })
     );
-    assert!(!headers.contains_key("force_disable_person_processing"),
-        "Main topic events should not have force_disable_person_processing header");
+    assert!(
+        !headers.contains_key("force_disable_person_processing"),
+        "Main topic events should not have force_disable_person_processing header"
+    );
 
     let (event, headers) = topic.next_message_with_headers()?;
     assert_json_include!(
