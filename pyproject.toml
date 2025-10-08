@@ -191,7 +191,7 @@ dev = [
     "freezegun==1.2.2",
     "inline-snapshot==0.19.*",
     "ipython>=9.3.0",
-    "mypy~=1.17.1",
+    "mypy~=1.18.2",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
     # openapi-spec-validator needed for prance as a validation backend
