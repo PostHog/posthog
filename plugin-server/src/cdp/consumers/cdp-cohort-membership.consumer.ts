@@ -11,7 +11,7 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
-    personId: z.number(),
+    personId: z.string().uuid(),
     cohortId: z.number(),
     teamId: z.number(),
     cohort_membership_changed: z.enum(['entered', 'left']),
