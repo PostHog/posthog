@@ -689,7 +689,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
                 allowPlayerChromeToHide: () => {
                     return false
-                    return false
                 },
             },
         ],
