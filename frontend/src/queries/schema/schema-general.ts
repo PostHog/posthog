@@ -2407,7 +2407,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
-    | 'embedded_analytics'
+    | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -4018,6 +4018,7 @@ export const externalDataSources = [
     'DoIt',
     'LinkedinAds',
     'RedditAds',
+    'TikTokAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

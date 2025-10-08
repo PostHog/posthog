@@ -101,7 +101,7 @@ export function DataPipelinesHogFunctions({
                 <HogFunctionTemplateList
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualTemplates={hogFunctionTemplatesBatchExports}
+                    manualTemplates={kind === 'destination' ? hogFunctionTemplatesBatchExports : undefined}
                     hideComingSoonByDefault
                 />
             </SceneSection>
