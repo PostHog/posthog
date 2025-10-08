@@ -25,9 +25,10 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
     constructor(hub: Hub) {
         super(hub)
-        const topic = KAFKA_COHORT_MEMBERSHIP_CHANGED
-        const groupId = 'cdp-cohort-membership-consumer'
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: 'cdp-cohort-membership-consumer',
+            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+        })
     }
 
     private async handleBatchCohortMembership(changes: CohortMembershipChange[]): Promise<void> {
