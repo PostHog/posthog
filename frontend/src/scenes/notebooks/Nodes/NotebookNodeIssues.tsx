@@ -4,8 +4,11 @@ import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
+import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { IssuesFilters } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesFilters'
 import {
     ListOptions,
     getQueryContext,
@@ -28,12 +31,19 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
         return null
     }
 
+    const key = insightVizDataNodeKey(insightProps)
+
     return (
-        <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <div>
-                <ListOptions isSticky={false} />
-                <Query query={query} context={context} />
-            </div>
+        <BindLogic logic={issuesDataNodeLogic} props={{ key }}>
+            <BindLogic logic={issueFiltersLogic} props={{ key }}>
+                <BindLogic logic={issueQueryOptionsLogic} props={{ key }}>
+                    <div className="space-y-2">
+                        <IssuesFilters />
+                        <ListOptions isSticky={false} />
+                        <Query query={query} context={context} />
+                    </div>
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }
