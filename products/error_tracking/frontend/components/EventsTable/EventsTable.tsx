@@ -6,10 +6,11 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { IconLink } from 'lib/lemon-ui/icons'
+import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { isString } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -164,46 +165,15 @@ export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }:
     const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
 
-    // function isEventSelected(record: ErrorEventType): boolean {
-    //     return selectedEvent ? selectedEvent.uuid === record.uuid : false
-    // }
-
-    // function renderUUID(record: ErrorEventType): JSX.Element {
-    //     // Click event is caught at the row level
-    //     return (
-    //         <div className="flex items-center">
-    //             <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} onChange={() => {}} />
-    //         </div>
-    //     )
-    // }
-
-    // function renderAttributes(record: ErrorEventType): JSX.Element {
-    //     return (
-    //         <div className="flex justify-end gap-1">
-    //             {tagRenderer(record)}
-    //             <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
-    //         </div>
-    //     )
-    // }
-
-    function renderActions(record: ErrorEventType): JSX.Element {
-        return (
-            <div className="flex justify-end items-center gap-x-1">
-                {renderViewRecordingButton(record)}
-                {renderMoreButton(record)}
-            </div>
-        )
-    }
-
     function renderPerson(record: ErrorEventType): JSX.Element {
         const display = asDisplay(record.person)
         return (
             <div className="flex items-center">
                 <span onClick={cancelEvent}>
                     <PersonDisplay person={record.person} noLink>
-                        <Link subtle className={clsx('flex items-center')}>
+                        <Link subtle className="flex items-center">
                             <PersonIcon displayName={display} person={record.person} size="md" />
-                            <span className={clsx('ph-no-capture', 'truncate')}>{display}</span>
+                            <span className="ph-no-capture truncate">{display}</span>
                         </Link>
                     </PersonDisplay>
                 </span>
@@ -213,14 +183,21 @@ export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }:
 
     function renderTitle(record: ErrorEventType): JSX.Element {
         return (
-            <LemonTableLink
-                title={renderPerson(record)}
-                description={
-                    <>
-                        <TZLabel time={record.timestamp} />
-                    </>
-                }
-            />
+            <div>
+                {renderPerson(record)}
+                <div className="flex gap-1">
+                    <TZLabel time={record.timestamp} />
+                    {tagRenderer(record)}
+                </div>
+            </div>
+        )
+    }
+
+    function renderAttributes(record: ErrorEventType): JSX.Element {
+        return (
+            <div className="flex space-x-1">
+                <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} iconOnly />
+            </div>
         )
     }
 
@@ -230,9 +207,60 @@ export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }:
             embedded
             onRowClick={onEventSelect}
             className="overflow-auto"
+            rowRibbonColor={({ uuid }) => (uuid === selectedEvent?.uuid ? 'var(--primary)' : 'transparent')}
         >
             <DataSourceTableColumn<ErrorEventType> cellRenderer={renderTitle} />
-            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={renderActions} />
+            <DataSourceTableColumn<ErrorEventType> align="center" cellRenderer={renderAttributes} />
+            <DataSourceTableColumn<ErrorEventType> align="right" cellRenderer={Actions} />
         </DataSourceTable>
+    )
+}
+
+const Actions = (record: ErrorEventType): JSX.Element => {
+    const { onClick, disabledReason } = useRecordingButton({
+        sessionId: getSessionId(record.properties),
+        recordingStatus: getRecordingStatus(record.properties),
+        timestamp: record.timestamp,
+        inModal: true,
+    })
+
+    return (
+        <div className="flex justify-end">
+            <ButtonPrimitive
+                disabledReasons={isString(disabledReason) ? { [disabledReason]: true } : {}}
+                onClick={onClick}
+            >
+                <IconPlayCircle />
+            </ButtonPrimitive>
+            {record.properties.$ai_trace_id && (
+                <ButtonPrimitive
+                    fullWidth
+                    onClick={(event) => {
+                        cancelEvent(event)
+                        urls.llmAnalyticsTrace(record.properties.$ai_trace_id, {
+                            event: record.uuid,
+                            timestamp: record.timestamp,
+                        })
+                    }}
+                    disabledReasons={{ ['There is no LLM Trace ID on this event']: !record.properties.$ai_trace_id }}
+                    tooltip="View LLM Trace"
+                >
+                    <IconAI />
+                </ButtonPrimitive>
+            )}
+            <ButtonPrimitive
+                data-attr="events-table-event-link"
+                onClick={(event) => {
+                    cancelEvent(event)
+                    void copyToClipboard(
+                        urls.absolute(urls.currentProject(urls.event(String(record.uuid), record.timestamp))),
+                        'link to event'
+                    )
+                }}
+                tooltip="Copy link to exception event"
+            >
+                <IconLink />
+            </ButtonPrimitive>
+        </div>
     )
 }

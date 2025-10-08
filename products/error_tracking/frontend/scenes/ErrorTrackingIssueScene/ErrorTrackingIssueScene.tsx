@@ -46,7 +46,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         v.includes('persistence.isDisabled is not a function')
     )
 
-    if (true) {
+    if (false) {
         return <V2Layout />
     }
 

@@ -22,7 +22,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
-import { EventsTable, EventsV2Table } from '../../components/EventsTable/EventsTable'
+import { EventsV2Table } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'

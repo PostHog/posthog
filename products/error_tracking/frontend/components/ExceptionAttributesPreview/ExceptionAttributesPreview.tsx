@@ -2,7 +2,7 @@ import { Children } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconBug } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
@@ -10,11 +10,13 @@ import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null
     loading?: boolean
+    iconOnly?: boolean
 }
 
 export function ExceptionAttributesPreview({
     attributes,
     loading = false,
+    iconOnly = false,
 }: ExceptionAttributesPreviewProps): JSX.Element {
     return (
         <>
@@ -34,18 +36,10 @@ export function ExceptionAttributesPreview({
                                     <IconBug className="text-sm text-secondary" />
                                 </PropertyWrapper>
                                 <PropertyWrapper title={attributes.browser} visible={!!attributes.browser}>
-                                    <PropertyIcon
-                                        property="$browser"
-                                        value={attributes.browser}
-                                        className="text-sm text-secondary"
-                                    />
+                                    <Property property="$browser" title={attributes.browser} iconOnly={iconOnly} />
                                 </PropertyWrapper>
                                 <PropertyWrapper title={attributes.os} visible={!!attributes.os}>
-                                    <PropertyIcon
-                                        property="$os"
-                                        value={attributes.os}
-                                        className="text-sm text-secondary"
-                                    />
+                                    <Property property="$os" title={attributes.os} iconOnly={iconOnly} />
                                 </PropertyWrapper>
                             </>
                         )
@@ -67,9 +61,17 @@ export function PropertyWrapper({
     if (Children.count(children) == 0 || title === undefined || !visible) {
         return <></>
     }
-    return (
+    return children
+}
+
+function Property({ property, title, iconOnly }: { property: string; title?: string; iconOnly: boolean }): JSX.Element {
+    return iconOnly ? (
+        <Tooltip title={title} delayMs={0}>
+            <PropertyIcon property={property} value={title} className="text-sm text-secondary" />
+        </Tooltip>
+    ) : (
         <LemonTag className="bg-fill-primary">
-            {children}
+            <PropertyIcon property={property} value={title} className="text-sm text-secondary" />
             <span className="capitalize">{title}</span>
         </LemonTag>
     )
