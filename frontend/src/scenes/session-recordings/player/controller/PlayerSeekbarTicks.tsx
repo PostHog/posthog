@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import posthog from 'posthog-js'
 import React, { MutableRefObject, memo } from 'react'
 
@@ -18,6 +19,9 @@ import {
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
 import { UserActivity } from './UserActivity'
 
@@ -58,10 +62,18 @@ function PlayerSeekbarTick({
     zIndex: number
     onClick: (e: React.MouseEvent) => void
 }): JSX.Element | null {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
         return null
+    }
+
+    const handleClick = (e: React.MouseEvent): void => {
+        onClick(e)
+        if (isComment(item)) {
+            openSidePanel(SidePanelTab.Discussion, item.data.source_comment ?? item.data.id)
+        }
     }
 
     return (
@@ -72,7 +84,7 @@ function PlayerSeekbarTick({
                 left: `${position}%`,
                 zIndex: zIndex,
             }}
-            onClick={onClick}
+            onClick={handleClick}
         >
             <Tooltip
                 placement="top-start"

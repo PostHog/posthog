@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -37,7 +38,7 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
+        actions: [sidePanelDiscussionLogic, ['incrementCommentCount'], playerCommentModel, ['commentEdited']],
         values: [userLogic, ['user']],
     })),
 
@@ -220,7 +221,7 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
         setReplyingComment: () => {
             actions.clearItemContext()
         },
@@ -245,10 +246,16 @@ export const commentsLogic = kea<commentsLogicType>([
             actions.incrementCommentCount()
             values.richContentEditor?.clear()
         },
+        commentEdited: ({ recordingId }) => {
+            if (props.scope === 'recording' && props.item_id === recordingId) {
+                actions.loadComments()
+            }
+        },
     })),
 
     selectors({
         key: [() => [(_, props) => props], (props): string => `${props.scope}-${props.item_id || ''}`],
+        propsItemContext: [() => [(_, props) => props.item_context], (item_context) => item_context],
         sortedComments: [
             (s) => [s.comments],
             (comments) => {

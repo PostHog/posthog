@@ -3,18 +3,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, ProfilePicture } from '@posthog/lemon-ui'
+import { IconCheck, IconClock, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
     DEFAULT_EXTENSIONS,
     LemonRichContentEditor,
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
@@ -34,6 +36,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
         isMyComment,
         editingCommentRichContentEditor,
         isEditingCommentEmpty,
+        propsItemContext,
     } = useValues(commentsLogic)
     const {
         deleteComment,
@@ -56,6 +59,12 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
         }
     }, [isHighlighted])
 
+    const recordingStartTime = propsItemContext?.recording_start_time
+    const timeInRecording =
+        comment.item_context?.time_in_recording && recordingStartTime
+            ? dayjs(comment.item_context.time_in_recording).diff(dayjs(recordingStartTime), 'second')
+            : null
+
     return (
         <div
             ref={ref}
@@ -70,10 +79,12 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         <span className="flex-1 font-semibold ">
                             {comment.created_by?.first_name ?? 'Unknown user'}
                         </span>
-                        {comment.created_at ? (
-                            <span className="text-xs">
-                                <TZLabel time={comment.created_at} />
-                            </span>
+                        {timeInRecording !== null ? (
+                            <Tooltip title="Time in recording">
+                                <LemonTag icon={<IconClock />} type="highlight">
+                                    {colonDelimitedDuration(timeInRecording, 2)}
+                                </LemonTag>
+                            </Tooltip>
                         ) : null}
 
                         <LemonMenu
@@ -217,6 +228,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
                         commentWithReplies={{
                             id: x.id,
                             comment: x,
+                            // replies are only one level deep
                             replies: [],
                         }}
                     />
