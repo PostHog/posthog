@@ -97,13 +97,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Get the exposure event and feature flag variant property
         if not self.feature_flag_key:
             raise ValidationError("feature_flag key is required")
-        event, feature_flag_variant_property = get_exposure_event_and_property(
+        _, feature_flag_variant_property = get_exposure_event_and_property(
             self.feature_flag_key, self.exposure_criteria
         )
 
         # Build common exposure conditions using shared logic
         exposure_conditions = build_common_exposure_conditions(
-            event=event,
             feature_flag_variant_property=feature_flag_variant_property,
             variants=self.variants,
             date_range_query=self.date_range_query,
