@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconDatabase, IconHogQL } from '@posthog/icons'
+import { IconDatabase, IconHogQL, IconPerson } from '@posthog/icons'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -22,18 +22,22 @@ import {
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, PersonType } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
-export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'recents'
+export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps-tools' | 'data-management' | 'recents'
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
 }
+
+export type SpecialSearchMode = 'person' | null
 
 const PAGINATION_LIMIT = 20
 
@@ -115,6 +119,54 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
+        personSearchResults: [
+            [] as PersonType[],
+            {
+                loadPersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    if (!searchTerm.trim()) {
+                        return []
+                    }
+
+                    const personsQuery: DataTableNode = {
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.ActorsQuery,
+                            select: [...defaultDataTableColumns(NodeKind.ActorsQuery)],
+                            search: searchTerm.trim(),
+                        },
+                        full: true,
+                    }
+
+                    // Make direct API call to query endpoint with proper format
+                    const response = await api.create('api/projects/@current/query/', {
+                        query: personsQuery,
+                    })
+                    breakpoint()
+
+                    // Parse the results - they come as nested arrays where first element is the person data
+
+                    const persons =
+                        response?.results?.map((row: any) => {
+                            const personData = row[0] // First element contains the person data
+                            const personId = row[1] // Second element is the ID
+                            const createdAt = row[2] // Third element is created_at
+
+                            const person = {
+                                uuid: personId,
+                                distinct_ids: [personId],
+                                properties: {
+                                    email: personData.display_name, // Use display_name as it's already formatted
+                                },
+                                created_at: createdAt,
+                            }
+
+                            return person
+                        }) || []
+
+                    return persons
+                },
+            },
+        ],
     })),
     reducers({
         search: [
@@ -142,15 +194,36 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     selectors({
         categories: [
             () => [],
-            (): { key: NEW_TAB_CATEGORY_ITEMS; label: string }[] => [
-                { key: 'all', label: 'All' },
-                { key: 'create-new', label: 'Create new' },
-                { key: 'apps', label: 'Apps' },
-                { key: 'data-management', label: 'Data management' },
-                { key: 'recents', label: 'Recents' },
+            (): { key: NEW_TAB_CATEGORY_ITEMS; label: string; description?: string }[] => [
+                { key: 'all', label: 'All', description: 'All items in PostHog' },
+                {
+                    key: 'create-new',
+                    label: 'Create new',
+                    description: 'Create new insights, queries, experiments, etc.',
+                },
+                { key: 'apps-tools', label: 'Apps / Tools', description: "All of PostHog's apps, tools, and features" },
+                {
+                    key: 'data-management',
+                    label: 'Data management',
+                    description: 'Manage your data sources and destinations',
+                },
+                { key: 'recents', label: 'Recents', description: 'Project-based recently accessed items' },
             ],
         ],
-        isSearching: [(s) => [s.recentsLoading], (recentsLoading): boolean => recentsLoading],
+        specialSearchMode: [
+            (s) => [s.search],
+            (search: string): SpecialSearchMode => {
+                if (search.startsWith('/person')) {
+                    return 'person'
+                }
+                return null
+            },
+        ],
+        isSearching: [
+            (s) => [s.recentsLoading, s.personSearchResultsLoading],
+            (recentsLoading: boolean, personSearchResultsLoading: boolean): boolean =>
+                recentsLoading || personSearchResultsLoading,
+        ],
         projectTreeSearchItems: [
             (s) => [s.recents],
             (recents): NewTabTreeDataItem[] => {
@@ -171,9 +244,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 })
             },
         ],
+        personSearchItems: [
+            (s) => [s.personSearchResults],
+            (personSearchResults): NewTabTreeDataItem[] => {
+                const items = personSearchResults.map((person) => {
+                    const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
+                    const displayName = person.properties?.email || personId
+                    const item = {
+                        id: `person-${person.uuid}`,
+                        name: `View this person ${displayName}`,
+                        category: 'recents' as NEW_TAB_CATEGORY_ITEMS,
+                        href: urls.personByDistinctId(personId),
+                        icon: <IconPerson />,
+                        record: {
+                            type: 'person',
+                            path: `Person: ${displayName}`,
+                            href: urls.personByDistinctId(personId),
+                        },
+                    }
+
+                    return item
+                })
+
+                return items
+            },
+        ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems],
-            (featureFlags, projectTreeSearchItems): NewTabTreeDataItem[] => {
+            (s) => [s.featureFlags, s.projectTreeSearchItems, s.personSearchItems, s.specialSearchMode],
+            (featureFlags, projectTreeSearchItems, personSearchItems, specialSearchMode): NewTabTreeDataItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs, index) => ({
@@ -217,7 +315,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .map((fs, index) => ({
                         id: `product-${index}`,
                         name: fs.path,
-                        category: 'apps' as NEW_TAB_CATEGORY_ITEMS,
+                        category: 'apps-tools' as NEW_TAB_CATEGORY_ITEMS,
                         href: fs.href,
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
@@ -237,6 +335,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         record: fs,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+
+                // If in person search mode, only show person results
+                if (specialSearchMode === 'person') {
+                    return personSearchItems
+                }
 
                 const allItems: NewTabTreeDataItem[] = [
                     {
@@ -266,13 +369,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         filteredItemsGrid: [
-            (s) => [s.itemsGrid, s.search, s.selectedCategory],
-            (itemsGrid, search, selectedCategory): NewTabTreeDataItem[] => {
+            (s) => [s.itemsGrid, s.search, s.selectedCategory, s.specialSearchMode],
+            (
+                itemsGrid: NewTabTreeDataItem[],
+                search: string,
+                selectedCategory: NEW_TAB_CATEGORY_ITEMS,
+                specialSearchMode: SpecialSearchMode
+            ): NewTabTreeDataItem[] => {
                 let filtered = itemsGrid
 
                 // Filter by selected category
                 if (selectedCategory !== 'all') {
                     filtered = filtered.filter((item) => item.category === selectedCategory)
+                }
+
+                // For special search modes (like person search), skip the normal search filtering
+                if (specialSearchMode === 'person') {
+                    return filtered
                 }
 
                 // Filter by search
@@ -340,6 +453,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         },
         setSearch: () => {
             actions.loadRecents()
+
+            // If search starts with /person, load person search results
+            if (values.search.startsWith('/person')) {
+                const searchTerm = values.search.replace(/^\/person\s*/, '').trim()
+                if (searchTerm) {
+                    actions.loadPersonSearchResults({ searchTerm })
+                }
+            }
         },
     })),
     tabAwareActionToUrl(({ values }) => ({

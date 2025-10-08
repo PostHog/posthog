@@ -39,7 +39,7 @@ export const scene: SceneExport = {
 const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         'create-new': 'Create new',
-        apps: 'Apps',
+        'apps-tools': 'Apps / Tools',
         'data-management': 'Data management',
         recents: 'Recents',
     }
@@ -61,8 +61,16 @@ function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { filteredItemsGrid, groupedFilteredItems, search, selectedItem, categories, selectedCategory, isSearching } =
-        useValues(newTabSceneLogic({ tabId }))
+    const {
+        filteredItemsGrid,
+        groupedFilteredItems,
+        search,
+        selectedItem,
+        categories,
+        selectedCategory,
+        isSearching,
+        specialSearchMode,
+    } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
@@ -102,28 +110,34 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     </ListBox.Item>
                     <div className="mx-1.5">
                         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
-                            <span>
-                                <span className="text-tertiary">Try:</span>
-                                <ListBox.Item asChild>
-                                    <ButtonPrimitive
-                                        size="xxs"
-                                        className="text-xs"
-                                        onClick={() => setSearch('New SQL query')}
-                                    >
-                                        New SQL query
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                                <span className="text-tertiary">or</span>
-                                <ListBox.Item asChild>
-                                    <ButtonPrimitive
-                                        size="xxs"
-                                        className="text-xs"
-                                        onClick={() => setSearch('Experiment')}
-                                    >
-                                        Experiment
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                            </span>
+                            {specialSearchMode === 'person' ? (
+                                <span>
+                                    <span className="text-tertiary">Search person by ID or email</span>
+                                </span>
+                            ) : (
+                                <span>
+                                    <span className="text-tertiary">Try:</span>
+                                    <ListBox.Item asChild>
+                                        <ButtonPrimitive
+                                            size="xxs"
+                                            className="text-xs"
+                                            onClick={() => setSearch('/person john')}
+                                        >
+                                            /person john
+                                        </ButtonPrimitive>
+                                    </ListBox.Item>
+                                    <span className="text-tertiary">or</span>
+                                    <ListBox.Item asChild>
+                                        <ButtonPrimitive
+                                            size="xxs"
+                                            className="text-xs"
+                                            onClick={() => setSearch('Experiment')}
+                                        >
+                                            Experiment
+                                        </ButtonPrimitive>
+                                    </ListBox.Item>
+                                </span>
+                            )}
                             <span className="text-primary flex gap-1 items-center">
                                 {/* if filtered results lenght is 0, this will be the first to focus */}
                                 <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
@@ -247,6 +261,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                 </h3>
                                                 {category === 'recents' && isSearching && <Spinner size="small" />}
                                             </div>
+                                            {(() => {
+                                                const categoryInfo = categories.find((c) => c.key === category)
+                                                return (
+                                                    categoryInfo?.description && (
+                                                        <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">
+                                                            {categoryInfo.description}
+                                                        </p>
+                                                    )
+                                                )
+                                            })()}
                                         </div>
                                         <div className="flex flex-col gap-2">
                                             {category === 'recents' && typedItems.length === 0 ? (
