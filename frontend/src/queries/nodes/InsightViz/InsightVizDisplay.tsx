@@ -30,10 +30,10 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ExporterFormat, FunnelVizType, InsightType } from '~/types'
+import { ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -50,6 +50,7 @@ export function InsightVizDisplay({
     embedded,
     inSharedMode,
     editMode,
+    insightProps,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -61,8 +62,9 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
     editMode?: boolean
+    insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
