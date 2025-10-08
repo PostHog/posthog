@@ -424,7 +424,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            category: 'Unreleased',
+            category: 'Behavior',
             iconType: 'heatmap' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-heatmaps-light)',
@@ -432,7 +432,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             ] as FileSystemIconColor,
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
-            tags: ['alpha'],
+            tags: ['beta'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {
