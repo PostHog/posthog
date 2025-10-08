@@ -26,7 +26,17 @@ class Migration(migrations.Migration):
                 to="tasks.taskworkflow",
             ),
         ),
-        migrations.DeleteModel(
-            name="AgentDefinition",
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql="DROP TABLE IF EXISTS posthog_agent_definition CASCADE;",
+                    reverse_sql=migrations.RunSQL.noop,
+                )
+            ],
+            state_operations=[
+                migrations.DeleteModel(
+                    name="AgentDefinition",
+                )
+            ],
         ),
     ]

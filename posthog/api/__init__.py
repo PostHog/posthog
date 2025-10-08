@@ -215,6 +215,9 @@ projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agent
 # Root alias for agents to match external clients
 router.register(r"agents", tasks.AgentDefinitionViewSet, "agents")
 
+# Task progress endpoints
+projects_router.register(r"task_progress", tasks.TaskProgressViewSet, "project_task_progress", ["team_id"])
+
 # Workflows endpoints
 project_workflows_router = projects_router.register(
     r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]

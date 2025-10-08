@@ -25,11 +25,14 @@ from .serializers import (
     AgentDefinitionSerializer,
     AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskAttachPullRequestRequestSerializer,
     TaskBulkReorderRequestSerializer,
     TaskBulkReorderResponseSerializer,
+    TaskProgressDetailSerializer,
     TaskProgressResponseSerializer,
     TaskProgressStreamResponseSerializer,
     TaskSerializer,
+    TaskSetBranchRequestSerializer,
     TaskUpdatePositionRequestSerializer,
     TaskUpdateStageRequestSerializer,
     TaskWorkflowSerializer,
@@ -67,6 +70,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "progress",
             "progress_stream",
             "progress_task",
+            "set_branch",
+            "attach_pr",
         ]
     }
 
@@ -540,6 +545,64 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        summary="Set Git branch for task",
+        description="Persist the branch associated with this task's implementation work.",
+        request=TaskSetBranchRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated branch"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid branch name"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="set_branch", required_scopes=["task:write"])
+    def set_branch(self, request, pk=None, **kwargs):
+        branch = request.data.get("branch")
+
+        if not branch or not isinstance(branch, str):
+            return Response(
+                ErrorResponseSerializer({"error": "branch is required"}).data, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        task = cast(Task, self.get_object())
+        task.github_branch = branch
+        task.save(update_fields=["github_branch", "updated_at"])
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        summary="Attach pull request to task",
+        description="Persist the PR URL (and optionally branch) associated with this task.",
+        request=TaskAttachPullRequestRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated PR metadata"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid payload"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="attach_pr", required_scopes=["task:write"])
+    def attach_pr(self, request, pk=None, **kwargs):
+        pr_url = request.data.get("pr_url")
+        branch = request.data.get("branch")
+
+        if not pr_url or not isinstance(pr_url, str):
+            return Response(
+                ErrorResponseSerializer({"error": "pr_url is required"}).data, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        task = cast(Task, self.get_object())
+        task.github_pr_url = pr_url
+
+        update_fields = ["github_pr_url", "updated_at"]
+
+        if branch and isinstance(branch, str):
+            task.github_branch = branch
+            update_fields.append("github_branch")
+
+        task.save(update_fields=update_fields)
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
 
 @extend_schema(tags=["workflows"])
 class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -686,6 +749,27 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         stage = self.get_object()
         stage.archive()
         return Response(WorkflowStageArchiveResponseSerializer({"message": "Stage archived successfully"}).data)
+
+
+@extend_schema(tags=["task-progress"])
+class TaskProgressViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    API for recording task progress so clients can poll for updates without relying on streaming hooks.
+    """
+
+    serializer_class = TaskProgressDetailSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    scope_object = "task"
+    queryset = TaskProgress.objects.select_related("task").all()
+    posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update"]}
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
 
 
 @extend_schema(tags=["agents"])
