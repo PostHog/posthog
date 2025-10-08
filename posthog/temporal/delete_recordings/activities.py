@@ -1,5 +1,7 @@
 import json
+from collections import defaultdict
 from datetime import datetime
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 import pytz
@@ -22,11 +24,11 @@ from posthog.temporal.delete_recordings.metrics import (
     get_block_loaded_counter,
 )
 from posthog.temporal.delete_recordings.types import (
-    DeleteRecordingBlocksInput,
     DeleteRecordingError,
     LoadRecordingError,
-    RecordingInput,
+    Recording,
     RecordingsWithPersonInput,
+    RecordingWithBlocks,
 )
 
 LOGGER = get_write_only_logger()
@@ -56,7 +58,7 @@ def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
 
 
 @activity.defn(name="load-recording-blocks")
-async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
+async def load_recording_blocks(input: Recording) -> list[RecordingBlock]:
     async with Heartbeater():
         bind_contextvars(session_id=input.session_id, team_id=input.team_id)
         logger = LOGGER.bind()
@@ -89,14 +91,38 @@ async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
         return blocks
 
 
+@activity.defn(name="group-recording-blocks")
+async def group_recording_blocks(input: RecordingWithBlocks) -> list[list[RecordingBlock]]:
+    async with Heartbeater():
+        block_count = len(input.blocks)
+        bind_contextvars(
+            session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=block_count
+        )
+        logger = LOGGER.bind()
+        logger.info("Grouping recording blocks")
+
+        block_map = defaultdict(list)
+
+        for block in input.blocks:
+            scheme, netloc, path, _, _, _ = urlparse(block.url)
+            base_key = urlunparse((scheme, netloc, path, None, None, None))
+            block_map[base_key].append(block)
+
+        block_groups: list[list[RecordingBlock]] = block_map.values()
+
+        logger.info(f"Grouped {block_count} blocks into {len(block_groups)} groups")
+        return block_groups
+
+
 @activity.defn(name="delete-recording-blocks")
-async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
+async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
     async with Heartbeater():
         bind_contextvars(
             session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=len(input.blocks)
         )
         logger = LOGGER.bind()
         logger.info("Deleting recording blocks")
+
         async with session_recording_v2_object_storage.async_client() as storage:
             block_deleted_counter = 0
             block_deleted_error_counter = 0
@@ -104,6 +130,7 @@ async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
             for block in input.blocks:
                 try:
                     await storage.delete_block(block.url)
+                    logger.info(f"Deleted block at {block.url}")
                     block_deleted_counter += 1
                 except session_recording_v2_object_storage.BlockDeleteError:
                     logger.warning(f"Failed to delete block at {block.url}, skipping...")
