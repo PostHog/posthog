@@ -289,13 +289,32 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if funnelCustomSteps:
             # this is an adjustment for how UDF funnels represent steps
+            # funnelCustomSteps uses step_reached (max step reached), not individual step completion
             funnelCustomSteps = [x - 1 for x in funnelCustomSteps]
             conditions.append(parse_expr(f"step_reached IN {funnelCustomSteps}"))
         elif funnelStep is not None:
             if funnelStep >= 0:
-                conditions.append(parse_expr(f"step_reached >= {funnelStep - 1}"))
+                # Check if the user completed this specific step using bitTest
+                conditions.append(parse_expr(f"bitTest(steps_bitfield, {funnelStep - 1})"))
             else:
-                conditions.append(parse_expr(f"step_reached = {-funnelStep - 2}"))
+                # For dropoff at step N, check that user completed the prior REQUIRED step but not step N
+                # With optional steps, we need to find the last required step before the dropoff step
+                target_step_index = abs(funnelStep) - 1  # 0-indexed step we're checking dropoff at
+
+                # Find the last required step before target_step_index
+                prior_required_step_index = None
+                for i in range(target_step_index - 1, -1, -1):
+                    if not getattr(self.context.query.series[i], "optionalInFunnel", False):
+                        prior_required_step_index = i
+                        break
+
+                if prior_required_step_index is None:
+                    # No prior required step found, shouldn't happen but fallback
+                    prior_required_step_index = target_step_index - 1
+
+                # User completed the prior required step but not the target step
+                conditions.append(parse_expr(f"bitTest(steps_bitfield, {prior_required_step_index})"))
+                conditions.append(parse_expr(f"NOT bitTest(steps_bitfield, {target_step_index})"))
         else:
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
