@@ -435,6 +435,18 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 }
             ],
             "description": "The union type with all supported base queries for the assistant."
@@ -788,7 +800,8 @@
                 "search_docs",
                 "search_insights",
                 "session_summarization",
-                "create_dashboard"
+                "create_dashboard",
+                "filter_revenue_analytics"
             ],
             "type": "string"
         },
@@ -9932,6 +9945,74 @@
             "additionalProperties": false,
             "type": "object"
         },
+        "EndpointLastExecutionTimesRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["names"],
+            "type": "object"
+        },
+        "EndpointRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/InsightQueryNode"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
+        "EndpointRunRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "client_query_id": {
+                    "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
+                    "type": "string"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "query_override": {
+                    "type": "object"
+                },
+                "refresh": {
+                    "$ref": "#/definitions/RefreshType",
+                    "default": "blocking",
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "type": "object"
+                    },
+                    "type": "object"
+                },
+                "variables_values": {
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "EntityNode": {
             "additionalProperties": false,
             "properties": {
@@ -11271,11 +11352,21 @@
             "required": ["event", "kind", "properties"],
             "type": "object"
         },
+        "ExperimentExposureConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
                 "exposure_config": {
-                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                    "$ref": "#/definitions/ExperimentExposureConfig"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
@@ -11584,7 +11675,10 @@
                     "type": ["string", "null"]
                 },
                 "filters": {
-                    "type": "object"
+                    "items": {
+                        "$ref": "#/definitions/FeatureFlagGroupType"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": ["number", "null"]
@@ -11613,6 +11707,9 @@
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11651,6 +11748,9 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -11728,6 +11828,9 @@
         "ExperimentMetricOutlierHandling": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -12411,7 +12514,8 @@
                 "TemporalIO",
                 "DoIt",
                 "LinkedinAds",
-                "RedditAds"
+                "RedditAds",
+                "TikTokAds"
             ],
             "type": "string"
         },
@@ -12451,6 +12555,33 @@
                 }
             },
             "required": ["type"],
+            "type": "object"
+        },
+        "FeatureFlagGroupType": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "rollout_percentage": {
+                    "type": ["number", "null"]
+                },
+                "sort_key": {
+                    "type": ["string", "null"]
+                },
+                "users_affected": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -12570,7 +12701,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
-                "embedded_analytics",
+                "endpoints",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -15197,7 +15328,9 @@
                 "github",
                 "meta-ads",
                 "clickup",
-                "reddit-ads"
+                "reddit-ads",
+                "databricks",
+                "tiktok-ads"
             ],
             "type": "string"
         },
@@ -16657,61 +16790,6 @@
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
-        "NamedQueryRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "query": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/HogQLQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/InsightQueryNode"
-                        }
-                    ]
-                }
-            },
-            "type": "object"
-        },
-        "NamedQueryRunRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "client_query_id": {
-                    "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
-                    "type": "string"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
-                },
-                "query_override": {
-                    "type": "object"
-                },
-                "refresh": {
-                    "$ref": "#/definitions/RefreshType",
-                    "default": "blocking",
-                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
-                },
-                "variables_override": {
-                    "additionalProperties": {
-                        "type": "object"
-                    },
-                    "type": "object"
-                },
-                "variables_values": {
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
         "NewExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -17342,6 +17420,51 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
+        },
+        "PlaywrightWorkspaceSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_name": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "PlaywrightWorkspaceSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "personal_api_key": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "organization_id",
+                "team_id",
+                "organization_name",
+                "team_name",
+                "user_id",
+                "user_email",
+                "personal_api_key"
+            ],
+            "type": "object"
         },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
@@ -21990,6 +22113,28 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsBreakdown"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties", "breakdown"],
+            "type": "object"
+        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -24966,6 +25111,38 @@
             ],
             "type": "object"
         },
+        "TestSetupRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "TestSetupResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "available_tests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "result": {},
+                "success": {
+                    "type": "boolean"
+                },
+                "test_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["success", "test_name"],
+            "type": "object"
+        },
         "TileFilters": {
             "additionalProperties": false,
             "properties": {
@@ -25137,6 +25314,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "personId": {
+                    "description": "Person who performed the event",
+                    "type": "string"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -25628,6 +25809,9 @@
                 "is_email_verified": {},
                 "last_name": {
                     "type": "string"
+                },
+                "role_at_organization": {
+                    "type": ["string", "null"]
                 },
                 "uuid": {
                     "type": "string"

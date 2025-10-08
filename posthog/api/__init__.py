@@ -25,10 +25,11 @@ from posthog.warehouse.api.lineage import LineageViewSet
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
+from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, EvaluationViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
@@ -39,7 +40,6 @@ from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
-    activity_log,
     advanced_activity_logs,
     alert,
     annotation,
@@ -180,7 +180,7 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
     r"activity_log",
-    activity_log.ActivityLogViewSet,
+    advanced_activity_logs.ActivityLogViewSet,
     "project_activity_log",
     ["project_id"],
 )
@@ -209,16 +209,18 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 
-register_grandfathered_environment_nested_viewset(r"tasks", tasks.TaskViewSet, "environment_tasks", ["team_id"])
-register_grandfathered_environment_nested_viewset(
-    r"workflows", tasks.TaskWorkflowViewSet, "environment_workflows", ["team_id"]
+projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+
+projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
+
+project_workflows_router = projects_router.register(
+    r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]
 )
-register_grandfathered_environment_nested_viewset(
-    r"workflow-stages", tasks.WorkflowStageViewSet, "environment_workflow_stages", ["team_id"]
+
+project_workflows_router.register(
+    r"stages", tasks.WorkflowStageViewSet, "project_workflow_stages", ["team_id", "workflow_id"]
 )
-register_grandfathered_environment_nested_viewset(
-    r"agents", tasks.AgentDefinitionViewSet, "environment_agents", ["team_id"]
-)
+
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
@@ -827,6 +829,10 @@ environments_router.register(
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 
+register_grandfathered_environment_nested_viewset(
+    r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
+)
+
 environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
@@ -866,5 +872,12 @@ register_grandfathered_environment_nested_viewset(
     r"dataset_items",
     DatasetItemViewSet,
     "environment_dataset_items",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"evaluations",
+    EvaluationViewSet,
+    "environment_evaluations",
     ["team_id"],
 )

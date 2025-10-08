@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import base64
+import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -77,6 +78,7 @@ class Integration(models.Model):
         TWILIO = "twilio"
         CLICKUP = "clickup"
         VERCEL = "vercel"
+        DATABRICKS = "databricks"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -1153,7 +1155,7 @@ class EmailIntegration:
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
         elif provider == "mailjet":
-            verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+            verification_result = self.mailjet_provider.verify_email_domain(domain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
@@ -1164,15 +1166,19 @@ class EmailIntegration:
 
         if verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
-            other_integrations = Integration.objects.filter(
+            all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,
                 kind="email",
                 config__domain=domain,
                 config__provider=provider,
             )
-            for integration in other_integrations:
+            for integration in all_integrations_for_domain:
                 integration.config["verified"] = True
                 integration.save()
+
+            reload_integrations_on_workers(
+                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            )
 
         return verification_result
 
@@ -1761,3 +1767,103 @@ class TwilioIntegration:
             integration.save()
 
         return integration
+
+
+class DatabricksIntegrationError(Exception):
+    """Error raised when the Databricks integration is not valid."""
+
+    pass
+
+
+class DatabricksIntegration:
+    """A Databricks integration.
+
+    The recommended way to connect to Databricks is via OAuth machine-to-machine (M2M) authentication.
+    See: https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+
+    This works quite differently to regular user-to-machine OAuth as it does not require a real-time user sign in and
+    consent flow: Instead, the user creates a service principal and provided us with the client ID and client secret to authenticate.
+
+    Attributes:
+        integration: The integration object.
+        server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+        client_id: the service principal's UUID or Application ID value.
+        client_secret: the Secret value for the service principal's OAuth secret.
+    """
+
+    integration: Integration
+    server_hostname: str
+    client_id: str
+    client_secret: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.DATABRICKS.value:
+            raise DatabricksIntegrationError("Integration provided is not a Databricks integration")
+        self.integration = integration
+
+        try:
+            self.server_hostname = self.integration.config["server_hostname"]
+            self.client_id = self.integration.sensitive_config["client_id"]
+            self.client_secret = self.integration.sensitive_config["client_secret"]
+        except KeyError as e:
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
+
+    @classmethod
+    def integration_from_config(
+        cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
+    ) -> Integration:
+        # first, validate the host
+        cls.validate_host(server_hostname)
+
+        config = {
+            "server_hostname": server_hostname,
+        }
+        sensitive_config = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS.value,
+            integration_id=server_hostname,  # Use server_hostname as unique identifier
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @staticmethod
+    def validate_host(server_hostname: str):
+        """Validate the Databricks host.
+
+        This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
+        warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here)
+        """
+        # we expect a hostname, not a full URL
+        if server_hostname.startswith("http"):
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
+            )
+        # TCP connectivity check
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3.0)
+            # we only support https
+            port = 443
+            sock.connect((server_hostname, port))
+            sock.close()
+        except OSError:
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+            )
+        except Exception:
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+            )

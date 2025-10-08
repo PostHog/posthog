@@ -1,9 +1,10 @@
+import { DateTime } from 'luxon'
+
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
-import { isDlqResult, isDropResult, isOkResult, isRedirectResult } from '../../../ingestion/pipelines/results'
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
+import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
+import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
+import { EventHeaders, Hub, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
@@ -13,17 +14,13 @@ import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
 import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
-import { redirectEventToTopic, sendEventToDLQ } from '../pipeline-helpers'
 import { EventsProcessor } from '../process-event'
-import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { captureIngestionWarning } from '../utils'
 import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
-import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
-    eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
-    pipelineStepDLQCounter,
     pipelineStepErrorCounter,
     pipelineStepMsSummary,
     pipelineStepStalledCounter,
@@ -35,16 +32,15 @@ import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
-    // Promises that the batch handler should await on before committing offsets,
-    // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
-    ackPromises?: Array<Promise<void>>
     // Only used in tests
     // TODO: update to test for side-effects of running the pipeline rather than
     // this return type.
     lastStep: string
-    args: any[]
+    eventToEmit?: RawKafkaEvent
     error?: string
 }
+
+export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
 
 class StepErrorNoRetry extends Error {
     step: string
@@ -83,43 +79,6 @@ export class EventPipelineRunner {
         this.headers = headers
     }
 
-    isEventDisallowed(event: PipelineEvent): boolean {
-        // During incidents we can use the the env DROP_EVENTS_BY_TOKEN_DISTINCT_ID
-        // to drop events here before processing them which would allow us to catch up
-        const key = event.token || event.team_id?.toString()
-        if (!key) {
-            return false // for safety don't drop events here, they are later dropped in teamDataPopulation
-        }
-
-        if (event.event === '$exception') {
-            // Exception events were fully moved to rust processing on its own topic. As a defensive measure,
-            // we'll drop them here
-            return true
-        }
-
-        const dropIds = this.hub.eventsToDropByToken?.get(key)
-        return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
-    }
-
-    validateEvent(event: PluginEvent): true | { warning: string; data: any } {
-        if (event.event === '$groupidentify') {
-            const groupKey = event.properties?.$group_key
-            if (groupKey && groupKey.toString().length > 400) {
-                return {
-                    warning: 'group_key_too_long',
-                    data: {
-                        eventUuid: event.uuid,
-                        event: event.event,
-                        distinctId: event.distinct_id,
-                        groupKeyLength: groupKey.toString().length,
-                        maxLength: 400,
-                    },
-                }
-            }
-        }
-        return true
-    }
-
     /**
      * Heatmap ingestion will eventually be its own plugin server deployment
      * in the meantime we run this set of steps instead of wrapping each step in a conditional
@@ -127,61 +86,72 @@ export class EventPipelineRunner {
      * or having a conditional inside each step
      * // TODO move this out into its own pipeline runner when splitting the deployment
      */
-    async runHeatmapPipelineSteps(event: PluginEvent, kafkaAcks: Promise<void>[]): Promise<EventPipelineResult> {
+    async runHeatmapPipelineSteps(
+        event: PluginEvent,
+        kafkaAcks: Promise<void>[]
+    ): Promise<EventPipelinePipelineResult> {
         const processPerson = false
 
-        const [normalizedEvent] = await this.runStep(normalizeEventStep, [event, processPerson], event.team_id)
+        const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
+            normalizeEventStep,
+            [event, processPerson],
+            event.team_id,
+            true,
+            kafkaAcks
+        )
+        if (!isOkResult(normalizeResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return normalizeResult
+        }
+        const [normalizedEvent] = normalizeResult.value
 
-        const preparedEvent = await this.runStep(
+        const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
             [this, normalizedEvent, processPerson],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(prepareResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return prepareResult
+        }
+        const preparedEvent = prepareResult.value
 
-        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
+        const extractResult = await this.runStep<[PreIngestionEvent, Promise<void>[]], typeof extractHeatmapDataStep>(
             extractHeatmapDataStep,
             [this, preparedEvent],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(extractResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return extractResult
+        }
+        const [_, heatmapKafkaAcks] = extractResult.value
 
         if (heatmapKafkaAcks.length > 0) {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
+        const result = this.registerLastStep('extractHeatmapDataStep')
+        return ok(result, kafkaAcks)
     }
 
-    async runEventPipeline(event: PipelineEvent, team: Team): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PipelineEvent, team: Team): Promise<EventPipelinePipelineResult> {
         this.originalEvent = event
 
         try {
-            if (this.isEventDisallowed(event)) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'disallowed',
-                    })
-                    .inc()
-                return this.registerLastStep('eventDisallowedStep', [event])
-            }
-
             const pluginEvent: PluginEvent = {
                 ...event,
                 team_id: team.id,
             }
-
-            const result = await this.runEventPipelineSteps(pluginEvent, team)
-
-            eventProcessedAndIngestedCounter.inc()
-            return result
+            return await this.runEventPipelineSteps(pluginEvent, team)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
-                return {
-                    lastStep: error.step,
-                    args: [],
-                    error: error.message,
-                }
+                return dlq('Step error - non-retriable', error)
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
                 captureException(error, {
@@ -193,23 +163,8 @@ export class EventPipelineRunner {
         }
     }
 
-    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
+    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<void>[] = []
-
-        // Validate event properties
-        const validationResult = this.validateEvent(event)
-        if (validationResult !== true) {
-            kafkaAcks.push(
-                captureIngestionWarning(
-                    this.hub.db.kafkaProducer,
-                    event.team_id,
-                    validationResult.warning,
-                    validationResult.data,
-                    { alwaysSend: false }
-                )
-            )
-            return this.registerLastStep('validateEventStep', [event], kafkaAcks)
-        }
 
         let processPerson = true // The default.
 
@@ -237,7 +192,7 @@ export class EventPipelineRunner {
                         )
                     )
 
-                    return this.registerLastStep('invalidEventForProvidedFlags', [event], kafkaAcks)
+                    return drop('Invalid event for provided flags', kafkaAcks)
                 }
 
                 // If person processing is disabled, go ahead and remove person related keys before
@@ -278,124 +233,186 @@ export class EventPipelineRunner {
                 { alwaysSend: true }
             )
 
-            return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
+            return drop('Client ingestion warning event', kafkaAcks)
         }
 
         if (event.event === '$$heatmap') {
-            return this.runHeatmapPipelineSteps(event, kafkaAcks)
+            return await this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const dropOldEventsResult = await this.runStep(dropOldEventsStep, [this, event, team], event.team_id)
+        const dropOldResult = await this.runStep<PluginEvent | null, typeof dropOldEventsStep>(
+            dropOldEventsStep,
+            [this, event, team],
+            event.team_id,
+            true,
+            kafkaAcks
+        )
+        if (!isOkResult(dropOldResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return dropOldResult
+        }
+        const dropOldEventsResult = dropOldResult.value
 
         if (dropOldEventsResult == null) {
-            // Event was dropped because it's too old.
-            return this.registerLastStep('dropOldEventsStep', [event], kafkaAcks)
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return drop('Event too old', kafkaAcks)
         }
 
-        const { event: transformedEvent } = await this.runStep(
+        const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
             transformEventStep,
             [dropOldEventsResult, this.hogTransformer],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(transformResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return transformResult
+        }
+        const { event: transformedEvent } = transformResult.value
 
         if (transformedEvent === null) {
-            return this.registerLastStep('transformEventStep', [dropOldEventsResult], kafkaAcks)
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return drop('Event dropped by transformation', kafkaAcks)
         }
 
-        const [normalizedEvent, timestamp] = await this.runStep(
+        const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
             normalizeEventStep,
             [transformedEvent, processPerson, this.headers, this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(normalizeResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return normalizeResult
+        }
+        const [normalizedEvent, timestamp] = normalizeResult.value
 
-        const personStepResult = await this.runStep(
+        const personStepResult = await this.runPipelineStep<
+            [PluginEvent, Person, Promise<void>],
+            typeof processPersonsStep
+        >(
             processPersonsStep,
             [this, normalizedEvent, team, timestamp, processPerson, this.personsStoreForBatch],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
 
         if (!isOkResult(personStepResult)) {
-            // Handle DLQ/drop/redirect cases - return early from pipeline
-            if (isDlqResult(personStepResult)) {
-                await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
-            } else if (isDropResult(personStepResult)) {
-                logger.info('Event dropped during person processing', {
-                    team_id: event.team_id,
-                    distinct_id: event.distinct_id,
-                    reason: personStepResult.reason,
-                })
-            } else if (isRedirectResult(personStepResult)) {
-                logger.info('Event redirected during person processing', {
-                    team_id: event.team_id,
-                    distinct_id: event.distinct_id,
-                    reason: personStepResult.reason,
-                    topic: personStepResult.topic,
-                })
-                await this.redirectToTopic(event, personStepResult.topic)
-            }
-            return this.registerLastStep('processPersonsStep', [], kafkaAcks)
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return personStepResult
         }
 
         const [postPersonEvent, person, personKafkaAck] = personStepResult.value
         kafkaAcks.push(personKafkaAck)
 
-        const preparedEvent = await this.runStep(
+        const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
             [this, postPersonEvent, processPerson],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(prepareResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return prepareResult
+        }
+        const preparedEvent = prepareResult.value
 
         // TRICKY: old client might still be sending heatmap_data as passengers on other events
         // so this step is here even though up-to-date clients will be sending heatmap events
         // for separate processing
-        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
+        const extractResult = await this.runStep<[PreIngestionEvent, Promise<void>[]], typeof extractHeatmapDataStep>(
             extractHeatmapDataStep,
             [this, preparedEvent],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(extractResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return extractResult
+        }
+        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = extractResult.value
 
         if (heatmapKafkaAcks.length > 0) {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        const rawEvent = await this.runStep(
+        const createResult = await this.runStep<RawKafkaEvent, typeof createEventStep>(
             createEventStep,
             [this, preparedEventWithoutHeatmaps, person, processPerson],
-            event.team_id
+            event.team_id,
+            true,
+            kafkaAcks
         )
+        if (!isOkResult(createResult)) {
+            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
+            return createResult
+        }
+        const rawEvent = createResult.value
 
-        const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
-        kafkaAcks.push(clickhouseAck)
-        return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
+        const successResult: EventPipelineResult = {
+            lastStep: 'createEventStep',
+            eventToEmit: rawEvent,
+        }
+
+        return ok(successResult, kafkaAcks)
     }
 
-    registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
+    registerLastStep(stepName: string, eventToEmit?: RawKafkaEvent): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
         return {
-            ackPromises,
             lastStep: stepName,
-            args,
+            eventToEmit,
         }
-    }
-
-    private async sendToDLQ(event: PluginEvent, error: any, stepName: string): Promise<void> {
-        await sendEventToDLQ(this.hub.db.kafkaProducer, this.originalEvent, error, stepName, event.team_id)
-    }
-
-    private async redirectToTopic(event: PluginEvent, topic: string): Promise<void> {
-        await redirectEventToTopic(this.hub.db.kafkaProducer, this.originalEvent, topic, 'redirectToTopic')
     }
 
     private reportStalled(stepName: string) {
         pipelineStepStalledCounter.labels(stepName).inc()
     }
 
-    protected async runStep<Step extends (...args: any[]) => any>(
+    protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
         step: Step,
         args: Parameters<Step>,
         teamId: number,
-        sentToDql = true
-    ): Promise<ReturnType<Step>> {
+        sentToDql = true,
+        kafkaAcks: Promise<void>[] = []
+    ): Promise<PipelineResult<T>> {
+        const timer = new Date()
+        const sendException = false
+        const timeout = timeoutGuard(
+            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            () => ({
+                step: step.name,
+                teamId: teamId,
+                event_name: this.originalEvent.event,
+                distinctId: this.originalEvent.distinct_id,
+            }),
+            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            sendException,
+            this.reportStalled.bind(this, step.name)
+        )
+        try {
+            const result = await step(...args)
+            pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
+            return ok(result)
+        } catch (err) {
+            return this.mapError<T>(err, step.name, args, teamId, sentToDql, kafkaAcks)
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
+
+    protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
+        step: Step,
+        args: Parameters<Step>,
+        teamId: number,
+        sentToDql = true,
+        kafkaAcks: Promise<void>[] = []
+    ): Promise<PipelineResult<T>> {
         const timer = new Date()
         const sendException = false
         const timeout = timeoutGuard(
@@ -415,7 +432,7 @@ export class EventPipelineRunner {
             pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
             return result
         } catch (err) {
-            throw await this.mapError(err, step.name, args, teamId, sentToDql)
+            return this.mapError<T>(err, step.name, args, teamId, sentToDql, kafkaAcks)
         } finally {
             clearTimeout(timeout)
         }
@@ -436,7 +453,14 @@ export class EventPipelineRunner {
         return false
     }
 
-    private async mapError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
+    private mapError<T>(
+        err: any,
+        currentStepName: string,
+        currentArgs: any,
+        teamId: number,
+        sendToDlq: boolean,
+        kafkaAcks: Promise<void>[] = []
+    ): PipelineResult<T> {
         logger.error('🔔', 'step_failed', { currentStepName, err })
         captureException(err, {
             tags: { team_id: teamId, pipeline_step: currentStepName },
@@ -448,29 +472,14 @@ export class EventPipelineRunner {
         // Should we throw or should we drop and send the event to DLQ.
         if (this.shouldRetry(err)) {
             pipelineStepThrowCounter.labels(currentStepName).inc()
-            return err
+            throw err
         }
 
-        if (sentToDql) {
-            pipelineStepDLQCounter.labels(currentStepName).inc()
-            try {
-                const message = generateEventDeadLetterQueueMessage(
-                    this.originalEvent,
-                    err,
-                    teamId,
-                    `plugin_server_ingest_event:${currentStepName}`
-                )
-                await this.hub.db.kafkaProducer.queueMessages(message)
-            } catch (dlqError) {
-                logger.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
-                captureException(dlqError, {
-                    tags: { team_id: teamId },
-                    extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
-                })
-            }
+        if (sendToDlq) {
+            return dlq<T>(`Step error - ${currentStepName}`, err, kafkaAcks)
         }
 
-        // These errors are dropped rather than retried
-        return new StepErrorNoRetry(currentStepName, currentArgs, err.message)
+        // These errors are dropped rather than retried - throw StepErrorNoRetry which will be caught at the pipeline level
+        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
     }
 }

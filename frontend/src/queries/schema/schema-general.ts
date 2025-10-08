@@ -1520,14 +1520,14 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
-export interface NamedQueryRequest {
+export interface EndpointRequest {
     name?: string
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
-export interface NamedQueryRunRequest {
+export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
@@ -1548,6 +1548,10 @@ export interface NamedQueryRunRequest {
     variables_override?: Record<string, Record<string, any>>
     variables_values?: Record<string, any>
     query_override?: Record<string, any>
+}
+
+export interface EndpointLastExecutionTimesRequest {
+    names: string[]
 }
 
 export interface QueryRequest {
@@ -2403,7 +2407,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
-    | 'embedded_analytics'
+    | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2544,9 +2548,11 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
+
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
-    exposure_config?: ExperimentEventExposureConfig
+    exposure_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -2575,6 +2581,7 @@ export interface ExperimentMetricBaseProperties extends Node {
 export type ExperimentMetricOutlierHandling = {
     lower_bound_percentile?: number
     upper_bound_percentile?: number
+    ignore_zeros?: boolean
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
@@ -3374,6 +3381,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Person who performed the event */
+    personId?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4009,6 +4018,7 @@ export const externalDataSources = [
     'DoIt',
     'LinkedinAds',
     'RedditAds',
+    'TikTokAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4016,4 +4026,31 @@ export type ExternalDataSourceType = (typeof externalDataSources)[number]
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+// PostHog Playwright Setup Types for Playwright Testing
+export interface TestSetupRequest {
+    data?: Record<string, any>
+}
+
+export interface TestSetupResponse {
+    success: boolean
+    test_name: string
+    result?: any
+    error?: string
+    available_tests?: string[]
+}
+
+export interface PlaywrightWorkspaceSetupData {
+    organization_name?: string
+}
+
+export interface PlaywrightWorkspaceSetupResult {
+    organization_id: string
+    team_id: string
+    organization_name: string
+    team_name: string
+    user_id: string
+    user_email: string
+    personal_api_key: string
 }

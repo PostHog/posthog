@@ -1,3 +1,4 @@
+mod embeddings;
 mod event;
 mod group;
 mod person;
@@ -26,3 +27,11 @@ pub use person::PersonId;
 
 // Groups
 pub use group::GroupType;
+
+// Error tracking types are exported directly
+pub mod error_tracking;
+
+// Embeddings
+pub use embeddings::EmbeddingModel;
+pub use embeddings::EmbeddingRecord;
+pub use embeddings::EmbeddingRequest;

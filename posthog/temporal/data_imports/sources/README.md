@@ -16,14 +16,19 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
     **This step is REQUIRED** - without it, `@SourceRegistry.register` won't work and your source won't be discoverable.
 
 9. **Re-run config generation** after implementing source logic:
+
     ```bash
     pnpm generate:source-configs
     ```
+
     This updates `generated_configs.py` with your actual implemented source class.
+
 10. **Build schemas** to update types:
+
     ```bash
     pnpm schema:build
     ```
+
     This ensures your source appears in frontend dropdowns and forms.
 
 ### Source file template
@@ -206,7 +211,8 @@ If your source uses OAuth (SourceFieldOauthConfig):
     ```
 
 3. **Redirect URI**: Configure in external service:
-    ```
+
+    ```text
     https://localhost:8010/integrations/your-kind/callback
     ```
 

@@ -240,10 +240,16 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                     let savedStage: WorkflowStage
                     if (stage.id.startsWith('temp-')) {
                         // Create new stage
-                        savedStage = await api.create('api/projects/@current/workflow-stages/', stageData)
+                        savedStage = await api.create(
+                            `api/projects/@current/workflows/${workflow.id}/stages/`,
+                            stageData
+                        )
                     } else {
                         // Update existing stage
-                        savedStage = await api.update(`api/projects/@current/workflow-stages/${stage.id}/`, stageData)
+                        savedStage = await api.update(
+                            `api/projects/@current/workflows/${workflow.id}/stages/${stage.id}/`,
+                            stageData
+                        )
                     }
                     savedStages.push(savedStage)
                 }
