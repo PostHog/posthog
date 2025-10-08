@@ -89,7 +89,7 @@ services:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
     behavioral_cohorts_db:
-        image: postgres:12-alpine
+        image: postgres:17-alpine
         restart: on-failure
         environment:
             POSTGRES_USER: posthog
