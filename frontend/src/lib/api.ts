@@ -7,6 +7,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
+import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -78,6 +79,7 @@ import {
     DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
+    EndpointType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -129,7 +131,6 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
-    QueryEndpointType,
     QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
@@ -146,6 +147,7 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
+    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -677,6 +679,10 @@ export class ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
+    public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
+    }
+
     // Recordings
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_recordings')
@@ -1007,6 +1013,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
+    public errorTrackingSimilarIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/similar_issues`)
+    }
+
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
     }
@@ -1269,12 +1279,12 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
-    public queryEndpoint(teamId?: TeamType['id']): ApiRequest {
+    public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('named_query')
     }
 
-    public queryEndpointDetail(name: string): ApiRequest {
-        return this.queryEndpoint().addPathComponent(name)
+    public endpointDetail(name: string): ApiRequest {
+        return this.endpoint().addPathComponent(name)
     }
 
     public lastExecutionTimes(): ApiRequest {
@@ -1507,6 +1517,11 @@ export class ApiRequest {
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
+
+    // Session summary
+    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1609,18 +1624,18 @@ const api = {
         },
     },
 
-    queryEndpoint: {
-        async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
-            return await new ApiRequest().queryEndpoint().get()
+    endpoint: {
+        async list(): Promise<CountedPaginatedResponse<EndpointType>> {
+            return await new ApiRequest().endpoint().get()
         },
-        async create(data: NamedQueryRequest): Promise<QueryEndpointType> {
-            return await new ApiRequest().queryEndpoint().create({ data })
+        async create(data: NamedQueryRequest): Promise<EndpointType> {
+            return await new ApiRequest().endpoint().create({ data })
         },
         async delete(name: string): Promise<void> {
-            return await new ApiRequest().queryEndpointDetail(name).delete()
+            return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
-            return await new ApiRequest().queryEndpointDetail(name).update({ data })
+        async update(name: string, data: NamedQueryRequest): Promise<EndpointType> {
+            return await new ApiRequest().endpointDetail(name).update({ data })
         },
         async getLastExecutionTimes(data: NamedQueryLastExecutionTimesRequest): Promise<Record<string, string>> {
             if (data.names.length === 0) {
@@ -1628,7 +1643,7 @@ const api = {
             }
 
             const response: QueryStatusResponse = await new ApiRequest()
-                .queryEndpoint()
+                .endpoint()
                 .lastExecutionTimes()
                 .create({ data })
             const result: Record<string, string> = {}
@@ -2271,6 +2286,9 @@ const api = {
         async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
             const payload = { person_id: personId }
             return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
+        },
+        async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
+            return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
         },
     },
 
@@ -2942,6 +2960,12 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingExternalReference()
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
+        },
+
+        async getSimilarIssues(
+            issueId: ErrorTrackingIssue['id']
+        ): Promise<Array<{ id: string; title: string; description: string }>> {
+            return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
     },
 
@@ -4329,6 +4353,12 @@ const api = {
             url = next
         }
         return results
+    },
+
+    sessionSummaries: {
+        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
+            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
     },
 }
 

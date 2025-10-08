@@ -83,6 +83,24 @@ services:
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
+    persons_db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5434:5432'
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog_persons
+            POSTGRES_PASSWORD: posthog
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U posthog -d posthog_persons']
+            interval: 5s
+            timeout: 5s
+        volumes:
+            - persons-db:/var/lib/postgresql/data
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
+
     redis:
         extends:
             file: docker-compose.base.yml
@@ -108,6 +126,9 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # Development performance optimizations
+        mem_limit: 4g
+        cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
             - AWS_SECRET_ACCESS_KEY=object_storage_root_password
@@ -123,6 +144,7 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -259,3 +281,5 @@ networks:
 
 volumes:
     redpanda-data:
+    persons-db:
+        driver: local

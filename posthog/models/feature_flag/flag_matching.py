@@ -328,7 +328,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 faced_error_computing_flags = True
-                handle_feature_flag_exception(err, "[Feature Flags] Error computing flags")
+                handle_feature_flag_exception(err, f"[Feature Flags] Error computing flags: {feature_flag.key}")
 
         return (
             flag_values,

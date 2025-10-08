@@ -28,7 +28,7 @@ import products.tasks.backend.api as tasks
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
+from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, EvaluationViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
@@ -39,7 +39,6 @@ from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
-    activity_log,
     advanced_activity_logs,
     alert,
     annotation,
@@ -180,7 +179,7 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
     r"activity_log",
-    activity_log.ActivityLogViewSet,
+    advanced_activity_logs.ActivityLogViewSet,
     "project_activity_log",
     ["project_id"],
 )
@@ -868,5 +867,12 @@ register_grandfathered_environment_nested_viewset(
     r"dataset_items",
     DatasetItemViewSet,
     "environment_dataset_items",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"evaluations",
+    EvaluationViewSet,
+    "environment_evaluations",
     ["team_id"],
 )

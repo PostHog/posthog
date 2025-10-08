@@ -7,7 +7,7 @@ import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog, { PostHog } from 'posthog-js'
-import { posthogKeaLogger, sessionRecordingLoggerForPostHogInstance } from 'posthog-js/lib/src/customizations'
+import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { hashCodeForString, identifierToHuman } from 'lib/utils'
@@ -142,12 +142,12 @@ export function initKea({
         }
     }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
-        plugins.push(
-            posthogKeaLogger({
-                logger: sessionRecordingLoggerForPostHogInstance(window.posthog),
-            })
-        )
+    // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
+    const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
+    const localStorageDisablesLogging = localStorageLoggingFlag === 'false'
+    const localStorageEnablesLogging = localStorageLoggingFlag === 'true'
+    if (!localStorageDisablesLogging && (localStorageEnablesLogging || window.JS_KEA_VERBOSE_LOGGING)) {
+        plugins.push(posthogKeaLogger())
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
