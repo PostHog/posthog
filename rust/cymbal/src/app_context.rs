@@ -85,7 +85,7 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let persons_options = options.clone();
         let posthog_pool = options.connect(&config.database_url).await?;
-        let persons_pool = persons_options.connect(&config.database_url).await?;
+        let persons_pool = persons_options.connect(&config.persons_url).await?;
 
         let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
         let s3_client = S3Client::new(s3_client);
