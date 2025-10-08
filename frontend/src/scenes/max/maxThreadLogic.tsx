@@ -528,8 +528,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
 
+                // Filter out reasoning messages that are not the last message in their group
+                const filteredThreadGrouped = threadGrouped.map((group) => {
+                    return group.filter((message, index) => !isReasoningMessage(message) || index === group.length - 1)
+                })
+
                 if (threadLoading) {
-                    const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+                    const finalMessageSoFar = filteredThreadGrouped.at(-1)?.at(-1)
 
                     // Check if there's an active TaskExecutionMessage
                     const hasActiveTaskExecution =
@@ -554,21 +559,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             // so that there's _some_ indication of processing
                             if (finalMessageSoFar.type === AssistantMessageType.Human) {
                                 // If the last message was human, we need to add a new "ephemeral" AI group
-                                threadGrouped.push([thinkingMessage])
+                                filteredThreadGrouped.push([thinkingMessage])
                             } else {
                                 // Otherwise, add to the last group
-                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                                filteredThreadGrouped[filteredThreadGrouped.length - 1].push(thinkingMessage)
                             }
                         }
 
                         // Special case for the thread in progress
-                        if (threadGrouped.length === 0) {
-                            threadGrouped.push([thinkingMessage])
+                        if (filteredThreadGrouped.length === 0) {
+                            filteredThreadGrouped.push([thinkingMessage])
                         }
                     }
                 }
 
-                return threadGrouped
+                return filteredThreadGrouped
             },
         ],
 

@@ -30,6 +30,7 @@ import {
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
+import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
@@ -255,4 +256,32 @@ export const createSuggestionGroup = (label: string, icon: JSX.Element, suggesti
         icon,
         suggestions: suggestions.map((content) => ({ content })),
     }
+}
+
+export function getToolDefinitionForTaskType(taskType: string): ToolDefinition | undefined {
+    // First, try direct lookup
+    const directMatch = TOOL_DEFINITIONS[taskType as keyof typeof TOOL_DEFINITIONS]
+    if (directMatch) {
+        // If it has kinds, check if taskType matches a kind key
+        if (directMatch.kinds) {
+            const kindMatch = directMatch.kinds[taskType as keyof typeof directMatch.kinds]
+            if (kindMatch) {
+                return kindMatch
+            }
+        }
+        return directMatch
+    }
+
+    // If no direct match, search through tools with kinds
+    for (const toolKey of Object.keys(TOOL_DEFINITIONS) as Array<keyof typeof TOOL_DEFINITIONS>) {
+        const tool = TOOL_DEFINITIONS[toolKey]
+        if (tool.kinds) {
+            const kindMatch = tool.kinds[taskType as keyof typeof tool.kinds]
+            if (kindMatch) {
+                return kindMatch
+            }
+        }
+    }
+
+    return undefined
 }

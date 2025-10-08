@@ -73,13 +73,13 @@ import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
-import { TOOL_DEFINITIONS } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
+    getToolDefinitionForTaskType,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isDeepResearchReportCompletion,
@@ -538,8 +538,12 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
     const totalCount = message.steps.length
     const hasMultipleSteps = message.steps.length > 1
 
+    useEffect(() => {
+        setIsExpanded(isLastPlanningMessage)
+    }, [isLastPlanningMessage])
+
     return (
-        <>
+        <div className="py-1">
             <div className="flex items-center">
                 <div className="relative flex-shrink-0 flex items-center justify-center size-7">
                     <IconNotebook />
@@ -571,7 +575,7 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                         return (
                             <div key={index} className="flex items-start gap-2 animate-fade-in">
                                 <span className="flex-shrink-0 mt-0.5">
-                                    <LemonCheckbox checked={isCompleted} size="xsmall" />
+                                    <LemonCheckbox checked={isCompleted} size="xsmall" disabled />
                                 </span>
                                 <span
                                     className={clsx(
@@ -588,7 +592,7 @@ function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswe
                     })}
                 </div>
             )}
-        </>
+        </div>
     )
 }
 
@@ -732,7 +736,7 @@ interface ReasoningAnswerProps {
 
 function ReasoningAnswer({ message, id }: ReasoningAnswerProps): JSX.Element {
     return (
-        <MessageTemplate type="ai">
+        <MessageTemplate type="ai" boxClassName="py-1">
             <ReasoningComponent
                 id={id}
                 content={message.content}
@@ -758,19 +762,13 @@ interface TaskExecutionAnswerProps {
 
 function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 py-1">
             {message.tasks.map((TaskExecution, index) => {
                 const allSteps = [
                     ...(TaskExecution.progress?.content !== undefined ? [TaskExecution.progress.content] : []),
                     ...(TaskExecution.progress?.substeps ?? []),
                 ]
-                let definition = TOOL_DEFINITIONS[TaskExecution.task_type as keyof typeof TOOL_DEFINITIONS]
-                if (definition?.kinds) {
-                    const kind = definition.kinds[TaskExecution.task_type as keyof typeof definition.kinds]
-                    if (kind) {
-                        definition = kind
-                    }
-                }
+                const definition = getToolDefinitionForTaskType(TaskExecution.task_type)
                 return (
                     <ReasoningComponent
                         key={index}
@@ -778,7 +776,7 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                         content={TaskExecution.description}
                         substeps={allSteps}
                         state={TaskExecution.status}
-                        icon={definition.icon || <IconWrench />}
+                        icon={definition?.icon || <IconWrench />}
                     />
                 )
             })}

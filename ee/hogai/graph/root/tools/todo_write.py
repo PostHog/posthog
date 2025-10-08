@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import PlanningMessage, PlanningStep, PlanningStepStatus
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, PlanningMessage, PlanningStep, PlanningStepStatus
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 
@@ -159,8 +159,16 @@ class TodoWriteTool(MaxTool):
     show_tool_call_message: bool = False
 
     async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, ToolMessagesArtifact]:
+        last_message = self._state.messages[-1]
+        if not isinstance(last_message, AssistantMessage):
+            raise ValueError("Last message is not an AssistantMessage")
+        if last_message.tool_calls is None or len(last_message.tool_calls) == 0:
+            raise ValueError("Last message has no tool calls")
+
+        root_tool_call_id = last_message.tool_calls[0].id
+
         return (
-            "The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
+            "",
             ToolMessagesArtifact(
                 messages=[
                     PlanningMessage(
@@ -176,7 +184,12 @@ class TodoWriteTool(MaxTool):
                             )
                             for todo in todos
                         ],
-                    )
+                    ),
+                    AssistantToolCallMessage(
+                        id=str(uuid4()),
+                        tool_call_id=root_tool_call_id,
+                        content="The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
+                    ),
                 ]
             ),
         )
