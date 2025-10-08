@@ -18,7 +18,9 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
+    get_source_value_expr,
 )
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -125,7 +127,7 @@ class ExperimentQueryBuilder:
                 "variant_expr": self._build_variant_expr(),
                 "exposure_predicate": self._build_exposure_predicate(),
                 "metric_predicate": self._build_metric_predicate(),
-                "value_expr": self._build_value_expr(math_type),
+                "value_expr": self._build_value_expr(),
                 "value_agg": self._build_value_aggregation_expr(math_type),
             },
         )
@@ -245,25 +247,20 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_value_expr(self, math_type: ExperimentMetricMathType) -> ast.Expr:
+    def _build_value_expr(self) -> ast.Expr:
         """
         Builds the value expression for metric events based on math type.
         """
-        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            return ast.Field(chain=["$session_id"])
-        elif math_type == ExperimentMetricMathType.DAU:
-            return ast.Field(chain=["person_id"])
-        else:
-            math_property = getattr(self.metric.source, "math_property", None)
-            if math_property:
-                return ast.Field(chain=["properties", math_property])
-            else:
-                return ast.Constant(value=1)
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        # TODO: refactor this
+        return get_source_value_expr(self.metric.source)
 
     def _build_value_aggregation_expr(self, math_type: ExperimentMetricMathType) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
         """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
         if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
             return parse_expr(
                 "toFloat(length(arrayDistinct(groupArrayIf(metric_events.value, and(isNotNull(metric_events.value), notEquals(toString(metric_events.value), ''))))))"
@@ -278,6 +275,14 @@ class ExperimentQueryBuilder:
             return parse_expr("coalesce(max(toFloat(metric_events.value)), 0.0)")
         elif math_type == ExperimentMetricMathType.AVG:
             return parse_expr("coalesce(avg(toFloat(metric_events.value)), 0.0)")
+        elif math_type == ExperimentMetricMathType.HOGQL:
+            math_hogql = getattr(self.metric.source, "math_hogql", None)
+            if math_hogql is not None:
+                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                if aggregation_function:
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+            # Default to sum if no aggregation function is found
+            return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
         else:
             # Default: SUM or TOTAL
             return parse_expr("coalesce(sum(toFloat(metric_events.value)), 0.0)")
