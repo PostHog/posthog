@@ -1360,6 +1360,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
+    CHAT = "chat"
 
 
 class FileSystemImport(BaseModel):
