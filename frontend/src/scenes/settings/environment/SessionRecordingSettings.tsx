@@ -345,7 +345,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                 </div>
                 <p>
                     When network capture’s on, we’ll always record request timings. Use these options to also capture
-                    headers and payloads if you need them.
+                    headers and payloads if you need them.{' '}
                     <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
                         Learn how to mask header and payload values in our docs
                     </Link>
