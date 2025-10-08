@@ -21,6 +21,7 @@ from posthog.models.cohort import CohortOrEmpty
 from posthog.models.cohort.util import (
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
+    get_clickhouse_query_stats,
     sort_cohorts_topologically,
 )
 from posthog.models.team.team import Team
@@ -359,3 +360,56 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     from posthog.api.cohort import get_cohort_actors_for_feature_flag
 
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
+
+
+@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.DEFAULT.value)
+def collect_cohort_query_stats(tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: int) -> None:
+    """
+    Delayed task to collect cohort query statistics
+
+    Args:
+        tag_matcher: Query tag to match in query_log_archive
+        cohort_id: Cohort ID for the calculation
+        start_time_iso: Start time in ISO format
+        history_id: CohortCalculationHistory ID to update
+    """
+    try:
+        from dateutil import parser
+
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+        try:
+            history = CohortCalculationHistory.objects.get(id=history_id)
+        except CohortCalculationHistory.DoesNotExist:
+            logger.warning("CohortCalculationHistory not found", history_id=history_id)
+            return
+
+        start_time = parser.parse(start_time_iso)
+        query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time)
+
+        if query_stats:
+            history.add_query_info(
+                query_id=query_stats.get("query_id"),
+                query_ms=query_stats.get("query_duration_ms"),
+                memory_mb=query_stats.get("memory_mb"),
+                read_rows=query_stats.get("read_rows"),
+                written_rows=query_stats.get("written_rows"),
+            )
+            history.save(update_fields=["queries"])
+        else:
+            logger.warning(
+                "No query stats found for cohort calculation",
+                tag_matcher=tag_matcher,
+                cohort_id=cohort_id,
+                history_id=history_id,
+            )
+
+    except Exception as e:
+        logger.exception(
+            "Failed to collect delayed cohort query stats",
+            tag_matcher=tag_matcher,
+            cohort_id=cohort_id,
+            history_id=history_id,
+            error=str(e),
+        )
+        raise
