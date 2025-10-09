@@ -33,6 +33,7 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
             load_recording_blocks,
             recording_input,
             start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
@@ -45,6 +46,7 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                 group_recording_blocks,
                 RecordingWithBlocks(recording=recording_input, blocks=recording_blocks),
                 start_to_close_timeout=timedelta(minutes=1),
+                schedule_to_close_timeout=timedelta(hours=3),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),
@@ -58,7 +60,8 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                         workflow.execute_activity(
                             delete_recording_blocks,
                             RecordingWithBlocks(recording=recording_input, blocks=group),
-                            start_to_close_timeout=timedelta(minutes=10),
+                            start_to_close_timeout=timedelta(minutes=30),
+                            schedule_to_close_timeout=timedelta(hours=3),
                             retry_policy=common.RetryPolicy(
                                 maximum_attempts=2,
                                 initial_interval=timedelta(minutes=1),
@@ -82,6 +85,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
             load_recordings_with_person,
             RecordingsWithPersonInput(distinct_ids=input.distinct_ids, team_id=input.team_id),
             start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
@@ -97,7 +101,9 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                             DeleteRecordingWorkflow.run,
                             Recording(session_id=session_id, team_id=input.team_id),
                             parent_close_policy=ParentClosePolicy.ABANDON,
-                            execution_timeout=timedelta(minutes=10),
+                            execution_timeout=timedelta(hours=3),
+                            run_timeout=timedelta(hours=1),
+                            task_timeout=timedelta(minutes=30),
                             retry_policy=common.RetryPolicy(
                                 maximum_attempts=2,
                                 initial_interval=timedelta(minutes=1),
