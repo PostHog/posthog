@@ -428,7 +428,7 @@ class LLMGatewayBurstRateThrottle(UserRateThrottle):
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_gateway_sustained"
     rate = "500/hour"
