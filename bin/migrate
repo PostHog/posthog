@@ -20,13 +20,6 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
     fi
 fi
 
-# Run behavioral cohorts migrations
-bash $SCRIPT_DIR/../plugin-server/bin/migrate-behavioral-cohorts.sh
-if [ $? -ne 0 ]; then
-    echo "Error in migrate-behavioral-cohorts.sh, exiting."
-    exit 1
-fi
-
 # Create a temporary file for background process status
 # Ensure cleanup of temp file on script exit
 trap 'rm -f "$CLICKHOUSE_STATUS" 2>/dev/null' EXIT

@@ -138,8 +138,8 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 width: '60px',
                 height: '20px',
                 pointerEvents: 'none',
-                borderBottom: '1px solid #e0e0e0',
-                borderRight: '1px solid #e0e0e0',
+                borderBottom: '1px solid var(--color-border-primary)',
+                borderRight: '1px solid var(--color-border-primary)',
             }}
         >
             <canvas ref={canvasRef} />
@@ -351,7 +351,10 @@ export function Exposures(): JSX.Element {
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
                                 {variants.length > 0 && (
                                     <>
-                                        <div className="w-px bg-border ml-2" style={{ height: '20px' }} />
+                                        <div
+                                            className="w-px ml-2"
+                                            style={{ height: '20px', backgroundColor: 'var(--color-border-primary)' }}
+                                        />
                                         <div className="flex items-center gap-4">
                                             {variants.map(({ variant, percentage }) => (
                                                 <div key={variant} className="flex items-center gap-2">

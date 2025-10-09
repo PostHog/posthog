@@ -23,7 +23,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
         outputs:
@@ -207,17 +207,15 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5434/test_persons'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5434/test_persons'
-                  PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5434/test_persons_migration'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
