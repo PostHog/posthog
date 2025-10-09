@@ -213,6 +213,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application.",
         },
+        "$product_signal": {
+            "label": "Product signal",
+            "description": "Internal signals representing actionable product issues detected by PostHog analysis systems.",
+            "ignored_in_assistant": True,
+        },
         "$web_vitals": {
             "label": "Web vitals",
             "description": "Automatically captured web vitals data.",
@@ -1990,6 +1995,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "CSP Policy version",
             "description": "The version of the CSP policy. Must be provided in the report URL.",
             "examples": ["1.0"],
+        },
+        "$product_signal_type": {
+            "label": "Product signal type",
+            "description": "The type of product signal being reported.",
+            "examples": ["new_issue", "funnel_anomoly"],
+        },
+        "$product_signal_severity": {
+            "label": "Product signal severity",
+            "description": "The severity level of the product signal.",
+            "examples": ["low", "medium", "high", "critical"],
+        },
+        "$product_signal_title": {
+            "label": "Product signal title",
+            "description": "A brief title describing the product signal.",
+            "examples": ["New error in checkout flow", "Funnel drop-off detected"],
+        },
+        "$product_signal_source": {
+            "label": "Product signal source",
+            "description": "The PostHog product that generated this signal.",
+            "examples": ["error_tracking", "product_analytics"],
+        },
+        "$product_signal_description": {
+            "label": "Product signal description",
+            "description": "A detailed description of the product signal and what action may be required.",
+            "examples": ["A new error type was detected affecting 15% of users in the checkout flow"],
         },
     },
     "numerical_event_properties": {},

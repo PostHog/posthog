@@ -1049,6 +1049,31 @@
             "label": "Person profile processing flag",
             "system": true
         },
+        "$product_signal_description": {
+            "description": "A detailed description of the product signal and what action may be required.",
+            "examples": ["A new error type was detected affecting 15% of users in the checkout flow"],
+            "label": "Product signal description"
+        },
+        "$product_signal_severity": {
+            "description": "The severity level of the product signal.",
+            "examples": ["low", "medium", "high", "critical"],
+            "label": "Product signal severity"
+        },
+        "$product_signal_source": {
+            "description": "The PostHog product that generated this signal.",
+            "examples": ["error_tracking", "product_analytics"],
+            "label": "Product signal source"
+        },
+        "$product_signal_title": {
+            "description": "A brief title describing the product signal.",
+            "examples": ["New error in checkout flow", "Funnel drop-off detected"],
+            "label": "Product signal title"
+        },
+        "$product_signal_type": {
+            "description": "The type of product signal being reported.",
+            "examples": ["new_issue", "funnel_anomoly"],
+            "label": "Product signal type"
+        },
         "$python_runtime": {
             "description": "The Python runtime that was used to capture the event.",
             "examples": ["CPython"],
@@ -1854,6 +1879,11 @@
         "$pageview": {
             "description": "When a user loads (or reloads) a page.",
             "label": "Pageview"
+        },
+        "$product_signal": {
+            "description": "Internal signals representing actionable product issues detected by PostHog analysis systems.",
+            "ignored_in_assistant": true,
+            "label": "Product signal"
         },
         "$rageclick": {
             "description": "A user has rapidly and repeatedly clicked in a single place.",
@@ -3231,6 +3261,31 @@
             "description": "The setting from an SDK to control whether an event has person processing enabled",
             "label": "Person profile processing flag",
             "system": true
+        },
+        "$product_signal_description": {
+            "description": "A detailed description of the product signal and what action may be required.",
+            "examples": ["A new error type was detected affecting 15% of users in the checkout flow"],
+            "label": "Product signal description"
+        },
+        "$product_signal_severity": {
+            "description": "The severity level of the product signal.",
+            "examples": ["low", "medium", "high", "critical"],
+            "label": "Product signal severity"
+        },
+        "$product_signal_source": {
+            "description": "The PostHog product that generated this signal.",
+            "examples": ["error_tracking", "product_analytics"],
+            "label": "Product signal source"
+        },
+        "$product_signal_title": {
+            "description": "A brief title describing the product signal.",
+            "examples": ["New error in checkout flow", "Funnel drop-off detected"],
+            "label": "Product signal title"
+        },
+        "$product_signal_type": {
+            "description": "The type of product signal being reported.",
+            "examples": ["new_issue", "funnel_anomoly"],
+            "label": "Product signal type"
         },
         "$python_runtime": {
             "description": "The Python runtime that was used to capture the event.",
