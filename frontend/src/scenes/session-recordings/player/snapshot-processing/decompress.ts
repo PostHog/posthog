@@ -1,6 +1,6 @@
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import posthog from 'posthog-js'
-import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
+import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/external/lazy-loaded-session-recorder'
 
 import { IncrementalSource } from '@posthog/rrweb-types'
 import { EventType } from '@posthog/rrweb-types'
