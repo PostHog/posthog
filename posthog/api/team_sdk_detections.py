@@ -272,8 +272,19 @@ def should_include_event(properties: dict[str, Any], distinct_id: str = "") -> b
         ):
             return False
 
-        # Also filter by email/distinct_id as backup
-        email = properties.get("email", "")
+        # Check for instance_url in $set (backend SDKs like Python)
+        set_props = properties.get("$set", {})
+        if isinstance(set_props, dict):
+            instance_url = set_props.get("instance_url", "")
+            if instance_url and (
+                instance_url.startswith("http://localhost:8010")
+                or instance_url.startswith("http://localhost:8000")
+                or instance_url.startswith("http://127.0.0.1")
+            ):
+                return False
+
+        # Filter by email/distinct_id (check both top-level and $set)
+        email = properties.get("email", "") or (set_props.get("email", "") if isinstance(set_props, dict) else "")
         props_distinct_id = properties.get("distinct_id", "")
         if email == "test@posthog.com" or distinct_id == "test@posthog.com" or props_distinct_id == "test@posthog.com":
             return False
