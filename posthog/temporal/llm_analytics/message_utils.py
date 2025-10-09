@@ -1,7 +1,9 @@
 """Utilities for extracting and formatting LLM messages from event properties."""
 
+from typing import Any
 
-def extract_text_from_messages(messages: any) -> str:
+
+def extract_text_from_messages(messages: Any) -> str:
     """
     Extract readable text from LLM message structures.
 
@@ -46,7 +48,7 @@ def extract_text_from_messages(messages: any) -> str:
     return str(messages)
 
 
-def _extract_content_text(content: any) -> str:
+def _extract_content_text(content: Any) -> str:
     """Extract text from message content, handling nested structures."""
     if not content:
         return ""

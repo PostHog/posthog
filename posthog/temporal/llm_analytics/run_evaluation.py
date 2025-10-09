@@ -149,6 +149,10 @@ Output: {output_data}"""
 
     # Parse response
     content = response.choices[0].message.content
+    if content is None:
+        logger.exception("LLM judge returned empty response", evaluation_id=evaluation["id"])
+        return {"verdict": False, "reasoning": "LLM judge returned empty response"}
+
     try:
         result = json.loads(content)
         verdict = bool(result.get("verdict", False))
