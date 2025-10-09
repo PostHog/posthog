@@ -29,7 +29,7 @@ import { Breadcrumb, PersonType } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
-export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps-tools' | 'data-management' | 'recents'
+export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps-tools' | 'data-management' | 'recents' | 'persons'
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
@@ -208,12 +208,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     description: 'Manage your data sources and destinations',
                 },
                 { key: 'recents', label: 'Recents', description: 'Project-based recently accessed items' },
+                { key: 'persons', label: 'Persons', description: 'Search persons by ID, email, or properties' },
             ],
         ],
         specialSearchMode: [
-            (s) => [s.search],
-            (search: string): SpecialSearchMode => {
-                if (search.startsWith('/person')) {
+            (s) => [s.search, s.selectedCategory],
+            (search: string, selectedCategory: NEW_TAB_CATEGORY_ITEMS): SpecialSearchMode => {
+                if (search.startsWith('/person') || selectedCategory === 'persons') {
                     return 'person'
                 }
                 return null
@@ -252,14 +253,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const displayName = person.properties?.email || personId
                     const item = {
                         id: `person-${person.uuid}`,
-                        name: `View this person ${displayName}`,
-                        category: 'recents' as NEW_TAB_CATEGORY_ITEMS,
-                        href: urls.personByUUID(person.uuid),
+                        name: `${displayName}`,
+                        category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
+                        href: urls.personByUUID(person.uuid || ''),
                         icon: <IconPerson />,
                         record: {
                             type: 'person',
                             path: `Person: ${displayName}`,
-                            href: urls.personByUUID(person.uuid),
+                            href: urls.personByUUID(person.uuid || ''),
                         },
                     }
 
@@ -336,8 +337,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                // If in person search mode, only show person results
+                // If in person search mode, ensure persons category always appears
                 if (specialSearchMode === 'person') {
+                    // Always include at least an empty persons category to prevent layout shift
+                    if (personSearchItems.length === 0) {
+                        return [
+                            {
+                                id: 'persons-placeholder',
+                                name: '',
+                                category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
+                                href: '',
+                                icon: null,
+                                record: { type: 'placeholder', path: '' },
+                            },
+                        ]
+                    }
                     return personSearchItems
                 }
 
@@ -452,14 +466,36 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
+            // Clear previous person search results when search changes
+            actions.loadPersonSearchResultsSuccess([])
+
             actions.loadRecents()
 
-            // If search starts with /person, load person search results
+            // If search starts with /person or /persons, load person search results
             if (values.search.startsWith('/person')) {
-                const searchTerm = values.search.replace(/^\/person\s*/, '').trim()
+                const searchTerm = values.search.replace(/^\/persons?\s*/, '').trim()
                 if (searchTerm) {
                     actions.loadPersonSearchResults({ searchTerm })
+                } else {
+                    // Clear results if search term is empty but still in person search mode
+                    actions.loadPersonSearchResultsSuccess([])
                 }
+            }
+
+            // If in persons mode and search doesn't start with /person, load person search results
+            if (values.selectedCategory === 'persons' && !values.search.startsWith('/person') && values.search.trim()) {
+                actions.loadPersonSearchResults({ searchTerm: values.search.trim() })
+            }
+        },
+        setSelectedCategory: ({ category }) => {
+            // When switching to persons tab, auto-add /persons prefix if search is empty
+            if (category === 'persons' && !values.search) {
+                actions.setSearch('/persons ')
+            }
+
+            // When switching to persons tab with existing search that doesn't start with /person, trigger person search
+            if (category === 'persons' && values.search && !values.search.startsWith('/person')) {
+                actions.loadPersonSearchResults({ searchTerm: values.search.trim() })
             }
         },
     })),

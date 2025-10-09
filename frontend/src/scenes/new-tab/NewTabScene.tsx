@@ -42,6 +42,7 @@ const getCategoryDisplayName = (category: string): string => {
         'apps-tools': 'Apps / Tools',
         'data-management': 'Data management',
         recents: 'Recents',
+        persons: 'Persons',
     }
     return displayNames[category] || category
 }
@@ -112,7 +113,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
                             {specialSearchMode === 'person' ? (
                                 <span>
-                                    <span className="text-tertiary">Search person by ID or email</span>
+                                    <span className="text-tertiary">Search persons by ID, email, or properties</span>
                                 </span>
                             ) : (
                                 <span>
@@ -121,9 +122,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         <ButtonPrimitive
                                             size="xxs"
                                             className="text-xs"
-                                            onClick={() => setSearch('/person john')}
+                                            onClick={() => setSearch('/persons john')}
                                         >
-                                            /person john
+                                            /persons john
                                         </ButtonPrimitive>
                                     </ListBox.Item>
                                     <span className="text-tertiary">or</span>
@@ -259,7 +260,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                         getCategoryDisplayName(category)
                                                     )}
                                                 </h3>
-                                                {category === 'recents' && isSearching && <Spinner size="small" />}
+                                                {(category === 'recents' || category === 'persons') && isSearching && (
+                                                    <Spinner size="small" />
+                                                )}
                                             </div>
                                             {(() => {
                                                 const categoryInfo = categories.find((c) => c.key === category)
@@ -273,94 +276,98 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             })()}
                                         </div>
                                         <div className="flex flex-col gap-2">
-                                            {category === 'recents' && typedItems.length === 0 ? (
-                                                // Special handling for empty project items
+                                            {(category === 'recents' || category === 'persons') &&
+                                            typedItems.filter((item) => item.id !== 'persons-placeholder').length ===
+                                                0 ? (
+                                                // Special handling for empty project items and persons
                                                 <div className="flex flex-col gap-2 text-tertiary text-balance">
                                                     {isSearching ? 'Searching...' : 'No results found'}
                                                 </div>
                                             ) : (
-                                                typedItems.map((item, index) => (
-                                                    // If we have filtered results set virtual focus to first item
-                                                    <ButtonGroupPrimitive className="group w-full border-0">
-                                                        <ContextMenu>
-                                                            <ContextMenuTrigger asChild>
-                                                                <ListBox.Item
-                                                                    key={item.id}
-                                                                    asChild
-                                                                    focusFirst={
-                                                                        filteredItemsGrid.length > 0 &&
-                                                                        isFirstCategory &&
-                                                                        index === 0
-                                                                    }
-                                                                    row={index}
-                                                                    column={columnIndex}
-                                                                >
-                                                                    <Link
-                                                                        to={item.href || '#'}
-                                                                        className="w-full"
-                                                                        buttonProps={{
-                                                                            size: 'base',
-                                                                            hasSideActionRight: true,
-                                                                        }}
+                                                typedItems
+                                                    .filter((item) => item.id !== 'persons-placeholder')
+                                                    .map((item, index) => (
+                                                        // If we have filtered results set virtual focus to first item
+                                                        <ButtonGroupPrimitive className="group w-full border-0">
+                                                            <ContextMenu>
+                                                                <ContextMenuTrigger asChild>
+                                                                    <ListBox.Item
+                                                                        key={item.id}
+                                                                        asChild
+                                                                        focusFirst={
+                                                                            filteredItemsGrid.length > 0 &&
+                                                                            isFirstCategory &&
+                                                                            index === 0
+                                                                        }
+                                                                        row={index}
+                                                                        column={columnIndex}
                                                                     >
-                                                                        <span className="text-sm">
-                                                                            {item.icon ?? item.name[0]}
-                                                                        </span>
-                                                                        <span className="text-sm truncate text-primary">
-                                                                            {search ? (
-                                                                                <SearchHighlightMultiple
-                                                                                    string={item.name}
-                                                                                    substring={search}
-                                                                                />
-                                                                            ) : (
-                                                                                item.name
-                                                                            )}
-                                                                        </span>
-                                                                    </Link>
-                                                                </ListBox.Item>
-                                                            </ContextMenuTrigger>
-                                                            <ContextMenuContent loop className="max-w-[250px]">
-                                                                <ContextMenuGroup>
-                                                                    <MenuItems
-                                                                        item={convertToTreeDataItem(item)}
-                                                                        type="context"
-                                                                        root="project://"
-                                                                        onlyTree={false}
-                                                                        showSelectMenuOption={false}
-                                                                    />
-                                                                </ContextMenuGroup>
-                                                            </ContextMenuContent>
-                                                        </ContextMenu>
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <ButtonPrimitive
-                                                                    size="xs"
-                                                                    iconOnly
-                                                                    isSideActionRight
-                                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
+                                                                        <Link
+                                                                            to={item.href || '#'}
+                                                                            className="w-full"
+                                                                            buttonProps={{
+                                                                                size: 'base',
+                                                                                hasSideActionRight: true,
+                                                                            }}
+                                                                        >
+                                                                            <span className="text-sm">
+                                                                                {item.icon ?? item.name[0]}
+                                                                            </span>
+                                                                            <span className="text-sm truncate text-primary">
+                                                                                {search ? (
+                                                                                    <SearchHighlightMultiple
+                                                                                        string={item.name}
+                                                                                        substring={search}
+                                                                                    />
+                                                                                ) : (
+                                                                                    item.displayName || item.name
+                                                                                )}
+                                                                            </span>
+                                                                        </Link>
+                                                                    </ListBox.Item>
+                                                                </ContextMenuTrigger>
+                                                                <ContextMenuContent loop className="max-w-[250px]">
+                                                                    <ContextMenuGroup>
+                                                                        <MenuItems
+                                                                            item={convertToTreeDataItem(item)}
+                                                                            type="context"
+                                                                            root="project://"
+                                                                            onlyTree={false}
+                                                                            showSelectMenuOption={false}
+                                                                        />
+                                                                    </ContextMenuGroup>
+                                                                </ContextMenuContent>
+                                                            </ContextMenu>
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <ButtonPrimitive
+                                                                        size="xs"
+                                                                        iconOnly
+                                                                        isSideActionRight
+                                                                        className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
+                                                                    >
+                                                                        <IconEllipsis className="size-3" />
+                                                                    </ButtonPrimitive>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent
+                                                                    loop
+                                                                    align="end"
+                                                                    side="bottom"
+                                                                    className="max-w-[250px]"
                                                                 >
-                                                                    <IconEllipsis className="size-3" />
-                                                                </ButtonPrimitive>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent
-                                                                loop
-                                                                align="end"
-                                                                side="bottom"
-                                                                className="max-w-[250px]"
-                                                            >
-                                                                <DropdownMenuGroup>
-                                                                    <MenuItems
-                                                                        item={convertToTreeDataItem(item)}
-                                                                        type="dropdown"
-                                                                        root="project://"
-                                                                        onlyTree={false}
-                                                                        showSelectMenuOption={false}
-                                                                    />
-                                                                </DropdownMenuGroup>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </ButtonGroupPrimitive>
-                                                ))
+                                                                    <DropdownMenuGroup>
+                                                                        <MenuItems
+                                                                            item={convertToTreeDataItem(item)}
+                                                                            type="dropdown"
+                                                                            root="project://"
+                                                                            onlyTree={false}
+                                                                            showSelectMenuOption={false}
+                                                                        />
+                                                                    </DropdownMenuGroup>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        </ButtonGroupPrimitive>
+                                                    ))
                                             )}
                                         </div>
                                     </div>
