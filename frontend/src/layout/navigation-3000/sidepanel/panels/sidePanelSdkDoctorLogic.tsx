@@ -98,11 +98,16 @@ export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
 // Fetch Node.js SDK release dates - REMOVED: Now handled by server API with proper caching and rate limiting
 
+// Track which SDK types we've already logged to reduce verbosity
+const loggedSdkTypes = new Set<SdkType>()
+const loggedVersionChecks = new Set<string>()
+
 // Fetch individual SDK data from backend API (with server-side caching)
 const fetchSdkData = async (
     sdkType: SdkType
 ): Promise<{ latestVersion: string; versions: string[]; releaseDates?: Record<string, string> } | null> => {
-    if (IS_DEBUG_MODE) {
+    const shouldLog = IS_DEBUG_MODE && !loggedSdkTypes.has(sdkType)
+    if (shouldLog) {
         console.info(
             `[SDK Doctor] Checking if ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK info is cached on server...`
         )
@@ -110,7 +115,7 @@ const fetchSdkData = async (
     try {
         const response = await api.get(`api/github-sdk-versions/${sdkType}`)
         if (response.latestVersion && response.versions) {
-            if (IS_DEBUG_MODE) {
+            if (shouldLog) {
                 if (response.cached) {
                     console.info(
                         `[SDK Doctor] ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK details successfully read from server CACHE`
@@ -123,6 +128,7 @@ const fetchSdkData = async (
                         `[SDK Doctor] ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK info received from GitHub. CACHED successfully on the server`
                     )
                 }
+                loggedSdkTypes.add(sdkType)
             }
             return {
                 latestVersion: response.latestVersion,
@@ -514,7 +520,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     const newMap = { ...state }
 
-                    // Process Web SDK from backend data
+                    // Process Web SDK, Python SDK, and Node.js SDK from backend data
                     const webDetections = teamSdkDetections.detections.filter((d) => d.type === 'web')
                     console.log('[SDK Doctor] Found Web SDK detections:', webDetections.length)
 
@@ -531,14 +537,51 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         }
                     })
 
-                    console.log('[SDK Doctor] Updated sdkVersionsMap with Web SDK detections:', Object.keys(newMap))
+                    // Process Python SDK from backend data
+                    const pythonDetections = teamSdkDetections.detections.filter((d) => d.type === 'python')
+                    console.log('[SDK Doctor] Found Python SDK detections:', pythonDetections.length)
+
+                    pythonDetections.forEach((detection) => {
+                        const key = `posthog-python-${detection.version}`
+                        console.log('[SDK Doctor] Adding Python SDK detection:', key, detection)
+
+                        newMap[key] = {
+                            type: 'python',
+                            version: detection.version,
+                            count: detection.count,
+                            isOutdated: false, // Will be updated by async version check
+                            lastSeenTimestamp: detection.lastSeen,
+                        }
+                    })
+
+                    // Process Node.js SDK from backend data
+                    const nodeDetections = teamSdkDetections.detections.filter((d) => d.type === 'node')
+                    console.log('[SDK Doctor] Found Node.js SDK detections:', nodeDetections.length)
+
+                    nodeDetections.forEach((detection) => {
+                        const key = `posthog-node-${detection.version}`
+                        console.log('[SDK Doctor] Adding Node.js SDK detection:', key, detection)
+
+                        newMap[key] = {
+                            type: 'node',
+                            version: detection.version,
+                            count: detection.count,
+                            isOutdated: false, // Will be updated by async version check
+                            lastSeenTimestamp: detection.lastSeen,
+                        }
+                    })
+
+                    console.log(
+                        '[SDK Doctor] Updated sdkVersionsMap with Web, Python, and Node.js SDK detections:',
+                        Object.keys(newMap)
+                    )
                     return newMap
                 },
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
                     // console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
 
-                    // Start with existing state to preserve Web SDK data from teamSdkDetections
-                    // We'll only process non-Web SDKs from events (Web SDK comes from backend)
+                    // Start with existing state to preserve Web, Python, and Node.js SDK data from teamSdkDetections
+                    // We'll only process non-Web/Python/Node SDKs from events (Web, Python, and Node.js come from backend)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = { ...state }
 
                     // Use all events from our strategy-based fetch (up to strategy.maxEvents)
@@ -613,25 +656,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             )
                         }
 
-                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web SDK from backend
+                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web, Python, and Node.js SDKs from backend
                         if (customerEvents.length === 0 && limitedEvents.length > 0) {
-                            console.info('[SDK Doctor] Dev mode: All events filtered - preserving Web SDK from backend')
-                            // Keep existing state which contains Web SDK data from teamSdkDetections
-                            return state
-                        }
-
-                        // Log details about Python SDK events for debugging
-                        const pythonEvents = customerEvents.filter((e) => e.properties?.$lib === 'posthog-python')
-                        if (pythonEvents.length > 0) {
                             console.info(
-                                `[SDK Doctor] Dev mode: Found ${pythonEvents.length} Python SDK events after filtering:`,
-                                pythonEvents.map((e) => ({
-                                    distinct_id: e.distinct_id,
-                                    email: e.properties?.email,
-                                    url: e.properties?.$current_url,
-                                    lib_version: e.properties?.$lib_version,
-                                }))
+                                '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, and Node.js SDKs from backend'
                             )
+                            // Keep existing state which contains Web, Python, and Node.js SDK data from teamSdkDetections
+                            return state
                         }
                     }
 
@@ -644,8 +675,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             return
                         }
 
-                        // Skip Web SDK - it's handled by teamSdkDetections from backend
-                        if (lib === 'web') {
+                        // Skip Web, Python, and Node.js SDKs - they're handled by teamSdkDetections from backend
+                        if (lib === 'web' || lib === 'posthog-python' || lib === 'posthog-node') {
                             return
                         }
 
@@ -1649,8 +1680,11 @@ function checkVersionAgainstLatest(
             // Major version behind (1.x → 2.x): Always flag as outdated (also checked: >1 year below)
             isOutdated = true
         } else if (diff && diff.kind === 'minor') {
-            // Minor version behind (1.2.x → 1.5.x): Flag if 3+ minors behind
-            isOutdated = diff.diff >= 3
+            // Minor version behind (1.2.x → 1.5.x): Flag if 3+ minors behind OR >6 months old
+            const sixMonthsInDays = 180
+            const isMinorOutdatedByCount = diff.diff >= 3
+            const isMinorOutdatedByAge = daysSinceRelease !== undefined && daysSinceRelease > sixMonthsInDays
+            isOutdated = isMinorOutdatedByCount || isMinorOutdatedByAge
         } else if (diff && diff.kind === 'patch') {
             // Patch version behind (1.2.3 → 1.2.6): Flag if 5+ patches behind OR >3 months old
             const threeMonthsInDays = 90
@@ -1669,13 +1703,17 @@ function checkVersionAgainstLatest(
             isOutdated = true
         }
 
-        if (IS_DEBUG_MODE) {
+        // Log only once per SDK type to reduce verbosity
+        const logKey = `${type}`
+        const shouldLogVersionCheck = IS_DEBUG_MODE && !loggedVersionChecks.has(logKey)
+        if (shouldLogVersionCheck) {
             console.info(
                 `[SDK Doctor] Smart detection: diff=${diff ? `${diff.kind} ${diff.diff}` : 'none'}, daysSinceRelease=${daysSinceRelease}, isRecentRelease=${isRecentRelease}`
             )
             console.info(
                 `[SDK Doctor] Final result: isOutdated=${isOutdated} (releasesBehind=${releasesBehind}, isAgeOutdated=${isAgeOutdated})`
             )
+            loggedVersionChecks.add(logKey)
         }
 
         return {

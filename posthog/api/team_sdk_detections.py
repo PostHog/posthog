@@ -18,8 +18,8 @@ from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 
-# 1 hour cache TTL for team SDK detections
-TEAM_SDK_CACHE_EXPIRY = 60 * 60  # 1 hour
+# 24 hour cache TTL for team SDK detections
+TEAM_SDK_CACHE_EXPIRY = 60 * 60 * 24  # 24 hours
 
 # SDK type mapping from $lib property to SdkType
 SDK_TYPE_MAPPING = {
