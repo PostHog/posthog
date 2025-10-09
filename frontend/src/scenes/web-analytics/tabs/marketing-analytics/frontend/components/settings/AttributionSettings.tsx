@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { debounce } from 'lib/utils'
@@ -14,12 +13,17 @@ import { teamLogic } from '~/scenes/teamLogic'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
+    ATTRIBUTION_WINDOW_OPTIONS,
     DEFAULT_ATTRIBUTION_MODE,
     DEFAULT_ATTRIBUTION_WINDOW_DAYS,
     MAX_ATTRIBUTION_WINDOW_DAYS,
     MIN_ATTRIBUTION_WINDOW_DAYS,
-    STEP_ATTRIBUTION_WINDOW_DAYS,
 } from '../../logic/utils'
+
+const ATTRIBUTION_MODE_OPTIONS = [
+    { value: AttributionMode.FirstTouch, label: 'First Touch' },
+    { value: AttributionMode.LastTouch, label: 'Last Touch' },
+]
 
 export function AttributionSettings(): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
@@ -32,34 +36,49 @@ export function AttributionSettings(): JSX.Element {
 
     // Local state for immediate UI updates
     const [localDays, setLocalDays] = useState(attribution_window_days)
+    const [isCustomValue, setIsCustomValue] = useState(
+        !ATTRIBUTION_WINDOW_OPTIONS.some((option) => option.value === localDays)
+    )
     const [localAttributionMode, setLocalAttributionMode] = useState(attribution_mode)
 
     // Sync local state when store value changes
     useEffect(() => {
         setLocalDays(attribution_window_days)
-    }, [attribution_window_days])
+    }, [attribution_window_days, setIsCustomValue, setLocalDays])
+
+    useEffect(() => {
+        setIsCustomValue(!ATTRIBUTION_WINDOW_OPTIONS.some((option) => option.value === localDays))
+    }, [localDays])
+
+    const hasError = !(localDays >= MIN_ATTRIBUTION_WINDOW_DAYS && localDays <= MAX_ATTRIBUTION_WINDOW_DAYS)
 
     useEffect(() => {
         setLocalAttributionMode(attribution_mode)
     }, [attribution_mode])
 
-    const updateAttributionWindowDays = (days: number): void => {
-        updateCurrentTeam({
-            marketing_analytics_config: {
-                ...marketingAnalyticsConfig,
-                attribution_window_days: days,
-            },
-        })
-    }
+    const updateAttributionWindowDays = useCallback(
+        (days: number): void => {
+            updateCurrentTeam({
+                marketing_analytics_config: {
+                    ...marketingAnalyticsConfig,
+                    attribution_window_days: days,
+                },
+            })
+        },
+        [updateCurrentTeam, marketingAnalyticsConfig]
+    )
 
-    const updateAttributionMode = (mode: AttributionMode): void => {
-        updateCurrentTeam({
-            marketing_analytics_config: {
-                ...marketingAnalyticsConfig,
-                attribution_mode: mode,
-            },
-        })
-    }
+    const updateAttributionMode = useCallback(
+        (mode: AttributionMode): void => {
+            updateCurrentTeam({
+                marketing_analytics_config: {
+                    ...marketingAnalyticsConfig,
+                    attribution_mode: mode,
+                },
+            })
+        },
+        [updateCurrentTeam, marketingAnalyticsConfig]
+    )
 
     // Debounce the team update to avoid excessive API calls
     const debouncedUpdateDays = useMemo(
@@ -67,22 +86,50 @@ export function AttributionSettings(): JSX.Element {
         [updateAttributionWindowDays]
     )
 
-    // Handle slider change: update UI immediately, debounce team update
-    const handleDaysChange = (days: number): void => {
-        setLocalDays(days)
-        debouncedUpdateDays(days)
-    }
+    // Handle dropdown change: update UI immediately, debounce team update
+    const handleDaysChange = useCallback(
+        (days: number | string): void => {
+            if (days === 'custom') {
+                setIsCustomValue(true)
+                return
+            }
+            setIsCustomValue(false)
+            const numericDays = typeof days === 'string' ? parseInt(days, 10) : days
+            setLocalDays(numericDays)
+            debouncedUpdateDays(numericDays)
+        },
+        [debouncedUpdateDays]
+    )
 
     // Handle attribution mode change: update UI immediately, update backend
-    const handleAttributionModeChange = (mode: AttributionMode): void => {
-        setLocalAttributionMode(mode)
-        updateAttributionMode(mode)
-    }
+    const handleAttributionModeChange = useCallback(
+        (mode: AttributionMode): void => {
+            setLocalAttributionMode(mode)
+            updateAttributionMode(mode)
+        },
+        [updateAttributionMode]
+    )
 
-    const attributionModeOptions = [
-        { value: AttributionMode.FirstTouch, label: 'First Touch' },
-        { value: AttributionMode.LastTouch, label: 'Last Touch' },
-    ]
+    const handleCustomInputChange = useCallback((value: number | undefined): void => {
+        if (value !== undefined) {
+            setLocalDays(value)
+        }
+    }, [])
+
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent): void => {
+            if (e.key === 'Enter' && !hasError) {
+                debouncedUpdateDays(localDays)
+            }
+        },
+        [hasError, localDays, debouncedUpdateDays]
+    )
+
+    const saveCustomInput = useCallback((): void => {
+        if (!hasError && localDays !== attribution_window_days) {
+            debouncedUpdateDays(localDays)
+        }
+    }, [hasError, localDays, attribution_window_days, debouncedUpdateDays])
 
     return (
         <div className="space-y-4">
@@ -105,20 +152,46 @@ export function AttributionSettings(): JSX.Element {
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
-                    <div className="max-w-md">
-                        <LemonSlider
+                    <div className="max-w-md flex items-center gap-2">
+                        <LemonSelect
+                            value={isCustomValue ? 'custom' : localDays}
+                            onChange={handleDaysChange}
+                            options={ATTRIBUTION_WINDOW_OPTIONS}
+                            data-attr="attribution-window-select"
+                            className="w-50"
+                        />
+                        <LemonInput
+                            type="number"
+                            value={localDays}
+                            onChange={handleCustomInputChange}
+                            onKeyDown={handleKeyDown}
+                            placeholder={`${MIN_ATTRIBUTION_WINDOW_DAYS}-${MAX_ATTRIBUTION_WINDOW_DAYS}`}
                             min={MIN_ATTRIBUTION_WINDOW_DAYS}
                             max={MAX_ATTRIBUTION_WINDOW_DAYS}
-                            step={STEP_ATTRIBUTION_WINDOW_DAYS}
-                            value={localDays}
-                            onChange={handleDaysChange}
+                            className="w-32"
+                            status={hasError ? 'danger' : undefined}
+                            data-attr="attribution-window-custom-input"
                         />
-                        <div className="text-sm text-muted-foreground mt-2">
-                            {localDays} day{localDays !== 1 ? 's' : ''} ({Math.round(localDays / 7)} weeks)
-                        </div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={saveCustomInput}
+                            disabledReason={
+                                hasError
+                                    ? 'Please enter a valid value between 1 and 365 days'
+                                    : localDays === attribution_window_days
+                                      ? 'No changes to save'
+                                      : undefined
+                            }
+                            data-attr="attribution-window-save-button"
+                        >
+                            Save
+                        </LemonButton>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                        How far back to look for marketing touchpoints when attributing conversions
+                    <p className={`text-xs text-muted-foreground mt-1 ${hasError ? 'text-danger' : ''}`}>
+                        {hasError
+                            ? 'Please enter a value between 1 and 365 days'
+                            : 'How far back to look for marketing touchpoints when attributing conversions'}
                     </p>
                 </div>
 
@@ -130,11 +203,20 @@ export function AttributionSettings(): JSX.Element {
                         </Tooltip>
                     </label>
                     <div className="max-w-md">
-                        <LemonSelect
-                            value={localAttributionMode}
-                            onChange={handleAttributionModeChange}
-                            options={attributionModeOptions}
-                        />
+                        <div className="flex items-center gap-1 bg-border rounded p-1">
+                            {ATTRIBUTION_MODE_OPTIONS.map((option) => (
+                                <LemonButton
+                                    key={option.value}
+                                    type={localAttributionMode === option.value ? 'primary' : 'tertiary'}
+                                    size="small"
+                                    onClick={() => handleAttributionModeChange(option.value)}
+                                    data-attr={`attribution-mode-${option.value.toLowerCase().replace('_', '-')}`}
+                                    className="flex-1"
+                                >
+                                    {option.label}
+                                </LemonButton>
+                            ))}
+                        </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                         {localAttributionMode === AttributionMode.FirstTouch
