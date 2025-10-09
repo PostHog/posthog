@@ -65,10 +65,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     return (
         <div
-            className={clsx(
-                'bg-surface-secondary rounded p-6 flex flex-col',
-                addon.subscribed && 'border border-accent'
-            )}
+            className="bg-surface-secondary rounded p-6 flex flex-col"
             ref={productRef}
             data-attr={`billing-product-addon-${addon.type}`}
         >
