@@ -118,14 +118,14 @@ if read_host:
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-# For local development, default to the persons_db container if no URL is provided
+# For local development, default to the persons database in the main container if no URL is provided
 persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
 if not persons_db_writer_url and DEBUG and not TEST:
-    # Default to local persons_db container in development mode (but not test mode)
+    # Default to local persons database in main container in development mode (but not test mode)
     # This matches the docker-compose.dev.yml configuration
     # A default is needed for generate_demo_data to properly populate the correct databases
     # with the demo data
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5434/posthog_persons"
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
 
 if persons_db_writer_url:
     DATABASES["persons_db_writer"] = dj_database_url.config(default=persons_db_writer_url, conn_max_age=0)

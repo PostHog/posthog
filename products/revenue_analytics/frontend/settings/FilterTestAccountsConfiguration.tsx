@@ -6,7 +6,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -24,7 +24,10 @@ export function FilterTestAccountsConfiguration(): JSX.Element {
                 </>
             }
         >
-            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.RevenueAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
                 <LemonSwitch
                     onChange={updateFilterTestAccounts}
                     checked={filterTestAccounts}

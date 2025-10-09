@@ -21,6 +21,7 @@ describe('createDropExceptionEventsStep', () => {
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
+                        force_disable_person_processing: false,
                     },
                 },
             }
@@ -46,6 +47,7 @@ describe('createDropExceptionEventsStep', () => {
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
+                        force_disable_person_processing: false,
                     },
                 },
             }
@@ -71,6 +73,7 @@ describe('createDropExceptionEventsStep', () => {
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
+                        force_disable_person_processing: false,
                     },
                 },
             }
@@ -96,6 +99,7 @@ describe('createDropExceptionEventsStep', () => {
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
+                        force_disable_person_processing: false,
                     },
                 },
             }
@@ -121,6 +125,7 @@ describe('createDropExceptionEventsStep', () => {
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
+                        force_disable_person_processing: false,
                     },
                 },
             }
@@ -146,6 +151,7 @@ describe('createDropExceptionEventsStep', () => {
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
+                        force_disable_person_processing: false,
                     },
                 },
             }

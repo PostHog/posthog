@@ -261,7 +261,7 @@ pub async fn resolve_issue(
     event_timestamp: DateTime<Utc>,
     event_properties: FingerprintedErrProps,
 ) -> Result<Issue, UnhandledError> {
-    let mut conn = context.pool.acquire().await?;
+    let mut conn = context.posthog_pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue =
         Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
