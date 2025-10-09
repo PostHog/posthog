@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,6 +11,7 @@ import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInpu
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { UnexpectedNeverError, genericOperatorMap, uuid } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -153,6 +153,8 @@ export function CustomChannelTypes(): JSX.Element {
             .map((channelType) => ({ label: channelType, key: channelType }))
     }, [customChannelTypeRules])
 
+    const canEdit = userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+
     return (
         <div>
             <p>
@@ -169,26 +171,22 @@ export function CustomChannelTypes(): JSX.Element {
                     session attribution explorer tool
                 </Link>
             </p>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.WebAnalytics}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <ChannelTypeEditor
-                    handleChange={setCustomChannelTypeRules}
-                    initialCustomChannelTypeRules={customChannelTypeRules}
-                    channelTypeOptions={channelTypeOptions}
-                    onSave={() => {
-                        updateCurrentTeam({
-                            modifiers: {
-                                customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules),
-                            },
-                        })
-                        reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
-                        setSavedCustomChannelTypeRules(customChannelTypeRules)
-                    }}
-                    isSaveDisabled={isEqual(customChannelTypeRules, savedCustomChannelTypeRules)}
-                />
-            </AccessControlAction>
+            <ChannelTypeEditor
+                handleChange={setCustomChannelTypeRules}
+                initialCustomChannelTypeRules={customChannelTypeRules}
+                channelTypeOptions={channelTypeOptions}
+                onSave={() => {
+                    updateCurrentTeam({
+                        modifiers: {
+                            customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules),
+                        },
+                    })
+                    reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
+                    setSavedCustomChannelTypeRules(customChannelTypeRules)
+                }}
+                isSaveDisabled={isEqual(customChannelTypeRules, savedCustomChannelTypeRules)}
+                canEdit={canEdit}
+            />
         </div>
     )
 }
@@ -199,6 +197,7 @@ export interface ChannelTypeEditorProps {
     channelTypeOptions: LemonInputSelectOption[]
     isSaveDisabled: boolean
     onSave: () => void
+    canEdit: boolean
 }
 
 export function ChannelTypeEditor({
@@ -207,6 +206,7 @@ export function ChannelTypeEditor({
     channelTypeOptions,
     isSaveDisabled,
     onSave,
+    canEdit,
 }: ChannelTypeEditorProps): JSX.Element {
     return (
         <VerticalNestedDND<CustomChannelCondition, CustomChannelRule>
@@ -229,6 +229,7 @@ export function ChannelTypeEditor({
                                 }
                                 options={channelTypeOptions}
                                 placeholder="Enter a channel type name"
+                                disabledReason={!canEdit ? 'You need editor access to modify channel types' : undefined}
                             />
                         </div>
                         {rule.items.length > 0 ? (
@@ -242,6 +243,9 @@ export function ChannelTypeEditor({
                                             value={rule.combiner}
                                             options={combinerOptions}
                                             onChange={(combiner) => updateContainerItem({ ...rule, combiner })}
+                                            disabledReason={
+                                                !canEdit ? 'You need editor access to modify channel types' : undefined
+                                            }
                                         />
                                         <span>conditions are met</span>
                                     </div>
@@ -259,14 +263,16 @@ export function ChannelTypeEditor({
                                 value={rule.key}
                                 options={keyOptions}
                                 onChange={(key) => updateChildItem({ ...rule, key })}
+                                disabledReason={!canEdit ? 'You need editor access to modify channel types' : undefined}
                             />
                             <LemonSelect<CustomChannelOperator>
                                 value={rule.op}
                                 options={opOptions}
                                 onChange={(op) => updateChildItem({ ...rule, op })}
+                                disabledReason={!canEdit ? 'You need editor access to modify channel types' : undefined}
                             />
                         </div>
-                        {isNullary(rule.op) ? null : (
+                        {isNullary(rule.op) ? null : canEdit ? (
                             <PropertyValue
                                 key={rule.key}
                                 propertyKey={keyToSessionProperty(rule.key)}
@@ -278,26 +284,30 @@ export function ChannelTypeEditor({
                                 value={rule.value}
                                 placeholder="Enter a value"
                             />
+                        ) : (
+                            <div className="text-muted">
+                                {Array.isArray(rule.value) ? rule.value.join(', ') : rule.value}
+                            </div>
                         )}
                     </div>
                 )
             }}
             renderAddChildItem={(rule, { onAddChild }) => {
-                return (
+                return canEdit ? (
                     <LemonButton type="primary" onClick={() => onAddChild(rule.id)} icon={<IconPlus />}>
                         Add condition
                     </LemonButton>
-                )
+                ) : null
             }}
             renderAddContainerItem={({ onAddContainer }) => {
-                return (
+                return canEdit ? (
                     <LemonButton type="primary" onClick={onAddContainer} icon={<IconPlus />}>
                         Add rule
                     </LemonButton>
-                )
+                ) : null
             }}
             renderAdditionalControls={() => {
-                return (
+                return canEdit ? (
                     <LemonButton
                         onClick={onSave}
                         disabledReason={isSaveDisabled ? 'No changes to save' : undefined}
@@ -305,7 +315,7 @@ export function ChannelTypeEditor({
                     >
                         Save custom channel type rules
                     </LemonButton>
-                )
+                ) : null
             }}
             createNewContainerItem={() => {
                 return {
