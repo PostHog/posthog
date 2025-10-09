@@ -13,7 +13,9 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -129,6 +131,7 @@ export function FeatureFlagReleaseConditions({
         useValues(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const canMoveConditionsWhileCalculating = useFeatureFlag('FEATURE_FLAG_MOVE_CONDITIONS_WHILE_CALCULATING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
@@ -199,8 +202,9 @@ export function FeatureFlagReleaseConditions({
                                             disabledReason={
                                                 index === filterGroups.length - 1
                                                     ? 'Cannot move last condition set down'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index + 1] === undefined
+                                                    : !canMoveConditionsWhileCalculating &&
+                                                        (affectedUsers[index] === undefined ||
+                                                            affectedUsers[index + 1] === undefined)
                                                       ? 'Cannot move condition sets while calculating affected users'
                                                       : null
                                             }
@@ -214,8 +218,9 @@ export function FeatureFlagReleaseConditions({
                                             disabledReason={
                                                 index === 0
                                                     ? 'Cannot move first condition set up'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index - 1] === undefined
+                                                    : !canMoveConditionsWhileCalculating &&
+                                                        (affectedUsers[index] === undefined ||
+                                                            affectedUsers[index - 1] === undefined)
                                                       ? 'Cannot move condition sets while calculating affected users'
                                                       : null
                                             }
