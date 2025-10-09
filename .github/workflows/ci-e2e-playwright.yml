@@ -441,7 +441,6 @@ jobs:
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
                     posthog-migrations:latest
 
-
                   # Build and run Rust migrations using dedicated container
                   docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
