@@ -1092,7 +1092,7 @@ export interface SessionRecordingSnapshotSource {
     blob_key?: string
 }
 
-export type SessionRecordingSnapshotParams =
+export type SessionRecordingSnapshotParams = (
     | {
           source: 'blob'
           blob_key?: string
@@ -1109,6 +1109,9 @@ export type SessionRecordingSnapshotParams =
     | {
           source: 'realtime'
       }
+) & {
+    decompress?: boolean
+}
 
 export interface SessionRecordingSnapshotSourceResponse {
     // v1 loaded each source separately

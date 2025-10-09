@@ -1,14 +1,13 @@
-import snappy from 'snappy-wasm'
+import snappyInit, { decompress_raw } from 'snappy-wasm'
 
 // Initialize snappy-wasm
 let snappyInitialized = false
-let snappyInstance: typeof snappy | null = null
 
 async function initSnappy(): Promise<void> {
-    if (snappyInitialized && snappyInstance) {
+    if (snappyInitialized) {
         return
     }
-    snappyInstance = await snappy
+    await snappyInit()
     snappyInitialized = true
 }
 
@@ -31,12 +30,9 @@ self.addEventListener('message', async (event: MessageEvent<DecompressionRequest
         // Ensure snappy is initialized
         await initSnappy()
 
-        if (!snappyInstance) {
-            throw new Error('Snappy not initialized')
-        }
-
         // Decompress the data
-        const decompressed = snappyInstance.uncompress(compressedData)
+        // decompress_raw returns Uint8Array directly from compressed Uint8Array
+        const decompressed = decompress_raw(compressedData)
 
         // Send the result back to the main thread
         const response: DecompressionResponse = {

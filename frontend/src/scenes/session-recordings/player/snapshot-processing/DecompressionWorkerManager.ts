@@ -4,7 +4,6 @@ export class DecompressionWorkerManager {
     private worker: Worker | null = null
     private nextRequestId = 0
     private pendingRequests = new Map<number, { resolve: (data: Uint8Array) => void; reject: (error: Error) => void }>()
-    private isReady = false
     private readyPromise: Promise<void>
 
     constructor() {
@@ -14,13 +13,16 @@ export class DecompressionWorkerManager {
     private async initWorker(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                // Create the worker - the build system should handle this
+                // esbuild automatically detects this pattern and bundles the worker separately
+                // The new URL(..., import.meta.url) syntax tells esbuild to:
+                // 1. Create a separate bundle for decompressionWorker.ts
+                // 2. Replace this expression with the correct runtime path
+                // 3. Include all worker dependencies (like snappy-wasm) in the worker bundle
                 this.worker = new Worker(new URL('./decompressionWorker.ts', import.meta.url), { type: 'module' })
 
                 this.worker.addEventListener('message', (event: MessageEvent) => {
                     // Check for ready signal
                     if (event.data.type === 'ready') {
-                        this.isReady = true
                         resolve()
                         return
                     }
@@ -85,7 +87,6 @@ export class DecompressionWorkerManager {
             this.worker = null
         }
         this.pendingRequests.clear()
-        this.isReady = false
     }
 }
 
