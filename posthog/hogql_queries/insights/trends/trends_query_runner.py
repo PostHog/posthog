@@ -34,6 +34,7 @@ from posthog.schema import (
     QueryTiming,
     ResolvedDateRangeResponse,
     Series,
+    SessionsNode,
     TrendsFormulaNode,
     TrendsQuery,
     TrendsQueryResponse,
@@ -119,6 +120,79 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+        self._validate_sessions_node()
+
+    def _validate_sessions_node(self):
+        from posthog.schema import BaseMathType, PropertyMathType, CountPerActorMathType
+
+        for series in self.query.series:
+            if not isinstance(series, SessionsNode):
+                continue
+
+            # Validate math operations
+            allowed_math = {
+                BaseMathType.TOTAL,
+                "total",
+                BaseMathType.DAU,
+                "dau",
+                "avg_count_per_actor",
+                CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                PropertyMathType.AVG,
+                "avg",
+                PropertyMathType.SUM,
+                "sum",
+                PropertyMathType.MIN,
+                "min",
+                PropertyMathType.MAX,
+                "max",
+                PropertyMathType.MEDIAN,
+                "median",
+                PropertyMathType.P75,
+                "p75",
+                PropertyMathType.P90,
+                "p90",
+                PropertyMathType.P95,
+                "p95",
+                PropertyMathType.P99,
+                "p99",
+            }
+
+            if series.math and series.math not in allowed_math:
+                raise ValueError(
+                    f"SessionsNode only supports the following math operations: total, dau, avg_count_per_actor, avg, sum, min, max, median, p75, p90, p95, p99. Got: {series.math}"
+                )
+
+            # Validate property aggregations have math_property
+            property_math = {
+                PropertyMathType.AVG,
+                "avg",
+                PropertyMathType.SUM,
+                "sum",
+                PropertyMathType.MIN,
+                "min",
+                PropertyMathType.MAX,
+                "max",
+                PropertyMathType.MEDIAN,
+                "median",
+                PropertyMathType.P75,
+                "p75",
+                PropertyMathType.P90,
+                "p90",
+                PropertyMathType.P95,
+                "p95",
+                PropertyMathType.P99,
+                "p99",
+            }
+
+            if series.math in property_math and not series.math_property:
+                raise ValueError(f"SessionsNode with math operation '{series.math}' requires math_property to be set")
+
+            # Validate breakdowns are only session or person type
+            if self.query.breakdownFilter:
+                if self.query.breakdownFilter.breakdown_type not in (None, "session", "person"):
+                    raise ValueError(
+                        f"SessionsNode only supports 'session' and 'person' breakdown types. Got: {self.query.breakdownFilter.breakdown_type}"
+                    )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -553,8 +627,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "custom_name": series.series.custom_name,
                         "math": series.series.math,
                         "math_property": series.series.math_property,
-                        "math_hogql": series.series.math_hogql,
-                        "math_group_type_index": series.series.math_group_type_index,
+                        "math_hogql": getattr(series.series, "math_hogql", None),
+                        "math_group_type_index": getattr(series.series, "math_group_type_index", None),
                         "properties": {},
                     },
                 }
@@ -590,8 +664,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "custom_name": series.series.custom_name,
                         "math": series.series.math,
                         "math_property": series.series.math_property,
-                        "math_hogql": series.series.math_hogql,
-                        "math_group_type_index": series.series.math_group_type_index,
+                        "math_hogql": getattr(series.series, "math_hogql", None),
+                        "math_group_type_index": getattr(series.series, "math_group_type_index", None),
                         "properties": {},
                     },
                 }
@@ -709,7 +783,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             exact_timerange=self.exact_timerange,
         )
 
-    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
@@ -719,6 +793,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if isinstance(series, DataWarehouseNode):
             return series.table_name
+
+        if isinstance(series, SessionsNode):
+            return "sessions"
 
         return None  # type: ignore [unreachable]
 

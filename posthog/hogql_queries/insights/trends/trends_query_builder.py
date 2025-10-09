@@ -8,6 +8,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
+    SessionsNode,
     TrendsQuery,
 )
 
@@ -36,7 +37,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode | DataWarehouseNode
+    series: EventsNode | ActionsNode | DataWarehouseNode | SessionsNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
@@ -46,7 +47,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode | DataWarehouseNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode | SessionsNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         limit_context: LimitContext = LimitContext.QUERY,
@@ -157,7 +158,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 alias="e",
                 sample=(
                     ast.SampleExpr(sample_value=self._sample_value())
-                    if not isinstance(self.series, DataWarehouseNode)
+                    if not isinstance(self.series, (DataWarehouseNode, SessionsNode))
                     else None
                 ),
             ),
@@ -166,10 +167,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
         assert default_query.group_by is not None
 
+        timestamp_field = "$start_timestamp" if isinstance(self.series, SessionsNode) else "timestamp"
         day_start = ast.Alias(
             alias="day_start",
             expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
+                name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                args=[ast.Field(chain=[timestamp_field])],
             ),
         )
 
@@ -680,12 +683,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
             date_range_placeholders = self.query_date_range.to_placeholders()
+            timestamp_field = "$start_timestamp" if isinstance(self.series, SessionsNode) else "timestamp"
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
+                        f"{timestamp_field} >= {{date_from_with_adjusted_start_of_interval}}",
+                        placeholders=date_range_placeholders,
                     ),
-                    parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
+                    parse_expr(f"{timestamp_field} <= {{date_to}}", placeholders=date_range_placeholders),
                 ]
             )
 
@@ -759,6 +764,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:
+        # SessionsNode doesn't need event filtering
+        if isinstance(self.series, SessionsNode):
+            return None
+
         # Event name
         if series_event_name(self.series) is not None:
             return parse_expr(

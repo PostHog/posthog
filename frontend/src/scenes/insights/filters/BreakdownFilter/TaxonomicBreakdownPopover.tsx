@@ -36,8 +36,17 @@ export const TaxonomicBreakdownPopover = ({
     const { currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
+    // Check if any series is a SessionsNode
+    const hasSessionsNode =
+        query &&
+        'series' in query &&
+        Array.isArray(query.series) &&
+        query.series.some((s: any) => s.kind === 'SessionsNode')
+
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
-    if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
+    if (hasSessionsNode) {
+        taxonomicGroupTypes = [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.PersonProperties]
+    } else if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,

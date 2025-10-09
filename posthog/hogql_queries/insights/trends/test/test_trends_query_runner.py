@@ -47,6 +47,8 @@ from posthog.schema import (
     PropertyMathType,
     PropertyOperator,
     Series as InsightActorsQuerySeries,
+    SessionsNode,
+    SessionTableVersion,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -69,6 +71,7 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
+from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -5804,3 +5807,40 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, len(response.results))
         self.assertEqual(2, len(response.results[0]["days"]))
         self.assertEqual(7, response.results[0]["count"])
+
+    # SessionsNode Validation Tests
+    # (Query tests moved to test_trends_sessions_query_runner.py)
+    def test_sessions_node_validation_unsupported_math(self):
+        """Test that SessionsNode raises error for unsupported math operations."""
+        with self.assertRaises(ValueError) as context:
+            self._run_trends_query(
+                "2020-01-11",
+                "2020-01-12",
+                IntervalType.DAY,
+                [SessionsNode(math=BaseMathType.WEEKLY_ACTIVE)],  # Not supported
+            )
+        self.assertIn("only supports the following math operations", str(context.exception))
+
+    def test_sessions_node_validation_missing_math_property(self):
+        """Test that SessionsNode raises error when math_property is missing for property math."""
+        with self.assertRaises(ValueError) as context:
+            self._run_trends_query(
+                "2020-01-11",
+                "2020-01-12",
+                IntervalType.DAY,
+                [SessionsNode(math=PropertyMathType.AVG)],  # Requires math_property
+            )
+        self.assertIn("requires math_property to be set", str(context.exception))
+
+    def test_sessions_node_validation_unsupported_breakdown_type(self):
+        """Test that SessionsNode raises error for unsupported breakdown types."""
+        with self.assertRaises(ValueError) as context:
+            self._run_trends_query(
+                "2020-01-11",
+                "2020-01-12",
+                IntervalType.DAY,
+                [SessionsNode(math=BaseMathType.TOTAL)],
+                None,
+                BreakdownFilter(breakdown="event_prop", breakdown_type=BreakdownType.EVENT),  # Not supported
+            )
+        self.assertIn("only supports 'session' and 'person' breakdown types", str(context.exception))

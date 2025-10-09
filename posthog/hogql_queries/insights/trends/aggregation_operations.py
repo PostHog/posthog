@@ -1,6 +1,6 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, SessionsNode
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -25,7 +25,7 @@ def create_placeholder(name: str) -> ast.Placeholder:
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
-    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     is_total_value: bool
@@ -33,7 +33,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def __init__(
         self,
         team: Team,
-        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode],
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         is_total_value: bool,
@@ -45,7 +45,38 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         self.is_total_value = is_total_value
 
     def select_aggregation(self) -> ast.Expr:
-        if self.series.math == "hogql" and self.series.math_hogql is not None:
+        if isinstance(self.series, SessionsNode):
+            if self.series.math == "dau":
+                # Count distinct users via person_id from joined person_distinct_ids table
+                return parse_expr("count(DISTINCT person_id)")
+            elif self.series.math == "avg_count_per_actor":
+                # avg_count_per_actor requires query orchestration, will be replaced below
+                return parse_expr("count()")
+            elif self.series.math == "total":
+                # Default: total count of sessions
+                return parse_expr("count()")
+            elif self.series.math_property:
+                # Session property aggregations
+                if self.series.math == "avg":
+                    return self._math_func("avg")
+                elif self.series.math == "sum":
+                    return self._math_func("sum")
+                elif self.series.math == "min":
+                    return self._math_func("min")
+                elif self.series.math == "max":
+                    return self._math_func("max")
+                elif self.series.math == "median":
+                    return self._math_quantile(0.5)
+                elif self.series.math == "p75":
+                    return self._math_quantile(0.75)
+                elif self.series.math == "p90":
+                    return self._math_quantile(0.9)
+                elif self.series.math == "p95":
+                    return self._math_quantile(0.95)
+                elif self.series.math == "p99":
+                    return self._math_quantile(0.99)
+            return parse_expr("count()")
+        elif self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
@@ -88,11 +119,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def actor_id_field(self) -> str:
         """
         For group-based math (unique_group, weekly_active, monthly_active, dau with group index), returns the group
-        field. Otherwise, returns person_id.
+        field. For SessionsNode, returns person_id from the joined person_distinct_ids table. Otherwise, returns
+        person_id from events.
 
         Note: DAU can have math_group_type_index because weekly_active/monthly_active get converted to DAU when
         interval >= their time window.
         """
+        if isinstance(self.series, SessionsNode):
+            return "person_id"
         if is_groups_math(series=self.series):
             return f'e."$group_{int(cast(int, self.series.math_group_type_index))}"'
         return "e.person_id"
@@ -150,7 +184,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
-        if self.series.math_property == "$session_duration":
+        if isinstance(self.series, SessionsNode):
+            # Session properties are direct fields on sessions table
+            return [self.series.math_property]
+        elif self.series.math_property == "$session_duration":
             return ["session_duration"]
         elif isinstance(self.series, DataWarehouseNode):
             return [self.series.math_property]
@@ -178,7 +215,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         chain = self._get_math_chain()
 
-        if self.series.math_property_revenue_currency is not None:
+        if hasattr(self.series, "math_property_revenue_currency") and self.series.math_property_revenue_currency is not None:
             event_currency = (
                 ast.Constant(value=self.series.math_property_revenue_currency.static.value)
                 if self.series.math_property_revenue_currency.static is not None

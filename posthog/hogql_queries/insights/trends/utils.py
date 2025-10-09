@@ -7,14 +7,17 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     MultipleBreakdownType,
+    SessionsNode,
 )
 
 from posthog.constants import UNIQUE_GROUPS
 
 
-def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
+def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]) -> str | None:
     if isinstance(series, EventsNode):
         return series.event
+    if isinstance(series, SessionsNode):
+        return "sessions"
     return None
 
 
@@ -52,7 +55,9 @@ def get_properties_chain(
     return ["properties", breakdown_field]
 
 
-def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> bool:
+def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]) -> bool:
+    if isinstance(series, SessionsNode):
+        return False
     return (
         series.math in {BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE}
         and series.math_group_type_index is not None

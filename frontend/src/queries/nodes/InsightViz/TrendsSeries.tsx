@@ -30,32 +30,43 @@ export function TrendsSeries(): JSX.Element | null {
     // Disable groups for calendar heatmap
     const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
 
-    const propertiesTaxonomicGroupTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.EventFeatureFlags,
-        TaxonomicFilterGroupType.EventMetadata,
-        ...groupsTaxonomicTypes,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.SessionProperties,
-        TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.DataWarehouseProperties,
-        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-    ]
+    // Check if any series is a SessionsNode
+    const hasSessionsNode = series?.some((s: any) => s.kind === 'SessionsNode')
+
+    const propertiesTaxonomicGroupTypes = hasSessionsNode
+        ? [
+              // SessionsNode only supports session and person properties
+              TaxonomicFilterGroupType.SessionProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+          ]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              TaxonomicFilterGroupType.EventFeatureFlags,
+              TaxonomicFilterGroupType.EventMetadata,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.Cohorts,
+              TaxonomicFilterGroupType.Elements,
+              TaxonomicFilterGroupType.SessionProperties,
+              TaxonomicFilterGroupType.HogQLExpression,
+              TaxonomicFilterGroupType.DataWarehouseProperties,
+              TaxonomicFilterGroupType.DataWarehousePersonProperties,
+          ]
 
     if (!isInsightQueryNode(querySource)) {
         return null
     }
 
     const filters = queryNodeToFilter(querySource)
-    const mathAvailability = isLifecycle
-        ? MathAvailability.None
-        : isStickiness
-          ? MathAvailability.ActorsOnly
-          : display === ChartDisplayType.CalendarHeatmap
-            ? MathAvailability.CalendarHeatmapOnly
-            : MathAvailability.All
+    const mathAvailability = hasSessionsNode
+        ? MathAvailability.All
+        : isLifecycle
+          ? MathAvailability.None
+          : isStickiness
+            ? MathAvailability.ActorsOnly
+            : display === ChartDisplayType.CalendarHeatmap
+              ? MathAvailability.CalendarHeatmapOnly
+              : MathAvailability.All
 
     return (
         <>
