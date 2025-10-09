@@ -29,7 +29,7 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon } = useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
@@ -181,7 +181,19 @@ export const BillingProductAddonActions = ({
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
                 <p className="mt-2 text-xs text-secondary text-right">
-                    Pay ~${proratedAmount.toFixed(2)} today (prorated) and
+                    Pay ~${proratedAmount.toFixed(0)} today (prorated) and
+                    <br />
+                    {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
+                </p>
+            )
+        }
+
+        // Upgrading from another add-on to this one
+        if (isSwitchPlanEnabled && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
+            const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
+            return (
+                <p className="mt-2 text-xs text-secondary text-right">
+                    Pay ~${amountDue.toFixed(0)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
                 </p>
@@ -226,7 +238,6 @@ export const BillingProductAddonActions = ({
                     Upgrade
                 </LemonButton>
             </>
-            // TODO: show prorated amount similar to renderPricingInfo
         )
     }
 
