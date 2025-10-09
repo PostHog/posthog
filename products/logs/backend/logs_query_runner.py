@@ -132,13 +132,31 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         )
         assert isinstance(query, ast.SelectQuery)
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
-
         query.where = ast.And(exprs=[self.where()])
         query.order_by = [
+            # the table's order key is:
+            # ORDER BY (
+            #   team_id,
+            #   toStartOfMinute(timestamp) DESC,
+            #   service_name,
+            #   severity_text,
+            #   toUnixTimestamp(timestamp) DESC,
+            #   trace_id,
+            #   span_id
+            # )
+            # to be most efficient we want to use as much of the order prefix as possible
             parse_order_expr("team_id"),
-            parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
-            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"toStartOfMinute(timestamp) {order_dir}"),
         ]
+        # if we are filtering to a single server or severity level, ordering by it
+        # does nothing, but clickhouse is dumb and will optimize better if we do
+        if len(self.query.serviceNames) == 1:
+            query.order_by.append(parse_order_expr("service_name"))
+        if len(self.query.severityLevels) == 1:
+            query.order_by.append(parse_order_expr("severity_text"))
+
+        query.order_by.append(parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"))
+        query.order_by.append(parse_order_expr(f"timestamp {order_dir}"))
 
         final_query = parse_select(
             """
