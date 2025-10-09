@@ -188,7 +188,8 @@ describe('PersonState.processEvent()', () => {
         const processor = new PersonEventProcessor(
             context,
             propertyService ?? new PersonPropertyService(context),
-            mergeService ?? new PersonMergeService(context)
+            mergeService ?? new PersonMergeService(context),
+            false // forceDisablePersonProcessing = false (default)
         )
         return processor
     }
@@ -3985,7 +3986,8 @@ describe('PersonState.processEvent()', () => {
                     const processor = new PersonEventProcessor(
                         context,
                         new PersonPropertyService(context),
-                        new PersonMergeService(context)
+                        new PersonMergeService(context),
+                        false // forceDisablePersonProcessing = false (default)
                     )
                     return processor
                 }
@@ -4115,6 +4117,166 @@ describe('PersonState.processEvent()', () => {
                             expect(result.value).toEqual(mockPerson)
                         }
                     }
+                })
+            })
+        })
+
+        describe('forceDisablePersonProcessing functionality', () => {
+            let personsStore: BatchWritingPersonsStoreForBatch
+
+            beforeEach(() => {
+                personsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+            })
+
+            function createPersonEventProcessorWithForceDisable(
+                event: Partial<PluginEvent>,
+                forceDisablePersonProcessing: boolean = false,
+                processPerson: boolean = true
+            ) {
+                const fullEvent = {
+                    team_id: teamId,
+                    properties: {},
+                    ...event,
+                }
+
+                const context = new PersonContext(
+                    fullEvent as any,
+                    mainTeam,
+                    event.distinct_id!,
+                    timestamp,
+                    processPerson,
+                    hub.db.kafkaProducer,
+                    personsStore,
+                    0,
+                    createDefaultSyncMergeMode()
+                )
+                const processor = new PersonEventProcessor(
+                    context,
+                    new PersonPropertyService(context),
+                    new PersonMergeService(context),
+                    forceDisablePersonProcessing
+                )
+                return processor
+            }
+
+            describe('when forceDisablePersonProcessing is true', () => {
+                it('should skip all personless processing and return fake person immediately', async () => {
+                    const processor = createPersonEventProcessorWithForceDisable(
+                        {
+                            event: '$pageview',
+                            distinct_id: 'test-user-123',
+                        },
+                        true, // forceDisablePersonProcessing = true
+                        false // processPerson = false (triggers personless mode)
+                    )
+
+                    const [result, kafkaAck] = await processor.processEvent()
+
+                    expect(result.type).toBe(PipelineResultType.OK)
+                    if (isOkResult(result)) {
+                        const person = result.value
+                        expect(person.team_id).toBe(teamId)
+                        expect(person.properties).toEqual({})
+                        expect(person.uuid).toBeDefined()
+                        expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z') // Fake person creation date
+                    }
+
+                    // Verify kafkaAck is resolved
+                    await expect(kafkaAck).resolves.toBeUndefined()
+                })
+
+                it('should not perform any database operations when forceDisablePersonProcessing is true', async () => {
+                    const processor = createPersonEventProcessorWithForceDisable(
+                        {
+                            event: '$pageview',
+                            distinct_id: 'test-user-456',
+                        },
+                        true, // forceDisablePersonProcessing = true
+                        false // processPerson = false
+                    )
+
+                    // Spy on person store methods to ensure they're not called
+                    const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
+                    const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+
+                    const [result] = await processor.processEvent()
+
+                    expect(result.type).toBe(PipelineResultType.OK)
+                    // Verify no database operations were performed
+                    expect(fetchForCheckingSpy).not.toHaveBeenCalled()
+                    expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+                })
+
+                it('should work with different distinct IDs', async () => {
+                    const distinctIds = ['user-1', 'user-2', 'user-3']
+
+                    for (const distinctId of distinctIds) {
+                        const processor = createPersonEventProcessorWithForceDisable(
+                            {
+                                event: '$pageview',
+                                distinct_id: distinctId,
+                            },
+                            true, // forceDisablePersonProcessing = true
+                            false // processPerson = false
+                        )
+
+                        const [result] = await processor.processEvent()
+
+                        expect(result.type).toBe(PipelineResultType.OK)
+                        if (isOkResult(result)) {
+                            expect(result.value.team_id).toBe(teamId)
+                            expect(result.value.properties).toEqual({})
+                        }
+                    }
+                })
+            })
+
+            describe('when forceDisablePersonProcessing is false', () => {
+                it('should perform normal personless processing', async () => {
+                    const processor = createPersonEventProcessorWithForceDisable(
+                        {
+                            event: '$pageview',
+                            distinct_id: 'test-user-normal',
+                        },
+                        false, // forceDisablePersonProcessing = false
+                        false // processPerson = false
+                    )
+
+                    const [result] = await processor.processEvent()
+
+                    expect(result.type).toBe(PipelineResultType.OK)
+                    if (isOkResult(result)) {
+                        const person = result.value
+                        expect(person.team_id).toBe(teamId)
+                        expect(person.properties).toEqual({})
+                        expect(person.uuid).toBeDefined()
+                        // Should still create a fake person, but through normal personless processing
+                        expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z')
+                    }
+                })
+
+                it('should perform database operations when forceDisablePersonProcessing is false', async () => {
+                    const processor = createPersonEventProcessorWithForceDisable(
+                        {
+                            event: '$pageview',
+                            distinct_id: 'test-user-db-ops',
+                        },
+                        false, // forceDisablePersonProcessing = false
+                        false // processPerson = false
+                    )
+
+                    // Spy on person store methods
+                    const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValue(null)
+                    const addPersonlessDistinctIdSpy = jest
+                        .spyOn(personsStore, 'addPersonlessDistinctId')
+                        .mockResolvedValue(false)
+
+                    const [result] = await processor.processEvent()
+
+                    expect(result.type).toBe(PipelineResultType.OK)
+                    // Verify database operations were performed
+                    expect(fetchForCheckingSpy).toHaveBeenCalledWith(teamId, 'test-user-db-ops')
+                    expect(addPersonlessDistinctIdSpy).toHaveBeenCalledWith(teamId, 'test-user-db-ops')
                 })
             })
         })
