@@ -12,7 +12,8 @@ async function fetchPostHogKey() {
         const envContent = fs.readFileSync(envPath, 'utf-8')
         const keyMatch = envContent.match(/NEXT_PUBLIC_POSTHOG_KEY=(.+)/)
         if (keyMatch && keyMatch[1] && keyMatch[1].trim()) {
-            console.info('✓ PostHog API key already exists in .env.local (set FORCE_FETCH_KEY=1 to fetch anew)')
+            console.info('✓ PostHog API key already exists in .env.local')
+            console.info('  `rm hedgebox-dummy/.env.local` or `export FORCE_FETCH_KEY=1` to fetch anew\n')
             return
         }
     }
