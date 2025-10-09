@@ -14,7 +14,7 @@ from django.conf import settings
 import pyarrow as pa
 from databricks import sql
 from databricks.sdk._base_client import _BaseClient
-from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sdk.core import Config, ConfigAttribute, oauth_service_principal
 from databricks.sdk.oauth import (
     OidcEndpoints,
     get_account_endpoints,
@@ -146,6 +146,14 @@ class DatabricksConfig(Config):
     I have opened an issue with Databricks to make this timeout configurable:
     https://github.com/databricks/databricks-sdk-py/issues/1046
     """
+
+    # These are required since the Databricks SDK tries to fetch annotations from the Config class, and annotations are
+    # not inherited by base classes
+    host: str = ConfigAttribute(env="DATABRICKS_HOST")  # type: ignore
+    client_id: str = ConfigAttribute(env="DATABRICKS_CLIENT_ID")  # type: ignore
+    client_secret: str = ConfigAttribute(env="DATABRICKS_CLIENT_SECRET")  # type: ignore
+    disable_async_token_refresh: bool = ConfigAttribute(env="DATABRICKS_DISABLE_ASYNC_TOKEN_REFRESH")  # type: ignore
+    auth_type: str = ConfigAttribute(env="DATABRICKS_AUTH_TYPE")  # type: ignore
 
     @property
     def oidc_endpoints(self) -> OidcEndpoints | None:
