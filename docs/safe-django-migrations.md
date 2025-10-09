@@ -179,17 +179,7 @@ This gives you a clean Python API without the risk of renaming the database colu
 - **Deployment timeout:** Migration might exceed timeout limits
 - **Blocks all writes:** No data can be written to the table during the migration
 
-**PostgreSQL 11+ optimization:** If your default is a constant value (not a function like `uuid4()` or `now()`), Postgres 11+ uses a fast path that avoids the table rewrite. However, you still need the three-phase approach to safely add the `NOT NULL` constraint.
-
 ### Safe Approach: Three-Phase Deployment
-
-**For PostgreSQL 11+ with constant defaults**, you can use a faster variant:
-
-1. Add column with constant DEFAULT (fast, metadata-only)
-2. Backfill any unusual cases if needed
-3. Add NOT NULL constraint
-
-**For volatile defaults or PostgreSQL < 11**, use the traditional approach:
 
 1. Add column as nullable
 2. Backfill data
@@ -212,7 +202,7 @@ Deploy this change.
 
 **Step 2: Backfill data for all rows**
 
-For static values:
+For small/medium tables with static values, use simple UPDATE:
 
 ```python
 class Migration(migrations.Migration):
@@ -223,18 +213,7 @@ class Migration(migrations.Migration):
     ]
 ```
 
-For volatile values (UUIDs, timestamps, etc.):
-
-```python
-class Migration(migrations.Migration):
-    operations = [
-        migrations.RunSQL(
-            sql="UPDATE mymodel SET new_field = gen_random_uuid() WHERE new_field IS NULL",
-        ),
-    ]
-```
-
-For large tables, use batching:
+For large tables, use batching to avoid long locks:
 
 ```python
 from django.db import migrations
@@ -335,22 +314,6 @@ class Migration(migrations.Migration):
     ]
 ```
 
-**Non-concurrent alternative (only for new/small tables):**
-
-Only use this on new tables or small tables where locks are acceptable:
-
-```python
-from django.db import migrations, models
-
-class Migration(migrations.Migration):
-    operations = [
-        migrations.AddIndex(
-            model_name='mymodel',
-            index=models.Index(fields=['field_name'], name='mymodel_field_idx'),
-        ),
-    ]
-```
-
 ### Key Points
 
 - **Use `AddIndexConcurrently` for existing large tables** - it handles the SQL correctly
@@ -411,38 +374,7 @@ class Migration(migrations.Migration):
 
 Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUSIVE` lock which allows normal reads and writes but blocks other schema changes on that table.
 
-**Example: FOREIGN KEY Constraint**
-
-The same pattern works for foreign keys:
-
-**Step 1: Add foreign key with NOT VALID**
-
-```python
-class Migration(migrations.Migration):
-    operations = [
-        migrations.RunSQL(
-            sql="""
-                ALTER TABLE child
-                ADD CONSTRAINT child_parent_id_fkey
-                FOREIGN KEY (parent_id) REFERENCES parent(id)
-                NOT VALID
-            """,
-            reverse_sql="ALTER TABLE child DROP CONSTRAINT child_parent_id_fkey",
-        ),
-    ]
-```
-
-**Step 2: Validate foreign key in separate migration**
-
-```python
-class Migration(migrations.Migration):
-    operations = [
-        migrations.RunSQL(
-            sql="ALTER TABLE child VALIDATE CONSTRAINT child_parent_id_fkey",
-            reverse_sql=migrations.RunSQL.noop,
-        ),
-    ]
-```
+**Note:** This pattern also works for `FOREIGN KEY` constraints.
 
 ### Key Points
 
@@ -583,48 +515,6 @@ class Migration(migrations.Migration):
     ]
 ```
 
-**Pattern 5: SKIP LOCKED for high-concurrency tables**
-
-For tables with heavy write traffic, use `FOR UPDATE SKIP LOCKED` to avoid lock contention:
-
-```python
-from django.db import migrations, transaction
-
-def update_with_skip_locked(apps, schema_editor):
-    MyModel = apps.get_model('myapp', 'MyModel')
-    batch_size = 100
-    updated_count = 0
-
-    while True:
-        with transaction.atomic():
-            # Select and lock a batch, skipping locked rows
-            batch = list(
-                MyModel.objects
-                .filter(new_field__isnull=True)
-                .select_for_update(skip_locked=True)[:batch_size]
-            )
-
-            if not batch:
-                break
-
-            # Update the locked batch
-            for obj in batch:
-                obj.new_field = 'default_value'
-
-            MyModel.objects.bulk_update(batch, ['new_field'])
-            updated_count += len(batch)
-            print(f"Updated {updated_count} rows...")
-
-class Migration(migrations.Migration):
-    atomic = False  # Allow multiple transactions
-
-    operations = [
-        migrations.RunPython(update_with_skip_locked),
-    ]
-```
-
-This pattern reduces lock contention on "hot" rows being updated by concurrent operations.
-
 ### Key Points for Data Migrations
 
 - **Batch size:** 1,000-10,000 rows per batch (tune based on row size)
@@ -745,46 +635,7 @@ migrations.RunSQL(
 )
 ```
 
-### 4. Set Session Timeouts for Safety
-
-Add session-level timeouts before risky operations to prevent surprise long locks:
-
-```python
-class Migration(migrations.Migration):
-    operations = [
-        migrations.RunSQL("SET LOCAL lock_timeout = '5s'"),
-        migrations.RunSQL("SET LOCAL statement_timeout = '15min'"),
-        migrations.RunSQL("SET LOCAL idle_in_transaction_session_timeout = '2min'"),
-        # ...then your risky operation
-        migrations.RunSQL("ALTER TABLE ..."),
-    ]
-```
-
-These timeouts keep the database responsive if something goes wrong:
-
-- `lock_timeout` - Maximum time to wait for a lock
-- `statement_timeout` - Maximum execution time for a statement
-- `idle_in_transaction_session_timeout` - Maximum idle time in a transaction
-
-### 5. Preview Generated SQL
-
-Use `python manage.py sqlmigrate app 0123_migration` to verify the generated SQL before running migrations. This catches:
-
-- Missing `CONCURRENTLY` keywords
-- Missing `NOT VALID` in constraints
-- Accidental non-idempotent operations
-- Unexpected lock levels
-
-### 6. Test Migrations on Production-Sized Data
-
-Before deploying, test migrations on a copy of production data to measure:
-
-- Execution time
-- Lock duration
-- Resource usage
-- Impact on concurrent operations
-
-### 7. Have a Rollback Plan
+### 4. Have a Rollback Plan
 
 Before deploying risky migrations:
 
