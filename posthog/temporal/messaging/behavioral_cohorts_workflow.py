@@ -271,6 +271,8 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         ch_user=ClickHouseUser.COHORTS,
                         workload=Workload.OFFLINE,
                     )
+                    # Send heartbeat after database operation to prevent timeout
+                    temporalio.activity.heartbeat()
 
             except Exception as e:
                 logger.exception(
