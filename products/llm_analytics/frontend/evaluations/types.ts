@@ -22,6 +22,7 @@ export interface EvaluationConditionSet {
 export interface EvaluationRun {
     id: string
     evaluation_id: string
+    evaluation_name: string
     generation_id: string
     trace_id: string
     timestamp: string
