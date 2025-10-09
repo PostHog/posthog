@@ -2171,8 +2171,10 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
     orderDirection?: 'ASC' | 'DESC'
+    revenuePeriod?: 'all_time' | 'last_30_days'
+    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2261,6 +2263,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
+    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
