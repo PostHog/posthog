@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,7 +23,13 @@ import {
     CustomChannelRule,
     DefaultChannelTypes,
 } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 const combinerOptions = [
     { label: 'All', value: FilterLogicalOperator.And },
@@ -162,19 +169,26 @@ export function CustomChannelTypes(): JSX.Element {
                     session attribution explorer tool
                 </Link>
             </p>
-            <ChannelTypeEditor
-                handleChange={setCustomChannelTypeRules}
-                initialCustomChannelTypeRules={customChannelTypeRules}
-                channelTypeOptions={channelTypeOptions}
-                onSave={() => {
-                    updateCurrentTeam({
-                        modifiers: { customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules) },
-                    })
-                    reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
-                    setSavedCustomChannelTypeRules(customChannelTypeRules)
-                }}
-                isSaveDisabled={isEqual(customChannelTypeRules, savedCustomChannelTypeRules)}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.WebAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <ChannelTypeEditor
+                    handleChange={setCustomChannelTypeRules}
+                    initialCustomChannelTypeRules={customChannelTypeRules}
+                    channelTypeOptions={channelTypeOptions}
+                    onSave={() => {
+                        updateCurrentTeam({
+                            modifiers: {
+                                customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules),
+                            },
+                        })
+                        reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
+                        setSavedCustomChannelTypeRules(customChannelTypeRules)
+                    }}
+                    isSaveDisabled={isEqual(customChannelTypeRules, savedCustomChannelTypeRules)}
+                />
+            </AccessControlAction>
         </div>
     )
 }
