@@ -895,7 +895,7 @@
   '''
   SELECT min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
   FROM events
-  WHERE equals(events.team_id, 99999)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1971-01-01 00:00:00.000000', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1014,7 +1014,7 @@
   '''
   SELECT min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
   FROM events
-  WHERE equals(events.team_id, 99999)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1971-01-01 00:00:00.000000', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1111,7 +1111,7 @@
   '''
   SELECT min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
   FROM events
-  WHERE equals(events.team_id, 99999)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1971-01-01 00:00:00.000000', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1222,7 +1222,7 @@
   '''
   SELECT min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
   FROM events
-  WHERE equals(events.team_id, 99999)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1971-01-01 00:00:00.000000', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
