@@ -37,7 +37,6 @@ import {
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -992,7 +991,6 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
-    const { submitZendeskTicket } = useActions(supportLogic)
     const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
@@ -1011,24 +1009,11 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId || !user) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
-        // Also create a support ticket for thumbs down feedback, for the support hero to see
-        submitZendeskTicket({
-            name: user.first_name,
-            email: user.email,
-            kind: 'feedback',
-            target_area: 'max-ai',
-            severity_level: 'medium',
-            message: [
-                feedback,
-                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
-            ].join('\n'),
-        })
     }
 
     return (

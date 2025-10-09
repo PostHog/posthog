@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -60,6 +59,36 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             assistant_message = next_state.messages[0]
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
+
+    def test_node_handles_generation_without_new_message(self):
+        """Test that root node can continue generation without adding a new message (askMax(null) scenario)"""
+        with patch(
+            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Let me continue with the analysis...")]),
+        ):
+            node = RootNode(self.team, self.user)
+            # State with existing conversation but no new user message
+            state = AssistantState(
+                messages=[
+                    HumanMessage(content="Analyze trends"),
+                    AssistantMessage(
+                        content="Working on it",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="tool-123", name="create_and_query_insight", args={"query_description": "trends"}
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(content="Query completed", tool_call_id="tool-123"),
+                ]
+            )
+            next_state = node.run(state, {})
+            self.assertIsInstance(next_state, PartialAssistantState)
+            self.assertEqual(len(next_state.messages), 1)
+            self.assertIsInstance(next_state.messages[0], AssistantMessage)
+            assistant_message = next_state.messages[0]
+            assert isinstance(assistant_message, AssistantMessage)
+            self.assertEqual(assistant_message.content, "Let me continue with the analysis...")
 
     @parameterized.expand(
         [
@@ -637,27 +666,35 @@ class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
         node = RootNodeTools(self.team, self.user)
 
-        # Test case 1: Last message is AssistantToolCallMessage - should return "root"
+        # Test case 1: Last message is AssistantToolCallMessage - should return "end" (tool completed)
         state_1 = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
                 AssistantToolCallMessage(content="Tool result", tool_call_id="xyz"),
             ]
         )
-        self.assertEqual(node.router(state_1), "root")
+        self.assertEqual(node.router(state_1), "end")
 
         # Test case 2: No tool call message or root tool call - should return "end"
-        state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
-        self.assertEqual(node.router(state_3), "end")
+        state_2 = AssistantState(messages=[AssistantMessage(content="Hello")])
+        self.assertEqual(node.router(state_2), "end")
 
-        # Test case 3: Has contextual tool call result - should go back to root
-        state_4 = AssistantState(
+        # Test case 3: Has tool call and root_tool_call_id for insights - should route to insights
+        state_3 = AssistantState(
             messages=[
-                AssistantMessage(content="Hello"),
-                AssistantToolCallMessage(content="Tool result", tool_call_id="xyz"),
-            ]
+                AssistantMessage(
+                    content="Hello",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz", name="create_and_query_insight", args={"query_description": "test query"}
+                        )
+                    ],
+                )
+            ],
+            root_tool_call_id="xyz",
+            root_tool_insight_plan="test query",
         )
-        self.assertEqual(node.router(state_4), "root")
+        self.assertEqual(node.router(state_3), "insights")
 
     async def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team, self.user)
@@ -785,8 +822,8 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
-    async def test_navigate_tool_call_raises_node_interrupt(self):
-        """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
+    async def test_navigate_tool_call_returns_tool_message(self):
+        """Test that navigate tool calls return PartialAssistantState with tool message"""
         node = RootNodeTools(self.team, self.user)
 
         state = AssistantState(
@@ -805,22 +842,22 @@ class TestRootNodeTools(BaseTest):
             mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
+            mock_navigate_tool.show_tool_call_message = True
+            mock_navigate_tool._state = state
             mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
 
-            # The navigate tool call should raise NodeInterrupt
-            with self.assertRaises(NodeInterrupt) as cm:
-                await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+            result = await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
 
-            # Verify the NodeInterrupt contains the expected message
-            # NodeInterrupt wraps the message in an Interrupt object
-            interrupt_data = cm.exception.args[0]
-            if isinstance(interrupt_data, list):
-                interrupt_data = interrupt_data[0].value
-            self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
-            self.assertEqual(interrupt_data.content, "XXX")
-            self.assertEqual(interrupt_data.tool_call_id, "nav-123")
-            self.assertTrue(interrupt_data.visible)
-            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
+            # Verify the result is a PartialAssistantState with the expected message
+            assert isinstance(result, PartialAssistantState)
+            self.assertEqual(len(result.messages), 1)
+            tool_message = result.messages[0]
+            assert isinstance(tool_message, AssistantToolCallMessage)
+            self.assertEqual(tool_message.content, "XXX")
+            self.assertEqual(tool_message.tool_call_id, "nav-123")
+            self.assertTrue(tool_message.visible)
+            self.assertEqual(tool_message.ui_payload, {"navigate": {"page_key": "insights"}})
+            self.assertEqual(result.root_tool_calls_count, 1)
 
     def test_billing_tool_routing(self):
         """Test that billing tool calls are routed correctly"""

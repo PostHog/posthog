@@ -199,10 +199,7 @@ export function FeatureFlagReleaseConditions({
                                             disabledReason={
                                                 index === filterGroups.length - 1
                                                     ? 'Cannot move last condition set down'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index + 1] === undefined
-                                                      ? 'Cannot move condition sets while calculating affected users'
-                                                      : null
+                                                    : null
                                             }
                                             onClick={() => moveConditionSetDown(index)}
                                         />
@@ -211,14 +208,7 @@ export function FeatureFlagReleaseConditions({
                                             icon={<IconArrowUp />}
                                             noPadding
                                             tooltip="Move condition set up in precedence"
-                                            disabledReason={
-                                                index === 0
-                                                    ? 'Cannot move first condition set up'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index - 1] === undefined
-                                                      ? 'Cannot move condition sets while calculating affected users'
-                                                      : null
-                                            }
+                                            disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
                                             onClick={() => moveConditionSetUp(index)}
                                         />
                                     </div>

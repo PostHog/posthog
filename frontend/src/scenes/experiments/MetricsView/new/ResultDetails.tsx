@@ -73,9 +73,9 @@ function convertExperimentResultToFunnelSteps(
             } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
-                    stepName = series.name || series.event || `Step ${stepIndex}`
+                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
                 } else {
-                    stepName = series.name || `Action ${series.id}`
+                    stepName = series.custom_name || series.name || `Action ${series.id}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`
