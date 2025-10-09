@@ -144,12 +144,10 @@ export const CreateExperiment = (): JSX.Element => {
                                 key: 'experiment-exposure',
                                 header: 'Exposure criteria',
                                 content: (
-                                    <div className="p-4">
-                                        <ExposureCriteriaPanel
-                                            experiment={experiment}
-                                            onChange={(exposureCriteria) => exposureCriteria}
-                                        />
-                                    </div>
+                                    <ExposureCriteriaPanel
+                                        experiment={experiment}
+                                        onChange={(exposureCriteria) => exposureCriteria}
+                                    />
                                 ),
                             },
                             {
