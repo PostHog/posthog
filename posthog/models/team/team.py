@@ -373,7 +373,9 @@ class Team(UUIDTClassicModel):
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
 
     # Web analytics
-    web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
+    web_analytics_pre_aggregated_tables_enabled = field_access_control(
+        models.BooleanField(default=False, null=True), "web_analytics", "editor"
+    )
     web_analytics_pre_aggregated_tables_version = models.CharField(
         max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
     )
