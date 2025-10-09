@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -18,9 +18,14 @@ import { ProductKey } from '~/types'
 import { NEW_EXPERIMENT } from '../constants'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 
+type CreateExperimentLogicProps = Partial<{
+    experiment: Experiment
+}>
+
 export const createExperimentLogic = kea<createExperimentLogicType>([
-    key(() => 'create-experiment'),
-    path(['scenes', 'experiments', 'create', 'createExperimentLogic']),
+    props({} as CreateExperimentLogicProps),
+    key((props) => props.experiment?.id || 'create-experiment'),
+    path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
         actions: [
@@ -32,10 +37,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['addProductIntent'],
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, props }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
-            defaults: { ...NEW_EXPERIMENT } as Experiment,
+            defaults: (props.experiment ?? { ...NEW_EXPERIMENT }) as Experiment,
             errors: ({ name, description }: Experiment) => ({
                 name: !name ? 'Name is required' : undefined,
                 description: !description ? 'Hypothesis is required' : undefined,
@@ -50,14 +55,13 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         createExperiment: () => ({}),
         createExperimentSuccess: true,
     })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         experiment: [
-            { ...NEW_EXPERIMENT } as Experiment & { feature_flag_filters?: FeatureFlagFilters },
-            { persist: true },
+            (props.experiment ?? { ...NEW_EXPERIMENT }) as Experiment & { feature_flag_filters?: FeatureFlagFilters },
             {
                 setExperiment: (_, { experiment }) => experiment,
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),
-                resetExperiment: () => ({ ...NEW_EXPERIMENT }),
+                resetExperiment: () => props.experiment ?? { ...NEW_EXPERIMENT },
             },
         ],
     })),
