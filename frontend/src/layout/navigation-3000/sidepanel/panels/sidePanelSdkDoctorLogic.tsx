@@ -707,8 +707,25 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         }
                     })
 
+                    // Process .NET SDK from backend data
+                    const dotnetDetections = teamSdkDetections.detections.filter((d) => d.type === 'dotnet')
+                    console.log('[SDK Doctor] Found .NET SDK detections:', dotnetDetections.length)
+
+                    dotnetDetections.forEach((detection) => {
+                        const key = `posthog-dotnet-${detection.version}`
+                        console.log('[SDK Doctor] Adding .NET SDK detection:', key, detection)
+
+                        newMap[key] = {
+                            type: 'dotnet',
+                            version: detection.version,
+                            count: detection.count,
+                            isOutdated: false, // Will be updated by async version check
+                            lastSeenTimestamp: detection.lastSeen,
+                        }
+                    })
+
                     console.log(
-                        '[SDK Doctor] Updated sdkVersionsMap with Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, and Elixir SDK detections:',
+                        '[SDK Doctor] Updated sdkVersionsMap with Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDK detections:',
                         Object.keys(newMap)
                     )
                     return newMap
@@ -716,8 +733,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
                     // console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
 
-                    // Start with existing state to preserve Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, and Elixir SDK data from teamSdkDetections
-                    // We'll only process non-Web/Python/Node/React Native/Flutter/iOS/Android/Go/PHP/Ruby/Elixir SDKs from events (these come from backend)
+                    // Start with existing state to preserve Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDK data from teamSdkDetections
+                    // We'll only process non-Web/Python/Node/React Native/Flutter/iOS/Android/Go/PHP/Ruby/Elixir/.NET SDKs from events (these come from backend)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = { ...state }
 
                     // Use all events from our strategy-based fetch (up to strategy.maxEvents)
@@ -792,12 +809,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             )
                         }
 
-                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, and Elixir SDKs from backend
+                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDKs from backend
                         if (customerEvents.length === 0 && limitedEvents.length > 0) {
                             console.info(
-                                '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, and Elixir SDKs from backend'
+                                '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDKs from backend'
                             )
-                            // Keep existing state which contains Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, and Elixir SDK data from teamSdkDetections
+                            // Keep existing state which contains Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDK data from teamSdkDetections
                             return state
                         }
                     }
@@ -811,7 +828,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             return
                         }
 
-                        // Skip Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, and Elixir SDKs - they're handled by teamSdkDetections from backend
+                        // Skip Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDKs - they're handled by teamSdkDetections from backend
                         if (
                             lib === 'web' ||
                             lib === 'posthog-python' ||
@@ -823,7 +840,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             lib === 'posthog-go' ||
                             lib === 'posthog-php' ||
                             lib === 'posthog-ruby' ||
-                            lib === 'posthog-elixir'
+                            lib === 'posthog-elixir' ||
+                            lib === 'posthog-dotnet'
                         ) {
                             return
                         }
