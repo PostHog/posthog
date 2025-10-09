@@ -3,8 +3,8 @@ use std::{future::ready, sync::Arc};
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
-use common_types::error_tracking::NewFingerprintEvent;
-use et_embedding_worker::{
+use common_types::EmbeddingRequest;
+use embedding_worker::{
     app_context::AppContext, config::Config, handle_batch, metric_consts::FINGERPRINTS_RECEIVED,
 };
 
@@ -80,7 +80,7 @@ async fn main() {
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let received: Vec<Result<(NewFingerprintEvent, _), _>> = context
+        let received: Vec<Result<(EmbeddingRequest, _), _>> = context
             .kafka_consumer
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
