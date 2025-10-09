@@ -1520,14 +1520,14 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
-export interface NamedQueryRequest {
+export interface EndpointRequest {
     name?: string
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
-export interface NamedQueryRunRequest {
+export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
@@ -1550,7 +1550,7 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
-export interface NamedQueryLastExecutionTimesRequest {
+export interface EndpointLastExecutionTimesRequest {
     names: string[]
 }
 
@@ -2535,6 +2535,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
+    fingerprint?: string
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2546,6 +2547,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+    fingerprint?: string
 }
 
 export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
@@ -4018,6 +4020,7 @@ export const externalDataSources = [
     'DoIt',
     'LinkedinAds',
     'RedditAds',
+    'TikTokAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
