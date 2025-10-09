@@ -33,6 +33,9 @@ pub use group::GroupType;
 pub mod error_tracking;
 
 // Embeddings
-pub use embeddings::EmbeddingModel;
-pub use embeddings::EmbeddingRecord;
-pub use embeddings::EmbeddingRequest;
+pub mod embedding {
+    pub use crate::embeddings::ApiLimits;
+    pub use crate::embeddings::EmbeddingModel;
+    pub use crate::embeddings::EmbeddingRecord;
+    pub use crate::embeddings::EmbeddingRequest;
+}
