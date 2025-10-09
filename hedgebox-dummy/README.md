@@ -30,15 +30,26 @@ npm install
 
 2. Set up PostHog environment variables:
 
-Create a `.env.local` file in this directory with:
+The app automatically fetches the PostHog API key from your local database at build/dev time. You can configure the database connection and team ID using these environment variables:
 
 ```env
-NEXT_PUBLIC_POSTHOG_KEY=your_posthog_project_api_key
-NEXT_PUBLIC_POSTHOG_HOST=http://localhost:8010
+NEXT_PUBLIC_POSTHOG_HOST # PostHog host (default: http://localhost:8010)
+NEXT_PUBLIC_POSTHOG_KEY  # PostHog API key, fetched automatically on `npm run dev`
+DEMO_TEAM_ID             # Team ID to fetch token from (default: latest team)
 ```
 
-- `NEXT_PUBLIC_POSTHOG_KEY` - Your PostHog project API key (if not set, posthog-js will be disabled)
-- `NEXT_PUBLIC_POSTHOG_HOST` - Your PostHog instance URL (if not set, defaults to `http://localhost:8010`)
+**Note:** The API key is automatically fetched and written to `.env.local` when you run `npm run dev` or `npm run build`. The script will skip fetching if `.env.local` already exists (to avoid unnecessary database queries on every run).
+
+To manually fetch the key or force a re-fetch, run:
+
+```bash
+# Fetch if .env.local doesn't exist or doesn't have key NEXT_PUBLIC_POSTHOG_KEY
+npm run fetch-posthog-key
+# Force re-fetch even if NEXT_PUBLIC_POSTHOG_KEY set in .env.local
+FORCE_FETCH_KEY=1 npm run fetch-posthog-key
+```
+
+Alternatively, you can manually create a `.env.local` file with the `NEXT_*` vars above.
 
 3. Run the development server:
 

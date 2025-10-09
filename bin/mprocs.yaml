@@ -121,5 +121,9 @@ procs:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
 
+    hedgebox-dummy:
+        shell: 'bin/check_postgres_up && cd hedgebox-dummy && npm install && npm run dev'
+        autostart: false
+
 mouse_scroll_speed: 1
 scrollback: 10000

@@ -3,16 +3,17 @@
     "version": "0.1.0",
     "private": true,
     "scripts": {
-        "dev": "next dev",
-        "build": "next build",
+        "fetch-posthog-key": "node scripts/fetch-posthog-key.js",
+        "dev": "npm run fetch-posthog-key && next dev",
+        "build": "npm run fetch-posthog-key && next build",
         "start": "next start",
         "lint": "next lint"
     },
     "dependencies": {
         "next": "14.0.0",
+        "posthog-js": "~1.250.0",
         "react": "^18",
         "react-dom": "^18",
-        "posthog-js": "~1.250.0",
         "uuid": "^9.0.0"
     },
     "devDependencies": {
@@ -24,6 +25,7 @@
         "daisyui": "^4.4.0",
         "eslint": "^8",
         "eslint-config-next": "14.0.0",
+        "pg": "^8.16.3",
         "playwright": "^1.40.0",
         "postcss": "^8",
         "tailwindcss": "^3.3.0",

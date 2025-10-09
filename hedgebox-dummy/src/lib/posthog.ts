@@ -4,7 +4,10 @@ export function initPostHog(): void {
     if (typeof window !== 'undefined') {
         const demoApiToken = process.env.NEXT_PUBLIC_POSTHOG_KEY
         if (!demoApiToken) {
-            console.warn('NEXT_PUBLIC_POSTHOG_KEY is not set, skipping PostHog initialization')
+            console.warn(
+                'NEXT_PUBLIC_POSTHOG_KEY is not set, skipping PostHog initialization.\n' +
+                'Run "npm run fetch-key" to automatically fetch the key from the database.'
+            )
             return
         }
         const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'http://localhost:8010'
@@ -16,7 +19,7 @@ export function initPostHog(): void {
             persistence: 'memory', // Use memory persistence for replay mode to avoid conflicts
             opt_out_useragent_filter: true, // We do want capture to work in a bot environment (Playwright)
         })
-        
+        console.log(`PostHog initialized with host: ${localApiHost}`)
     }
     ;(window as any).posthog = posthog
 }
