@@ -12,7 +12,6 @@ import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { alphabet } from 'lib/utils'
-import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
@@ -190,7 +189,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <div />
                         <div className="col-span-4">Variant key</div>
                         <div className="col-span-6">Description</div>
-                        <div className="col-span-9">Payload</div>
                         <div className="col-span-3 flex justify-between items-center gap-1">
                             <span>Rollout</span>
                             <LemonButton
@@ -228,9 +226,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     className="ph-ignore-input"
                                     placeholder="Description"
                                 />
-                            </div>
-                            <div className="col-span-9">
-                                <JSONEditorInput readOnly={true} value={''} placeholder='{"key": "value"}' />
                             </div>
                             <div className="col-span-3">
                                 <LemonInput
