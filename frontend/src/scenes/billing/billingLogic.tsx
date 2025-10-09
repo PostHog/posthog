@@ -393,7 +393,7 @@ export const billingLogic = kea<billingLogicType>([
                     try {
                         await api.create('api/billing/subscription/switch-plan', data)
 
-                        const productDisplayName = data.to_product_key[0].toUpperCase() + data.to_product_key.slice(1)
+                        const productDisplayName = capitalizeFirstLetter(data.to_product_key)
                         lemonToast.success(`You're now on ${productDisplayName}`)
 
                         // Reload billing, user, and organization to get the updated available features
@@ -404,7 +404,7 @@ export const billingLogic = kea<billingLogicType>([
 
                         return values.billing as BillingType
                     } catch (error: any) {
-                        console.error(error)
+                        posthog.captureException(error)
                         lemonToast.error(
                             (error && error.detail) ||
                                 'There was an error switching your plan. Please try again or contact support.'
