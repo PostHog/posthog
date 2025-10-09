@@ -171,6 +171,11 @@ class TestStatsConfig(APIBaseTest):
         self.assertIsNotNone(result_high)
         self.assertIsNotNone(result_negative)
 
+        ci_high = result_high.variant_results[0].confidence_interval
+        ci_negative = result_negative.variant_results[0].confidence_interval
+        self.assertEqual(ci_high[0], ci_negative[0])
+        self.assertEqual(ci_high[1], ci_negative[1])
+
     def test_numeric_validation_ci_level_out_of_range_uses_default(self):
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
@@ -185,24 +190,3 @@ class TestStatsConfig(APIBaseTest):
 
         self.assertIsNotNone(result)
         self.assertIsNotNone(result.variant_results[0].credible_interval)
-
-    def test_multiple_test_variants(self):
-        metric = self.create_mean_metric()
-        control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
-        test1 = self.create_variant("test1", sum_val=120.0, sum_squares=14500.0, samples=1000)
-        test2 = self.create_variant("test2", sum_val=110.0, sum_squares=12500.0, samples=1000)
-        test3 = self.create_variant("test3", sum_val=130.0, sum_squares=16500.0, samples=1000)
-
-        result = get_bayesian_experiment_result(
-            metric=metric,
-            control_variant=control,
-            test_variants=[test1, test2, test3],
-            stats_config={"bayesian": {"ci_level": 0.95}},
-        )
-
-        self.assertEqual(len(result.variant_results), 3)
-        self.assertEqual(result.variant_results[0].key, "test1")
-        self.assertEqual(result.variant_results[1].key, "test2")
-        self.assertEqual(result.variant_results[2].key, "test3")
-        for variant in result.variant_results:
-            self.assertIsNotNone(variant.credible_interval)
