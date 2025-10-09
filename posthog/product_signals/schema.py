@@ -17,6 +17,7 @@ class ProductSignalSeverity(StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+    UNKNOWN = "unknown"
 
 
 class ProductSignalType(StrEnum):
