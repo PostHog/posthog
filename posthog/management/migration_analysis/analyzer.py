@@ -88,6 +88,13 @@ class RiskAnalyzer:
         # Check PostHog policies
         policy_violations = self.check_policies(migration)
 
+        # Build info messages
+        info_messages = []
+        if self.newly_created_models:
+            info_messages.append(
+                "ℹ️  Skipped operations on newly created tables (empty tables don't cause lock contention)."
+            )
+
         return MigrationRisk(
             path=path,
             app=migration.app_label,
@@ -95,6 +102,7 @@ class RiskAnalyzer:
             operations=operation_risks,
             combination_risks=combination_risks,
             policy_violations=policy_violations,
+            info_messages=info_messages,
         )
 
     def _is_safe_on_new_table(self, op, risk: OperationRisk) -> bool:

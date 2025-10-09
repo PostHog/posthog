@@ -803,6 +803,9 @@ class TestCombinationRisks:
         assert migration_risk.operations[0].type == "CreateModel"
         assert migration_risk.level == RiskLevel.SAFE
         assert len(migration_risk.combination_risks) == 0
+        # Should have info message about skipped operations
+        assert len(migration_risk.info_messages) == 1
+        assert "Skipped operations on newly created tables" in migration_risk.info_messages[0]
 
     def test_create_model_with_add_constraint_safe(self):
         """AddConstraint on newly created table should be filtered out (safe, not shown in PR)"""
