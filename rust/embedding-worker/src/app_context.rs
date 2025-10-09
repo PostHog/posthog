@@ -10,6 +10,7 @@ use health::{HealthHandle, HealthRegistry};
 use leaky_bucket::RateLimiter;
 use metrics::{counter, gauge};
 use moka::sync::{Cache, CacheBuilder};
+use reqwest::Response;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
@@ -103,12 +104,16 @@ impl AppContext {
         limiter.acquire(tokens, 1).await;
     }
 
-    pub async fn update_rate_limits(
-        &self,
-        model: EmbeddingModel,
-        headers: &HashMap<String, String>,
-    ) {
-        if let Some(new_limits) = model.api_limits_from_response(headers) {
+    pub async fn update_rate_limits(&self, model: EmbeddingModel, response: &Response) {
+        let header_fn = |key: &str| {
+            response
+                .headers()
+                .get(key)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        };
+
+        if let Some(new_limits) = model.api_limits_from_response(&header_fn) {
             // Do we need to update? We do this here, rather than inside the Limiter,
             // because it lets us only take a read lock on the happy path
             let needs_update = self

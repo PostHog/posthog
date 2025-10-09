@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -95,11 +93,15 @@ impl EmbeddingModel {
         }
     }
 
-    pub fn api_limits_from_response(&self, headers: &HashMap<String, String>) -> Option<ApiLimits> {
+    // This takes a function ref as an argument to avoid taking a dep on reqwest
+    pub fn api_limits_from_response(
+        &self,
+        headers: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<ApiLimits> {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                let rpm = headers.get("x-ratelimit-limit-requests")?.parse().ok()?;
-                let tpm = headers.get("x-ratelimit-limit-tokens")?.parse().ok()?;
+                let rpm = headers("x-ratelimit-limit-requests")?.parse().ok()?;
+                let tpm = headers("x-ratelimit-limit-tokens")?.parse().ok()?;
                 Some(ApiLimits {
                     requests_per_minute: rpm,
                     tokens_per_minute: tpm,

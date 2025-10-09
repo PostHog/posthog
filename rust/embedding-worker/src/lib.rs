@@ -73,6 +73,8 @@ pub async fn generate_embedding(
         return Err(anyhow::anyhow!("Failed to generate embeddings"));
     }
 
+    context.update_rate_limits(model, &response).await;
+
     let embedding = model
         .extract_embedding_from_response_body(&response.json().await?)
         .ok_or_else(|| anyhow::anyhow!("Failed to extract embedding"))?;
