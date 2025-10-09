@@ -89,7 +89,7 @@ export const MarketingAnalyticsTable = ({
                         <LemonSwitch
                             checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
                             onChange={handleIncludeAllConversionsChange}
-                            label="Show organic conversions"
+                            label="Include non integrated conversions"
                             tooltip="Show conversion goal rows even when they don't match any campaign data from integrations"
                             size="small"
                         />
