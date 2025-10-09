@@ -159,6 +159,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             FROM logs where (_part_starting_offset+_part_offset) in (select 1)
         """
         )
+        assert isinstance(final_query, ast.SelectQuery)
         final_query.where.right = query
         return final_query
 
