@@ -190,7 +190,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 } else if (gateVariant === 'move-to-cloud') {
                     return 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
                 } else if (gateVariant === 'purchase-platform-package') {
-                    return '/organization/billing?products=platform_and_support'
+                    return '/organization/billing?products=boost'
                 }
                 return undefined
             },
