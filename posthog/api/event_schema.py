@@ -17,7 +17,7 @@ class EventSchemaSerializer(serializers.ModelSerializer):
         if request and hasattr(request, "user"):
             team_id = self.context.get("team_id")
             if team_id:
-                fields["property_group_id"].queryset = SchemaPropertyGroup.objects.filter(team_id=team_id)
+                fields["property_group_id"].queryset = SchemaPropertyGroup.objects.filter(team_id=team_id)  # type: ignore
         return fields
 
     class Meta:
