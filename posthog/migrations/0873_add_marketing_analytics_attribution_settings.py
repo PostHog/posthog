@@ -22,6 +22,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="teammarketinganalyticsconfig",
             name="attribution_window_days",
-            field=models.IntegerField(default=90, help_text="Attribution window in days (1-365)"),
+            field=models.IntegerField(default=90, help_text="Attribution window in days (1-90)"),
         ),
     ]

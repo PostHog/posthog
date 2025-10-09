@@ -203,7 +203,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
-    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=365)
+    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
     attribution_mode = serializers.ChoiceField(
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
     )

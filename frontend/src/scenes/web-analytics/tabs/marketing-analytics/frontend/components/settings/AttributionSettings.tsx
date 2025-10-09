@@ -177,7 +177,7 @@ export function AttributionSettings(): JSX.Element {
                             onClick={saveCustomInput}
                             disabledReason={
                                 hasError
-                                    ? 'Please enter a valid value between 1 and 365 days'
+                                    ? `Please enter a valid value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
                                     : localDays === attribution_window_days
                                       ? 'No changes to save'
                                       : undefined
@@ -189,7 +189,7 @@ export function AttributionSettings(): JSX.Element {
                     </div>
                     <p className={`text-xs text-muted-foreground mt-1 ${hasError ? 'text-danger' : ''}`}>
                         {hasError
-                            ? 'Please enter a value between 1 and 365 days'
+                            ? `Please enter a value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
                             : 'How far back to look for marketing touchpoints when attributing conversions'}
                     </p>
                 </div>

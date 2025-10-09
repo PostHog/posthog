@@ -40,11 +40,11 @@ def validate_sources_map(sources_map: dict) -> None:
 
 
 def validate_attribution_window_days(days: int) -> None:
-    """Validate attribution window days is between 1 and 365."""
+    """Validate attribution window days is between 1 and 90."""
     if not isinstance(days, int):
         raise ValidationError("attribution_window_days must be an integer")
-    if days < 1 or days > 365:
-        raise ValidationError("attribution_window_days must be between 1 and 365")
+    if days < 1 or days > 90:
+        raise ValidationError("attribution_window_days must be between 1 and 90")
 
 
 def validate_attribution_mode(mode: str) -> None:
@@ -130,7 +130,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     # Attribution settings
-    attribution_window_days = models.IntegerField(default=90, help_text="Attribution window in days (1-365)")
+    attribution_window_days = models.IntegerField(default=90, help_text="Attribution window in days (1-90)")
     attribution_mode = models.CharField(
         max_length=20,
         default=AttributionMode.LAST_TOUCH,
