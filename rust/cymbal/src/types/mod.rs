@@ -14,6 +14,7 @@ use crate::fingerprinting::{
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
+use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -419,6 +420,14 @@ impl Stacktrace {
                 Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
                 None => return None,
             }
+        }
+
+        if resolved_frames.iter().any(|f| {
+            f.source
+                .as_ref()
+                .is_some_and(|s| s.contains("node_modules/posthog-js/src"))
+        }) {
+            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
         }
 
         Some(Stacktrace::Resolved {
