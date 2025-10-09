@@ -211,7 +211,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 loadFeatureFlagModalFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.featureFlagModalParamsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams({
+                            ...values.featureFlagModalParamsFromFilters,
+                            type: 'multivariant',
+                        })}`
                     )
                     return response
                 },
