@@ -29,7 +29,7 @@ import { Breadcrumb, PersonType } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
-export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps-tools' | 'data-management' | 'recents' | 'persons'
+export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'recents' | 'persons'
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
@@ -64,11 +64,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
+        setSearchImmediate: (search: string) => ({ search }),
         selectNext: true,
         selectPrevious: true,
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: true,
+        debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ values }) => ({
         recents: [
@@ -173,6 +175,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
+                setSearchImmediate: (_, { search }) => search,
             },
         ],
         selectedCategory: [
@@ -201,7 +204,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     label: 'Create new',
                     description: 'Create new insights, queries, experiments, etc.',
                 },
-                { key: 'apps-tools', label: 'Apps / Tools', description: "All of PostHog's apps, tools, and features" },
+                { key: 'apps', label: 'Apps', description: "All of PostHog's apps, tools, and features" },
                 {
                     key: 'data-management',
                     label: 'Data management',
@@ -316,7 +319,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .map((fs, index) => ({
                         id: `product-${index}`,
                         name: fs.path,
-                        category: 'apps-tools' as NEW_TAB_CATEGORY_ITEMS,
+                        category: 'apps' as NEW_TAB_CATEGORY_ITEMS,
                         href: fs.href,
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
@@ -471,21 +474,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             actions.loadRecents()
 
-            // If search starts with /person or /persons, load person search results
+            // If search starts with /person or /persons, debounce the person search
             if (values.search.startsWith('/person')) {
                 const searchTerm = values.search.replace(/^\/persons?\s*/, '').trim()
                 if (searchTerm) {
-                    actions.loadPersonSearchResults({ searchTerm })
+                    // Debounce person search to avoid hitting server on every keystroke
+                    actions.debouncedPersonSearch(searchTerm)
                 } else {
                     // Clear results if search term is empty but still in person search mode
                     actions.loadPersonSearchResultsSuccess([])
                 }
             }
 
-            // If in persons mode and search doesn't start with /person, load person search results
+            // If in persons mode and search doesn't start with /person, debounce person search results
             if (values.selectedCategory === 'persons' && !values.search.startsWith('/person') && values.search.trim()) {
-                actions.loadPersonSearchResults({ searchTerm: values.search.trim() })
+                actions.debouncedPersonSearch(values.search.trim())
             }
+        },
+        debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
+            // Debounce for 300ms
+            await breakpoint(300)
+            actions.loadPersonSearchResults({ searchTerm })
         },
         setSelectedCategory: ({ category }) => {
             // When switching to persons tab, auto-add /persons prefix if search is empty
@@ -495,7 +504,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             // When switching to persons tab with existing search that doesn't start with /person, trigger person search
             if (category === 'persons' && values.search && !values.search.startsWith('/person')) {
-                actions.loadPersonSearchResults({ searchTerm: values.search.trim() })
+                actions.debouncedPersonSearch(values.search.trim())
             }
         },
     })),

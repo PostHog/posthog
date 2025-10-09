@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconSearch, IconSidePanel } from '@posthog/icons'
+import { IconEllipsis, IconSearch } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
@@ -31,6 +31,8 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { SidePanelTab } from '~/types'
 
+import { SearchHints } from './components/SearchHints'
+
 export const scene: SceneExport = {
     component: NewTabScene,
     logic: newTabSceneLogic,
@@ -39,7 +41,7 @@ export const scene: SceneExport = {
 const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         'create-new': 'Create new',
-        'apps-tools': 'Apps / Tools',
+        apps: 'Apps',
         'data-management': 'Data management',
         recents: 'Recents',
         persons: 'Persons',
@@ -73,7 +75,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         specialSearchMode,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
-    const { setQuestion, focusInput } = useActions(maxLogic)
+    const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
@@ -110,55 +112,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         />
                     </ListBox.Item>
                     <div className="mx-1.5">
-                        <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
-                            {specialSearchMode === 'person' ? (
-                                <span>
-                                    <span className="text-tertiary">Search persons by ID, email, or properties</span>
-                                </span>
-                            ) : (
-                                <span>
-                                    <span className="text-tertiary">Try:</span>
-                                    <ListBox.Item asChild>
-                                        <ButtonPrimitive
-                                            size="xxs"
-                                            className="text-xs"
-                                            onClick={() => setSearch('/persons john')}
-                                        >
-                                            /persons john
-                                        </ButtonPrimitive>
-                                    </ListBox.Item>
-                                    <span className="text-tertiary">or</span>
-                                    <ListBox.Item asChild>
-                                        <ButtonPrimitive
-                                            size="xxs"
-                                            className="text-xs"
-                                            onClick={() => setSearch('Experiment')}
-                                        >
-                                            Experiment
-                                        </ButtonPrimitive>
-                                    </ListBox.Item>
-                                </span>
-                            )}
-                            <span className="text-primary flex gap-1 items-center">
-                                {/* if filtered results lenght is 0, this will be the first to focus */}
-                                <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
-                                    <ButtonPrimitive
-                                        size="xxs"
-                                        onClick={() => {
-                                            openSidePanel(SidePanelTab.Max)
-                                            setSearch('')
-                                            setQuestion(search)
-                                            focusInput()
-                                        }}
-                                        className="text-xs"
-                                        tooltip="Hit enter to open Max!"
-                                    >
-                                        Ask Max!
-                                        <IconSidePanel />
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                            </span>
-                        </div>
+                        <SearchHints
+                            specialSearchMode={specialSearchMode}
+                            search={search}
+                            filteredItemsGridLength={filteredItemsGrid.length}
+                            setSearch={setSearch}
+                            setQuestion={setQuestion}
+                            focusMaxInput={focusMaxInput}
+                            focusSearchInput={() => inputRef.current?.focus()}
+                            openSidePanel={openSidePanel}
+                        />
                     </div>
                 </div>
                 <TabsPrimitive
@@ -173,6 +136,14 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     className="px-2 py-1 cursor-pointer"
                                     key={category.key}
                                     onClick={() => {
+                                        if (category.key !== 'persons' && search.startsWith('/persons ')) {
+                                            setSearch(search.replace('/persons ', ''))
+                                        }
+
+                                        if (category.key === 'persons' && !search.startsWith('/persons ')) {
+                                            setSearch(`/persons ${search}`)
+                                        }
+
                                         if (!mobileLayout) {
                                             // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
                                             inputRef.current?.focus()
@@ -182,6 +153,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     }}
                                 >
                                     {category.label}
+                                    {category.key === 'persons' ? '*' : null}
                                 </TabsPrimitiveTrigger>
                             ))}
                             {source === 'homepage' ? (
@@ -223,13 +195,17 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 <div className="flex gap-1 items-center">
                                     No results found,{' '}
                                     <ListBox.Item asChild className="list-none">
-                                        <ButtonPrimitive size="sm" onClick={() => setSearch('')}>
+                                        <ButtonPrimitive size="sm" onClick={() => setSearch('')} variant="panel">
                                             Clear search
                                         </ButtonPrimitive>{' '}
                                     </ListBox.Item>
                                     or{' '}
                                     <ListBox.Item asChild>
-                                        <ButtonPrimitive size="sm" onClick={() => openSidePanel(SidePanelTab.Max)}>
+                                        <ButtonPrimitive
+                                            size="sm"
+                                            onClick={() => openSidePanel(SidePanelTab.Max)}
+                                            variant="panel"
+                                        >
                                             Ask Max!
                                         </ButtonPrimitive>
                                     </ListBox.Item>
@@ -251,14 +227,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         <div className="mb-4">
                                             <div className="flex items-center gap-2">
                                                 <h3 className="mb-0 text-lg font-medium text-muted">
-                                                    {search ? (
-                                                        <SearchHighlightMultiple
-                                                            string={getCategoryDisplayName(category)}
-                                                            substring={search}
-                                                        />
-                                                    ) : (
-                                                        getCategoryDisplayName(category)
-                                                    )}
+                                                    {getCategoryDisplayName(category)}
                                                 </h3>
                                                 {(category === 'recents' || category === 'persons') && isSearching && (
                                                     <Spinner size="small" />
