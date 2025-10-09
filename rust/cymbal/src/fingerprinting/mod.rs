@@ -107,12 +107,9 @@ impl Fingerprint {
 #[cfg(test)]
 mod test {
 
+    use crate::{frames::Frame, types::Stacktrace};
+    use common_types::error_tracking::FrameId;
     use uuid::Uuid;
-
-    use crate::{
-        frames::{Frame, FrameId},
-        types::Stacktrace,
-    };
 
     use super::*;
 

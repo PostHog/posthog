@@ -708,6 +708,8 @@ class CohortPeople(models.Model):
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
 
 

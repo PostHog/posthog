@@ -163,7 +163,7 @@ class SessionReplayEvents:
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
-                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
+                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, %(ttl_days)s) days
                 {optional_timestamp_clause}
             GROUP BY
                 session_id
@@ -178,6 +178,7 @@ class SessionReplayEvents:
     @staticmethod
     def get_block_listing_query(
         recording_start_time: Optional[datetime] = None,
+        format: Optional[str] = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -200,11 +201,13 @@ class SessionReplayEvents:
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
+                {optional_format_clause}
                 """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            )
+            ),
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
         )
         return query
 
@@ -238,17 +241,18 @@ class SessionReplayEvents:
     def get_metadata(
         self,
         session_id: str,
-        team_id: int,
+        team: Team,
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
             query,
             {
-                "team_id": team_id,
+                "team_id": team.pk,
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
+                "ttl_days": ttl_days(team),
             },
         )
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
@@ -257,7 +261,7 @@ class SessionReplayEvents:
     def get_group_metadata(
         self,
         session_ids: list[str],
-        team_id: int,
+        team: Team,
         recordings_min_timestamp: Optional[datetime] = None,
         recordings_max_timestamp: Optional[datetime] = None,
     ) -> dict[str, Optional[RecordingMetadata]]:
@@ -301,7 +305,7 @@ class SessionReplayEvents:
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id IN %(session_ids)s
-                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
+                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, %(ttl_days)s) days
                 {optional_max_timestamp_clause if recordings_max_timestamp else "AND min_first_timestamp <= %(python_now)s"}
                 {optional_min_timestamp_clause}
             GROUP BY
@@ -310,11 +314,12 @@ class SessionReplayEvents:
         replay_response: list[tuple] = sync_execute(
             query,
             {
-                "team_id": team_id,
+                "team_id": team.pk,
                 "session_ids": session_ids,
                 "recordings_min_timestamp": recordings_min_timestamp,
                 "recordings_max_timestamp": recordings_max_timestamp,
                 "python_now": datetime.now(pytz.timezone("UTC")),
+                "ttl_days": ttl_days(team),
             },
         )
         # Build metadata for each session
@@ -434,6 +439,33 @@ class SessionReplayEvents:
             query=hq,
         ).calculate()
         return result.columns, result.results
+
+    @staticmethod
+    def get_sessions_from_distinct_id_query(
+        format: Optional[str] = None,
+    ):
+        """
+        Helper function to build a query for listing all session IDs for a given set of distinct IDs
+        """
+        query = """
+                SELECT
+                    session_id
+                FROM
+                    session_replay_events
+                PREWHERE
+                    team_id = %(team_id)s
+                    AND distinct_id IN (%(distinct_ids)s)
+                    AND min_first_timestamp <= %(python_now)s
+                    AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
+                    AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
+                GROUP BY
+                    session_id
+                {optional_format_clause}
+                """
+        query = query.format(
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
+        )
+        return query
 
 
 def ttl_days(team: Team) -> int:

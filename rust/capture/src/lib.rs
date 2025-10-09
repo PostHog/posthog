@@ -2,6 +2,7 @@ pub mod ai_endpoint;
 pub mod api;
 pub mod config;
 pub mod limiters;
+pub mod metrics_middleware;
 pub mod prometheus;
 pub mod router;
 pub mod server;
