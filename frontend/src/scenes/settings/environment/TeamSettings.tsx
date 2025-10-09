@@ -14,11 +14,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner, userHasAccess } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
@@ -241,6 +243,8 @@ export function TeamTimezone(): JSX.Element {
 }
 
 export function TeamAuthorizedURLs(): JSX.Element {
+    const canEdit = userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+
     return (
         <>
             <p>
@@ -262,7 +266,12 @@ export function TeamAuthorizedURLs(): JSX.Element {
                 <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
                 something concrete that can be launched.
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.WEB_ANALYTICS} allowWildCards={false} />
+            <AuthorizedUrlList
+                type={AuthorizedUrlListType.WEB_ANALYTICS}
+                allowWildCards={false}
+                allowAdd={canEdit}
+                allowDelete={canEdit}
+            />
         </>
     )
 }
