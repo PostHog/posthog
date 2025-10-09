@@ -106,6 +106,7 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
     }
 
     function renderPerson(record: ErrorEventType): JSX.Element {
+        console.log(record.person)
         const display = asDisplay(record.person)
         return (
             <div className="flex items-center">

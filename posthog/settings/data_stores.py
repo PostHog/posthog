@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 
+from posthog.hogql.database.schema import persons
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
@@ -117,22 +118,22 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
-# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-# For local development, default to the persons_db container if no URL is provided
-persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
-if not persons_db_writer_url and DEBUG and not TEST:
-    # Default to local persons_db container in development mode (but not test mode)
-    # This matches the docker-compose.dev.yml configuration
-    # A default is needed for generate_demo_data to properly populate the correct databases
-    # with the demo data
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5434/posthog_persons"
-
-if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(default=persons_db_writer_url, conn_max_age=0)
+# If a person DB is provided, or we're running in debug (but not test), set up the persons writer.
+if os.getenv("PERSONS_DB_WRITER_URL") or (DEBUG and not TEST):
+    # We set the persons_db_writer database configuration based on the env var, falling back to the local
+    # url if the env var isn't set (since if the env var isn't set, that means we're running in DEBUG)
+    DATABASES["persons_db_writer"] = dj_database_url.config(
+        env="PERSONS_DB_WRITER_URL",
+        default=f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5434/posthog_persons",
+        conn_max_age=0,
+    )
 
     # Fall back to the writer URL if no reader URL is set
-    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or persons_db_writer_url
-    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    if os.getenv("PERSONS_DB_READER_URL"):
+        DATABASES["persons_db_reader"] = dj_database_url.config(env="PERSONS_DB_READER_URL", conn_max_age=0)
+    else:
+        DATABASES["persons_db_reader"] = DATABASES["persons_db_writer"]
+
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
