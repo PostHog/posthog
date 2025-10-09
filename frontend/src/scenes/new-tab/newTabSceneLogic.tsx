@@ -22,8 +22,6 @@ import {
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { PersonType } from '~/types'
 
@@ -128,45 +126,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return []
                     }
 
-                    const personsQuery: DataTableNode = {
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.ActorsQuery,
-                            select: [...defaultDataTableColumns(NodeKind.ActorsQuery)],
-                            search: searchTerm.trim(),
-                        },
-                        full: true,
-                    }
-
-                    // Make direct API call to query endpoint with proper format
-                    const response = await api.create('api/projects/@current/query/', {
-                        query: personsQuery,
-                    })
+                    const response = await api.persons.list({ search: searchTerm.trim() })
                     breakpoint()
 
-                    // Parse the results - they come as nested arrays where first element is the person data
-
-                    const persons =
-                        response?.results?.map((row: any) => {
-                            const personData = row[0] // First element contains the person data
-                            const personId = row[1] // Second element is the ID
-                            const createdAt = row[2] // Third element is created_at
-
-                            const person: PersonType = {
-                                id: personId,
-                                uuid: personId,
-                                name: personData.display_name,
-                                distinct_ids: [personId],
-                                properties: {
-                                    email: personData.display_name,
-                                },
-                                created_at: createdAt,
-                            }
-
-                            return person
-                        }) || []
-
-                    return persons
+                    return response.results
                 },
             },
         ],
