@@ -53,8 +53,7 @@ class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
     actual_width = models.PositiveIntegerField(null=True, blank=True)
     actual_height = models.PositiveIntegerField(null=True, blank=True)
 
-    # Content storage (follows ExportedAsset pattern)
-    content = models.BinaryField(null=True, blank=True)  # For small screenshots
+    # Content storage - simplified to object storage only
     content_location = models.TextField(null=True, blank=True, max_length=1000)  # Object storage path
 
     # Cache key for deduplication (hash of url + viewport_config)
@@ -80,10 +79,11 @@ class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
 
     class Meta:
         indexes = [
-            models.Index(fields=['team', 'cache_key']),
-            models.Index(fields=['team', 'url']),
-            models.Index(fields=['status']),
-            models.Index(fields=['last_used_at']),  # For cleanup queries
+            # Optimized composite indexes for common query patterns
+            models.Index(fields=['team', 'status', 'created_at']),  # For admin/monitoring queries
+            models.Index(fields=['team', 'url', 'viewport_config']),  # For duplicate detection
+            models.Index(fields=['status', 'last_used_at']),  # For cleanup operations
+            models.Index(fields=['team', 'cache_key']),  # For fast lookups
         ]
         constraints = [
             models.UniqueConstraint(
@@ -94,7 +94,7 @@ class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
 
     @property
     def has_content(self) -> bool:
-        return self.content is not None or self.content_location is not None
+        return self.content_location is not None
 
     @property
     def viewport_width(self) -> int:
@@ -146,28 +146,12 @@ class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
         return screenshot, created
 
     def save_screenshot_content(self, content: bytes) -> None:
-        """Save screenshot content to storage"""
-        try:
-            if settings.OBJECT_STORAGE_ENABLED:
-                self._save_to_object_storage(content)
-            else:
-                self.content = content
-                self.save(update_fields=['content'])
-        except Exception as e:
-            logger.error("Failed to save screenshot content",
-                        screenshot_id=self.id, error=str(e))
-            # Fallback to database storage
-            self.content = content
-            self.save(update_fields=['content'])
-
-    def _save_to_object_storage(self, content: bytes) -> None:
-        """Save to object storage similar to ExportedAsset"""
+        """Save screenshot content to object storage"""
         from posthog.models.uploaded_media import object_storage
 
         path_parts = [
             "heatmap_screenshots",
             f"team-{self.team.id}",
-            f"screenshot-{self.id}",
             f"{self.cache_key}.png"
         ]
         object_path = "/".join(path_parts)
@@ -177,14 +161,10 @@ class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
         self.save(update_fields=['content_location'])
 
     def get_content(self) -> bytes | None:
-        """Get screenshot content from storage"""
-        if self.content:
-            return self.content
-
+        """Get screenshot content from object storage"""
         if self.content_location:
             from posthog.models.uploaded_media import object_storage
             return object_storage.read_bytes(self.content_location)
-
         return None
 
     def mark_as_failed(self, error_message: str) -> None:
@@ -271,11 +251,9 @@ class Migration(migrations.Migration):
 
 **File**: `posthog/heatmaps/heatmaps_api.py`
 
-Add screenshot endpoints to existing heatmaps API:
+Add simple screenshot endpoints to existing heatmaps API:
 
 - `POST /api/projects/{team_id}/heatmaps/screenshots/` - Request screenshot
-- `GET /api/projects/{team_id}/heatmaps/screenshots/{id}/` - Get screenshot status/content
-- `DELETE /api/projects/{team_id}/heatmaps/screenshots/{id}/` - Delete screenshot (manual reset)
 - `GET /api/projects/{team_id}/heatmaps/screenshots/{id}/content/` - Get screenshot image
 
 ```python
@@ -287,26 +265,41 @@ class HeatmapScreenshotRequestSerializer(serializers.Serializer):
     viewport_height = serializers.IntegerField(required=False, min_value=200, max_value=4000)
     force_refresh = serializers.BooleanField(required=False, default=False)
 
+    def validate_url(self, value):
+        """Comprehensive URL validation with security checks"""
+        from urllib.parse import urlparse
+        import socket
+        import ipaddress
+
+        parsed = urlparse(value)
+
+        # Basic validation
+        if not parsed.scheme in ['http', 'https']:
+            raise serializers.ValidationError("Only HTTP/HTTPS URLs allowed")
+
+        # Block private/internal IPs
+        if parsed.hostname:
+            try:
+                ip = socket.gethostbyname(parsed.hostname)
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+                    raise serializers.ValidationError("Private/internal IPs not allowed")
+            except (socket.gaierror, ValueError):
+                raise serializers.ValidationError("Invalid hostname")
+
+        return value
+
 class HeatmapScreenshotSerializer(serializers.ModelSerializer):
     dimensions = serializers.SerializerMethodField()
     content_url = serializers.SerializerMethodField()
-    viewport_width = serializers.SerializerMethodField()
-    viewport_height = serializers.SerializerMethodField()
 
     class Meta:
         model = HeatmapScreenshot
         fields = [
-            'id', 'url', 'viewport_width', 'viewport_height', 'viewport_config',
-            'status', 'error_message', 'dimensions', 'content_url',
-            'created_at', 'updated_at', 'last_used_at'
+            'id', 'url', 'viewport_config', 'status', 'error_message',
+            'dimensions', 'content_url', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'status', 'error_message', 'created_at', 'updated_at', 'viewport_width', 'viewport_height']
-
-    def get_viewport_width(self, obj):
-        return obj.viewport_width
-
-    def get_viewport_height(self, obj):
-        return obj.viewport_height
+        read_only_fields = ['id', 'status', 'error_message', 'created_at', 'updated_at']
 
     def get_dimensions(self, obj):
         if obj.actual_width and obj.actual_height:
@@ -323,6 +316,7 @@ class HeatmapScreenshotSerializer(serializers.ModelSerializer):
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # ... existing code ...
 
+    @ratelimit(key='team', rate='50/h', method='POST')
     @action(methods=["POST"], detail=False, url_path="screenshots")
     def create_screenshot(self, request: request.Request) -> response.Response:
         """Request a new screenshot or return existing one"""
@@ -348,7 +342,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             screenshot.status = HeatmapScreenshot.Status.PENDING
             screenshot.error_message = None
             screenshot.save(update_fields=['status', 'error_message', 'updated_at'])
-            created = True  # Treat as new for processing
+            created = True
 
         # Queue screenshot generation if needed
         if created or screenshot.status == HeatmapScreenshot.Status.PENDING:
@@ -364,36 +358,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
 
-    @action(methods=["GET"], detail=False, url_path="screenshots/(?P<screenshot_id>[^/.]+)")
-    def get_screenshot(self, request: request.Request, screenshot_id: str) -> response.Response:
-        """Get screenshot by ID"""
-        try:
-            screenshot = HeatmapScreenshot.objects.get(id=screenshot_id, team=self.team)
-            # Update last_used_at
-            screenshot.last_used_at = timezone.now()
-            screenshot.save(update_fields=['last_used_at'])
-
-            return response.Response(HeatmapScreenshotSerializer(screenshot).data)
-        except HeatmapScreenshot.DoesNotExist:
-            return response.Response(
-                {'error': 'Screenshot not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-    @action(methods=["DELETE"], detail=False, url_path="screenshots/(?P<screenshot_id>[^/.]+)")
-    def delete_screenshot(self, request: request.Request, screenshot_id: str) -> response.Response:
-        """Delete screenshot (manual reset)"""
-        try:
-            screenshot = HeatmapScreenshot.objects.get(id=screenshot_id, team=self.team)
-            screenshot.delete()
-            return response.Response(status=status.HTTP_204_NO_CONTENT)
-        except HeatmapScreenshot.DoesNotExist:
-            return response.Response(
-                {'error': 'Screenshot not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-    @action(methods=["GET"], detail=False, url_path="screenshots/(?P<screenshot_id>[^/.]+)/content")
+    @action(methods=["GET"], detail=False, url_path="screenshots/<str:screenshot_id>/content")
     def screenshot_content(self, request: request.Request, screenshot_id: str) -> HttpResponse:
         """Serve screenshot image content"""
         try:
@@ -488,35 +453,36 @@ from webdriver_manager.core.os_manager import ChromeType
 from posthog.exceptions_capture import capture_exception
 from posthog.models.heatmap_screenshot import HeatmapScreenshot
 from posthog.tasks.utils import CeleryQueue
+from PIL import Image
+import io
 
 logger = structlog.get_logger(__name__)
+
+def compress_screenshot(image_data: bytes) -> bytes:
+    """Compress screenshot for web delivery"""
+    image = Image.open(io.BytesIO(image_data))
+
+    # Convert to RGB and compress
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+
+    output = io.BytesIO()
+    image.save(output, format='JPEG', quality=80, optimize=True)
+    return output.getvalue()
 
 TMP_DIR = "/tmp"
 DEFAULT_WIDTH = 1400
 DEFAULT_HEIGHT = 800
 MAX_HEIGHT = 4000
 
-# Reuse Chrome driver setup from image_exporter.py
+# Simple Chrome driver setup
 def get_driver() -> webdriver.Chrome:
-    """Chrome driver setup optimized for external websites"""
+    """Chrome driver setup for external websites"""
     options = Options()
     options.add_argument("--headless=new")
-    options.add_argument("--force-device-scale-factor=2")
-    options.add_argument("--use-gl=swiftshader")
-    options.add_argument("--disable-software-rasterizer")
     options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-web-security")  # Allow cross-origin for external websites
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-
-    # Temp directory setup (reused from image_exporter.py)
-    pid = os.getpid()
-    timestamp = int(time.time() * 1000)
-    unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
-    temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
-    options.add_argument(f"--user-data-dir={temp_dir.name}")
-    os.environ["HOME"] = temp_dir.name
+    options.add_argument("--disable-web-security")
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
@@ -622,6 +588,7 @@ def _take_website_screenshot(
     max_retries=3,
     retry_backoff=2,
     retry_backoff_max=60,
+    rate_limit='10/m',  # Max 10 screenshots per minute per worker
     queue=CeleryQueue.EXPORTS.value,  # Reuse exports queue
 )
 def generate_heatmap_screenshot(self, screenshot_id: str) -> None:
@@ -657,12 +624,15 @@ def generate_heatmap_screenshot(self, screenshot_id: str) -> None:
             viewport_height=screenshot.viewport_height,
         )
 
-        # Read screenshot content
+        # Read and compress screenshot content
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
 
+        # Compress image for optimal storage and delivery
+        compressed_data = compress_screenshot(image_data)
+
         # Save to screenshot model
-        screenshot.save_screenshot_content(image_data)
+        screenshot.save_screenshot_content(compressed_data)
         screenshot.mark_as_completed(actual_width, actual_height)
 
         # Cleanup temp file
@@ -932,148 +902,42 @@ export const heatmapScreenshotsApi = {
 
 ### 2. Logic Updates
 
-#### Screenshot Browser Logic
-
-**File**: `frontend/src/scenes/heatmaps/screenshotBrowserLogic.ts`
-
-```typescript
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-
-import { HeatmapScreenshotResponse, heatmapScreenshotsApi } from 'lib/api/heatmapScreenshots'
-import { teamLogic } from 'scenes/teamLogic'
-
-const screenshotBrowserLogic = kea<screenshotBrowserLogicType>([
-    path(['scenes', 'heatmaps', 'screenshotBrowserLogic']),
-
-    actions({
-        requestScreenshot: (url: string, viewport_width?: number, force_refresh?: boolean) => ({
-            url,
-            viewport_width,
-            force_refresh,
-        }),
-        setScreenshotData: (data: HeatmapScreenshotResponse | null) => ({ data }),
-        setScreenshotLoading: (loading: boolean) => ({ loading }),
-        setScreenshotError: (error: string | null) => ({ error }),
-        pollScreenshotStatus: (id: string) => ({ id }),
-        stopPolling: true,
-        deleteScreenshot: (id: string) => ({ id }),
-        resetScreenshot: true,
-    }),
-
-    reducers({
-        screenshotData: [
-            null as HeatmapScreenshotResponse | null,
-            {
-                setScreenshotData: (_, { data }) => data,
-                resetScreenshot: () => null,
-            },
-        ],
-        screenshotLoading: [
-            false,
-            {
-                requestScreenshot: () => true,
-                setScreenshotLoading: (_, { loading }) => loading,
-                setScreenshotData: () => false,
-                setScreenshotError: () => false,
-            },
-        ],
-        screenshotError: [
-            null as string | null,
-            {
-                setScreenshotError: (_, { error }) => error,
-                requestScreenshot: () => null,
-                setScreenshotData: () => null,
-            },
-        ],
-    }),
-
-    selectors({
-        isScreenshotReady: [
-            (s) => [s.screenshotData],
-            (screenshotData): boolean => screenshotData?.status === 'completed' && !!screenshotData.content_url,
-        ],
-        screenshotImageUrl: [
-            (s) => [s.screenshotData],
-            (screenshotData): string | null => screenshotData?.content_url || null,
-        ],
-        screenshotDimensions: [
-            (s) => [s.screenshotData],
-            (screenshotData): { width: number; height: number } | null => screenshotData?.dimensions || null,
-        ],
-    }),
-
-    listeners(({ actions, values }) => ({
-        requestScreenshot: async ({ url, viewport_width = 1400, force_refresh = false }) => {
-            try {
-                const teamId = teamLogic.values.currentTeam?.id
-                if (!teamId) {
-                    actions.setScreenshotError('No team selected')
-                    return
-                }
-
-                const screenshot = await heatmapScreenshotsApi.create(teamId, {
-                    url,
-                    viewport_width,
-                    force_refresh,
-                })
-
-                actions.setScreenshotData(screenshot)
-
-                if (screenshot.status === 'pending' || screenshot.status === 'processing') {
-                    actions.pollScreenshotStatus(screenshot.id)
-                }
-            } catch (error) {
-                actions.setScreenshotError(error.message || 'Failed to request screenshot')
-            }
-        },
-
-        pollScreenshotStatus: async ({ id }) => {
-            try {
-                const teamId = teamLogic.values.currentTeam?.id
-                if (!teamId) return
-
-                const screenshot = await heatmapScreenshotsApi.get(teamId, id)
-                actions.setScreenshotData(screenshot)
-
-                if (screenshot.status === 'pending' || screenshot.status === 'processing') {
-                    setTimeout(() => actions.pollScreenshotStatus(id), 2000)
-                } else if (screenshot.status === 'failed') {
-                    actions.setScreenshotError(screenshot.error_message || 'Screenshot failed')
-                }
-            } catch (error) {
-                actions.setScreenshotError(error.message || 'Failed to check screenshot status')
-            }
-        },
-
-        deleteScreenshot: async ({ id }) => {
-            try {
-                const teamId = teamLogic.values.currentTeam?.id
-                if (!teamId) return
-
-                await heatmapScreenshotsApi.delete(teamId, id)
-                actions.resetScreenshot()
-            } catch (error) {
-                actions.setScreenshotError(error.message || 'Failed to delete screenshot')
-            }
-        },
-    })),
-])
-```
-
-#### Update Heatmaps Browser Logic
+#### Integrate into Existing Heatmaps Logic
 
 **File**: `frontend/src/scenes/heatmaps/heatmapsBrowserLogic.ts`
 
-Add screenshot-related state and actions:
+Add screenshot state directly to existing logic:
 
 ```typescript
-// Add screenshot dimensions to existing logic
-screenshotDimensions: [
-    null as {width: number, height: number} | null,
+// Add to existing reducers
+screenshotData: [
+    null as HeatmapScreenshotResponse | null,
     {
-        setScreenshotDimensions: (_, { dimensions }) => dimensions,
+        setScreenshotData: (_, { data }) => data,
+        resetScreenshot: () => null,
     }
 ],
+screenshotLoading: [
+    false,
+    {
+        requestScreenshot: () => true,
+        setScreenshotData: () => false,
+        setScreenshotError: () => false,
+    }
+],
+screenshotError: [
+    null as string | null,
+    {
+        setScreenshotError: (_, { error }) => error,
+        requestScreenshot: () => null,
+    }
+],
+
+// Add to existing actions
+requestScreenshot: (url: string, viewport_width?: number) => ({ url, viewport_width }),
+setScreenshotData: (data: HeatmapScreenshotResponse | null) => ({ data }),
+setScreenshotError: (error: string | null) => ({ error }),
+resetScreenshot: true,
 ```
 
 ### 3. Component Updates
@@ -1122,220 +986,131 @@ interface HeatmapCanvasProps {
 
 ### 4. User Experience Improvements
 
+#### Manual Heatmap Loading (Key UX Change)
+
+**Replace automatic loading with explicit user action:**
+
+Instead of automatically requesting screenshots when URLs are typed, add a "Load Heatmap" button that only triggers screenshot generation when clicked.
+
+**File**: `frontend/src/scenes/heatmaps/HeatmapsBrowser.tsx`
+
+```typescript
+function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTMLIFrameElement | null> }): JSX.Element {
+    // ... existing logic ...
+
+    // Add screenshot logic
+    const { screenshotData, screenshotLoading, screenshotError } = useValues(screenshotBrowserLogic)
+    const { requestScreenshot, resetScreenshot } = useActions(screenshotBrowserLogic)
+
+    const handleLoadHeatmap = () => {
+        if (displayUrl && dataUrl) {
+            // Request screenshot for the display URL
+            requestScreenshot(displayUrl, 1400, false)
+        }
+    }
+
+    return (
+        <div className="flex gap-2 justify-between">
+            <LemonInput
+                size="small"
+                placeholder="Auto-generated from display URL above"
+                value={dataUrl || ''}
+                onChange={(value) => setDataUrl(value || null)}
+                className="truncate flex-1"
+                disabledReason={!displayUrl ? 'Set a valid Display URL first' : undefined}
+            />
+
+            {/* NEW: Load Heatmap Button */}
+            <LemonButton
+                type="primary"
+                size="small"
+                onClick={handleLoadHeatmap}
+                loading={screenshotLoading}
+                disabled={!displayUrl || !dataUrl || !isBrowserUrlValid}
+                icon={<IconHeatmap />}
+                data-attr="load-heatmap"
+            >
+                Load Heatmap
+            </LemonButton>
+
+            <ExportButton iframeRef={iframeRef} />
+        </div>
+    )
+}
+```
+
+**Benefits of Manual Loading:**
+
+- **Performance**: No automatic screenshot generation on URL change
+- **Cost control**: Screenshots only generated when explicitly requested
+- **User intent**: Clear indication when heatmap loading is initiated
+- **Better UX**: Users understand when processing is happening
+- **Bandwidth savings**: Avoid unnecessary screenshot requests
+- **Resource efficiency**: Prevents accidental screenshot generation while typing
+
 #### Loading States
 
 - Show skeleton loader while screenshot is being generated
 - Display progress indicator for long-running screenshots
 - Provide estimated completion time
+- Clear "Load Heatmap" button state management
+- Progress indicator in button during loading
 
 #### Error Handling
 
 - Clear error messages for common failures
 - Retry buttons for transient errors
 - Fallback suggestions (try different URL, check website accessibility)
+- Inline error display with retry option
+- Error state management in "Load Heatmap" button
 
 #### Caching Indicators
 
 - Show when using cached screenshot
 - Display cache age and expiry
-- Option to force refresh
+- Option to force refresh via "Load Heatmap" button
+- Visual indication of screenshot freshness
+- Cache status in button tooltip
 
 ---
 
-## Migration Strategy
+## Implementation Plan
 
-### Phase 1: Backend Implementation
+### Phase 1: Backend
 
-1. Add `SCREENSHOT` export format to `ExportedAsset`
-2. Implement `ScreenshotViewSet` API endpoints
-3. Create `website_screenshot_exporter.py`
-4. Update main exporter to handle screenshot format
-5. Add URL routing
+1. Create `HeatmapScreenshot` model and migration
+2. Add screenshot API endpoints to `HeatmapViewSet`
+3. Create `generate_heatmap_screenshot` Celery task
 
-### Phase 2: Frontend Implementation
+### Phase 2: Frontend
 
-1. Create `ScreenshotHeatmapBrowser` component
-2. Implement screenshot API client
-3. Create `screenshotBrowserLogic`
-4. Update `HeatmapCanvas` for screenshot dimensions
+1. Add screenshot state to existing `heatmapsBrowserLogic`
+2. Update `HeatmapsBrowser` component with "Load Heatmap" button
+3. Replace iframe with screenshot display
 
-### Phase 3: Integration & Testing
+### Phase 3: Deploy
 
-1. Replace `IframeHeatmapBrowser` with `ScreenshotHeatmapBrowser`
-2. Update heatmap positioning logic
-3. Add error handling and loading states
-4. Test with various website types
-
-### Phase 4: Feature Flag & Rollout
-
-1. Add feature flag for screenshot vs iframe mode
-2. Gradual rollout to percentage of users
-3. Monitor performance and error rates
-4. Full rollout after validation
+1. Deploy with feature flag
+2. Test and monitor
+3. Full rollout
 
 ---
 
-## Testing Strategy
+## Key Considerations
 
-### Backend Testing
+### Security
 
-#### Unit Tests
-
-**File**: `posthog/tasks/exports/test/test_website_screenshot_exporter.py`
-
-- Screenshot generation with various URLs
-- Dimension detection accuracy
-- Error handling for invalid URLs
-- Cache key generation and collision handling
-
-#### Integration Tests
-
-**File**: `posthog/heatmaps/test/test_screenshot_api.py`
-
-- API endpoint functionality
-- ExportedAsset creation and management
-- Celery task integration
-- Object storage integration
-
-### Frontend Testing
-
-#### Component Tests
-
-**File**: `frontend/src/scenes/heatmaps/ScreenshotHeatmapBrowser.test.tsx`
-
-- Screenshot loading and display
-- Error state handling
-- Dimension calculation
-- Heatmap overlay positioning
-
-#### Logic Tests
-
-**File**: `frontend/src/scenes/heatmaps/screenshotBrowserLogic.test.ts`
-
-- API integration
-- Polling behavior
-- State management
-- Error handling
-
-### End-to-End Testing
-
-- Full heatmap workflow with screenshots
-- Various website types and sizes
-- Error scenarios and recovery
-- Performance under load
-
----
-
-## Performance Considerations
-
-### Backend Optimization
-
-- **Concurrent screenshot limits**: Prevent resource exhaustion
-- **Timeout management**: Reasonable limits for slow websites
-- **Memory management**: Clean up Chrome processes properly
-- **Cache hit rates**: Monitor and optimize caching strategy
-
-### Frontend Optimization
-
-- **Lazy loading**: Load screenshots only when needed
-- **Image optimization**: Compress screenshots appropriately
-- **Polling efficiency**: Exponential backoff for status checks
-- **Memory management**: Cleanup screenshot data when not needed
-
-### Monitoring & Metrics
-
-- Screenshot generation time distribution
-- Success/failure rates by website type
-- Cache hit/miss ratios
-- Resource usage (CPU, memory, disk)
-- User experience metrics (time to first screenshot)
-
----
-
-## Security Considerations
-
-### URL Validation
-
-- Whitelist allowed protocols (http, https)
-- Block internal/private IP ranges
-- Validate URL format and length
-- Rate limiting per team/user
-
-### Content Security
-
-- Sandbox Chrome processes
-- Limit screenshot file sizes
-- Scan for malicious content
-- Secure temporary file handling
-
-### Access Control
-
+- URL validation blocks private IPs and non-HTTP(S) protocols
+- Rate limiting: 50 requests/hour per team
 - Team-based screenshot isolation
-- Proper authentication for API endpoints
-- Secure token generation for content access
-- Audit logging for screenshot requests
 
----
+### Performance
 
-## Rollback Plan
+- Screenshots cached and reused via `cache_key`
+- Automatic cleanup of unused screenshots after 30 days
+- Object storage for efficient image serving
 
-### Immediate Rollback
+### Monitoring
 
-- Feature flag to instantly switch back to iframe mode
-- Keep existing `IframeHeatmapBrowser` component intact
-- Database rollback for `ExportedAsset` changes if needed
-
-### Gradual Migration
-
-- A/B test between iframe and screenshot modes
-- Monitor key metrics (error rates, user satisfaction)
-- Rollback individual users/teams if issues arise
-
----
-
-## Success Metrics
-
-### Technical Metrics
-
-- **Screenshot success rate**: >95% for common websites
-- **Generation time**: <30 seconds for 90th percentile
-- **Cache hit rate**: >70% for repeated requests
-- **Error rate**: <5% overall
-
-### User Experience Metrics
-
-- **Heatmap completeness**: Full page coverage vs iframe partial coverage
-- **User satisfaction**: Survey feedback on new vs old approach
-- **Feature adoption**: Usage of heatmaps with previously blocked websites
-- **Support tickets**: Reduction in iframe-related issues
-
-### Business Metrics
-
-- **Heatmap usage increase**: More heatmaps created due to fewer restrictions
-- **Customer satisfaction**: Fewer complaints about heatmap limitations
-- **Competitive advantage**: Full-page heatmaps vs competitors' iframe limitations
-
----
-
-## Future Enhancements
-
-### Advanced Screenshot Features
-
-- **Mobile viewport screenshots**: Different device sizes
-- **Dark mode detection**: Automatic theme switching
-- **Interactive element highlighting**: Show clickable areas
-- **Multi-page screenshots**: Capture user flows
-
-### Performance Improvements
-
-- **Preemptive caching**: Screenshot popular pages automatically
-- **CDN integration**: Serve screenshots from edge locations
-- **Incremental updates**: Only re-screenshot changed portions
-- **Browser pool**: Reuse Chrome instances for better performance
-
-### Analytics Integration
-
-- **Screenshot analytics**: Track which pages are most screenshotted
-- **Performance insights**: Correlate screenshot quality with heatmap usage
-- **Automated insights**: Suggest optimal screenshot dimensions
-- **Cost optimization**: Balance quality vs generation cost
+- Track screenshot success rates and generation times
+- Monitor storage usage and cleanup effectiveness
