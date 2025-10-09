@@ -135,6 +135,11 @@ export const commentsLogic = kea<commentsLogicType>([
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
 
+                    if (values.richContentEditor?.isEmpty()) {
+                        console.error('Failed to create a comment because the content was empty')
+                        return existingComments
+                    }
+
                     let itemContext: Record<string, any> | undefined = {
                         ...values.itemContext?.context,
                         ...props.item_context,
