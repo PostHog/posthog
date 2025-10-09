@@ -9,5 +9,5 @@ operations = [
         f"ALTER TABLE person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}' ADD COLUMN IF NOT EXISTS is_deleted Int8 DEFAULT 0"
     ),
     run_sql_with_exceptions(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL()),
-    run_sql_with_exceptions(PERSONS_DISTINCT_ID_TABLE_MV_SQL),
+    run_sql_with_exceptions(PERSONS_DISTINCT_ID_TABLE_MV_SQL()),
 ]

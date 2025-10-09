@@ -209,6 +209,12 @@ pub struct EventSimilarity {
     pub different_properties: Vec<PropertyDifference>,
 }
 
+impl std::fmt::Display for EventSimilarity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.2}", self.overall_score)
+    }
+}
+
 impl EventSimilarity {
     pub fn calculate(original: &RawEvent, new: &RawEvent) -> Result<Self> {
         let mut different_fields = Vec::new();

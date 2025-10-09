@@ -17,6 +17,7 @@ import {
     IconGear,
     IconLeave,
     IconLogomark,
+    IconRedux,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -55,7 +56,7 @@ const typeToIconAndDescription = {
         tooltip: 'Console log',
     },
     'app-state': {
-        Icon: IconTerminal,
+        Icon: IconRedux,
         tooltip: 'State log',
     },
     network: {
