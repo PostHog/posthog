@@ -126,6 +126,50 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
+// Project API keys have a restricted subset of scopes
+// Note: 'endpoint' scope doesn't exist yet in backend, using 'task' as placeholder
+export const PROJECT_API_KEY_ALLOWED_SCOPES: readonly APIScopeObject[] = [
+    'task', // TODO: Change to 'endpoint' when backend adds it
+    'query',
+    'insight',
+    'dashboard',
+    'cohort',
+    'feature_flag',
+    'session_recording',
+    'event_definition',
+    'property_definition',
+] as const
+
+// Filter API_SCOPES to only show allowed scopes for project keys
+export const PROJECT_API_KEY_SCOPES = API_SCOPES.filter((scope) => PROJECT_API_KEY_ALLOWED_SCOPES.includes(scope.key))
+
+// Add project-specific presets
+export const PROJECT_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    description: string
+}[] = [
+    {
+        value: 'endpoint_execution',
+        label: 'Endpoint execution',
+        scopes: ['task:read', 'query:read'], // TODO: Change to 'endpoint:read' when backend adds it
+        description: 'Execute endpoints and run queries',
+    },
+    {
+        value: 'data_export',
+        label: 'Data export',
+        scopes: ['insight:read', 'dashboard:read', 'cohort:read'],
+        description: 'Export insights, dashboards, and cohorts',
+    },
+    {
+        value: 'feature_flag_client',
+        label: 'Feature flag client',
+        scopes: ['feature_flag:read'],
+        description: 'Read feature flag configurations',
+    },
+]
+
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
 export const getScopeDescription = (scope: string): string => {

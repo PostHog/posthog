@@ -128,6 +128,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProjectSecretAPIKeyType,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1407,6 +1408,15 @@ export class ApiRequest {
 
     public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
         return this.personalApiKeys().addPathComponent(id)
+    }
+
+    // Project API Keys
+    public projectSecretApiKeys(): ApiRequest {
+        return this.addPathComponent('project_api_keys')
+    }
+
+    public projectSecretApiKey(id: ProjectSecretAPIKeyType['id']): ApiRequest {
+        return this.projectSecretApiKeys().addPathComponent(id)
     }
 
     // Request finalization
@@ -3899,6 +3909,152 @@ const api = {
         },
         async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
             return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        },
+    },
+
+    projectSecretApiKeys: {
+        async list(projectId: TeamType['id']): Promise<ProjectSecretAPIKeyType[]> {
+            // TODO: Replace with actual API call
+            // return await new ApiRequest().projectsDetail(projectId).addPathComponent('project_api_keys').get()
+
+            // Mock data for visualization
+            return [
+                {
+                    id: 'key_1',
+                    label: 'CI/CD Pipeline',
+                    mask_value: 'phs_****3x7k',
+                    created_at: '2025-01-05T10:30:00Z',
+                    created_by: {
+                        id: 1,
+                        uuid: 'user-uuid-1',
+                        distinct_id: 'user1@example.com',
+                        first_name: 'Alice',
+                        email: 'alice@example.com',
+                    },
+                    last_used_at: '2025-01-09T14:22:00Z',
+                    scopes: ['task:read', 'query:read'],
+                    last_rolled_at: null,
+                    team_id: projectId,
+                },
+                {
+                    id: 'key_2',
+                    label: 'Data Export Service',
+                    mask_value: 'phs_****9b2f',
+                    created_at: '2024-12-15T08:15:00Z',
+                    created_by: {
+                        id: 2,
+                        uuid: 'user-uuid-2',
+                        distinct_id: 'user2@example.com',
+                        first_name: 'Bob',
+                        email: 'bob@example.com',
+                    },
+                    last_used_at: '2025-01-08T09:45:00Z',
+                    scopes: ['insight:read', 'dashboard:read', 'cohort:read'],
+                    last_rolled_at: '2024-12-20T12:00:00Z',
+                    team_id: projectId,
+                },
+                {
+                    id: 'key_3',
+                    label: 'Feature Flag Client',
+                    mask_value: 'phs_****5k9m',
+                    created_at: '2024-11-20T16:45:00Z',
+                    created_by: {
+                        id: 1,
+                        uuid: 'user-uuid-1',
+                        distinct_id: 'user1@example.com',
+                        first_name: 'Alice',
+                        email: 'alice@example.com',
+                    },
+                    last_used_at: null,
+                    scopes: ['feature_flag:read'],
+                    last_rolled_at: null,
+                    team_id: projectId,
+                },
+            ]
+        },
+        async create(
+            projectId: TeamType['id'],
+            data: Pick<ProjectSecretAPIKeyType, 'label' | 'scopes'>
+        ): Promise<ProjectSecretAPIKeyType> {
+            // TODO: Replace with actual API call
+            // return await new ApiRequest().projectsDetail(projectId).addPathComponent('project_api_keys').create({ data })
+
+            // Mock response
+            return {
+                id: `key_${Date.now()}`,
+                label: data.label,
+                value: `phs_mock_${Math.random().toString(36).substring(2, 15)}`,
+                mask_value: `phs_****${Math.random().toString(36).substring(2, 6)}`,
+                created_at: new Date().toISOString(),
+                created_by: {
+                    id: 1,
+                    uuid: 'user-uuid-1',
+                    distinct_id: 'currentuser@example.com',
+                    first_name: 'Current',
+                    email: 'currentuser@example.com',
+                },
+                last_used_at: null,
+                scopes: data.scopes,
+                last_rolled_at: null,
+                team_id: projectId,
+            }
+        },
+        async update(
+            projectId: TeamType['id'],
+            id: ProjectSecretAPIKeyType['id'],
+            data: Partial<Pick<ProjectSecretAPIKeyType, 'label' | 'scopes'>>
+        ): Promise<ProjectSecretAPIKeyType> {
+            // TODO: Replace with actual API call
+            // return await new ApiRequest().projectsDetail(projectId).addPathComponent('project_api_keys').addPathComponent(id).update({ data })
+
+            // Mock response - just return updated data
+
+            return {
+                id,
+                label: data.label || 'Updated Key',
+                mask_value: 'phs_****xxxx',
+                created_at: '2025-01-01T00:00:00Z',
+                created_by: {
+                    id: 1,
+                    uuid: 'user-uuid-1',
+                    distinct_id: 'user@example.com',
+                    first_name: 'User',
+                    email: 'user@example.com',
+                },
+                last_used_at: null,
+                scopes: data.scopes || [],
+                last_rolled_at: null,
+                team_id: projectId,
+            }
+        },
+        async delete(_projectId: TeamType['id'], _id: ProjectSecretAPIKeyType['id']): Promise<void> {
+            // TODO: Replace with actual API call
+            // await new ApiRequest().projectsDetail(_projectId).addPathComponent('project_api_keys').addPathComponent(_id).delete()
+        },
+        async roll(projectId: TeamType['id'], id: ProjectSecretAPIKeyType['id']): Promise<ProjectSecretAPIKeyType> {
+            // TODO: Replace with actual API call
+            // return await new ApiRequest().projectsDetail(projectId).addPathComponent('project_api_keys').addPathComponent(id).addPathComponent('roll').create()
+
+            // Mock response with new value
+
+            return {
+                id,
+                label: 'Rolled Key',
+                value: `phs_rolled_${Math.random().toString(36).substring(2, 15)}`,
+                mask_value: `phs_****${Math.random().toString(36).substring(2, 6)}`,
+                created_at: '2025-01-01T00:00:00Z',
+                created_by: {
+                    id: 1,
+                    uuid: 'user-uuid-1',
+                    distinct_id: 'user@example.com',
+                    first_name: 'User',
+                    email: 'user@example.com',
+                },
+                last_used_at: null,
+                scopes: ['task:read'],
+                last_rolled_at: new Date().toISOString(),
+                team_id: projectId,
+            }
         },
     },
 

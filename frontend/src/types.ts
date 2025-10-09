@@ -433,6 +433,19 @@ export interface PersonalAPIKeyType {
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
 }
+// TODO: Add status
+export interface ProjectSecretAPIKeyType {
+    id: string
+    label: string
+    value?: string
+    mask_value?: string | null
+    created_at: string
+    last_used_at: string | null
+    last_rolled_at: string | null
+    team_id: number
+    scopes: string[]
+    created_by: UserBasicType | null
+}
 
 export interface OrganizationBasicType {
     id: string
