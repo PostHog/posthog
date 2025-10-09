@@ -152,11 +152,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             const personId = row[1] // Second element is the ID
                             const createdAt = row[2] // Third element is created_at
 
-                            const person = {
+                            const person: PersonType = {
+                                id: personId,
                                 uuid: personId,
+                                name: personData.display_name,
                                 distinct_ids: [personId],
                                 properties: {
-                                    email: personData.display_name, // Use display_name as it's already formatted
+                                    email: personData.display_name,
                                 },
                                 created_at: createdAt,
                             }
