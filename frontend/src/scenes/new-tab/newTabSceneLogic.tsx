@@ -254,12 +254,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `person-${person.uuid}`,
                         name: `View this person ${displayName}`,
                         category: 'recents' as NEW_TAB_CATEGORY_ITEMS,
-                        href: urls.personByDistinctId(personId),
+                        href: urls.personByUUID(person.uuid),
                         icon: <IconPerson />,
                         record: {
                             type: 'person',
                             path: `Person: ${displayName}`,
-                            href: urls.personByDistinctId(personId),
+                            href: urls.personByUUID(person.uuid),
                         },
                     }
 
