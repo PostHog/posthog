@@ -220,6 +220,7 @@
         "resize-observer-polyfill": "^1.5.1",
         "sass": "^1.26.2",
         "simple-statistics": "^7.8.8",
+        "snappy-wasm": "^0.3.0",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",

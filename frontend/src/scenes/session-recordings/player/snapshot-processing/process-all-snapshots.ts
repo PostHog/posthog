@@ -4,6 +4,7 @@ import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
 import { isObject } from 'lib/utils'
+import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
     stripChromeExtensionDataFromNode,
@@ -234,11 +235,35 @@ function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWit
 }
 
 export const parseEncodedSnapshots = async (
-    items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
+    items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
+    }
+
+    // Check if we received compressed binary data (ArrayBuffer or Uint8Array)
+    if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
+        try {
+            const compressedData = items instanceof ArrayBuffer ? new Uint8Array(items) : items
+            const workerManager = getDecompressionWorkerManager()
+            const decompressedData = await workerManager.decompress(compressedData)
+
+            // Convert decompressed bytes to string
+            const textDecoder = new TextDecoder('utf-8')
+            const decompressedText = textDecoder.decode(decompressedData)
+
+            // Split into lines and parse as JSON
+            const lines = decompressedText.split('\n').filter((line) => line.trim().length > 0)
+            return parseEncodedSnapshots(lines, sessionId)
+        } catch (error) {
+            posthog.captureException(new Error('Failed to decompress snapshot data'), {
+                sessionId,
+                error: error instanceof Error ? error.message : 'Unknown error',
+                feature: 'session-recording-client-side-decompression',
+            })
+            return []
+        }
     }
 
     const lineCount = items.length
