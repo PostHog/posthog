@@ -44,12 +44,20 @@ class Migration(migrations.Migration):
             state_operations=[
                 migrations.DeleteModel(name='OldFeature'),
             ],
-            database_operations=[],  # Keep table in database for now
+            database_operations=[
+                # If table has FKs to frequently-truncated tables (User, Team, Organization),
+                # drop those FK constraints to avoid blocking TransactionTestCase teardown.
+                # migrations.RunSQL(
+                #     sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
+                # ),
+            ],
         ),
     ]
 ```
 
 Deploy this change.
+
+**Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests, but PostgreSQL won't truncate a table that has FKs pointing to it. Since the model is removed from Django's state, Django doesn't know to include it in the truncate list. Fix this by dropping the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway.
 
 **Step 2: Remove all code references**
 
@@ -101,7 +109,10 @@ class Migration(migrations.Migration):
             state_operations=[
                 migrations.DeleteModel(name='OldFeature'),
             ],
-            database_operations=[],  # Keep table for now
+            database_operations=[
+                # Drop FK constraints if table references User/Team/Organization
+                # to avoid blocking TransactionTestCase TRUNCATE operations
+            ],
         ),
     ]
 
