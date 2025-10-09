@@ -361,11 +361,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
     },
-    [Scene.EmbeddedAnalytics]: {
-        projectBased: true,
-        name: 'Embedded analytics',
-        layout: 'app-container',
-    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
