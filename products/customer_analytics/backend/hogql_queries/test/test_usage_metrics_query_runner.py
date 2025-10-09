@@ -29,6 +29,8 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     person_id = "cd6bb999-8652-4d98-a937-c49e89a5694d"
     another_person_distinct_id = "another-test-person-id"
     another_person_id = "c9636994-348f-48b5-88b8-fbdc13f95547"
+    test_metric_id = "19bda517-7081-4004-8c1d-30d0b2b11bf5"
+    another_test_metric_id = "1d2b5e4e-c338-4de9-af6c-9671d639ce1e"
 
     def setUp(self):
         super().setUp()
@@ -115,6 +117,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_person_metric(self):
         metric = GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Test metric",
@@ -124,6 +127,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
         )
         another_metric = GroupUsageMetric.objects.create(
+            id=self.another_test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Another test metric",
@@ -178,6 +182,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_complex_event_filter(self):
         metric = GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Test metric",
@@ -218,6 +223,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_metric_interval(self):
         metric = GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Test metric",
@@ -325,6 +331,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
         )
         another_metric = GroupUsageMetric.objects.create(
+            id=self.another_test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Another test metric",
