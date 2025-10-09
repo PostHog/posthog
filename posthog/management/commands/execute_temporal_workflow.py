@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
+from posthog.temporal.ai_token_metering import WORKFLOWS as AI_TOKEN_METERING_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
@@ -122,6 +123,7 @@ class Command(BaseCommand):
             + USAGE_REPORTS_WORKFLOWS
             + QUOTA_LIMITING_WORKFLOWS
             + AI_WORKFLOWS
+            + AI_TOKEN_METERING_WORKFLOWS
             + SALESFORCE_ENRICHMENT_WORKFLOWS
             + TEST_WORKFLOWS
             + DELETE_RECORDING_WORKFLOWS

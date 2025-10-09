@@ -13,6 +13,7 @@ from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
+from .ai_token_metering import AITokenMeteringState
 from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
@@ -99,6 +100,7 @@ __all__ = [
     "Action",
     "ActionStep",
     "ActivityLog",
+    "AITokenMeteringState",
     "Annotation",
     "AsyncDeletion",
     "AsyncMigration",

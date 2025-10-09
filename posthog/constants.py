@@ -323,6 +323,7 @@ TEST_TASK_QUEUE = "test-task-queue"
 BILLING_TASK_QUEUE = "billing-task-queue"
 VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 MESSAGING_TASK_QUEUE = "messaging-task-queue"
+AI_TOKEN_METERING_TASK_QUEUE = "ai-token-metering-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
