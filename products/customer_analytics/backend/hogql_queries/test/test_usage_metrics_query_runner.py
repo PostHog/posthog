@@ -26,18 +26,22 @@ from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runne
 @override_settings(IN_UNIT_TESTING=True)
 class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     person_distinct_id = "test-person-id"
+    person_id = "cd6bb999-8652-4d98-a937-c49e89a5694d"
     another_person_distinct_id = "another-test-person-id"
+    another_person_id = "c9636994-348f-48b5-88b8-fbdc13f95547"
 
     def setUp(self):
         super().setUp()
         self.person = _create_person(
             distinct_ids=[self.person_distinct_id],
+            uuid=self.person_id,
             team=self.team,
             is_identified=True,
             properties={"email": "test@example.com", "name": "Test Person"},
         )
         self.another_person = _create_person(
             distinct_ids=[self.another_person_distinct_id],
+            uuid=self.another_person_id,
             team=self.team,
             is_identified=True,
             properties={"email": "another_test@example.com", "name": "Another Test Person"},
