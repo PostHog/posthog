@@ -34,12 +34,6 @@ class RunEvaluationInputs:
 @temporalio.activity.defn
 async def fetch_target_event_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch target event from ClickHouse"""
-    logger.info(
-        "Fetching target event",
-        evaluation_id=inputs.evaluation_id,
-        target_event_id=inputs.target_event_id,
-    )
-
     query = """
         SELECT
             uuid,
@@ -72,26 +66,15 @@ async def fetch_target_event_activity(inputs: RunEvaluationInputs) -> dict[str, 
         "distinct_id": row[5],
         "person_id": str(row[6]),
     }
-    logger.info(
-        "Target event fetched successfully",
-        event_uuid=event_data["uuid"],
-        event_type=event_data["event"],
-        team_id=event_data["team_id"],
-        distinct_id=event_data["distinct_id"],
-        person_id=event_data["person_id"],
-        timestamp=event_data["timestamp"],
-    )
     return event_data
 
 
 @temporalio.activity.defn
 async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch evaluation config from Postgres"""
-    logger.info("Fetching evaluation config", evaluation_id=inputs.evaluation_id)
 
     def _fetch():
         evaluation = Evaluation.objects.get(id=inputs.evaluation_id)
-        logger.info("Evaluation fetched", evaluation_id=str(evaluation.id), name=evaluation.name)
         return {
             "id": str(evaluation.id),
             "name": evaluation.name,
@@ -105,13 +88,6 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
 @temporalio.activity.defn
 async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event"""
-    logger.info(
-        "Executing LLM judge",
-        evaluation_id=evaluation["id"],
-        evaluation_name=evaluation["name"],
-        target_event_id=event_data["uuid"],
-    )
-
     import openai
 
     # Build context from event
@@ -177,13 +153,6 @@ Output: {output_data}"""
         result = json.loads(content)
         verdict = bool(result.get("verdict", False))
         reasoning = result.get("reasoning", "No reasoning provided")
-        logger.info(
-            "LLM judge completed",
-            evaluation_id=evaluation["id"],
-            verdict=verdict,
-            reasoning=reasoning,
-            target_event_id=event_data["uuid"],
-        )
         return {"verdict": verdict, "reasoning": reasoning}
     except (json.JSONDecodeError, KeyError) as e:
         logger.exception(
@@ -224,20 +193,6 @@ async def emit_evaluation_event_activity(
         # Use current time for when the evaluation actually happened
         event_timestamp = datetime.now(UTC)
 
-        logger.info(
-            "Creating evaluation event",
-            evaluation_event_uuid=str(event_uuid),
-            team_id=team.id,
-            project_id=team.project_id,
-            distinct_id=event_data["distinct_id"],
-            person_id=str(person_id) if person_id else None,
-            timestamp=event_timestamp,
-            target_event_uuid=event_data["uuid"],
-            evaluation_id=evaluation["id"],
-            verdict=result["verdict"],
-            reasoning=result["reasoning"][:100],
-        )
-
         create_event(
             event_uuid=event_uuid,
             event="$ai_evaluation",
@@ -246,14 +201,6 @@ async def emit_evaluation_event_activity(
             timestamp=event_timestamp,
             properties=properties,
             person_id=person_id,
-        )
-
-        logger.info(
-            "Emitted evaluation event successfully",
-            evaluation_event_uuid=str(event_uuid),
-            evaluation_id=evaluation["id"],
-            target_event_id=event_data["uuid"],
-            verdict=result["verdict"],
         )
 
     await database_sync_to_async(_emit, thread_sensitive=False)()

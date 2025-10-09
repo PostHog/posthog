@@ -11,7 +11,7 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, runsLoading } = useValues(llmEvaluationLogic)
+    const { evaluationRuns, evaluationRunsLoading } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -101,7 +101,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     type="secondary"
                     icon={<IconRefresh />}
                     onClick={refreshEvaluationRuns}
-                    loading={runsLoading}
+                    loading={evaluationRunsLoading}
                     size="small"
                 >
                     Refresh
@@ -111,7 +111,7 @@ export function EvaluationRunsTable(): JSX.Element {
             <LemonTable
                 columns={columns}
                 dataSource={evaluationRuns}
-                loading={runsLoading}
+                loading={evaluationRunsLoading}
                 rowKey="id"
                 pagination={{
                     pageSize: 20,

@@ -1,10 +1,12 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
@@ -35,10 +37,59 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         resetEvaluation: true,
 
         // Evaluation runs actions
-        loadEvaluationRuns: true,
-        loadEvaluationRunsSuccess: (runs: EvaluationRun[]) => ({ runs }),
         refreshEvaluationRuns: true,
     }),
+
+    loaders(({ props, values }) => ({
+        evaluationRuns: [
+            [] as EvaluationRun[],
+            {
+                loadEvaluationRuns: async () => {
+                    if (!props.evaluationId || props.evaluationId === 'new') {
+                        return []
+                    }
+
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return []
+                    }
+
+                    const query = hogql`
+                        SELECT
+                            uuid,
+                            timestamp,
+                            properties.$ai_target_event_id as target_event_id,
+                            properties.$ai_trace_id as trace_id,
+                            properties.$ai_evaluation_result as result,
+                            properties.$ai_evaluation_model as model,
+                            properties.$ai_evaluation_reasoning as reasoning
+                        FROM events
+                        WHERE
+                            event = '$ai_evaluation'
+                            AND team_id = ${teamId}
+                            AND properties.$ai_evaluation_id = ${props.evaluationId}
+                        ORDER BY timestamp DESC
+                        LIMIT 100
+                    `
+
+                    const response = await api.queryHogQL(query, {
+                        ...(values.isForceRefresh && { refresh: 'force_blocking' }),
+                    })
+
+                    return (response.results || []).map((row: any) => ({
+                        id: row[0],
+                        evaluation_id: props.evaluationId,
+                        generation_id: row[2],
+                        trace_id: row[3],
+                        timestamp: row[1],
+                        result: row[4],
+                        reasoning: row[6] || 'No reasoning provided',
+                        status: 'completed' as const,
+                    }))
+                },
+            },
+        ],
+    })),
 
     reducers({
         evaluation: [
@@ -54,10 +105,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 resetEvaluation: () => null,
             },
         ],
-        evaluationRuns: [
-            [] as EvaluationRun[],
+        isForceRefresh: [
+            false,
             {
-                loadEvaluationRunsSuccess: (_, { runs }) => runs,
+                refreshEvaluationRuns: () => true,
+                loadEvaluationRunsSuccess: () => false,
+                loadEvaluationRunsFailure: () => false,
             },
         ],
         evaluationLoading: [
@@ -72,14 +125,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
-            },
-        ],
-        runsLoading: [
-            false,
-            {
-                loadEvaluationRuns: () => true,
-                loadEvaluationRunsSuccess: () => false,
-                refreshEvaluationRuns: () => true,
             },
         ],
         hasUnsavedChanges: [
@@ -135,60 +180,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
-        loadEvaluationRuns: async () => {
-            if (!props.evaluationId || props.evaluationId === 'new') {
-                actions.loadEvaluationRunsSuccess([])
-                return
-            }
-
-            try {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-
-                // Query $ai_evaluation events from ClickHouse
-                const query = `
-                    SELECT
-                        uuid,
-                        timestamp,
-                        properties.$ai_target_event_id as target_event_id,
-                        properties.$ai_trace_id as trace_id,
-                        properties.$ai_evaluation_result as result,
-                        properties.$ai_evaluation_model as model,
-                        properties.$ai_evaluation_reasoning as reasoning
-                    FROM events
-                    WHERE
-                        event = '$ai_evaluation'
-                        AND team_id = ${teamId}
-                        AND properties.$ai_evaluation_id = '${props.evaluationId}'
-                    ORDER BY timestamp DESC
-                    LIMIT 100
-                `
-
-                const response = await api.query({ kind: 'HogQLQuery', query })
-
-                // Transform results to EvaluationRun format
-                const runs: EvaluationRun[] = (response.results || []).map((row: any) => ({
-                    id: row[0],
-                    evaluation_id: props.evaluationId,
-                    generation_id: row[2],
-                    trace_id: row[3],
-                    timestamp: row[1],
-                    result: row[4],
-                    reasoning: row[6] || 'No reasoning provided',
-                    status: 'completed' as const,
-                }))
-
-                actions.loadEvaluationRunsSuccess(runs)
-            } catch (error) {
-                console.error('Failed to load evaluation runs:', error)
-                actions.loadEvaluationRunsSuccess([])
-            }
-        },
-
-        refreshEvaluationRuns: async () => {
-            // Reload runs data
+        refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
         },
 

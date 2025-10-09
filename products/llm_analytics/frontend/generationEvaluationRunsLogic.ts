@@ -1,8 +1,10 @@
-import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { hogql } from '~/queries/utils'
 
 import { GenerationEvaluationRun } from './components/GenerationEvalRunsTable'
 import type { generationEvaluationRunsLogicType } from './generationEvaluationRunsLogicType'
@@ -17,10 +19,10 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
     key((props) => props.generationEventId),
 
     actions({
-        loadGenerationEvaluationRuns: (generationEventId: string) => ({ generationEventId }),
+        refreshGenerationEvaluationRuns: true,
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         generationEvaluationRuns: [
             [] as GenerationEvaluationRun[],
             {
@@ -31,8 +33,7 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
                     }
 
                     try {
-                        // Query $ai_evaluation events for this generation from ClickHouse
-                        const query = `
+                        const query = hogql`
                             SELECT
                                 uuid,
                                 timestamp,
@@ -44,14 +45,15 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
                             WHERE
                                 event = '$ai_evaluation'
                                 AND team_id = ${currentTeamId}
-                                AND properties.$ai_target_event_id = '${props.generationEventId}'
+                                AND properties.$ai_target_event_id = ${props.generationEventId}
                             ORDER BY timestamp DESC
                             LIMIT 100
                         `
 
-                        const response = await api.query({ kind: 'HogQLQuery', query })
+                        const response = await api.queryHogQL(query, {
+                            ...(values.isForceRefresh && { refresh: 'force_blocking' }),
+                        })
 
-                        // Transform results to GenerationEvaluationRun format
                         const runs: GenerationEvaluationRun[] = (response.results || []).map((row: any) => ({
                             id: row[0],
                             evaluation_id: row[2],
@@ -73,15 +75,23 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
     })),
 
     reducers({
-        generationEventId: [
-            '' as string,
+        isForceRefresh: [
+            false,
             {
-                loadGenerationEvaluationRuns: (_, { generationEventId }) => generationEventId,
+                refreshGenerationEvaluationRuns: () => true,
+                loadGenerationEvaluationRunsSuccess: () => false,
+                loadGenerationEvaluationRunsFailure: () => false,
             },
         ],
     }),
 
-    afterMount(({ actions, props }) => {
-        actions.loadGenerationEvaluationRuns(props.generationEventId)
+    listeners(({ actions }) => ({
+        refreshGenerationEvaluationRuns: () => {
+            actions.loadGenerationEvaluationRuns()
+        },
+    })),
+
+    afterMount(({ actions }) => {
+        actions.loadGenerationEvaluationRuns()
     }),
 ])

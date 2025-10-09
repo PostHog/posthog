@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import MAX_AI_TASK_QUEUE
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
 
@@ -64,7 +64,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "run-evaluation",
                     inputs,
                     id=workflow_id,
-                    task_queue=MAX_AI_TASK_QUEUE,
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
