@@ -114,6 +114,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ValueError, match="UsageMetricsQuery must have either group_key or person_id"):
             UsageMetricsQueryRunner(team=self.team, query=query)
 
+    @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
     def test_person_metric(self):
         metric = GroupUsageMetric.objects.create(
@@ -179,6 +180,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["id"], str(another_metric.id))
         self.assertEqual(results[1]["value"], 5.0)
 
+    @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
     def test_complex_event_filter(self):
         metric = GroupUsageMetric.objects.create(
@@ -274,9 +276,11 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["id"], str(metric.id))
         self.assertEqual(results[0]["value"], 4.0)
 
+    @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
     def test_handles_failed_metric_gracefully(self):
         GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Test metric",
@@ -301,6 +305,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = query_result["results"]
         self.assertEqual(len(results), 0)
 
+    @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
     def test_no_metrics(self):
         for _ in range(3):
@@ -317,11 +322,13 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = query_result["results"]
         self.assertEqual(len(results), 0)
 
+    @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
     def test_group_metric(self):
         group_key = "test_group"
         self._create_group(group_key=group_key, group_type_index=0)
         metric = GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
             team=self.team,
             group_type_index=0,
             name="Test metric",
