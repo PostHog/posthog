@@ -18,8 +18,8 @@ from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 
-# 6 hours to match current client-side caching
-GITHUB_SDK_CACHE_EXPIRY = 6 * 60 * 60
+# 24 hours - sufficient since we only warn after 3+ days outdated
+GITHUB_SDK_CACHE_EXPIRY = 24 * 60 * 60
 # Rate limiting safeguards
 MAX_RETRIES = 3
 INITIAL_BACKOFF = 1  # seconds

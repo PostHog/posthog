@@ -218,7 +218,7 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 
 export function SidePanelSdkDoctor(): JSX.Element {
     const { sdkVersions, recentEventsLoading, featureFlagMisconfiguration } = useValues(sidePanelSdkDoctorLogic)
-    const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
+    const { loadRecentEvents, loadTeamSdkDetections } = useActions(sidePanelSdkDoctorLogic)
 
     // NEW: Group by device context first, then by SDK type
     const groupedVersions = sdkVersions.reduce(
@@ -336,7 +336,10 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     items={[
                         {
                             label: recentEventsLoading ? 'Scanning events...' : 'Scan events',
-                            onClick: () => loadRecentEvents(),
+                            onClick: () => {
+                                loadTeamSdkDetections(true)
+                                loadRecentEvents()
+                            },
                             disabledReason: recentEventsLoading ? 'Scan in progress' : undefined,
                         },
                     ]}

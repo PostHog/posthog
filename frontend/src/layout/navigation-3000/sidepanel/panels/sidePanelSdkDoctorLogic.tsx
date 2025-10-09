@@ -149,6 +149,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     actions({
         loadRecentEvents: true,
         loadLatestSdkVersions: true,
+        loadTeamSdkDetections: (forceRefresh?: boolean) => ({ forceRefresh }),
         updateSdkVersionsMap: (updatedMap: Record<string, SdkVersionInfo>) => ({ updatedMap }),
     }),
 
@@ -200,6 +201,41 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         SdkType,
                         { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
                     >
+                },
+            },
+        ],
+
+        // Fetch team SDK detections from backend (server-side cached)
+        teamSdkDetections: [
+            null as {
+                teamId: number
+                detections: Array<{
+                    type: SdkType
+                    version: string
+                    count: number
+                    lastSeen: string
+                }>
+                cached: boolean
+                queriedAt: string
+            } | null,
+            {
+                loadTeamSdkDetections: async ({ forceRefresh }) => {
+                    console.log('[SDK Doctor] loadTeamSdkDetections called - fetching from backend', { forceRefresh })
+                    try {
+                        const url = forceRefresh ? 'api/detected-sdks/?force_refresh=true' : 'api/detected-sdks/'
+                        const response = await api.get(url)
+                        console.log('[SDK Doctor] Team SDK detections response:', response)
+                        if (IS_DEBUG_MODE) {
+                            console.info(
+                                `[SDK Doctor] Loaded ${response.detections?.length || 0} SDK detections from backend (cached: ${response.cached}, forceRefresh: ${forceRefresh})`
+                            )
+                        }
+                        return response
+                    } catch (error) {
+                        console.error('[SDK Doctor] Error loading team SDK detections:', error)
+                        posthog.captureException(error)
+                        return null
+                    }
                 },
             },
         ],
@@ -469,9 +505,41 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             {} as Record<string, SdkVersionInfo>,
             {
                 loadRecentEvents: (state) => state, // Keep existing state while loading
+                loadTeamSdkDetectionsSuccess: (state, { teamSdkDetections }) => {
+                    if (!teamSdkDetections?.detections) {
+                        return state
+                    }
+
+                    console.log('[SDK Doctor] Processing team SDK detections:', teamSdkDetections.detections.length)
+
+                    const newMap = { ...state }
+
+                    // Process Web SDK from backend data
+                    const webDetections = teamSdkDetections.detections.filter((d) => d.type === 'web')
+                    console.log('[SDK Doctor] Found Web SDK detections:', webDetections.length)
+
+                    webDetections.forEach((detection) => {
+                        const key = `web-${detection.version}`
+                        console.log('[SDK Doctor] Adding Web SDK detection:', key, detection)
+
+                        newMap[key] = {
+                            type: 'web',
+                            version: detection.version,
+                            count: detection.count,
+                            isOutdated: false, // Will be updated by async version check
+                            lastSeenTimestamp: detection.lastSeen,
+                        }
+                    })
+
+                    console.log('[SDK Doctor] Updated sdkVersionsMap with Web SDK detections:', Object.keys(newMap))
+                    return newMap
+                },
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
                     // console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
-                    const sdkVersionsMap: Record<string, SdkVersionInfo> = {}
+
+                    // Start with existing state to preserve Web SDK data from teamSdkDetections
+                    // We'll only process non-Web SDKs from events (Web SDK comes from backend)
+                    const sdkVersionsMap: Record<string, SdkVersionInfo> = { ...state }
 
                     // Use all events from our strategy-based fetch (up to strategy.maxEvents)
                     const limitedEvents = recentEvents.slice(0, 30) // Allow up to 30 events
@@ -525,8 +593,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
 
                             // Filter localhost web SDK events from PostHog's own frontend
-                            if (event.properties?.$lib === 'web' && event.properties?.$host?.includes('localhost')) {
-                                return false
+                            if (event.properties?.$lib === 'web') {
+                                const hasLocalhostHost = event.properties?.$host?.includes('localhost')
+                                const hasLocalhostUrl = event.properties?.$current_url?.includes('localhost:8010')
+                                if (hasLocalhostHost || hasLocalhostUrl) {
+                                    return false
+                                }
                             }
                         }
 
@@ -541,10 +613,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             )
                         }
 
-                        // CRITICAL FIX: If all events were filtered out in dev mode, clear the SDK map
+                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web SDK from backend
                         if (customerEvents.length === 0 && limitedEvents.length > 0) {
-                            console.info('[SDK Doctor] Dev mode: All events filtered - clearing SDK detections')
-                            return {} // Return empty map to clear all detections
+                            console.info('[SDK Doctor] Dev mode: All events filtered - preserving Web SDK from backend')
+                            // Keep existing state which contains Web SDK data from teamSdkDetections
+                            return state
                         }
 
                         // Log details about Python SDK events for debugging
@@ -568,6 +641,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         const libVersion = event.properties?.$lib_version
 
                         if (!lib || !libVersion) {
+                            return
+                        }
+
+                        // Skip Web SDK - it's handled by teamSdkDetections from backend
+                        if (lib === 'web') {
                             return
                         }
 
@@ -810,6 +888,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        loadTeamSdkDetectionsSuccess: async () => {
+            console.log('[SDK Doctor] Team SDK detections loaded, triggering version checks')
+            // Trigger async version checking for Web SDK
+            actions.loadLatestSdkVersions()
+        },
         loadRecentEventsSuccess: async () => {
             // Fetch the latest versions to compare against for outdated version detection
             actions.loadLatestSdkVersions()
@@ -1352,6 +1435,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     })),
 
     afterMount(({ actions }) => {
+        // Load team SDK detections from backend (cached server-side)
+        actions.loadTeamSdkDetections()
         // Load recent events once when the panel is opened
         actions.loadRecentEvents()
     }),

@@ -34,6 +34,7 @@ from posthog.api.github_sdk_versions import github_sdk_versions
 from posthog.api.query import progress
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
+from posthog.api.team_sdk_detections import team_sdk_detections
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -171,6 +172,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     re_path(r"^api/github-sdk-versions/(?P<sdk_type>[^/]+)/?$", github_sdk_versions),
+    path("api/detected-sdks/", team_sdk_detections),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
