@@ -63,7 +63,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             yield b"data: [DONE]\n\n"
         except Exception as e:
             logger.exception(f"Error in LLM stream: {e}")
-            error_data = {"error": {"message": str(e), "type": "internal_error"}}
+            error_data = {"error": {"message": "An internal error has occurred.", "type": "internal_error"}}
             yield f"data: {json.dumps(error_data)}\n\n".encode()
 
     def _create_streaming_response(self, async_generator: AsyncGenerator[bytes, None]) -> StreamingHttpResponse:
