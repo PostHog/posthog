@@ -261,8 +261,21 @@ class TestRunSQLOperations:
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
-    def test_run_sql_with_concurrent_index(self):
-        """Test CREATE INDEX CONCURRENTLY - should need review but not be high risk."""
+    def test_run_sql_with_concurrent_index_with_if_not_exists(self):
+        """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (SAFE)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON users(foo);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
+
+    def test_run_sql_with_concurrent_index_without_if_not_exists(self):
+        """Test CREATE INDEX CONCURRENTLY without IF NOT EXISTS - score 2 (NEEDS_REVIEW)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="CREATE INDEX CONCURRENTLY idx_foo ON users(foo);",
@@ -272,6 +285,164 @@ class TestRunSQLOperations:
 
         assert risk.score == 2
         assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.guidance and "if not exists" in risk.guidance.lower()
+
+    def test_run_sql_with_drop_index_concurrent_with_if_exists(self):
+        """Test DROP INDEX CONCURRENTLY with IF EXISTS - score 1 (SAFE)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP INDEX CONCURRENTLY IF EXISTS idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
+
+    def test_run_sql_with_drop_index_concurrent_without_if_exists(self):
+        """Test DROP INDEX CONCURRENTLY without IF EXISTS - score 2 (NEEDS_REVIEW)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP INDEX CONCURRENTLY idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.guidance and "if exists" in risk.guidance.lower()
+
+    def test_run_sql_with_reindex_concurrent(self):
+        """Test REINDEX CONCURRENTLY - should be safe (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="REINDEX INDEX CONCURRENTLY idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
+
+    def test_run_sql_add_constraint_not_valid(self):
+        """Test ADD CONSTRAINT ... NOT VALID - safe (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ADD CONSTRAINT check_age CHECK (age >= 0) NOT VALID;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "not valid" in risk.reason.lower() or "validates new rows" in risk.reason.lower()
+
+    def test_run_sql_validate_constraint(self):
+        """Test VALIDATE CONSTRAINT - slow but non-blocking (score 2)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users VALIDATE CONSTRAINT check_age;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "validate" in risk.reason.lower()
+
+    def test_run_sql_drop_constraint(self):
+        """Test DROP CONSTRAINT - fast metadata operation (score 1)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users DROP CONSTRAINT check_age;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "fast" in risk.reason.lower() or "metadata" in risk.reason.lower()
+
+    def test_run_sql_drop_constraint_cascade(self):
+        """Test DROP CONSTRAINT CASCADE - may be slow (score 3)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users DROP CONSTRAINT fk_company CASCADE;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 3
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "cascade" in risk.reason.lower()
+
+    def test_run_sql_comment_on(self):
+        """Test COMMENT ON - metadata only (score 0)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="COMMENT ON TABLE users IS 'User accounts';",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+        assert "metadata" in risk.reason.lower()
+
+    def test_run_sql_set_statistics(self):
+        """Test SET STATISTICS - metadata only (score 0)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ALTER COLUMN email SET STATISTICS 1000;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+        assert "metadata" in risk.reason.lower()
+
+    def test_run_sql_create_index_with_if_not_exists(self):
+        """Test CREATE INDEX with IF NOT EXISTS - lower score within NEEDS_REVIEW."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX IF NOT EXISTS idx_foo ON users(email);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Score 2 when IF NOT EXISTS is present
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
+    def test_run_sql_create_index_without_if_not_exists(self):
+        """Test CREATE INDEX missing IF NOT EXISTS - higher score within NEEDS_REVIEW."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX idx_foo ON users(email);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Score 3 when IF NOT EXISTS is missing (still NEEDS_REVIEW, not BLOCKED)
+        assert risk.score == 3
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.guidance is not None and "if not exists" in risk.guidance.lower()
+
+    def test_run_sql_drop_index_with_if_exists(self):
+        """Test DROP INDEX without CONCURRENTLY but with IF EXISTS - still risky but idempotent."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP INDEX IF EXISTS idx_foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # DROP without CONCURRENTLY is dangerous
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
 
 
 class TestRunPythonOperations:
@@ -408,7 +579,24 @@ class TestCombinationRisks:
         assert any("DML" in warning for warning in combination_risks)
 
     def test_runsql_with_ddl_and_other_operations(self):
-        """Warning: RunSQL with DDL mixed with other operations"""
+        """Warning: RunSQL with DDL (non-concurrent) mixed with other operations"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql="ALTER TABLE test_table ADD COLUMN foo text;"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        assert any("BLOCKED" in warning or "DDL" in warning for warning in combination_risks)
+
+    def test_runsql_concurrent_index_no_ddl_warning(self):
+        """CREATE INDEX CONCURRENTLY should NOT trigger DDL isolation warning"""
         mock_migration = MagicMock()
         mock_migration.atomic = True
         mock_migration.operations = [
@@ -421,8 +609,8 @@ class TestCombinationRisks:
         operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
         combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
 
-        assert len(combination_risks) > 0
-        assert any("WARNING" in warning or "DDL" in warning for warning in combination_risks)
+        # Should NOT have DDL isolation warning for safe concurrent operations
+        assert len(combination_risks) == 0 or all("DDL" not in warning for warning in combination_risks)
 
     def test_runsql_alone_no_combination_risk(self):
         """RunSQL alone should not trigger combination warnings"""
@@ -543,3 +731,145 @@ class TestCombinationRisks:
 
         assert len(migration_risk.combination_risks) > 0
         assert any("Multiple index" in warning for warning in migration_risk.combination_risks)
+
+    def test_separate_database_and_state_with_concurrent_index(self):
+        """
+        Test the correct pattern for adding concurrent indexes using SeparateDatabaseAndState.
+
+        This pattern (from PR #39242) should NOT be blocked:
+        - SeparateDatabaseAndState with state_operations containing AddIndex
+        - database_operations containing RunSQL with CREATE INDEX CONCURRENTLY
+        - atomic = False (required for CONCURRENTLY)
+
+        This is the recommended safe pattern for adding indexes without blocking.
+        """
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0872_activitylog_idx"
+        mock_migration.atomic = False  # Required for CONCURRENTLY
+
+        # Create the SeparateDatabaseAndState operation
+        index_mock = MagicMock()
+        index_mock.name = "idx_test"
+
+        state_op = create_mock_operation(migrations.AddIndex, model_name="activitylog", index=index_mock)
+
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_test ON posthog_activitylog (team_id, scope);",
+        )
+
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[state_op], database_operations=[db_op]
+        )
+
+        mock_migration.operations = [separate_op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0872_activitylog_idx.py")
+
+        # This should NOT be blocked - concurrent index creation is safe
+        assert migration_risk.level != RiskLevel.BLOCKED, (
+            f"SeparateDatabaseAndState with CREATE INDEX CONCURRENTLY should not be blocked. "
+            f"Got level: {migration_risk.level}, combination_risks: {migration_risk.combination_risks}"
+        )
+
+        # Should be SAFE or at most NEEDS_REVIEW
+        assert migration_risk.level in (RiskLevel.SAFE, RiskLevel.NEEDS_REVIEW)
+
+        # Should not have DDL isolation combination risk for safe concurrent operations
+        ddl_warnings = [r for r in migration_risk.combination_risks if "DDL" in r and "isolation" in r]
+        assert len(ddl_warnings) == 0, f"Should not warn about DDL isolation for CONCURRENTLY: {ddl_warnings}"
+
+    def test_create_model_with_add_index_safe(self):
+        """AddIndex on newly created table should be filtered out (safe, not shown in PR)"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_create_new_table"
+        mock_migration.atomic = True
+
+        # Non-concurrent index that would normally be score 4
+        index = MagicMock()
+        index.concurrent = False
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
+            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
+
+        # AddIndex on new table should be filtered out (not shown in operations)
+        assert len(migration_risk.operations) == 1  # Only CreateModel
+        assert migration_risk.operations[0].type == "CreateModel"
+        assert migration_risk.level == RiskLevel.SAFE
+        assert len(migration_risk.combination_risks) == 0
+        # Should have info message about skipped operations
+        assert len(migration_risk.info_messages) == 1
+        assert "Skipped operations on newly created tables" in migration_risk.info_messages[0]
+
+    def test_create_model_with_add_constraint_safe(self):
+        """AddConstraint on newly created table should be filtered out (safe, not shown in PR)"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_create_new_table"
+        mock_migration.atomic = True
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
+            create_mock_operation(migrations.AddConstraint, model_name="NewTable"),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
+
+        # AddConstraint on new table should be filtered out (not shown in operations)
+        assert len(migration_risk.operations) == 1  # Only CreateModel
+        assert migration_risk.operations[0].type == "CreateModel"
+        assert migration_risk.level == RiskLevel.SAFE
+        assert len(migration_risk.combination_risks) == 0
+
+    def test_create_model_with_multiple_indexes_no_warning(self):
+        """Multiple indexes on newly created table should be filtered out (no combination warning)"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_create_new_table"
+        mock_migration.atomic = True
+
+        index1 = MagicMock()
+        index1.concurrent = False
+        index2 = MagicMock()
+        index2.concurrent = False
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
+            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index1),
+            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index2),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
+
+        # Both indexes should be filtered out (not shown in operations)
+        assert len(migration_risk.operations) == 1  # Only CreateModel
+        assert migration_risk.operations[0].type == "CreateModel"
+        assert migration_risk.level == RiskLevel.SAFE
+        # Should NOT trigger "multiple indexes" warning
+        assert len(migration_risk.combination_risks) == 0
+
+    def test_add_index_on_existing_table_still_risky(self):
+        """AddIndex on existing table (without CreateModel) should still be risky"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0002_add_index_existing"
+        mock_migration.atomic = True
+
+        index = MagicMock()
+        index.concurrent = False
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.AddIndex, model_name="ExistingTable", index=index),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0002_add_index_existing.py")
+
+        # Index on existing table should still be score 4
+        assert migration_risk.operations[0].score == 4
+        assert migration_risk.level == RiskLevel.BLOCKED

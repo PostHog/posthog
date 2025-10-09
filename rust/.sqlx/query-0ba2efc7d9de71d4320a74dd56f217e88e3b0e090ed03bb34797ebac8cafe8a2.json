@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                o.id, o.is_ai_data_processing_approved\n            FROM posthog_organization o\n                JOIN posthog_team ON o.id = posthog_team.organization_id\n            WHERE posthog_team.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_ai_data_processing_approved",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "0ba2efc7d9de71d4320a74dd56f217e88e3b0e090ed03bb34797ebac8cafe8a2"
+}

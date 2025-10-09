@@ -37,18 +37,12 @@ jobs:
 
     build-storybook:
         name: Build Storybook
-        runs-on: ${{ needs.changes.outputs.frontend == 'true' && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
+        runs-on: depot-ubuntu-24.04-8
         timeout-minutes: 15
         needs: changes
+        if: needs.changes.outputs.frontend == 'true'
         steps:
-            - name: Skip storybook checks
-              if: ${{ needs.changes.outputs.frontend == 'false' }}
-              run: |
-                  echo "Skipping storybook checks - no frontend changes detected"
-                  exit 0
-
             - uses: actions/checkout@v4
-              if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -56,22 +50,18 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
 
             - name: Install dependencies
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Cache webpack build
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/cache@v4
               with:
                   path: common/storybook/node_modules/.cache/
@@ -79,7 +69,6 @@ jobs:
                   restore-keys: ${{ runner.os }}-webpack-storybook-
 
             - name: Build Storybook
-              if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
@@ -87,7 +76,6 @@ jobs:
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Upload Storybook build artifact
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: storybook-build
@@ -100,17 +88,11 @@ jobs:
         timeout-minutes: 15
         needs: changes
         # Don't run on forks
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.frontend == 'true'
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
         steps:
-            - name: Skip storybook checks
-              if: ${{ needs.changes.outputs.frontend == 'false' }}
-              run: |
-                  echo "Skipping storybook checks - no frontend changes detected"
-                  exit 0
             - uses: actions/checkout@v4
-              if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -119,25 +101,21 @@ jobs:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/storybook... install --frozen-lockfile
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
-              if: needs.changes.outputs.frontend == 'true'
               uses: chromaui/action@d7afd50124cf4f337bcd943e7f45cfa85a5e4476 # v12
               id: publish
               env:
@@ -152,6 +130,7 @@ jobs:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
         needs: [changes, build-storybook]
+        if: needs.changes.outputs.frontend == 'true'
         timeout-minutes: 20
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
@@ -337,14 +316,7 @@ jobs:
             webkit-3-commitHash: ${{ steps.commit-hash.outputs.webkit-3-commitHash }}
             webkit-3-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-3-pathsFlapping }}
         steps:
-            - name: Skip storybook checks
-              if: ${{ needs.changes.outputs.frontend == 'false' }}
-              run: |
-                  echo "Skipping storybook checks - no frontend changes detected"
-                  exit 0
-
             - uses: actions/checkout@v4
-              if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -352,23 +324,19 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 22.17.1
                   cache: pnpm
 
             - name: Get pnpm cache directory path
-              if: needs.changes.outputs.frontend == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v4
-              if: needs.changes.outputs.frontend == 'true'
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
@@ -376,22 +344,18 @@ jobs:
                   restore-keys: ${{ runner.os }}-pnpm-regression-
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm install http-server wait-on -g
 
             - name: Download Storybook build artifact
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/download-artifact@v4
               with:
                   name: storybook-build
                   path: common/storybook/dist
 
             - name: Serve Storybook in the background
-              if: needs.changes.outputs.frontend == 'true'
               run: |
                   retries=5
                   max_timeout=30
@@ -435,7 +399,6 @@ jobs:
                   fi
 
             - name: Run @storybook/test-runner (up to 3 attempts)
-              if: needs.changes.outputs.frontend == 'true'
               env:
                   HOME: /root
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
@@ -451,20 +414,19 @@ jobs:
                   done
 
             - name: Archive failure screenshots
-              if: needs.changes.outputs.frontend == 'true' && ${{ failure() }}
+              if: failure()
               uses: actions/upload-artifact@v4
               with:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
             - name: Configure global git diff log
-              if: needs.changes.outputs.frontend == 'true'
               run: git config --global --add safe.directory '*'
 
             - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
-              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   echo $(git diff --name-status frontend/__snapshots__) # Wrapped to ignore exit 1 on empty diff
                   ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
@@ -509,7 +471,7 @@ jobs:
 
             - name: Catch and flag flapping snapshots
               id: flappy-bird
-              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event.pull_request.head.repo.full_name == github.repository
               shell: bash
               run: |
                   PATHS_FLAPPING=()
@@ -528,7 +490,7 @@ jobs:
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
@@ -538,7 +500,7 @@ jobs:
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
             - name: Add commit hash to outputs, including browser name
               id: commit-hash
-              if: needs.changes.outputs.frontend == 'true' && steps.commit.outputs.pushed == 'true'
+              if: steps.commit.outputs.pushed == 'true'
               run: echo "${{ matrix.browser }}-${{ matrix.shard }}-commitHash=${{ steps.commit.outputs.commit_long_sha }}" >> $GITHUB_OUTPUT
 
     visual-regression-summary:
@@ -652,7 +614,7 @@ jobs:
               run: |
                   # The `needs.visual-regression.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.visual-regression.result }}" != "success" ]]; then
+                  if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi

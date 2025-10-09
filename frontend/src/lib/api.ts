@@ -18,6 +18,8 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
     DatabaseSerializedFieldType,
+    EndpointLastExecutionTimesRequest,
+    EndpointRequest,
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
@@ -30,8 +32,6 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
-    NamedQueryLastExecutionTimesRequest,
-    NamedQueryRequest,
     Node,
     NodeKind,
     PersistedFolder,
@@ -57,6 +57,7 @@ import {
     BatchExportRun,
     BatchExportService,
     CohortType,
+    CommentCreationParams,
     CommentType,
     ConversationDetail,
     CoreMemory,
@@ -1279,8 +1280,9 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
+    // # Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('named_query')
+        return this.environmentsDetail(teamId).addPathComponent('endpoints')
     }
 
     public endpointDetail(name: string): ApiRequest {
@@ -1628,16 +1630,16 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<EndpointType>> {
             return await new ApiRequest().endpoint().get()
         },
-        async create(data: NamedQueryRequest): Promise<EndpointType> {
+        async create(data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpoint().create({ data })
         },
         async delete(name: string): Promise<void> {
             return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: NamedQueryRequest): Promise<EndpointType> {
+        async update(name: string, data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpointDetail(name).update({ data })
         },
-        async getLastExecutionTimes(data: NamedQueryLastExecutionTimesRequest): Promise<Record<string, string>> {
+        async getLastExecutionTimes(data: EndpointLastExecutionTimesRequest): Promise<Record<string, string>> {
             if (data.names.length === 0) {
                 return {}
             }
@@ -1965,7 +1967,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType> & { mentions?: number[] },
+            data: Partial<CommentType> & CommentCreationParams,
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1974,7 +1976,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType> & { new_mentions?: number[] },
+            data: Partial<CommentType> & CommentCreationParams,
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
