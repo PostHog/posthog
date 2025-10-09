@@ -98,8 +98,8 @@ def team_sdk_detections(request: Request) -> JsonResponse:
     except Exception as e:
         logger.exception(f"[SDK Doctor] Failed to detect SDKs for team {team_id}")
         capture_exception(e)
-        # Return actual error in response for debugging
-        return JsonResponse({"error": f"Failed to detect SDKs: {str(e)}"}, status=500)
+        # Return generic error in response, log actual error above
+        return JsonResponse({"error": "Failed to detect SDKs. Please try again later."}, status=500)
 
 
 def detect_team_sdks_from_events(team_id: int) -> Optional[list[dict[str, Any]]]:
