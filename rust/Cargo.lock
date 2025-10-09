@@ -2579,10 +2579,11 @@ dependencies = [
  "envconfig",
  "futures",
  "health",
+ "leaky-bucket",
  "metrics",
+ "moka",
  "posthog-rs",
  "reqwest 0.12.15",
- "serde",
  "sqlx",
  "tiktoken-rs",
  "tokio",
@@ -4267,6 +4268,17 @@ name = "lazycell"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
+
+[[package]]
+name = "leaky-bucket"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a396bb213c2d09ed6c5495fd082c991b6ab39c9daf4fff59e6727f85c73e4c5"
+dependencies = [
+ "parking_lot",
+ "pin-project-lite",
+ "tokio",
+]
 
 [[package]]
 name = "leb128"
