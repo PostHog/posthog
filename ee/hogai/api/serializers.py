@@ -52,7 +52,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         Returns:
             Tuple of (messages, has_unsupported_content) where:
             - messages: List of serialized messages (empty list on any error)
-            - has_unsupported_content: True only if we have encoutnered Pydantic validation errors
+            - has_unsupported_content: True only if we have encountered Pydantic validation errors
         """
         if not hasattr(self, "_cache"):
             self._cache: dict[str, tuple[list[dict[str, Any]], bool]] = {}
