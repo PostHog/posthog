@@ -1659,7 +1659,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
-            message=None,
+            message="Hello",
             mode=AssistantMode.ASSISTANT,
             contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
@@ -1715,32 +1715,36 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             responses=[messages.AIMessage(content="Based on the previous analysis, I can provide insights.")]
         )
 
-        # Set up initial state with existing conversation that has a tool call result
-        initial_state = AssistantState(
-            messages=[
-                HumanMessage(content="Analyze trends"),
-                AssistantMessage(
-                    content="Let me analyze",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="tool-1",
-                            name="create_and_query_insight",
-                            args={"query_description": "test"},
-                        )
-                    ],
-                ),
-                AssistantToolCallMessage(
-                    content="Tool execution complete",
-                    tool_call_id="tool-1",
-                ),
-            ]
-        )
-
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
             .compile()
+        )
+
+        # First, set up the conversation with existing messages and tool call result
+        config: RunnableConfig = {"configurable": {"thread_id": self.conversation.id}}
+        await graph.aupdate_state(
+            config,
+            {
+                "messages": [
+                    HumanMessage(content="Analyze trends"),
+                    AssistantMessage(
+                        content="Let me analyze",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="tool-1",
+                                name="create_and_query_insight",
+                                args={"query_description": "test"},
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(
+                        content="Tool execution complete",
+                        tool_call_id="tool-1",
+                    ),
+                ]
+            },
         )
 
         # Continue without a new user message (simulates askMax(null))
@@ -1749,7 +1753,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             conversation=self.conversation,
             is_new_conversation=False,
             message=None,  # This simulates askMax(null)
-            tool_call_partial_state=initial_state,
             mode=AssistantMode.ASSISTANT,
         )
 
