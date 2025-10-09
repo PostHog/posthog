@@ -286,6 +286,7 @@ def report_user_deleted_account(user: User):
         event="user account deleted",
         properties=user.get_analytics_metadata(),
     )
+    posthoganalytics.flush()
 
 
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
