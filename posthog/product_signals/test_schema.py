@@ -147,8 +147,9 @@ class TestProductSignal(BaseTest):
         assert call_kwargs["properties"]["error_count"] == 42
         assert call_kwargs["properties"]["first_seen"] == "2024-01-01T00:00:00Z"
 
+    @patch("posthog.product_signals.schema.capture_exception")
     @patch("posthog.product_signals.schema.capture_internal")
-    def test_create_signal_raises_exception_on_error(self, mock_capture_internal):
+    def test_create_signal_captures_exception_on_error(self, mock_capture_internal, mock_capture_exception):
         mock_capture_internal.side_effect = Exception("Capture failed")
 
         signal = ProductSignal(
@@ -159,20 +160,20 @@ class TestProductSignal(BaseTest):
             distinct_id="team_123",
         )
 
-        with self.assertRaises(ProductSignalException) as context:
-            ProductSignal.create(
-                team_token="test_token",
-                signal=signal,
-                distinct_id="team_123",
-            )
+        ProductSignal.create(
+            team_token="test_token",
+            signal=signal,
+            distinct_id="team_123",
+        )
 
-        exception = context.exception
-        assert exception.signal_type == ProductSignalType.NEW_ISSUE
-        assert exception.severity == ProductSignalSeverity.HIGH
-        assert exception.title == "Test Signal"
-        assert "new_issue" in str(exception)
-        assert "high" in str(exception)
-        assert "Test Signal" in str(exception)
+        mock_capture_exception.assert_called_once()
+        captured_exception = mock_capture_exception.call_args[0][0]
+        assert isinstance(captured_exception, ProductSignalException)
+        assert captured_exception.signal_type == ProductSignalType.NEW_ISSUE
+        assert captured_exception.severity == ProductSignalSeverity.HIGH
+        assert captured_exception.title == "Test Signal"
+        assert captured_exception.cause is not None
+        assert str(captured_exception.cause) == "Capture failed"
 
 
 class TestProductSignalException(BaseTest):

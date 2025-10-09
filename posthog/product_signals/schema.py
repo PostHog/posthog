@@ -6,6 +6,7 @@ from typing import Any, Optional
 import structlog
 
 from posthog.api.capture import capture_internal
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +29,7 @@ class ProductSignalSource(StrEnum):
 
 
 class ProductSignalException(Exception):
-    def __init__(self, signal: "ProductSignal") -> None:
+    def __init__(self, signal: "ProductSignal", cause: Optional[Exception] = None) -> None:
         super().__init__(
             f"ProductSignalException: {signal.signal_type.value} [{signal.severity.value}] - {signal.title}"
         )
@@ -40,6 +41,7 @@ class ProductSignalException(Exception):
         self.distinct_id = signal.distinct_id
         self.metadata = signal.metadata
         self.timestamp = signal.timestamp
+        self.cause = cause
 
 
 @dataclass
@@ -86,4 +88,11 @@ class ProductSignal:
                 process_person_profile=False,
             )
         except Exception as e:
-            raise ProductSignalException(signal) from e
+            exception = ProductSignalException(signal, cause=e)
+            logger.exception(
+                "Failed to capture product signal",
+                signal_type=signal.signal_type.value,
+                severity=signal.severity.value,
+                title=signal.title,
+            )
+            capture_exception(exception)
