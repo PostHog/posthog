@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useActions } from 'kea'
+import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
@@ -50,16 +50,6 @@ export function SelectPropertyGroupModal({
     const [searchTerm, setSearchTerm] = useState('')
     const logic = schemaManagementLogic({ key: 'select-property-group-modal' })
     const { setPropertyGroupModalOpen } = useActions(logic)
-    const { propertyGroups } = useValues(logic)
-    const previousPropertyGroupsLength = useRef(propertyGroups.length)
-
-    // Detect when a new property group is created and notify parent
-    useEffect(() => {
-        if (propertyGroups.length > previousPropertyGroupsLength.current && onPropertyGroupCreated) {
-            onPropertyGroupCreated()
-        }
-        previousPropertyGroupsLength.current = propertyGroups.length
-    }, [propertyGroups.length, onPropertyGroupCreated])
 
     const filteredPropertyGroups = availablePropertyGroups.filter(
         (group) =>
@@ -169,7 +159,7 @@ export function SelectPropertyGroupModal({
                     />
                 </div>
             </LemonModal>
-            <PropertyGroupModal logicKey="select-property-group-modal" />
+            <PropertyGroupModal logicKey="select-property-group-modal" onAfterSave={onPropertyGroupCreated} />
         </>
     )
 }

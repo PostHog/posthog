@@ -6,14 +6,7 @@ from django.conf import settings
 from django.db import migrations, models
 
 import posthog.models.utils
-
-PROPERTY_TYPE_CHOICES = [
-    ("DateTime", "DateTime"),
-    ("String", "String"),
-    ("Numeric", "Numeric"),
-    ("Boolean", "Boolean"),
-    ("Duration", "Duration"),
-]
+import posthog.models.property_definition
 
 
 class Migration(migrations.Migration):
@@ -106,7 +99,7 @@ class Migration(migrations.Migration):
                 (
                     "property_type",
                     models.CharField(
-                        choices=PROPERTY_TYPE_CHOICES,
+                        choices=posthog.models.property_definition.PropertyType.choices,
                         max_length=50,
                     ),
                 ),
@@ -142,7 +135,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", [choice[0] for choice in PROPERTY_TYPE_CHOICES])),
+                check=models.Q(("property_type__in", posthog.models.property_definition.PropertyType.values)),
                 name="property_type_is_valid_schema",
             ),
         ),

@@ -93,6 +93,16 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
         setPropertyGroupModalOpen: (open: boolean) => ({ open }),
         setEditingPropertyGroup: (propertyGroup: SchemaPropertyGroup | null) => ({ propertyGroup }),
         deletePropertyGroup: (id: string) => ({ id }),
+        setModalFormName: (name: string) => ({ name }),
+        setModalFormDescription: (description: string) => ({ description }),
+        setModalFormProperties: (properties: SchemaPropertyGroupProperty[]) => ({ properties }),
+        addModalFormProperty: true,
+        updateModalFormProperty: (index: number, updates: Partial<SchemaPropertyGroupProperty>) => ({
+            index,
+            updates,
+        }),
+        removeModalFormProperty: (index: number) => ({ index }),
+        resetModalForm: true,
     }),
     loaders(({ values }) => ({
         propertyGroups: [
@@ -147,6 +157,47 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 setPropertyGroupModalOpen: (state, { open }) => (open ? state : null),
             },
         ],
+        modalFormName: [
+            '',
+            {
+                setModalFormName: (_, { name }) => name,
+                setEditingPropertyGroup: (_, { propertyGroup }) => propertyGroup?.name || '',
+                resetModalForm: () => '',
+                setPropertyGroupModalOpen: (state, { open }) => (open ? state : ''),
+            },
+        ],
+        modalFormDescription: [
+            '',
+            {
+                setModalFormDescription: (_, { description }) => description,
+                setEditingPropertyGroup: (_, { propertyGroup }) => propertyGroup?.description || '',
+                resetModalForm: () => '',
+                setPropertyGroupModalOpen: (state, { open }) => (open ? state : ''),
+            },
+        ],
+        modalFormProperties: [
+            [] as SchemaPropertyGroupProperty[],
+            {
+                setModalFormProperties: (_, { properties }) => properties,
+                setEditingPropertyGroup: (_, { propertyGroup }) => propertyGroup?.properties || [],
+                addModalFormProperty: (state) => [
+                    ...state,
+                    {
+                        id: `new-${Date.now()}`,
+                        name: '',
+                        property_type: 'String' as PropertyType,
+                        is_required: false,
+                        description: '',
+                        order: state.length,
+                    },
+                ],
+                updateModalFormProperty: (state, { index, updates }) =>
+                    state.map((prop, i) => (i === index ? { ...prop, ...updates } : prop)),
+                removeModalFormProperty: (state, { index }) => state.filter((_, i) => i !== index),
+                resetModalForm: () => [],
+                setPropertyGroupModalOpen: (state, { open }) => (open ? state : []),
+            },
+        ],
     }),
     selectors({
         filteredPropertyGroups: [
@@ -163,6 +214,31 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                         pg.properties.some((prop) => prop.name.toLowerCase().includes(lowerSearchTerm))
                 )
             },
+        ],
+        modalFormValidationIssues: [
+            (s) => [s.modalFormName, s.modalFormProperties],
+            (modalFormName, modalFormProperties): string[] => {
+                const issues: string[] = []
+                if (!modalFormName.trim()) {
+                    issues.push('Property group name is required')
+                }
+                const hasInvalidPropertyNames = modalFormProperties.some((prop) => {
+                    if (!prop.name || !prop.name.trim()) {
+                        return false
+                    }
+                    return !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prop.name.trim())
+                })
+                if (hasInvalidPropertyNames) {
+                    issues.push(
+                        'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
+                    )
+                }
+                return issues
+            },
+        ],
+        canSaveModalForm: [
+            (s) => [s.modalFormValidationIssues],
+            (modalFormValidationIssues): boolean => modalFormValidationIssues.length === 0,
         ],
     }),
     listeners(({ actions }) => ({

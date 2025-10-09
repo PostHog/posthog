@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
@@ -30,26 +29,32 @@ interface PropertyGroupModalProps {
 
 export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModalProps = {}): JSX.Element {
     const logic = schemaManagementLogic({ key: logicKey || 'default' })
-    const { propertyGroupModalOpen, editingPropertyGroup } = useValues(logic)
-    const { setPropertyGroupModalOpen, createPropertyGroup, updatePropertyGroup } = useActions(logic)
-
-    const [groupName, setGroupName] = useState('')
-    const [groupDescription, setGroupDescription] = useState('')
-    const [properties, setProperties] = useState<SchemaPropertyGroupProperty[]>([])
-
-    useEffect(() => {
-        if (propertyGroupModalOpen) {
-            setGroupName(editingPropertyGroup?.name || '')
-            setGroupDescription(editingPropertyGroup?.description || '')
-            setProperties(editingPropertyGroup?.properties || [])
-        }
-    }, [propertyGroupModalOpen, editingPropertyGroup])
+    const {
+        propertyGroupModalOpen,
+        editingPropertyGroup,
+        modalFormName,
+        modalFormDescription,
+        modalFormProperties,
+        canSaveModalForm,
+        modalFormValidationIssues,
+    } = useValues(logic)
+    const {
+        setPropertyGroupModalOpen,
+        createPropertyGroup,
+        updatePropertyGroup,
+        setModalFormName,
+        setModalFormDescription,
+        addModalFormProperty,
+        updateModalFormProperty,
+        removeModalFormProperty,
+        resetModalForm,
+    } = useActions(logic)
 
     const handleSave = async (): Promise<void> => {
         const data = {
-            name: groupName,
-            description: groupDescription,
-            properties: properties.map((p) => ({ ...p, name: p.name.trim() })),
+            name: modalFormName,
+            description: modalFormDescription,
+            properties: modalFormProperties.map((p) => ({ ...p, name: p.name.trim() })),
         }
 
         if (editingPropertyGroup) {
@@ -60,30 +65,16 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
 
         handleClose()
 
-        // Call the callback which may be async
-        // This allows the parent to reload its data with the fresh updates
         await onAfterSave?.()
     }
 
-    const hasInvalidPropertyNames = properties.some((prop) => !isValidPropertyName(prop.name))
-    const canSave = groupName.trim() && !hasInvalidPropertyNames
-
     const getSaveButtonTooltip = (): JSX.Element | undefined => {
-        if (canSave) {
+        if (canSaveModalForm) {
             return undefined
-        }
-        const issues: string[] = []
-        if (!groupName.trim()) {
-            issues.push('Property group name is required')
-        }
-        if (hasInvalidPropertyNames) {
-            issues.push(
-                'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
-            )
         }
         return (
             <>
-                {issues.map((issue, i) => (
+                {modalFormValidationIssues.map((issue, i) => (
                     <div key={i}>{issue}</div>
                 ))}
             </>
@@ -92,31 +83,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
 
     const handleClose = (): void => {
         setPropertyGroupModalOpen(false)
-        setGroupName('')
-        setGroupDescription('')
-        setProperties([])
-    }
-
-    const addProperty = (): void => {
-        setProperties([
-            ...properties,
-            {
-                id: `new-${Date.now()}`,
-                name: '',
-                property_type: 'String',
-                is_required: false,
-                description: '',
-                order: properties.length,
-            },
-        ])
-    }
-
-    const updateProperty = (index: number, updates: Partial<SchemaPropertyGroupProperty>): void => {
-        setProperties(properties.map((prop, i) => (i === index ? { ...prop, ...updates } : prop)))
-    }
-
-    const removeProperty = (index: number): void => {
-        setProperties(properties.filter((_, i) => i !== index))
+        resetModalForm()
     }
 
     const columns: LemonTableColumns<SchemaPropertyGroupProperty> = [
@@ -126,7 +93,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonInput
                     value={property.name}
-                    onChange={(value) => updateProperty(index, { name: value })}
+                    onChange={(value) => updateModalFormProperty(index, { name: value })}
                     placeholder="Property name"
                     status={property.name && !isValidPropertyName(property.name) ? 'danger' : undefined}
                     fullWidth
@@ -140,7 +107,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonSelect
                     value={property.property_type}
-                    onChange={(value) => updateProperty(index, { property_type: value as PropertyType })}
+                    onChange={(value) => updateModalFormProperty(index, { property_type: value as PropertyType })}
                     options={PROPERTY_TYPE_OPTIONS}
                     fullWidth
                 />
@@ -154,11 +121,11 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <div
                     className="flex justify-center items-center cursor-pointer h-full py-2 -my-2"
-                    onClick={() => updateProperty(index, { is_required: !property.is_required })}
+                    onClick={() => updateModalFormProperty(index, { is_required: !property.is_required })}
                 >
                     <LemonCheckbox
                         checked={property.is_required}
-                        onChange={(checked) => updateProperty(index, { is_required: checked })}
+                        onChange={(checked) => updateModalFormProperty(index, { is_required: checked })}
                     />
                 </div>
             ),
@@ -169,7 +136,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonInput
                     value={property.description}
-                    onChange={(value) => updateProperty(index, { description: value })}
+                    onChange={(value) => updateModalFormProperty(index, { description: value })}
                     placeholder="Optional description"
                     fullWidth
                 />
@@ -179,7 +146,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             key: 'actions',
             width: 50,
             render: (_, _property, index) => (
-                <LemonButton icon={<IconTrash />} size="small" onClick={() => removeProperty(index)} />
+                <LemonButton icon={<IconTrash />} size="small" onClick={() => removeModalFormProperty(index)} />
             ),
         },
     ]
@@ -198,7 +165,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                     <LemonButton
                         type="primary"
                         onClick={handleSave}
-                        disabled={!canSave}
+                        disabled={!canSaveModalForm}
                         disabledReason={getSaveButtonTooltip()}
                     >
                         {editingPropertyGroup ? 'Update' : 'Create'}
@@ -210,8 +177,8 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                 <div>
                     <label className="block mb-1 font-semibold">Name</label>
                     <LemonInput
-                        value={groupName}
-                        onChange={setGroupName}
+                        value={modalFormName}
+                        onChange={setModalFormName}
                         placeholder="e.g., Order, Product, User"
                         autoFocus
                     />
@@ -220,8 +187,8 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                 <div>
                     <label className="block mb-1 font-semibold">Description</label>
                     <LemonTextArea
-                        value={groupDescription}
-                        onChange={setGroupDescription}
+                        value={modalFormDescription}
+                        onChange={setModalFormDescription}
                         placeholder="Describe what this property group represents"
                         rows={2}
                     />
@@ -230,13 +197,13 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                 <div className="border-t pt-4">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-base font-semibold mb-0">Properties</h3>
-                        <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={addProperty}>
+                        <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={addModalFormProperty}>
                             Add property
                         </LemonButton>
                     </div>
 
-                    {properties.length > 0 ? (
-                        <LemonTable columns={columns} dataSource={properties} pagination={undefined} />
+                    {modalFormProperties.length > 0 ? (
+                        <LemonTable columns={columns} dataSource={modalFormProperties} pagination={undefined} />
                     ) : (
                         <div className="text-center text-muted py-6">
                             No properties yet. Click "Add property" to get started.
