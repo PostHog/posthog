@@ -4,8 +4,6 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
@@ -37,7 +35,6 @@ class NamedQuery(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     name = models.CharField(
         max_length=128, validators=[validate_query_name], help_text="URL-safe name for the query endpoint"
     )
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     # Use JSONField to store the query, following the same pattern as QueryRequest.query
     # This can store any of the query types: HogQLQuery, TrendsQuery, FunnelsQuery, etc.
@@ -52,7 +49,6 @@ class NamedQuery(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     is_active = models.BooleanField(default=True, help_text="Whether this named query is available via the API")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
