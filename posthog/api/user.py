@@ -444,6 +444,12 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
+    def perform_destroy(self, user: User) -> None:
+        from posthog.event_usage import report_user_deleted_account
+
+        report_user_deleted_account(user)
+        super().perform_destroy(user)
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
