@@ -135,6 +135,8 @@ class TestQueryRunner(BaseTest):
             },
             "products_modifiers": {
                 "marketing_analytics": {
+                    "attribution_mode": "last_touch",
+                    "attribution_window_days": 90,
                     "base_currency": "USD",
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
