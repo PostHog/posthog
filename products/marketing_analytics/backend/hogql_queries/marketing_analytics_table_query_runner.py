@@ -39,6 +39,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+        # Initialize configuration with team-specific settings
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
 
     # Implementation of abstract methods from base class
 
