@@ -39,7 +39,7 @@ pub async fn add_person_properties(
         let m_distinct_id = distinct_id.clone();
         let team_id = event.team_id;
         let fut = async move {
-            let res = Person::from_distinct_id(&m_context.pool, team_id, &m_distinct_id)
+            let res = Person::from_distinct_id(&m_context.persons_pool, team_id, &m_distinct_id)
                 .await
                 .map_err(|e| {
                     tracing::error!("Failed to fetch person {}, {:?}", m_distinct_id, e);
@@ -51,8 +51,12 @@ pub async fn add_person_properties(
                 Err(sqlx::Error::ColumnDecode { .. }) => {
                     // If we failed to decode the person properties, we just put an empty property set on
                     // the event, so e.g. counting exceptions by person still works
-                    Person::from_distinct_id_no_props(&m_context.pool, team_id, &m_distinct_id)
-                        .await
+                    Person::from_distinct_id_no_props(
+                        &m_context.persons_pool,
+                        team_id,
+                        &m_distinct_id,
+                    )
+                    .await
                 }
                 Err(e) => Err(e),
             }

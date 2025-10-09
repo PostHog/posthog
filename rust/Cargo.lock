@@ -1350,6 +1350,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234113d19d0d7d613b40e86fb654acf958910802bcceab913a4f9e7cda03b1a4"
 dependencies = [
  "memchr",
+ "regex-automata 0.4.9",
+ "serde",
 ]
 
 [[package]]
@@ -1852,6 +1854,7 @@ name = "common-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "rdkafka",
  "serde",
  "serde_json",
  "sqlx",
@@ -2464,6 +2467,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedding-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-types",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "posthog-rs",
+ "reqwest 0.12.15",
+ "serde",
+ "sqlx",
+ "tiktoken-rs",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "ena"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2538,30 +2566,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "et-embedding-worker"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.7.5",
- "common-alloc",
- "common-kafka",
- "common-metrics",
- "common-types",
- "envconfig",
- "futures",
- "health",
- "metrics",
- "posthog-rs",
- "reqwest 0.12.15",
- "serde",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "etcetera"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2633,6 +2637,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
+name = "fancy-regex"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "531e46835a22af56d1e3b66f04844bed63158bc094a628bec1d321d9b4c44bf2"
+dependencies = [
+ "bit-set",
+ "regex-automata 0.4.9",
+ "regex-syntax 0.8.5",
+]
+
+[[package]]
 name = "fastrand"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2691,7 +2706,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sqlx",
- "strum",
+ "strum 0.26.3",
  "test-case",
  "thiserror 2.0.16",
  "tokio",
@@ -4065,11 +4080,13 @@ dependencies = [
  "bytesize",
  "chrono",
  "common-alloc",
+ "common-kafka",
  "common-types",
  "dashmap 6.1.0",
  "envconfig",
  "flate2",
  "futures",
+ "futures-util",
  "health",
  "metrics",
  "metrics-exporter-prometheus",
@@ -4084,7 +4101,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serve-metrics",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
  "tempfile",
+ "time",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4268,7 +4288,7 @@ dependencies = [
  "governor",
  "metrics",
  "rand 0.8.5",
- "strum",
+ "strum 0.26.3",
  "tokio",
  "tracing",
 ]
@@ -7268,8 +7288,14 @@ version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.26.4",
 ]
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
 
 [[package]]
 name = "strum_macros"
@@ -7281,6 +7307,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
+ "syn 2.0.89",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
  "syn 2.0.89",
 ]
 
@@ -7746,6 +7784,21 @@ checksum = "3fdd6f064ccff2d6567adcb3873ca630700f00b5ad3f060c25b5dcfd9a4ce152"
 dependencies = [
  "cfg-if",
  "once_cell",
+]
+
+[[package]]
+name = "tiktoken-rs"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25563eeba904d770acf527e8b370fe9a5547bacd20ff84a0b6c3bc41288e5625"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bstr",
+ "fancy-regex",
+ "lazy_static",
+ "regex",
+ "rustc-hash 1.1.0",
 ]
 
 [[package]]

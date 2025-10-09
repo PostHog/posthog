@@ -57,6 +57,7 @@ export enum NotebookNodeType {
     Embed = 'ph-embed',
     Latex = 'ph-latex',
     TaskCreate = 'ph-task-create',
+    LLMTrace = 'ph-llm-trace',
 }
 
 export type NotebookNodeResource = {

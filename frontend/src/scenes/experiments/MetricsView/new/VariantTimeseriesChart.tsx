@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { Chart, ChartConfiguration } from 'lib/Chart'
 
 import { ProcessedChartData } from '../../experimentTimeseriesLogic'
+import { useChartColors } from '../shared/colors'
 
 interface VariantTimeseriesChartProps {
     chartData: ProcessedChartData
@@ -10,6 +11,8 @@ interface VariantTimeseriesChartProps {
 
 export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesChartProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
+    const chartRef = useRef<Chart | null>(null)
+    const colors = useChartColors()
 
     useEffect(() => {
         if (!data) {
@@ -51,7 +54,7 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                             beginAtZero: true,
                             grid: {
                                 display: true,
-                                color: 'rgba(200, 200, 200, 0.3)',
+                                color: colors.EXPOSURES_AXIS_LINES,
                             },
                             ticks: {
                                 count: 6,
@@ -114,11 +117,15 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                 },
             }
 
-            new Chart(ctx, config)
+            chartRef.current = new Chart(ctx, config)
         }, 0)
 
         return () => {
             clearTimeout(timeoutId)
+            if (chartRef.current) {
+                chartRef.current.destroy()
+                chartRef.current = null
+            }
         }
     }, [data])
 
