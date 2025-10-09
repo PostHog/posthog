@@ -33,7 +33,7 @@ SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:
     with timings.measure("for_events"):
         for event in team.revenue_analytics_config.events:
-            yield SourceHandle(type=event.eventName, team=team, event=event)
+            yield SourceHandle(type="events", team=team, event=event)
 
     with timings.measure("for_schema_sources"):
         queryset = (
@@ -49,7 +49,7 @@ def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHa
         for source in queryset:
             if source.revenue_analytics_config_safe.enabled:
                 with timings.measure(f"source.{source.pk}"):
-                    yield SourceHandle(type=source.source_type.lower(), team=team, source=source)
+                    yield SourceHandle(type=source.source_type.lower(), team=team, source=source)  # type: ignore
 
 
 def _query_to_view(
@@ -89,19 +89,20 @@ def build_all_revenue_analytics_views(
 
     views_by_class: defaultdict[type[RevenueAnalyticsBaseView], list[RevenueAnalyticsBaseView]] = defaultdict(list)
     for handle in _iter_source_handles(team, timings):
-        with timings.measure(f"builder.{handle.type}"):
+        identifier = handle.event.eventName if handle.event else handle.source.id if handle.source else None
+        with timings.measure(f"builder.{handle.type}.{identifier}"):
             per_kind = BUILDERS.get(handle.type, {})
             if not per_kind:
                 continue
             for kind, builder in per_kind.items():
-                with timings.measure(f"builder.{handle.type}.{kind}"):
+                with timings.measure(f"builder.{handle.type}.{identifier}.{kind}"):
                     try:
                         built_query = builder(handle)
-                        with timings.measure(f"materialize.{handle.type}.{kind}"):
+                        with timings.measure(f"materialize.{handle.type}.{identifier}.{kind}"):
                             view = _query_to_view(built_query, kind, handle)
                             views_by_class[type(view)].append(view)
                     except Exception as e:
-                        capture_exception(e, {"handle_type": handle.type, "kind": kind})
+                        capture_exception(e, {"handle_type": handle.type, "identifier": identifier, "kind": kind})
 
     views: list[RevenueAnalyticsBaseView] = []
     for ViewClass in views_by_class:
