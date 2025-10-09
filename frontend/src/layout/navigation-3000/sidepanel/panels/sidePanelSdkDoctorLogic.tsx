@@ -622,8 +622,25 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         }
                     })
 
+                    // Process Android SDK from backend data
+                    const androidDetections = teamSdkDetections.detections.filter((d) => d.type === 'android')
+                    console.log('[SDK Doctor] Found Android SDK detections:', androidDetections.length)
+
+                    androidDetections.forEach((detection) => {
+                        const key = `posthog-android-${detection.version}`
+                        console.log('[SDK Doctor] Adding Android SDK detection:', key, detection)
+
+                        newMap[key] = {
+                            type: 'android',
+                            version: detection.version,
+                            count: detection.count,
+                            isOutdated: false, // Will be updated by async version check
+                            lastSeenTimestamp: detection.lastSeen,
+                        }
+                    })
+
                     console.log(
-                        '[SDK Doctor] Updated sdkVersionsMap with Web, Python, Node.js, React Native, Flutter, and iOS SDK detections:',
+                        '[SDK Doctor] Updated sdkVersionsMap with Web, Python, Node.js, React Native, Flutter, iOS, and Android SDK detections:',
                         Object.keys(newMap)
                     )
                     return newMap
@@ -631,8 +648,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
                     // console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
 
-                    // Start with existing state to preserve Web, Python, Node.js, React Native, Flutter, and iOS SDK data from teamSdkDetections
-                    // We'll only process non-Web/Python/Node/React Native/Flutter/iOS SDKs from events (these come from backend)
+                    // Start with existing state to preserve Web, Python, Node.js, React Native, Flutter, iOS, and Android SDK data from teamSdkDetections
+                    // We'll only process non-Web/Python/Node/React Native/Flutter/iOS/Android SDKs from events (these come from backend)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = { ...state }
 
                     // Use all events from our strategy-based fetch (up to strategy.maxEvents)
@@ -707,12 +724,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             )
                         }
 
-                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web, Python, Node.js, React Native, Flutter, and iOS SDKs from backend
+                        // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web, Python, Node.js, React Native, Flutter, iOS, and Android SDKs from backend
                         if (customerEvents.length === 0 && limitedEvents.length > 0) {
                             console.info(
-                                '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, Node.js, React Native, Flutter, and iOS SDKs from backend'
+                                '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, Node.js, React Native, Flutter, iOS, and Android SDKs from backend'
                             )
-                            // Keep existing state which contains Web, Python, Node.js, React Native, Flutter, and iOS SDK data from teamSdkDetections
+                            // Keep existing state which contains Web, Python, Node.js, React Native, Flutter, iOS, and Android SDK data from teamSdkDetections
                             return state
                         }
                     }
@@ -726,14 +743,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             return
                         }
 
-                        // Skip Web, Python, Node.js, React Native, Flutter, and iOS SDKs - they're handled by teamSdkDetections from backend
+                        // Skip Web, Python, Node.js, React Native, Flutter, iOS, and Android SDKs - they're handled by teamSdkDetections from backend
                         if (
                             lib === 'web' ||
                             lib === 'posthog-python' ||
                             lib === 'posthog-node' ||
                             lib === 'posthog-react-native' ||
                             lib === 'posthog-flutter' ||
-                            lib === 'posthog-ios'
+                            lib === 'posthog-ios' ||
+                            lib === 'posthog-android'
                         ) {
                             return
                         }
