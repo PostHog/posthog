@@ -271,7 +271,9 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         ch_user=ClickHouseUser.COHORTS,
                         workload=Workload.OFFLINE,
                     )
-                    # Send heartbeat after database operation to prevent timeout
+
+                # Send heartbeat every 1000 conditions to prevent timeout
+                if idx % 1000 == 0:
                     temporalio.activity.heartbeat()
 
             except Exception as e:
