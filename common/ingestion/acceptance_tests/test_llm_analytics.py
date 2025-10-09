@@ -45,6 +45,14 @@ def assert_parts_order_and_details(response_data, expected_parts):
 class TestLLMAnalytics:
     """Test LLM Analytics capture flow with multipart requests and S3 storage."""
 
+    # ============================================================================
+    # PHASE 1: HTTP ENDPOINT
+    # ============================================================================
+
+    # ----------------------------------------------------------------------------
+    # Scenario 1.1: Basic Routing
+    # ----------------------------------------------------------------------------
+
     def test_basic_ai_generation_event(self, shared_org_project):
         """Test that we can capture an $ai_generation event with blob data via multipart request."""
         logger.info("\n" + "=" * 60)
@@ -219,6 +227,10 @@ class TestLLMAnalytics:
         expected_parts = [("event", len(event_json), "application/json", None)]
         assert_parts_order_and_details(response_data, expected_parts)
 
+    # ----------------------------------------------------------------------------
+    # Scenario 1.1: HTTP Method Validation
+    # ----------------------------------------------------------------------------
+
     def test_ai_endpoint_get_returns_405(self, shared_org_project):
         """Test that GET requests to /i/v0/ai endpoint return 405 Method Not Allowed."""
         client = shared_org_project["client"]
@@ -244,6 +256,10 @@ class TestLLMAnalytics:
 
         response = requests.delete(f"{client.base_url}/i/v0/ai", headers={"Authorization": f"Bearer {project_api_key}"})
         assert response.status_code == 405, f"Expected 405, got {response.status_code}"
+
+    # ----------------------------------------------------------------------------
+    # Scenario 1.1: Authentication Validation
+    # ----------------------------------------------------------------------------
 
     def test_ai_endpoint_no_auth_returns_401(self, function_test_client):
         """Test that requests without authentication return 401 Unauthorized."""
@@ -287,6 +303,10 @@ class TestLLMAnalytics:
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
 
+    # ----------------------------------------------------------------------------
+    # Scenario 1.1: Content Type Validation
+    # ----------------------------------------------------------------------------
+
     def test_ai_endpoint_wrong_content_type_returns_400(self, shared_org_project):
         """Test that non-multipart content type returns 400 Bad Request."""
         client = shared_org_project["client"]
@@ -310,6 +330,10 @@ class TestLLMAnalytics:
 
         response = requests.post(f"{client.base_url}/i/v0/ai", headers={"Authorization": f"Bearer {project_api_key}"})
         assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+
+    # ----------------------------------------------------------------------------
+    # Scenario 1.2: Multipart Parsing
+    # ----------------------------------------------------------------------------
 
     def test_multipart_parsing_with_multiple_blobs(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with multiple blob parts."""
@@ -610,6 +634,10 @@ class TestLLMAnalytics:
         ]
         assert_parts_order_and_details(response_data, expected_parts)
 
+    # ----------------------------------------------------------------------------
+    # Scenario 1.3: Boundary Validation
+    # ----------------------------------------------------------------------------
+
     def test_multipart_malformed_boundary_returns_400(self, shared_org_project):
         """Test Phase 1.3: Malformed multipart boundary returns 400 Bad Request."""
         logger.info("\n" + "=" * 60)
@@ -696,6 +724,10 @@ class TestLLMAnalytics:
 
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 400, f"Expected 400 for corrupted boundary, got {response.status_code}"
+
+    # ----------------------------------------------------------------------------
+    # Scenario 1.4: Event Processing Verification
+    # ----------------------------------------------------------------------------
 
     def test_multipart_event_not_first_returns_400(self, shared_org_project):
         """Test Phase 1.3: Event part not being first returns 400 Bad Request."""
