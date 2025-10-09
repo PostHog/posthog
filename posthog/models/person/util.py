@@ -27,7 +27,6 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
-from posthog.settings.data_stores import DATABASES
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -191,17 +190,11 @@ def create_person_distinct_id(
 
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    print(DATABASES)
-    print(distinct_ids)
-    print(READ_DB_FOR_PERSONS)
-    print(team_id)
-    res = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
         team_id=team_id,
         persondistinctid__team_id=team_id,
         persondistinctid__distinct_id__in=distinct_ids,
     )
-    print(res)
-    return res
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
