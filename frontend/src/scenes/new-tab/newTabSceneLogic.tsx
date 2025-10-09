@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { IconDatabase, IconHogQL, IconPerson } from '@posthog/icons'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -33,6 +34,12 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
+}
+
+interface NewTabCategoryItem {
+    key: NEW_TAB_CATEGORY_ITEMS
+    label: string
+    description?: string
 }
 
 export type SpecialSearchMode = 'persons' | null
@@ -200,32 +207,40 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     }),
     selectors({
         categories: [
-            () => [],
-            (): { key: NEW_TAB_CATEGORY_ITEMS; label: string; description?: string }[] => [
-                { key: 'all', label: 'All', description: 'All items in PostHog' },
-                {
-                    key: 'create-new',
-                    label: 'Create new',
-                    description: 'Create new insights, queries, experiments, etc.',
-                },
-                { key: 'apps', label: 'Apps', description: "All of PostHog's apps, tools, and features" },
-                {
-                    key: 'data-management',
-                    label: 'Data management',
-                    description: 'Manage your data sources and destinations',
-                },
-                { key: 'recents', label: 'Recents', description: 'Project-based recently accessed items' },
-                {
-                    key: 'persons',
-                    label: 'Persons',
-                    description: 'Click to view a persons details on the persons page',
-                },
-            ],
+            (s) => [s.featureFlags],
+            (featureFlags): NewTabCategoryItem[] => {
+                const categories: NewTabCategoryItem[] = [
+                    { key: 'all', label: 'All', description: 'All items in PostHog' },
+                    {
+                        key: 'create-new',
+                        label: 'Create new',
+                        description: 'Create new insights, queries, experiments, etc.',
+                    },
+                    { key: 'apps', label: 'Apps', description: "All of PostHog's apps, tools, and features" },
+                    {
+                        key: 'data-management',
+                        label: 'Data management',
+                        description: 'Manage your data sources and destinations',
+                    },
+                    { key: 'recents', label: 'Recents', description: 'Project-based recently accessed items' },
+                ]
+                if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
+                    categories.push({
+                        key: 'persons',
+                        label: 'Persons',
+                        description: 'Click to view a persons details on the persons page',
+                    })
+                }
+                return categories
+            },
         ],
         specialSearchMode: [
-            (s) => [s.search, s.selectedCategory],
-            (search: string, selectedCategory: NEW_TAB_CATEGORY_ITEMS): SpecialSearchMode => {
-                if (search.startsWith('/person') || selectedCategory === 'persons') {
+            (s) => [s.search, s.selectedCategory, s.featureFlags],
+            (search, selectedCategory, featureFlags): SpecialSearchMode => {
+                if (
+                    featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] &&
+                    (search.startsWith('/person') || selectedCategory === 'persons')
+                ) {
                     return 'persons'
                 }
                 return null
@@ -348,8 +363,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
                 // If in person search mode, ensure persons category always appears
-                if (specialSearchMode === 'persons') {
+                if (newTabSceneData && specialSearchMode === 'persons') {
                     // Always include at least an empty persons category to prevent layout shift
                     if (personSearchItems.length === 0) {
                         return [
@@ -472,14 +489,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
             // Clear previous person search results when search changes
-            actions.loadPersonSearchResultsSuccess([])
+            newTabSceneData && actions.loadPersonSearchResultsSuccess([])
 
             actions.loadRecents()
 
-            // If search starts with /person or /persons, debounce the person search
-            if (values.search.startsWith('/person')) {
+            // Auto-switch to persons category when typing /persons from another category
+            if (newTabSceneData && values.search.startsWith('/persons') && values.selectedCategory !== 'persons') {
+                actions.setSelectedCategory('persons')
+            }
+
+            // If search starts with /persons, debounce the person search
+            if (newTabSceneData && values.search.startsWith('/persons')) {
                 const searchTerm = values.search.replace(/^\/persons?\s*/, '').trim()
+
                 if (searchTerm) {
                     // Debounce person search to avoid hitting server on every keystroke
                     actions.debouncedPersonSearch(searchTerm)
@@ -490,7 +515,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
 
             // If in persons mode and search doesn't start with /person, debounce person search results
-            if (values.selectedCategory === 'persons' && !values.search.startsWith('/person') && values.search.trim()) {
+            if (
+                newTabSceneData &&
+                values.selectedCategory === 'persons' &&
+                !values.search.startsWith('/persons') &&
+                values.search.trim()
+            ) {
                 actions.debouncedPersonSearch(values.search.trim())
             }
         },
@@ -500,14 +530,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.loadPersonSearchResults({ searchTerm })
         },
         setSelectedCategory: ({ category }) => {
-            // When switching to persons tab, auto-add /persons prefix if search is empty
-            if (category === 'persons' && !values.search) {
-                actions.setSearch('/persons ')
-            }
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-            // When switching to persons tab with existing search that doesn't start with /person, trigger person search
-            if (category === 'persons' && values.search && !values.search.startsWith('/person')) {
-                actions.debouncedPersonSearch(values.search.trim())
+            if (newTabSceneData) {
+                // When switching away from persons tab, remove /persons prefix
+                if (category !== 'persons' && values.search.startsWith('/persons')) {
+                    const cleanedSearch = values.search.replace(/^\/persons\s*/, '')
+                    actions.setSearch(cleanedSearch)
+                }
+
+                // When switching to persons tab, add /persons prefix if not already there
+                if (category === 'persons' && !values.search.startsWith('/persons')) {
+                    const currentSearch = values.search.trim()
+                    actions.setSearch(currentSearch ? `/persons ${currentSearch}` : '/persons ')
+                }
             }
         },
     })),

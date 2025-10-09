@@ -8,6 +8,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -84,6 +85,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
+    const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
     // scroll it to view
     useEffect(() => {
@@ -139,14 +141,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     className="px-2 py-1 cursor-pointer"
                                     key={category.key}
                                     onClick={() => {
-                                        if (category.key !== 'persons' && search.startsWith('/persons ')) {
-                                            setSearch(search.replace('/persons ', ''))
-                                        }
-
-                                        if (category.key === 'persons' && !search.startsWith('/persons ')) {
-                                            setSearch(`/persons ${search}`)
-                                        }
-
                                         if (!mobileLayout) {
                                             // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
                                             inputRef.current?.focus()
@@ -156,7 +150,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     }}
                                 >
                                     {category.label}
-                                    {category.key === 'persons' ? '*' : null}
+                                    {newTabSceneData && category.key === 'persons' ? '*' : null}
                                 </TabsPrimitiveTrigger>
                             ))}
                             {source === 'homepage' ? (
@@ -223,7 +217,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 return (
                                     <div
                                         className={cn('mb-8', {
-                                            'col-span-4': selectedCategory !== 'all' || specialSearchMode === 'persons',
+                                            'col-span-4':
+                                                selectedCategory !== 'all' ||
+                                                (newTabSceneData && specialSearchMode === 'persons'),
                                         })}
                                         key={category}
                                     >
@@ -232,14 +228,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                 <h3 className="mb-0 text-lg font-medium text-secondary">
                                                     {getCategoryDisplayName(category)}
                                                 </h3>
-                                                {category === 'persons' && personSearchResults.length > 0 && (
-                                                    <span className="text-xs text-tertiary">
-                                                        Showing first {personSearchResults.length} entries
-                                                    </span>
-                                                )}
-                                                {(category === 'recents' || category === 'persons') && isSearching && (
-                                                    <Spinner size="small" />
-                                                )}
+                                                {newTabSceneData &&
+                                                    category === 'persons' &&
+                                                    personSearchResults.length > 0 && (
+                                                        <span className="text-xs text-tertiary">
+                                                            Showing first {personSearchResults.length} entries
+                                                        </span>
+                                                    )}
+                                                {(category === 'recents' ||
+                                                    (newTabSceneData && category === 'persons')) &&
+                                                    isSearching && <Spinner size="small" />}
                                             </div>
                                             {(() => {
                                                 const categoryInfo = categories.find((c) => c.key === category)
@@ -253,7 +251,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             })()}
                                         </div>
                                         <div className="flex flex-col gap-2">
-                                            {(category === 'recents' || category === 'persons') &&
+                                            {(category === 'recents' || (newTabSceneData && category === 'persons')) &&
                                             typedItems.filter((item) => item.id !== 'persons-placeholder').length ===
                                                 0 ? (
                                                 // Special handling for empty project items and persons
@@ -346,24 +344,26 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                         </ButtonGroupPrimitive>
                                                     ))
                                             )}
-                                            {category === 'persons' && personSearchPagination.hasMore && (
-                                                <ListBox.Item asChild>
-                                                    <ButtonPrimitive
-                                                        variant="panel"
-                                                        onClick={() => {
-                                                            const searchTerm = search.startsWith('/persons ')
-                                                                ? search.replace('/persons ', '')
-                                                                : search
-                                                            newTabLogic.actions.loadMorePersonSearchResults({
-                                                                searchTerm,
-                                                            })
-                                                        }}
-                                                        className="w-full mt-2"
-                                                    >
-                                                        Load more persons
-                                                    </ButtonPrimitive>
-                                                </ListBox.Item>
-                                            )}
+                                            {newTabSceneData &&
+                                                category === 'persons' &&
+                                                personSearchPagination.hasMore && (
+                                                    <ListBox.Item asChild>
+                                                        <ButtonPrimitive
+                                                            variant="panel"
+                                                            onClick={() => {
+                                                                const searchTerm = search.startsWith('/persons ')
+                                                                    ? search.replace('/persons ', '')
+                                                                    : search
+                                                                newTabLogic.actions.loadMorePersonSearchResults({
+                                                                    searchTerm,
+                                                                })
+                                                            }}
+                                                            className="w-full mt-2"
+                                                        >
+                                                            Load more persons
+                                                        </ButtonPrimitive>
+                                                    </ListBox.Item>
+                                                )}
                                         </div>
                                     </div>
                                 )
