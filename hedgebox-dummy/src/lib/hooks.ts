@@ -9,7 +9,6 @@ export const useAuthRedirect = (): void => {
 
     useEffect(() => {
         if (!isLoading && !user) {
-            
             router.push('/login')
         }
     }, [isLoading, user, router])
