@@ -35,7 +35,7 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     flag?: string
 }
 
-export type SpecialSearchMode = 'person' | null
+export type SpecialSearchMode = 'persons' | null
 
 const PAGINATION_LIMIT = 20
 
@@ -226,7 +226,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [s.search, s.selectedCategory],
             (search: string, selectedCategory: NEW_TAB_CATEGORY_ITEMS): SpecialSearchMode => {
                 if (search.startsWith('/person') || selectedCategory === 'persons') {
-                    return 'person'
+                    return 'persons'
                 }
                 return null
             },
@@ -349,7 +349,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 // If in person search mode, ensure persons category always appears
-                if (specialSearchMode === 'person') {
+                if (specialSearchMode === 'persons') {
                     // Always include at least an empty persons category to prevent layout shift
                     if (personSearchItems.length === 0) {
                         return [
@@ -409,7 +409,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 }
 
                 // For special search modes (like person search), skip the normal search filtering
-                if (specialSearchMode === 'person') {
+                if (specialSearchMode === 'persons') {
                     return filtered
                 }
 

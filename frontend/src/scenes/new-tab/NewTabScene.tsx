@@ -223,7 +223,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 return (
                                     <div
                                         className={cn('mb-8', {
-                                            'col-span-4': selectedCategory !== 'all' || specialSearchMode === 'person',
+                                            'col-span-4': selectedCategory !== 'all' || specialSearchMode === 'persons',
                                         })}
                                         key={category}
                                     >
