@@ -133,11 +133,10 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonField name="feature_flag_key" label="Feature flag key">
+            <LemonField.Pure label="Feature flag key" htmlFor="experiment-feature-flag-key">
                 <>
                     <LemonInput
                         id="experiment-feature-flag-key"
-                        className=""
                         placeholder="examples: new-landing-page, betaFeature, ab_test_1"
                         value={experiment.feature_flag_key || ''}
                         onChange={(value) => {
@@ -180,10 +179,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                         your code.
                     </div>
                 </>
-            </LemonField>
+            </LemonField.Pure>
 
-            <LemonField
-                name="feature_flag_variants"
+            <LemonField.Pure
                 label="Variant keys"
                 help="The rollout percentage of experiment variants must add up to 100%"
             >
@@ -275,7 +273,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </LemonButton>
                     )}
                 </div>
-            </LemonField>
+            </LemonField.Pure>
 
             <div>
                 <LemonCheckbox
