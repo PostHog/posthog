@@ -1,3 +1,4 @@
+import aioboto3
 import io
 import json
 import typing
@@ -6,6 +7,7 @@ import datetime as dt
 import contextlib
 import dataclasses
 import collections.abc
+import posixpath
 
 from django.conf import settings
 
@@ -146,11 +148,13 @@ class RedshiftClient(PostgreSQLClient):
     async def amerge_mutable_tables(
         self,
         final_table_name: str,
+        final_table_fields: Fields,
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
         update_key: Fields,
         update_when_matched: Fields = (),
+        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
     ) -> None:
         """Merge two tables in Redshift."""
         if schema:
@@ -205,15 +209,23 @@ class RedshiftClient(PostgreSQLClient):
             delete_extra_conditions=delete_extra_conditions,
         )
 
+        select_stage_table_fields = sql.SQL(
+            ",".join(
+                f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_json else field[0]
+                for field in final_table_fields
+            )
+        )
+
         merge_query = sql.SQL(
             """\
         MERGE INTO {final_table}
-        USING {stage_table} AS stage
+        USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
         ON {merge_condition}
         REMOVE DUPLICATES
         """
         ).format(
             final_table=final_table_identifier,
+            select_stage_table_fields=select_stage_table_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
         )
@@ -226,20 +238,44 @@ class RedshiftClient(PostgreSQLClient):
     async def acopy_from_s3_bucket(
         self,
         table_name: str,
+        parquet_fields: list[str],
         schema_name: str,
         s3_bucket: str,
-        s3_key_prefix: str,
+        manifest_key: str,
+        authorization: IAMRole | Credentials,
     ) -> None:
         table_identifier = sql.Identifier(schema_name, table_name)
-        s3_files = sql.Literal(f"s3://{s3_bucket}/{s3_key_prefix}")
+
+        s3_files = sql.Literal(f"s3://{s3_bucket}/{manifest_key}")
+
+        if isinstance(authorization, Credentials):
+            credentials = sql.SQL(
+                """
+                ACCESS_KEY_ID {access_key_id}
+                SECRET_ACCESS_KEY {secret_access_key}
+                """
+            ).format(
+                access_key_id=sql.Literal(authorization.aws_access_key_id),
+                secret_access_key=sql.Literal(authorization.aws_secret_access_key),
+            )
+
+        else:
+            credentials = sql.SQL("IAM_ROLE {iam_role}").format(iam_role=sql.Literal(authorization))
 
         copy_query = sql.SQL(
             """
-        COPY INTO {table_name}
+        COPY {table_name} ({fields})
         FROM {s3_files}
-        FORMAT PARQUET
+        {credentials}
+        MANIFEST
+        FORMAT AS PARQUET
         """
-        ).format(table_name=table_identifier, s3_files=s3_files)
+        ).format(
+            table_name=table_identifier,
+            fields=sql.SQL(",").join(sql.Identifier(field) for field in parquet_fields),
+            s3_files=s3_files,
+            credentials=credentials,
+        )
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
@@ -721,14 +757,18 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
 
 class TableSchemas(typing.NamedTuple):
     table_schema: Fields
+    stage_table_schema: Fields
     super_columns: collections.abc.Sequence[str]
 
 
 def _get_table_schemas(
-    model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema, properties_data_type: str
+    model: BatchExportModel | BatchExportSchema | None,
+    record_batch_schema: pa.Schema,
+    properties_data_type: str,
+    copy: bool = False,
 ) -> TableSchemas:
     """Return the schemas used for main and stage tables."""
-    known_super_columns = ["properties", "set", "set_once", "person_properties"]
+    known_super_columns = {"properties", "set", "set_once", "person_properties"}
     if properties_data_type != "varchar":
         properties_type = "SUPER"
 
@@ -755,7 +795,15 @@ def _get_table_schemas(
             record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
         )
 
-    return TableSchemas(table_schema, known_super_columns)
+    if copy is True:
+        stage_table_schema: Fields = [
+            (field[0], field[1] if field[0] not in known_super_columns else "VARBYTE(16777216)")
+            for field in table_schema
+        ]
+    else:
+        stage_table_schema = table_schema
+
+    return TableSchemas(table_schema, stage_table_schema, known_super_columns)
 
 
 class RequiredMergeSettings(typing.NamedTuple):
@@ -774,6 +822,7 @@ MergeSettings = RequiredMergeSettings | NotRequiredMergeSettings
 
 def _get_merge_settings(
     model: BatchExportModel | BatchExportSchema | None,
+    copy: bool = False,
 ) -> MergeSettings:
     """Return merge settings for models that require merging."""
     merge_key: Fields
@@ -804,6 +853,14 @@ def _get_merge_settings(
             ("end_timestamp", "TIMESTAMP"),
         ]
         primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
+
+        return RequiredMergeSettings(
+            requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
+        )
+    elif isinstance(model, BatchExportModel) and model.name == "events" and copy is True:
+        merge_key = [("uuid", "TEXT")]
+        update_key = [("timestamp", "TIMESTAMP")]
+        primary_key = [("uuid", "TEXT")]
 
         return RequiredMergeSettings(
             requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
@@ -952,6 +1009,48 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 return result
 
 
+async def upload_manifest_file(
+    bucket: str,
+    region_name: str,
+    aws_access_key_id: str | None,
+    aws_secret_access_key: str | None,
+    files_uploaded: list[str],
+    manifest_key: str,
+):
+    session = aioboto3.Session()
+    async with session.client(
+        "s3",
+        region_name=region_name,
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+    ) as client:
+        entries = []
+
+        async def populate_entry(f: str):
+            nonlocal entries
+
+            response = await client.list_objects_v2(Bucket=bucket, Prefix=f)
+            entries.append(
+                {
+                    "url": f"s3://{bucket}/{f}",
+                    "mandatory": True,
+                    "meta": {"content_length": response["Contents"][0]["Size"]},
+                }
+            )
+
+        async with asyncio.TaskGroup() as tg:
+            for f in files_uploaded:
+                tg.create_task(populate_entry(f))
+
+        manifest = {"entries": entries}
+
+        resp = await client.put_object(
+            Bucket=bucket,
+            Key=manifest_key,
+            Body=json.dumps(manifest),
+        )
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> BatchExportResult:
@@ -1044,6 +1143,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             encryption=None,
             aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
             aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
+            max_file_size_mb=1024,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
@@ -1056,19 +1156,19 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
         )
 
         table_schemas = _get_table_schemas(
-            model=model, record_batch_schema=record_batch_schema, properties_data_type=inputs.table.properties_data_type
+            model=model,
+            record_batch_schema=record_batch_schema,
+            properties_data_type=inputs.table.properties_data_type,
+            copy=True,
         )
 
-        merge_settings = _get_merge_settings(model=model)
+        merge_settings = _get_merge_settings(model=model, copy=True)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
         )
-        stage_table_name = (
-            f"stage_{inputs.table.name}_{data_interval_end_str}_{inputs.batch_export.team_id}"
-            if merge_settings.requires_merge
-            else inputs.table.name
-        )
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table.name}_{data_interval_end_str}_{inputs.batch_export.team_id}_{attempt}"
 
         result = await run_consumer_from_stage(
             queue=queue,
@@ -1076,7 +1176,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             producer_task=producer_task,
             transformer=transformer,
             schema=record_batch_schema,
-            max_file_size_bytes=0,
+            max_file_size_bytes=1024,
             json_columns=json_columns,
         )
 
@@ -1094,32 +1194,62 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
             async with (
                 redshift_client.managed_table(
-                    inputs.table.schema_name, inputs.table.name, table_fields, delete=False, primary_key=primary_key
+                    inputs.table.schema_name,
+                    inputs.table.name,
+                    table_fields,
+                    create=True,
+                    exists_ok=True,
+                    delete=False,
+                    primary_key=primary_key,
                 ) as redshift_table,
                 redshift_client.managed_table(
                     inputs.table.schema_name,
                     stage_table_name,
-                    table_fields,
-                    create=merge_settings.requires_merge,
-                    delete=merge_settings.requires_merge,
+                    table_schemas.stage_table_schema,
+                    create=True,
+                    delete=False,
                     primary_key=primary_key,
                 ) as redshift_stage_table,
             ):
-                await redshift_client.acopy_from_s3_bucket(
-                    table_name=redshift_stage_table if merge_settings.requires_merge else redshift_table,
-                    schema_name=inputs.table.schema_name,
-                    s3_bucket=inputs.copy.s3_bucket.name,
-                    s3_key_prefix=inputs.copy.s3_key_prefix,
+                manifest_key = posixpath.join(
+                    inputs.copy.s3_key_prefix,
+                    f"{inputs.batch_export.data_interval_start}-{inputs.batch_export.data_interval_end}_manifest.json",
                 )
 
-                if merge_settings.requires_merge is True:
-                    await redshift_client.amerge_mutable_tables(
-                        final_table_name=redshift_table,
-                        stage_table_name=redshift_stage_table,
-                        schema=inputs.table.schema_name,
-                        merge_key=merge_settings.merge_key,
-                        update_key=merge_settings.update_key,
-                    )
+                if posixpath.isabs(manifest_key):
+                    manifest_key = posixpath.relpath(manifest_key, "/")
+
+                await upload_manifest_file(
+                    bucket=inputs.copy.s3_bucket.name,
+                    region_name=inputs.copy.s3_bucket.region_name,
+                    aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
+                    files_uploaded=consumer.files_uploaded,
+                    aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
+                    manifest_key=manifest_key,
+                )
+
+                external_logger.info(f"Copying file/s {len(consumer.files_uploaded)} into Redshift")
+
+                await redshift_client.acopy_from_s3_bucket(
+                    table_name=redshift_stage_table,
+                    parquet_fields=[field.name for field in record_batch_schema],
+                    schema_name=inputs.table.schema_name,
+                    s3_bucket=inputs.copy.s3_bucket.name,
+                    manifest_key=manifest_key,
+                    authorization=inputs.copy.authorization,
+                )
+
+                await redshift_client.amerge_mutable_tables(
+                    final_table_name=redshift_table,
+                    final_table_fields=table_fields,
+                    stage_table_name=redshift_stage_table,
+                    schema=inputs.table.schema_name,
+                    merge_key=merge_settings.merge_key,
+                    update_key=merge_settings.update_key,
+                    stage_fields_cast_to_json=json_columns,
+                )
+
+                external_logger.info("Finished copying file/s {len(consumer.files_uploaded)} into Redshift")
 
         return result
 
