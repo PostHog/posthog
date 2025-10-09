@@ -19,11 +19,9 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
 - [General Best Practices](#general-best-practices)
 
----
-
 ## Dropping Tables
 
-**Problem:** `DeleteModel` operations drop tables immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, it's gone.
+**Problem:** `DeleteModel` operations drop tables immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the table no longer exists.
 
 ### Why This Is Dangerous
 
@@ -78,13 +76,12 @@ Deploy this change.
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
-- If you must drop it, create a new migration with `DeleteModel`
+- If you must drop it, use `RunSQL` with raw SQL (see example below)
 - Document why the table is safe to drop
 
 **Important notes:**
 
-- `DeleteModel` operations are irreversible - ensure backups exist
-- `DROP TABLE` takes an `ACCESS EXCLUSIVE` lock (briefly) - schedule during low-traffic windows even with the two-phase approach
+- Drop operations are irreversible - once data is deleted, it's gone and any rollback will fail without the table
 - Use `RunSQL(DROP TABLE IF EXISTS)` for explicit control and idempotency
 
 ### Example
@@ -118,11 +115,9 @@ class Migration(migrations.Migration):
     ]
 ```
 
----
-
 ## Dropping Columns
 
-**Problem:** `RemoveField` operations drop columns immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, it's gone.
+**Problem:** `RemoveField` operations drop columns immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the column no longer exists.
 
 ### Safe Approach
 
@@ -139,8 +134,6 @@ Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
 - `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - schedule during low-traffic windows
 - Consider leaving unused columns indefinitely to avoid data loss risks
 
----
-
 ## Renaming Tables
 
 **Problem:** `RenameModel` operations rename tables immediately. This breaks old code that still references the old table name during deployment.
@@ -148,8 +141,6 @@ Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
 ### Safe Approach: Don't Rename
 
 **Strongly recommended:** Accept the original table name even if it's wrong. Renaming tables in production creates significant complexity and risk for minimal benefit. The table name is an implementation detail that users never see.
-
----
 
 ## Renaming Columns
 
@@ -165,8 +156,6 @@ class MyModel(models.Model):
 ```
 
 This gives you a clean Python API without the risk of renaming the database column.
-
----
 
 ## Adding NOT NULL Columns
 
@@ -263,8 +252,6 @@ class Migration(migrations.Migration):
     ]
 ```
 
----
-
 ## Adding Indexes
 
 **Problem:** Creating indexes without `CONCURRENTLY` locks the table for the entire duration of index creation. On large tables, this can take minutes or hours, blocking all writes.
@@ -321,8 +308,6 @@ class Migration(migrations.Migration):
 - Set `atomic = False` in the migration (required for all CONCURRENTLY operations)
 - Concurrent index creation is slower but doesn't block writes
 - Use `RemoveIndexConcurrently` to drop indexes safely
-
----
 
 ## Adding Constraints
 
@@ -383,8 +368,6 @@ Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUS
 - `VALIDATE CONSTRAINT` takes a `SHARE UPDATE EXCLUSIVE` lock that allows normal reads/writes but blocks DDL operations
 - If validation fails, Django marks the migration as unapplied - clean the offending rows and re-run the validation migration
 - Can fix data issues and retry validation without blocking production
-
----
 
 ## Running Data Migrations
 
@@ -526,8 +509,6 @@ class Migration(migrations.Migration):
 - **Use `.iterator()`:** Avoids loading all rows into memory
 - **Use `.bulk_update()`:** Much faster than individual saves
 
----
-
 ## Using SeparateDatabaseAndState
 
 `SeparateDatabaseAndState` is a powerful Django operation that separates Django's migration state from actual database changes. This is essential for safe multi-phase deployments.
@@ -562,8 +543,6 @@ class Migration(migrations.Migration):
 - Prevents Django state drift when performing staged operations
 - Without this, `makemigrations` may generate incorrect migrations trying to sync the state
 - Allows you to separate "what Django thinks exists" from "what actually exists in the database"
-
----
 
 ## General Best Practices
 
@@ -644,8 +623,7 @@ Before deploying risky migrations:
 - Have a plan to recover from partial completion
 - Consider using `SeparateDatabaseAndState` for complex changes
 - **Important:** With `atomic=False`, migrations may partially apply changes. If a migration fails, Django won't automatically roll back the changes. Always verify schema consistency after failed runs and be prepared to manually fix partial states.
-
----
+- Remember that infra team may roll back deployments at any time for any reason (performance issues, alerts, etc.) - plan for this
 
 ## Getting Help
 
