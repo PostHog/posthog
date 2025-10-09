@@ -8,7 +8,8 @@ from django.conf import settings
 import structlog
 from celery import chain
 from prometheus_client import Histogram
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -53,10 +54,7 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 
 # Temporal metrics for temporal workers
-def get_metric_meter():
-    """Get metric meter for the current context (activity or workflow)."""
-    from temporalio import workflow
-
+def get_metric_meter() -> MetricMeter:
     if activity.in_activity():
         return activity.metric_meter()
     elif workflow.in_workflow():
@@ -65,7 +63,7 @@ def get_metric_meter():
         raise RuntimeError("Not within workflow or activity context")
 
 
-def get_asset_generation_duration_metric(execution_path: str):
+def get_asset_generation_duration_metric(execution_path: str) -> MetricHistogramTimedelta:
     return (
         get_metric_meter()
         .with_additional_attributes({"execution_path": execution_path})
@@ -76,7 +74,7 @@ def get_asset_generation_duration_metric(execution_path: str):
     )
 
 
-def get_asset_generation_timeout_metric(execution_path: str):
+def get_asset_generation_timeout_metric(execution_path: str) -> MetricCounter:
     return (
         get_metric_meter()
         .with_additional_attributes({"execution_path": execution_path})
