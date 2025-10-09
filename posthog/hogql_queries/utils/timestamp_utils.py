@@ -31,6 +31,11 @@ def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode) -> Sel
     return ast.SelectQuery(
         select=[ast.Call(name="min", args=[ast.Field(chain=[node.timestamp_field])])],
         select_from=ast.JoinExpr(table=ast.Field(chain=[node.table_name])),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=[node.timestamp_field]),
+            right=ast.Constant(value=datetime.fromisoformat("1971-01-01T00:00:00Z")),
+        ),
     )
 
 
@@ -43,6 +48,11 @@ def _get_events_earliest_timestamp_query() -> SelectQuery:
     return ast.SelectQuery(
         select=[ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=datetime.fromisoformat("1971-01-01T00:00:00Z")),
+        ),
     )
 
 
