@@ -779,3 +779,97 @@ class TestCombinationRisks:
         # Should not have DDL isolation combination risk for safe concurrent operations
         ddl_warnings = [r for r in migration_risk.combination_risks if "DDL" in r and "isolation" in r]
         assert len(ddl_warnings) == 0, f"Should not warn about DDL isolation for CONCURRENTLY: {ddl_warnings}"
+
+    def test_create_model_with_add_index_safe(self):
+        """AddIndex on newly created table should be filtered out (safe, not shown in PR)"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_create_new_table"
+        mock_migration.atomic = True
+
+        # Non-concurrent index that would normally be score 4
+        index = MagicMock()
+        index.concurrent = False
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
+            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
+
+        # AddIndex on new table should be filtered out (not shown in operations)
+        assert len(migration_risk.operations) == 1  # Only CreateModel
+        assert migration_risk.operations[0].type == "CreateModel"
+        assert migration_risk.level == RiskLevel.SAFE
+        assert len(migration_risk.combination_risks) == 0
+        # Should have info message about skipped operations
+        assert len(migration_risk.info_messages) == 1
+        assert "Skipped operations on newly created tables" in migration_risk.info_messages[0]
+
+    def test_create_model_with_add_constraint_safe(self):
+        """AddConstraint on newly created table should be filtered out (safe, not shown in PR)"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_create_new_table"
+        mock_migration.atomic = True
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
+            create_mock_operation(migrations.AddConstraint, model_name="NewTable"),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
+
+        # AddConstraint on new table should be filtered out (not shown in operations)
+        assert len(migration_risk.operations) == 1  # Only CreateModel
+        assert migration_risk.operations[0].type == "CreateModel"
+        assert migration_risk.level == RiskLevel.SAFE
+        assert len(migration_risk.combination_risks) == 0
+
+    def test_create_model_with_multiple_indexes_no_warning(self):
+        """Multiple indexes on newly created table should be filtered out (no combination warning)"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_create_new_table"
+        mock_migration.atomic = True
+
+        index1 = MagicMock()
+        index1.concurrent = False
+        index2 = MagicMock()
+        index2.concurrent = False
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
+            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index1),
+            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index2),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
+
+        # Both indexes should be filtered out (not shown in operations)
+        assert len(migration_risk.operations) == 1  # Only CreateModel
+        assert migration_risk.operations[0].type == "CreateModel"
+        assert migration_risk.level == RiskLevel.SAFE
+        # Should NOT trigger "multiple indexes" warning
+        assert len(migration_risk.combination_risks) == 0
+
+    def test_add_index_on_existing_table_still_risky(self):
+        """AddIndex on existing table (without CreateModel) should still be risky"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0002_add_index_existing"
+        mock_migration.atomic = True
+
+        index = MagicMock()
+        index.concurrent = False
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.AddIndex, model_name="ExistingTable", index=index),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0002_add_index_existing.py")
+
+        # Index on existing table should still be score 4
+        assert migration_risk.operations[0].score == 4
+        assert migration_risk.level == RiskLevel.BLOCKED

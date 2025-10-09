@@ -15,8 +15,8 @@ fi
 run_persons_migrations() {
     echo "Running persons migrations..."
 
-    PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog}
-    PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5434/$PERSONS_DATABASE_NAME}
+    PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog_persons}
+    PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$PERSONS_DATABASE_NAME}
 
     echo "Performing persons migrations for $PERSONS_DATABASE_URL"
 
