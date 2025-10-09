@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
+use common_types::{ClickHouseEvent, PersonMode};
 
 use rdkafka::types::RDKafkaErrorCode;
+use serde_json::{json, Value};
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
@@ -253,6 +256,63 @@ impl IssueFingerprintOverride {
     }
 }
 
+fn create_product_signal_event(issue: &Issue, timestamp: &DateTime<Utc>) -> ClickHouseEvent {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "$product_signal_type".to_string(),
+        Value::String("new_issue".to_string()),
+    );
+    properties.insert(
+        "$product_signal_severity".to_string(),
+        Value::String("high".to_string()),
+    );
+    let issue_name = issue.name.clone().unwrap_or_else(|| "Untitled Issue".to_string());
+    properties.insert(
+        "$product_signal_title".to_string(),
+        Value::String(format!("New issue: {}", issue_name)),
+    );
+    properties.insert(
+        "$product_signal_source".to_string(),
+        Value::String("error_tracking".to_string()),
+    );
+    if let Some(description) = &issue.description {
+        properties.insert(
+            "$product_signal_description".to_string(),
+            Value::String(description.clone()),
+        );
+    }
+    properties.insert("issue_id".to_string(), json!(issue.id));
+
+    let properties_json = serde_json::to_string(&properties).unwrap_or_else(|_| "{}".to_string());
+    let timestamp_str = timestamp.to_rfc3339();
+    let now_str = Utc::now().to_rfc3339();
+
+    ClickHouseEvent {
+        uuid: Uuid::now_v7(),
+        team_id: issue.team_id,
+        project_id: None,
+        event: "$product_signal".to_string(),
+        distinct_id: "team".to_string(),
+        person_id: None,
+        timestamp: timestamp_str,
+        created_at: now_str,
+        elements_chain: None,
+        person_created_at: None,
+        person_properties: None,
+        group0_properties: None,
+        group1_properties: None,
+        group2_properties: None,
+        group3_properties: None,
+        group4_properties: None,
+        group0_created_at: None,
+        group1_created_at: None,
+        group2_created_at: None,
+        group3_created_at: None,
+        group4_created_at: None,
+        person_mode: PersonMode::Propertyless,
+    }
+}
+
 pub async fn resolve_issue(
     context: Arc<AppContext>,
     team_id: i32,
@@ -348,6 +408,7 @@ pub async fn resolve_issue(
         }
         send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
             .await?;
+        send_product_signal(&context, &issue, &event_timestamp).await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     };
@@ -409,6 +470,28 @@ async fn send_new_fingerprint_event(
     .await
     .into_iter()
     .collect::<Result<Vec<_>, _>>();
+    if let Err(err) = res {
+        return Err(UnhandledError::KafkaProduceError(err));
+    }
+    Ok(())
+}
+
+async fn send_product_signal(
+    context: &AppContext,
+    issue: &Issue,
+    event_timestamp: &DateTime<Utc>,
+) -> Result<(), UnhandledError> {
+    let product_signal_event = create_product_signal_event(issue, event_timestamp);
+
+    let res = send_iter_to_kafka(
+        &context.immediate_producer,
+        &context.config.events_topic,
+        &[product_signal_event],
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>();
+
     if let Err(err) = res {
         return Err(UnhandledError::KafkaProduceError(err));
     }
@@ -529,6 +612,7 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::{assignment_rules::Assignee, sanitize_string};
 
     #[test]
@@ -542,5 +626,98 @@ mod test {
         let assignee = Assignee::User(1234);
         let stringified_assignee = serde_json::to_string(&assignee).unwrap();
         assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
+    }
+
+    #[test]
+    fn test_create_product_signal_event() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 123,
+            status: IssueStatus::Active,
+            name: Some("TypeError: Cannot read property 'foo'".to_string()),
+            description: Some("Error in production".to_string()),
+            created_at: Utc::now(),
+        };
+
+        let timestamp = Utc::now();
+        let event = create_product_signal_event(&issue, &timestamp);
+
+        assert_eq!(event.event, "$product_signal");
+        assert_eq!(event.team_id, 123);
+        assert_eq!(event.distinct_id, "team");
+
+        let properties: HashMap<String, Value> =
+            serde_json::from_str(&event.properties.unwrap()).unwrap();
+
+        assert_eq!(
+            properties.get("$product_signal_type"),
+            Some(&Value::String("new_issue".to_string()))
+        );
+        assert_eq!(
+            properties.get("$product_signal_severity"),
+            Some(&Value::String("high".to_string()))
+        );
+        assert_eq!(
+            properties.get("$product_signal_title"),
+            Some(&Value::String(
+                "New issue: TypeError: Cannot read property 'foo'".to_string()
+            ))
+        );
+        assert_eq!(
+            properties.get("$product_signal_source"),
+            Some(&Value::String("error_tracking".to_string()))
+        );
+        assert_eq!(
+            properties.get("$product_signal_description"),
+            Some(&Value::String("Error in production".to_string()))
+        );
+        assert!(properties.contains_key("issue_id"));
+    }
+
+    #[test]
+    fn test_create_product_signal_event_without_description() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 456,
+            status: IssueStatus::Active,
+            name: Some("Test Issue".to_string()),
+            description: None,
+            created_at: Utc::now(),
+        };
+
+        let timestamp = Utc::now();
+        let event = create_product_signal_event(&issue, &timestamp);
+
+        let properties: HashMap<String, Value> =
+            serde_json::from_str(&event.properties.unwrap()).unwrap();
+
+        assert!(!properties.contains_key("$product_signal_description"));
+        assert_eq!(
+            properties.get("$product_signal_title"),
+            Some(&Value::String("New issue: Test Issue".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_create_product_signal_event_without_name() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 789,
+            status: IssueStatus::Active,
+            name: None,
+            description: Some("Some description".to_string()),
+            created_at: Utc::now(),
+        };
+
+        let timestamp = Utc::now();
+        let event = create_product_signal_event(&issue, &timestamp);
+
+        let properties: HashMap<String, Value> =
+            serde_json::from_str(&event.properties.unwrap()).unwrap();
+
+        assert_eq!(
+            properties.get("$product_signal_title"),
+            Some(&Value::String("New issue: Untitled Issue".to_string()))
+        );
     }
 }
