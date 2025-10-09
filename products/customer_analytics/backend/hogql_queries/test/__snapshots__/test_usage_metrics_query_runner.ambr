@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestUsageMetricsQueryRunner.test_complex_event_filter
   '''
-  SELECT '0199ca77-6147-7017-9661-a9848639ce46' AS id,
+  SELECT '0199ca94-c632-7eee-8638-e8aec6e9cb46' AS id,
          'Test metric' AS name,
          'numeric' AS format,
          'number' AS display,
@@ -30,24 +30,24 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_group_metric
   '''
-  SELECT '0199ca77-6320-7c48-9930-f66f3d9b135c' AS id,
+  SELECT '0199ca94-c805-713b-9929-f0f81100ea9f' AS id,
          'Test metric' AS name,
          'numeric' AS format,
          'number' AS display,
          7 AS interval,
          count() AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 19:34:05.984221', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event'))
+  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 20:06:12.427588', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event'))
   LIMIT 100
   UNION ALL
-  SELECT '0199ca77-6321-7828-9ce1-f45301f8c308' AS id,
+  SELECT '0199ca94-c807-7ff8-97c7-0a53eb2fab74' AS id,
          'Another test metric' AS name,
          'currency' AS format,
          'sparkline' AS display,
          30 AS interval,
          count() AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 19:34:05.985787', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event'))
+  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 20:06:12.429802', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -78,7 +78,7 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_metric_interval
   '''
-  SELECT '0199c8e1-b820-7674-a8fe-ade8629526dc' AS id,
+  SELECT '0199c8e1-b820-7004-b8e6-5fd09f517a69' AS id,
          'Test metric' AS name,
          'numeric' AS format,
          'number' AS display,
@@ -123,7 +123,7 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_metric
   '''
-  SELECT '0199ca77-6ce1-7a8b-bbe2-b9e7b115278d' AS id,
+  SELECT '0199ca94-d358-71f5-90c7-5246628a67e5' AS id,
          'Test metric' AS name,
          'numeric' AS format,
          'number' AS display,
@@ -140,7 +140,7 @@
   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event'))
   LIMIT 100
   UNION ALL
-  SELECT '0199ca77-6ce2-7d72-a654-f4ec88b23933' AS id,
+  SELECT '0199ca94-d35c-734d-86fd-c28061149f94' AS id,
          'Another test metric' AS name,
          'currency' AS format,
          'sparkline' AS display,
