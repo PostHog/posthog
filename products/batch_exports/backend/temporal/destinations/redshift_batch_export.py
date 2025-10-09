@@ -1,3 +1,4 @@
+import aioboto3
 import io
 import json
 import typing
@@ -7,6 +8,7 @@ import posixpath
 import contextlib
 import dataclasses
 import collections.abc
+import posixpath
 
 from django.conf import settings
 
@@ -148,6 +150,7 @@ class RedshiftClient(PostgreSQLClient):
     async def amerge_tables(
         self,
         final_table_name: str,
+        final_table_fields: Fields,
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
