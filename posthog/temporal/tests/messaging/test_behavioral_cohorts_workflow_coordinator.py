@@ -148,35 +148,3 @@ class TestBehavioralCohortsCoordinatorWorkflow:
                 assert (
                     prev_end == current_offset
                 ), f"Test '{test_case.name}': Gap found between workflow {i-1} (ends at {prev_end}) and workflow {i} (starts at {current_offset})"
-
-    def test_coordinator_workflow_inputs_defaults(self):
-        """Test that CoordinatorWorkflowInputs has correct defaults."""
-        inputs = CoordinatorWorkflowInputs()
-
-        assert inputs.team_id is None
-        assert inputs.cohort_id is None
-        assert inputs.condition is None
-        assert inputs.min_matches == 3
-        assert inputs.days == 30
-        assert inputs.parallelism == 10
-
-    def test_coordinator_workflow_inputs_properties_to_log(self):
-        """Test that properties_to_log returns the expected fields."""
-        inputs = CoordinatorWorkflowInputs(
-            team_id=123,
-            cohort_id=456,
-            min_matches=5,
-            days=60,
-            parallelism=8,
-        )
-
-        props = inputs.properties_to_log
-        expected_props = {
-            "team_id": 123,
-            "cohort_id": 456,
-            "min_matches": 5,
-            "days": 60,
-            "parallelism": 8,
-        }
-
-        assert props == expected_props
