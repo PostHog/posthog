@@ -32,8 +32,7 @@ jobs:
                         - 'ee/frontend/**'
                         - '.storybook/**'
                         - 'package.json'
-                        # TEMPORARILY REMOVED TO TEST SKIP BEHAVIOR
-                        # - '.github/workflows/ci-storybook.yml'
+                        - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
 
     build-storybook:
