@@ -1,5 +1,5 @@
 [package]
-name = "et-embedding-worker"
+name = "embedding-worker"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -22,8 +22,9 @@ uuid = { workspace = true }
 posthog-rs = { workspace = true }
 futures.workspace = true
 reqwest.workspace = true
-serde.workspace = true
 tiktoken-rs.workspace = true
+leaky-bucket = "1.1.2" # Arguably we should just implement this, but :shrug:
+moka.workspace = true
 
 [dev-dependencies]
 

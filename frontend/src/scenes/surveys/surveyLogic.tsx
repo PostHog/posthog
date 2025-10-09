@@ -1401,6 +1401,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? {
                           activity_scope: ActivityScope.SURVEY,
                           activity_item_id: `${survey.id}`,
+                          access_control_resource: 'survey',
+                          access_control_resource_id: `${survey.id}`,
                       }
                     : null
             },
