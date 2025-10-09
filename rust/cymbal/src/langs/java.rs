@@ -3,16 +3,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::{
-    frames::{Frame},
-    langs::CommonFrameMetadata,
+    frames::Frame,
+    langs::{utils::add_raw_to_junk, CommonFrameMetadata},
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawJavaFrame {
-    pub filename: String,             // The relative path of the file the context line is in
-    pub function: String,             // The name of the function the exception came from
-    pub lineno: Option<u32>,          // The line number of the context line
-    pub module: Option<String>,       // The java-import style module name the function is in
+    pub filename: String,    // The relative path of the file the context line is in
+    pub function: String,    // The name of the function the exception came from
+    pub lineno: Option<u32>, // The line number of the context line
+    pub module: Option<String>, // The java-import style module name the function is in
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
@@ -38,7 +38,7 @@ impl RawJavaFrame {
 
 impl From<&RawJavaFrame> for Frame {
     fn from(raw: &RawJavaFrame) -> Self {
-        Frame {
+        let mut f = Frame {
             raw_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
@@ -52,6 +52,13 @@ impl From<&RawJavaFrame> for Frame {
             junk_drawer: None,
             release: None,
             synthetic: raw.meta.synthetic,
-        }
+            context: None,
+        };
+
+        // Java frames will have a decent amount of processing, we're gonna want this
+        // for debugging
+        add_raw_to_junk(&mut f, raw);
+
+        f
     }
 }
