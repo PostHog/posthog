@@ -1238,6 +1238,11 @@ export interface CompareFilter {
     compare_to?: string
 }
 
+export interface IntegrationFilter {
+    /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+    integrationSourceIds?: string[]
+}
+
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
@@ -3744,6 +3749,8 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
     /** Include conversion goal rows even when they don't match campaign costs table */
     includeAllConversions?: boolean
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -3779,6 +3786,8 @@ export interface MarketingAnalyticsAggregatedQuery
     select?: HogQLExpression[]
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface WebAnalyticsExternalSummaryRequest {

@@ -1644,6 +1644,15 @@ class InsightsThresholdBounds(BaseModel):
     upper: Optional[float] = None
 
 
+class IntegrationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integrationSourceIds: Optional[list[str]] = Field(
+        default=None, description="Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"
+    )
+
+
 class IntegrationKind(StrEnum):
     SLACK = "slack"
     SALESFORCE = "salesforce"
@@ -12137,6 +12146,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     filterTestAccounts: Optional[bool] = None
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration IDs")
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -12168,6 +12178,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Include conversion goal rows even when they don't match campaign costs table"
     )
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration type")
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
     modifiers: Optional[HogQLQueryModifiers] = Field(
