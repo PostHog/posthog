@@ -710,7 +710,7 @@ def get_query_runner(
         )
 
     if kind == "UsageMetricsQuery":
-        from posthog.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
             query=query,
