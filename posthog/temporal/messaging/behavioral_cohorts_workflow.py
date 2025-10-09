@@ -10,7 +10,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
@@ -89,7 +89,7 @@ class ConditionsPageResult:
 
 
 @temporalio.activity.defn
-async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> ConditionsPageResult:
+def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> ConditionsPageResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -173,7 +173,7 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
 
 
 @temporalio.activity.defn
-async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> CohortMembershipResult:
+def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> CohortMembershipResult:
     """Process a batch of conditions to get cohort memberships."""
     logger = LOGGER.bind(batch_number=inputs.batch_number, total_batches=inputs.total_batches)
 
@@ -187,7 +187,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
     if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-    async with Heartbeater():
+    with HeartbeaterSync(logger=logger):
         for idx, condition_data in enumerate(inputs.conditions, 1):
             team_id = condition_data["team_id"]
             cohort_id = condition_data["cohort_id"]
@@ -248,7 +248,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                     GROUP BY team_id, cohort_id, person_id
                 ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
                 WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1, async_insert=1, wait_for_async_insert=1;
+                SETTINGS join_use_nulls = 1;
             """
 
             try:
@@ -271,10 +271,6 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         ch_user=ClickHouseUser.COHORTS,
                         workload=Workload.OFFLINE,
                     )
-
-                # Send heartbeat every 1000 conditions to prevent timeout
-                if idx % 1000 == 0:
-                    temporalio.activity.heartbeat()
 
             except Exception as e:
                 logger.exception(

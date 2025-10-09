@@ -9,8 +9,8 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, js::RawJSFrame,
-        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
+        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
+        js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -41,6 +41,8 @@ pub enum RawFrame {
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
+    #[serde(rename = "java")]
+    Java(RawJavaFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
 }
@@ -60,6 +62,7 @@ impl RawFrame {
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
             RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
+            RawFrame::Java(frame) => (Ok(frame.into()), "java"),
         };
 
         // The raw id of the frame is set after it's resolved
@@ -87,7 +90,7 @@ impl RawFrame {
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) => None,
+            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) | RawFrame::Java(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
@@ -101,6 +104,7 @@ impl RawFrame {
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
+            RawFrame::Java(raw) => raw.frame_id(),
         };
 
         FrameId::new(hash_id, team_id)

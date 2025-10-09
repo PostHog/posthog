@@ -60,8 +60,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterGroup,
                 searchQuery,
                 orderDirection
-            ): DataTableNode =>
-                errorTrackingQuery({
+            ): DataTableNode => {
+                const columns =
+                    orderBy === 'revenue'
+                        ? ['error', 'volume', 'occurrences', 'sessions', 'users', 'revenue']
+                        : ['error', 'volume', 'occurrences', 'sessions', 'users']
+
+                return errorTrackingQuery({
                     orderBy,
                     status,
                     dateRange,
@@ -70,9 +75,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
-                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
+                    columns,
                     orderDirection,
-                }),
+                })
+            },
         ],
         breadcrumbs: [
             () => [],

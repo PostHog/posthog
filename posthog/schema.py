@@ -1067,6 +1067,7 @@ class OrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    REVENUE = "revenue"
 
 
 class OrderDirection(StrEnum):
@@ -1088,6 +1089,20 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
+
+
+class RevenueEntity(StrEnum):
+    PERSON = "person"
+    GROUP_0 = "group_0"
+    GROUP_1 = "group_1"
+    GROUP_2 = "group_2"
+    GROUP_3 = "group_3"
+    GROUP_4 = "group_4"
+
+
+class RevenuePeriod(StrEnum):
+    ALL_TIME = "all_time"
+    LAST_30_DAYS = "last_30_days"
 
 
 class Status4(StrEnum):
@@ -8301,6 +8316,7 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
+    revenue: Optional[float] = None
     status: Status
 
 
@@ -8334,7 +8350,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             ]
         ]
     ] = None
-    orderBy: Optional[OrderBy] = None
+    orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
     removedFilterIndexes: Optional[list[int]] = None
     searchQuery: Optional[str] = None
@@ -12705,9 +12721,11 @@ class ErrorTrackingQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: Optional[OrderBy] = None
+    orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
     response: Optional[ErrorTrackingQueryResponse] = None
+    revenueEntity: Optional[RevenueEntity] = None
+    revenuePeriod: Optional[RevenuePeriod] = None
     searchQuery: Optional[str] = None
     status: Optional[Status2] = None
     tags: Optional[QueryLogTags] = None

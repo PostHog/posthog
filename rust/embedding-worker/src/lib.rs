@@ -129,9 +129,9 @@ fn construct_request(
     );
 
     let req = RequestBuilder::from_parts(client, req)
-        .json(&model.construct_request_body(content))
         .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json");
+        .header("Content-Type", "application/json")
+        .json(&model.construct_request_body(content));
 
     // This expect is fine, because we have total control over everything in the
     // request, except the string of input content, which will serialize correctly.
