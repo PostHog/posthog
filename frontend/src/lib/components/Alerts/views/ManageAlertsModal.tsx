@@ -10,7 +10,7 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertState, InsightThresholdType, NodeKind } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'
@@ -67,6 +67,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     isOpen: boolean
     insightShortId: InsightShortId
+    insightQueryKind: NodeKind
     onClose?: () => void
 }
 
@@ -75,6 +76,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const logic = insightAlertsLogic(props)
 
     const { alerts } = useValues(logic)
+
+    const { insightQueryKind } = props
 
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
@@ -115,7 +118,14 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                <LemonButton type="primary" onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}>
+                <LemonButton
+                    type="primary"
+                    onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
+                    disabledReason={
+                        (insightQueryKind === NodeKind.PathsQuery && `Cannot create an alert for paths query`) ||
+                        (insightQueryKind === NodeKind.RetentionQuery && `Cannot create an alert for retention query`)
+                    }
+                >
                     New alert
                 </LemonButton>
                 <LemonButton type="secondary" onClick={props.onClose}>

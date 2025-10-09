@@ -188,6 +188,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             insightLogicProps={insightLogicProps}
                             insightId={insight.id as number}
                             insightShortId={insight.short_id as InsightShortId}
+                            insightQueryKind={insightQuery.kind}
                         />
                     )}
 
