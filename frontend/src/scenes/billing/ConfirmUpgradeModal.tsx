@@ -91,7 +91,7 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
                 <p>
                     You'll get access to all {product.name} features right away. ${amountDue.toFixed(2)} will be charged
                     now for the remaining period until {billing?.billing_period?.current_period_end?.format('MMM D')},
-                    and ${targetPlan.unit_amount_usd} per {targetPlan.unit} thereafter.
+                    and ${targetPlan.unit_amount_usd} every {targetPlan.unit} thereafter.
                 </p>
                 <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
             </div>
