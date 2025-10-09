@@ -64,7 +64,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
-        setSearchImmediate: (search: string) => ({ search }),
         selectNext: true,
         selectPrevious: true,
         onSubmit: true,
@@ -175,7 +174,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
-                setSearchImmediate: (_, { search }) => search,
             },
         ],
         selectedCategory: [
