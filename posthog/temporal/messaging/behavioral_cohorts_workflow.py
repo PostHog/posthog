@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -6,10 +7,9 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -137,16 +137,25 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
             WHERE {where_clause}
             ORDER BY team_id, cohort_id, condition
             LIMIT {limit} OFFSET {offset}
+            FORMAT JSONEachRow
         """.format(where_clause=where_clause, limit=current_limit, offset=inputs.offset)
 
-        with tags_context(
-            team_id=inputs.team_id,
-            feature=Feature.BEHAVIORAL_COHORTS,
-            cohort_id=inputs.cohort_id,
-            product=Product.MESSAGING,
-            query_type="get_unique_conditions_page",
-        ):
-            results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
+        # Use async client for non-blocking execution
+        async with get_client(team_id=inputs.team_id) as client:
+            # Set query tags for tracking
+            client.params["log_comment"] = json.dumps(
+                {
+                    "team_id": inputs.team_id,
+                    "feature": Feature.BEHAVIORAL_COHORTS.value,
+                    "cohort_id": inputs.cohort_id,
+                    "product": Product.MESSAGING.value,
+                    "query_type": "get_unique_conditions_page",
+                }
+            )
+
+            results = []
+            async for row in client.stream_query_as_jsonl(query, query_parameters=params):
+                results.append((row["team_id"], row["cohort_id"], row["condition"]))
 
         conditions = [
             {
@@ -188,98 +197,103 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
     async with Heartbeater():
-        for idx, condition_data in enumerate(inputs.conditions, 1):
-            team_id = condition_data["team_id"]
-            cohort_id = condition_data["cohort_id"]
-            condition_hash = condition_data["condition"]
+        # Use async client for the entire batch
+        async with get_client() as client:
+            for idx, condition_data in enumerate(inputs.conditions, 1):
+                team_id = condition_data["team_id"]
+                cohort_id = condition_data["cohort_id"]
+                condition_hash = condition_data["condition"]
 
-            # Log progress within the batch
-            if idx % 100 == 0 or idx == len(inputs.conditions):
-                logger.info(
-                    f"Batch {inputs.batch_number}: Processed {idx}/{len(inputs.conditions)} conditions",
-                    batch_number=inputs.batch_number,
-                    progress=idx,
-                    total=len(inputs.conditions),
-                )
+                # Log progress within the batch
+                if idx % 100 == 0 or idx == len(inputs.conditions):
+                    logger.info(
+                        f"Batch {inputs.batch_number}: Processed {idx}/{len(inputs.conditions)} conditions",
+                        batch_number=inputs.batch_number,
+                        progress=idx,
+                        total=len(inputs.conditions),
+                    )
 
-            query = """
-                INSERT INTO cohort_membership_changed (team_id, cohort_id, person_id, last_updated, status)
-                SELECT
-                    COALESCE(bcm.team_id, cmc.team_id) as team_id,
-                    COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
-                    COALESCE(bcm.person_id, cmc.person_id) as person_id,
-                    now64() as last_updated,
-                    CASE
-                        WHEN
-                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
-                            THEN 'member' -- so, new member
-                        WHEN
-                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                            AND cmc.status = 'not_member' -- it left the cohort at some point
-                            AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
-                            THEN 'member' -- so, it re-entered the cohort
-                        WHEN
-                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                            AND cmc.status = 'member' -- it is a member at some point
-                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
-                            THEN 'not_member' -- so, it left the cohort
-                        ELSE
-                            'unchanged' -- for all other cases, the membership did not change
-                    END as status
-                FROM
-                (
-                    SELECT team_id, cohort_id, person_id
-                    FROM behavioral_cohorts_matches
-                    WHERE
-                        team_id = %(team_id)s
-                        AND cohort_id = %(cohort_id)s
-                        AND condition = %(condition)s
-                        AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY team_id, cohort_id, person_id
-                    HAVING sum(matches) >= %(min_matches)s
-                ) bcm
-                FULL OUTER JOIN
-                (
-                    SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
-                    FROM cohort_membership_changed
-                    WHERE
-                        team_id = %(team_id)s
-                        AND cohort_id = %(cohort_id)s
-                    GROUP BY team_id, cohort_id, person_id
-                ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
-                WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1, async_insert=1, wait_for_async_insert=1;
-            """
+                query = """
+                    INSERT INTO cohort_membership_changed (team_id, cohort_id, person_id, last_updated, status)
+                    SELECT
+                        COALESCE(bcm.team_id, cmc.team_id) as team_id,
+                        COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
+                        COALESCE(bcm.person_id, cmc.person_id) as person_id,
+                        now64() as last_updated,
+                        CASE
+                            WHEN
+                                cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
+                                THEN 'member' -- so, new member
+                            WHEN
+                                cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                                AND cmc.status = 'not_member' -- it left the cohort at some point
+                                AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
+                                THEN 'member' -- so, it re-entered the cohort
+                            WHEN
+                                cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                                AND cmc.status = 'member' -- it is a member at some point
+                                AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                                THEN 'not_member' -- so, it left the cohort
+                            ELSE
+                                'unchanged' -- for all other cases, the membership did not change
+                        END as status
+                    FROM
+                    (
+                        SELECT team_id, cohort_id, person_id
+                        FROM behavioral_cohorts_matches
+                        WHERE
+                            team_id = {team_id:UInt64}
+                            AND cohort_id = {cohort_id:UInt64}
+                            AND condition = {condition:String}
+                            AND date >= now() - toIntervalDay({days:UInt32})
+                        GROUP BY team_id, cohort_id, person_id
+                        HAVING sum(matches) >= {min_matches:UInt32}
+                    ) bcm
+                    FULL OUTER JOIN
+                    (
+                        SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
+                        FROM cohort_membership_changed
+                        WHERE
+                            team_id = {team_id:UInt64}
+                            AND cohort_id = {cohort_id:UInt64}
+                        GROUP BY team_id, cohort_id, person_id
+                    ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
+                    WHERE status != 'unchanged'
+                    SETTINGS join_use_nulls = 1, async_insert=1, wait_for_async_insert=1;
+                """
 
-            try:
-                with tags_context(
-                    team_id=team_id,
-                    feature=Feature.BEHAVIORAL_COHORTS,
-                    cohort_id=cohort_id,
-                    product=Product.MESSAGING,
-                    query_type="get_cohort_memberships_batch",
-                ):
-                    sync_execute(
-                        query,
+                try:
+                    # Set query tags for tracking
+                    client.params["log_comment"] = json.dumps(
                         {
+                            "team_id": team_id,
+                            "feature": Feature.BEHAVIORAL_COHORTS.value,
+                            "cohort_id": cohort_id,
+                            "product": Product.MESSAGING.value,
+                            "query_type": "get_cohort_memberships_batch",
+                        }
+                    )
+
+                    # Execute query asynchronously - no blocking!
+                    await client.execute_query(
+                        query,
+                        query_parameters={
                             "team_id": team_id,
                             "cohort_id": cohort_id,
                             "condition": condition_hash,
                             "days": inputs.days,
                             "min_matches": inputs.min_matches,
                         },
-                        ch_user=ClickHouseUser.COHORTS,
-                        workload=Workload.OFFLINE,
                     )
 
-            except Exception as e:
-                logger.exception(
-                    "Error processing condition in batch",
-                    condition=condition_hash[:16] + "...",
-                    error=str(e),
-                    batch_number=inputs.batch_number,
-                )
-                continue
+                except Exception as e:
+                    logger.exception(
+                        "Error processing condition in batch",
+                        condition=condition_hash[:16] + "...",
+                        error=str(e),
+                        batch_number=inputs.batch_number,
+                    )
+                    continue
 
     logger.info(
         f"Batch {inputs.batch_number} completed: processed {len(inputs.conditions)} conditions",
