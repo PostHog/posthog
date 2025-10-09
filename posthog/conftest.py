@@ -73,6 +73,7 @@ def reset_clickhouse_tables():
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
+    from posthog.models.error_tracking.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from posthog.models.error_tracking.sql import (
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
@@ -103,6 +104,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,

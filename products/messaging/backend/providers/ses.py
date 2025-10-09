@@ -20,10 +20,35 @@ class SESProvider:
             region_name=settings.SES_REGION,
             endpoint_url=settings.SES_ENDPOINT if settings.SES_ENDPOINT else None,
         )
+        self.tenant_client = boto3.client(
+            "sesv2",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            endpoint_url=settings.SES_ENDPOINT if settings.SES_ENDPOINT else None,
+        )
 
     def create_email_domain(self, domain: str, team_id: int):
-        # NOTE: For sesv1 creation is done through verification
+        # NOTE: For sesv1, domain Identity creation is done through verification
         self.verify_email_domain(domain, team_id)
+
+        # Create a tenant for the domain if not exists
+        tenant_name = f"team-{team_id}"
+        try:
+            self.tenant_client.create_tenant(TenantName=tenant_name, Tags=[{"Key": "team_id", "Value": str(team_id)}])
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "AlreadyExistsException":
+                raise
+
+        # Associate the new domain identity with the tenant
+        try:
+            self.tenant_client.create_tenant_resource_association(
+                TenantName=tenant_name,
+                ResourceArn=f"arn:aws:ses:{settings.SES_REGION}:{self.tenant_client.get_caller_identity()['Account']}:identity/{domain}",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "AlreadyExistsException":
+                raise
 
     def verify_email_domain(self, domain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name

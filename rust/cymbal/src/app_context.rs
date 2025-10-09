@@ -41,7 +41,8 @@ pub struct AppContext {
     pub kafka_consumer: SingleTopicConsumer,
     pub transactional_producer: Mutex<TransactionalProducer<KafkaContext>>,
     pub immediate_producer: FutureProducer<KafkaContext>,
-    pub pool: PgPool,
+    pub posthog_pool: PgPool,
+    pub persons_pool: PgPool,
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
@@ -82,7 +83,9 @@ impl AppContext {
             create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let pool = options.connect(&config.database_url).await?;
+        let persons_options = options.clone();
+        let posthog_pool = options.connect(&config.database_url).await?;
+        let persons_pool = persons_options.connect(&config.persons_url).await?;
 
         let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
         let s3_client = S3Client::new(s3_client);
@@ -98,12 +101,12 @@ impl AppContext {
         let smp_chunk = ChunkIdFetcher::new(
             smp,
             s3_client.clone(),
-            pool.clone(),
+            posthog_pool.clone(),
             config.object_storage_bucket.clone(),
         );
         let smp_saving = Saving::new(
             smp_chunk,
-            pool.clone(),
+            posthog_pool.clone(),
             s3_client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
@@ -119,7 +122,7 @@ impl AppContext {
         let hmp_chunk = ChunkIdFetcher::new(
             hmp,
             s3_client.clone(),
-            pool.clone(),
+            posthog_pool.clone(),
             config.object_storage_bucket.clone(),
         );
         let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
@@ -170,7 +173,8 @@ impl AppContext {
             kafka_consumer,
             transactional_producer: Mutex::new(transactional_producer),
             immediate_producer,
-            pool,
+            posthog_pool,
+            persons_pool,
             catalog,
             resolver,
             config: config.clone(),
