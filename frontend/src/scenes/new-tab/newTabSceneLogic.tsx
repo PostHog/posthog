@@ -25,7 +25,7 @@ import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb, PersonType } from '~/types'
+import { PersonType } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
@@ -420,10 +420,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
-        filteredItemsList: [
-            (s) => [s.filteredItemsGrid],
-            (filteredItemsGrid): NewTabTreeDataItem[] => filteredItemsGrid,
-        ],
         groupedFilteredItems: [
             (s) => [s.filteredItemsGrid],
             (filteredItemsGrid: NewTabTreeDataItem[]): Record<string, NewTabTreeDataItem[]> => {
@@ -440,25 +436,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         selectedIndex: [
-            (s) => [s.rawSelectedIndex, s.filteredItemsList],
-            (rawSelectedIndex, filteredItemsList): number | null => {
-                if (filteredItemsList.length === 0) {
+            (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
+            (rawSelectedIndex, filteredItemsGrid): number | null => {
+                if (filteredItemsGrid.length === 0) {
                     return null
                 }
                 return (
-                    ((rawSelectedIndex % filteredItemsList.length) + filteredItemsList.length) %
-                    filteredItemsList.length
+                    ((rawSelectedIndex % filteredItemsGrid.length) + filteredItemsGrid.length) %
+                    filteredItemsGrid.length
                 )
             },
         ],
         selectedItem: [
-            (s) => [s.selectedIndex, s.filteredItemsList],
-            (selectedIndex, filteredItemsList): NewTabTreeDataItem | null =>
-                selectedIndex !== null && selectedIndex < filteredItemsList.length
-                    ? filteredItemsList[selectedIndex]
+            (s) => [s.selectedIndex, s.filteredItemsGrid],
+            (selectedIndex, filteredItemsGrid): NewTabTreeDataItem | null =>
+                selectedIndex !== null && selectedIndex < filteredItemsGrid.length
+                    ? filteredItemsGrid[selectedIndex]
                     : null,
         ],
-        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'new-tab', name: 'New tab', iconType: 'blank' }]],
     }),
     listeners(({ actions, values }) => ({
         onSubmit: () => {
