@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -45,6 +46,7 @@ export const BillingProductAddonActions = ({
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
     const { showConfirmUpgradeModal, showConfirmDowngradeModal } = useActions(billingProductLogic({ product: addon }))
+    const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
     const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
@@ -211,7 +213,13 @@ export const BillingProductAddonActions = ({
         return (
             <More
                 overlay={
-                    <LemonButton fullWidth onClick={() => showConfirmDowngradeModal()}>
+                    <LemonButton
+                        fullWidth
+                        onClick={() => {
+                            reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
+                            showConfirmDowngradeModal()
+                        }}
+                    >
                         Downgrade
                     </LemonButton>
                 }
@@ -234,7 +242,13 @@ export const BillingProductAddonActions = ({
                     </h4>
                 )}
 
-                <LemonButton type="primary" onClick={() => showConfirmUpgradeModal()}>
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'upgrade')
+                        showConfirmUpgradeModal()
+                    }}
+                >
                     Upgrade
                 </LemonButton>
             </>
