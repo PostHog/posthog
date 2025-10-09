@@ -11557,6 +11557,9 @@
                 "experiment_id": {
                     "$ref": "#/definitions/integer"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "funnels_query": {
                     "$ref": "#/definitions/FunnelsQuery"
                 },
@@ -12222,6 +12225,9 @@
                 },
                 "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
+                },
+                "fingerprint": {
+                    "type": "string"
                 },
                 "kind": {
                     "const": "ExperimentTrendsQuery",

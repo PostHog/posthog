@@ -13600,6 +13600,7 @@ class ExperimentTrendsQuery(BaseModel):
     count_query: TrendsQuery
     experiment_id: Optional[int] = None
     exposure_query: Optional[TrendsQuery] = None
+    fingerprint: Optional[str] = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -13939,6 +13940,7 @@ class ExperimentFunnelsQuery(BaseModel):
         extra="forbid",
     )
     experiment_id: Optional[int] = None
+    fingerprint: Optional[str] = None
     funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
