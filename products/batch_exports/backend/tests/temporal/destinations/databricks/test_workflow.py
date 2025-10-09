@@ -42,11 +42,13 @@ from products.batch_exports.backend.tests.temporal.destinations.base_destination
     assert_clickhouse_records_in_destination,
 )
 
+# Note: we add _BE to the env vars to avoid conflicts with env vars the Databricks SDK is automatically looking for,
+# which can cause issues.
 REQUIRED_ENV_VARS = (
-    "DATABRICKS_SERVER_HOSTNAME",
-    "DATABRICKS_HTTP_PATH",
-    "DATABRICKS_CLIENT_ID",
-    "DATABRICKS_CLIENT_SECRET",
+    "DATABRICKS_BE_SERVER_HOSTNAME",
+    "DATABRICKS_BE_HTTP_PATH",
+    "DATABRICKS_BE_CLIENT_ID",
+    "DATABRICKS_BE_CLIENT_SECRET",
 )
 
 
@@ -93,7 +95,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
     def get_destination_config(self, team_id: int) -> dict:
         """Provide test configuration for Databricks destination."""
         return {
-            "http_path": os.getenv("DATABRICKS_HTTP_PATH"),
+            "http_path": os.getenv("DATABRICKS_BE_HTTP_PATH"),
             "catalog": os.getenv("DATABRICKS_CATALOG", f"batch_export_tests"),
             # use a hyphen in the schema name to test we handle it correctly
             "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema-{team_id}"),
@@ -107,15 +109,15 @@ class DatabricksDestinationTest(BaseDestinationTest):
         NOTE: we're using machine-to-machine OAuth here:
         https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
         """
-        server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME")
+        server_hostname = os.getenv("DATABRICKS_BE_SERVER_HOSTNAME")
         integration = await Integration.objects.acreate(
             team_id=team_id,
             kind=Integration.IntegrationKind.DATABRICKS,
             integration_id=server_hostname,
             config={"server_hostname": server_hostname},
             sensitive_config={
-                "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
-                "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
+                "client_id": os.getenv("DATABRICKS_BE_CLIENT_ID"),
+                "client_secret": os.getenv("DATABRICKS_BE_CLIENT_SECRET"),
             },
         )
         return integration

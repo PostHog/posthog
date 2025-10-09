@@ -145,15 +145,26 @@ class DatabricksConfig(Config):
 
     I have opened an issue with Databricks to make this timeout configurable:
     https://github.com/databricks/databricks-sdk-py/issues/1046
+
+    Subclassing Config has a few issues however:
+
+    The Databricks SDK's attributes() method has bugs with subclassing:
+    1. It only looks at cls.__dict__, not inherited attributes
+    2. It caches results in _attributes, which subclasses inherit
+
+    We work around this by copying parent ConfigAttribute descriptors into our __dict__.
     """
 
-    # These are required since the Databricks SDK tries to fetch annotations from the Config class, and annotations are
-    # not inherited by base classes
-    host: str = ConfigAttribute(env="DATABRICKS_HOST")  # type: ignore
-    client_id: str = ConfigAttribute(env="DATABRICKS_CLIENT_ID")  # type: ignore
-    client_secret: str = ConfigAttribute(env="DATABRICKS_CLIENT_SECRET")  # type: ignore
-    disable_async_token_refresh: bool = ConfigAttribute(env="DATABRICKS_DISABLE_ASYNC_TOKEN_REFRESH")  # type: ignore
-    auth_type: str = ConfigAttribute(env="DATABRICKS_AUTH_TYPE")  # type: ignore
+    locals().update({k: v for k, v in Config.__dict__.items() if isinstance(v, ConfigAttribute)})
+
+    @classmethod
+    def attributes(cls):
+        if "_attributes" not in cls.__dict__:
+            try:
+                delattr(cls, "_attributes")
+            except AttributeError:
+                pass
+        return super().attributes()
 
     @property
     def oidc_endpoints(self) -> OidcEndpoints | None:
@@ -227,6 +238,8 @@ class DatabricksClient:
                 host=f"https://{self.server_hostname}",
                 client_id=self.client_id,
                 client_secret=self.client_secret,
+                auth_type="oauth-m2m",
+                disable_async_token_refresh=True,
             )
             return oauth_service_principal(config)
 
@@ -441,6 +454,7 @@ class DatabricksClient:
 
     async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
+        self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields
         )
@@ -546,6 +560,9 @@ class DatabricksClient:
         assert update_key, "Update key must be defined"
 
         if with_schema_evolution is True:
+            self.logger.info(
+                "Merging source table '%s' into target table '%s' with schema evolution", source_table, target_table
+            )
             merge_query = self._get_merge_query_with_schema_evolution(
                 target_table=target_table,
                 source_table=source_table,
@@ -556,6 +573,9 @@ class DatabricksClient:
             assert source_table_fields, "source_table_fields must be defined"
             # first we need to get the column names from the target table
             target_table_field_names = await self.aget_table_columns(target_table)
+            self.logger.info(
+                "Merging source table '%s' into target table '%s' without schema evolution", source_table, target_table
+            )
             merge_query = self._get_merge_query_without_schema_evolution(
                 target_table=target_table,
                 source_table=source_table,
