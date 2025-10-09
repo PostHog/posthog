@@ -68,8 +68,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
+        setPersonSearchPagination: (pagination: { count: number; hasMore: boolean; limit: number }) => ({ pagination }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         recents: [
             (() => {
                 if ('sessionStorage' in window) {
@@ -125,11 +126,45 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     if (!searchTerm.trim()) {
                         return []
                     }
-
-                    const response = await api.persons.list({ search: searchTerm.trim() })
+                    const limit = 20
+                    const url = api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${limit}`
+                    const response = await api.get(url)
                     breakpoint()
 
+                    // Store pagination info immediately
+                    setTimeout(() => {
+                        actions.setPersonSearchPagination({
+                            count: response.count,
+                            hasMore: Boolean(response.next),
+                            limit,
+                        })
+                    }, 0)
+
                     return response.results
+                },
+                loadMorePersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    if (!searchTerm.trim()) {
+                        return values.personSearchResults
+                    }
+
+                    const currentResults = values.personSearchResults
+                    const offset = currentResults.length
+
+                    const url =
+                        api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=20&offset=${offset}`
+                    const response = await api.get(url)
+                    breakpoint()
+
+                    // Update pagination info
+                    setTimeout(() => {
+                        actions.setPersonSearchPagination({
+                            count: response.count,
+                            hasMore: Boolean(response.next),
+                            limit: 20,
+                        })
+                    }, 0)
+
+                    return [...currentResults, ...response.results]
                 },
             },
         ],
@@ -145,6 +180,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             'all' as NEW_TAB_CATEGORY_ITEMS,
             {
                 setSelectedCategory: (_, { category }) => category,
+            },
+        ],
+        personSearchPagination: [
+            { count: 0, hasMore: false, limit: 20 } as { count: number; hasMore: boolean; limit: number },
+            {
+                setPersonSearchPagination: (_, { pagination }) => pagination,
             },
         ],
         rawSelectedIndex: [
@@ -174,7 +215,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     description: 'Manage your data sources and destinations',
                 },
                 { key: 'recents', label: 'Recents', description: 'Project-based recently accessed items' },
-                { key: 'persons', label: 'Persons', description: 'Search persons by ID, email, or properties' },
+                {
+                    key: 'persons',
+                    label: 'Persons',
+                    description: 'Click to view a persons details on the persons page',
+                },
             ],
         ],
         specialSearchMode: [

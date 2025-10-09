@@ -73,10 +73,13 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         selectedCategory,
         isSearching,
         specialSearchMode,
+        personSearchPagination,
+        personSearchResults,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
+    const newTabLogic = newTabSceneLogic({ tabId })
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
@@ -225,10 +228,15 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         key={category}
                                     >
                                         <div className="mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <h3 className="mb-0 text-lg font-medium text-muted">
+                                            <div className="flex items-baseline gap-2">
+                                                <h3 className="mb-0 text-lg font-medium text-secondary">
                                                     {getCategoryDisplayName(category)}
                                                 </h3>
+                                                {category === 'persons' && personSearchResults.length > 0 && (
+                                                    <span className="text-xs text-tertiary">
+                                                        Showing first {personSearchResults.length} entries
+                                                    </span>
+                                                )}
                                                 {(category === 'recents' || category === 'persons') && isSearching && (
                                                     <Spinner size="small" />
                                                 )}
@@ -337,6 +345,24 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                             </DropdownMenu>
                                                         </ButtonGroupPrimitive>
                                                     ))
+                                            )}
+                                            {category === 'persons' && personSearchPagination.hasMore && (
+                                                <ListBox.Item asChild>
+                                                    <ButtonPrimitive
+                                                        variant="panel"
+                                                        onClick={() => {
+                                                            const searchTerm = search.startsWith('/persons ')
+                                                                ? search.replace('/persons ', '')
+                                                                : search
+                                                            newTabLogic.actions.loadMorePersonSearchResults({
+                                                                searchTerm,
+                                                            })
+                                                        }}
+                                                        className="w-full mt-2"
+                                                    >
+                                                        Load more persons
+                                                    </ButtonPrimitive>
+                                                </ListBox.Item>
                                             )}
                                         </div>
                                     </div>
