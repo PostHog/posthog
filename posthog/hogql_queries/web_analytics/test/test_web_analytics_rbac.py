@@ -47,7 +47,8 @@ class TestWebAnalyticsRBAC(APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
 
-        self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
 
     def test_validate_query_runner_access_with_manager(self):
         AccessControl.objects.create(team=self.team, resource="web_analytics", access_level="manager")
