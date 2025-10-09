@@ -30,7 +30,7 @@ export function SearchHints({
 }: SearchHintsProps): JSX.Element {
     return (
         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
-            {specialSearchMode === 'person' && search.trim() ? (
+            {specialSearchMode === 'persons' && search.trim() ? (
                 <span>
                     <span className="text-tertiary mr-1">Try searching persons by:</span>
                     <ListBox.Item asChild>
