@@ -76,7 +76,7 @@ Deploy this change.
 
 **Step 3: Wait for safety window**
 
-- Wait at least one full deployment cycle (typically 1-2 weeks)
+- Wait at least one full deployment cycle
 - This ensures no rollback or hotfix can reintroduce code that expects the table
 - Allows all application servers, workers, and background jobs to roll over
 
@@ -136,7 +136,7 @@ Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
 
 1. Remove the field from your Django model
 2. Deploy and verify no code references it (application servers, workers, background jobs)
-3. Wait at least one full deployment cycle (1-2 weeks)
+3. Wait at least one full deployment cycle
 4. Optionally drop the column with `RemoveField` in a later migration
 
 **Important notes:**

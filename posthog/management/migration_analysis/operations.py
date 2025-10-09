@@ -118,8 +118,8 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
             guidance=f"""Multi-phase column drop:
-1. Stop using the column in code
-2. Wait at least one full deployment cycle (1-2 weeks)
+1. Remove field from Django model (keeps column in DB)
+2. Wait at least one full deployment cycle
 3. Optionally drop column with RemoveField
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
@@ -138,7 +138,7 @@ class DeleteModelAnalyzer(OperationAnalyzer):
             details={"model": op.name},
             guidance=f"""Use SeparateDatabaseAndState for multi-phase drops:
 1. Remove model from Django state (state_operations only)
-2. Wait at least one full deployment cycle (1-2 weeks)
+2. Wait at least one full deployment cycle
 3. Optionally drop table with RunSQL
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
