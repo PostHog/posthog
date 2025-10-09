@@ -72,7 +72,7 @@ jobs:
                         - package.json
                         - pnpm-lock.yaml
                         # Make sure we run if someone is explicitly changes the workflow
-                        # - .github/workflows/ci-e2e-playwright.yml
+                        - .github/workflows/ci-e2e-playwright.yml
                         - .github/actions/build-n-cache-image/action.yml
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
