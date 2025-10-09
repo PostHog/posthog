@@ -75,11 +75,19 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
+        if (props.urlId) {
+            return `url_${props.urlId}`
+        }
+
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
 
-        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+        if (props.cohort) {
+            return `cohort_${props.cohort}`
+        }
+
+        return 'scene'
     }),
     path((key) => ['scenes', 'persons', 'personsLogic', key]),
     connect(() => ({
@@ -157,7 +165,7 @@ export const personsLogic = kea<personsLogicType>([
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
                     const response = await hogqlQuery(
-                        hogql`select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id FROM raw_person_distinct_ids as pdi2 WHERE pdi2.person_id = {id} GROUP BY pdi2.distinct_id HAVING ifNull(equals(argMax(pdi2.is_deleted, pdi2.version), 0), 0)) as pdi2 ON pdi2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at`,
+                        hogql`select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT person_id, distinct_id FROM (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id, argMax(pdi2.is_deleted, pdi2.version) AS is_deleted FROM raw_person_distinct_ids as pdi2 GROUP BY pdi2.distinct_id) WHERE person_id = {id} AND ifNull(equals(is_deleted, 0), 0)) as pdi2 ON pdi2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at`,
                         { id: uuid },
                         'blocking'
                     )

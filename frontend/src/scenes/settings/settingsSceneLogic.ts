@@ -98,9 +98,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         },
         selectSetting({ setting }) {
             return [
-                urls.settings(values.selectedSectionId ?? values.selectedLevel, setting),
-                undefined,
-                undefined,
+                urls.settings(values.selectedSectionId ?? values.selectedLevel),
+                router.values.searchParams,
+                { ...router.values.hashParams, setting },
                 { replace: true },
             ]
         },

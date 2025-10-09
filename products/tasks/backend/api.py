@@ -594,6 +594,7 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     serializer_class = AgentDefinitionSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     queryset = None  # No model queryset since we're using hardcoded agents
+    scope_object = "task"
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
     @extend_schema(

@@ -165,7 +165,7 @@ class MatrixManager:
             group_type_index += self.matrix.group_type_index_offset  # Adjust
             bulk_group_type_mappings.append(
                 GroupTypeMapping(
-                    team=data_team,
+                    team_id=data_team.id,
                     project_id=data_team.project_id,
                     group_type_index=group_type_index,
                     group_type=group_type,

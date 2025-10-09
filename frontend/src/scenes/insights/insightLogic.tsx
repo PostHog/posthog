@@ -5,12 +5,12 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -34,6 +34,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import { isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     InsightLogicProps,
     InsightShortId,
@@ -382,7 +383,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.insight],
             (insight) =>
                 insight.user_access_level
-                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    ? accessLevelSatisfied(
+                          AccessControlResourceType.Insight,
+                          insight.user_access_level,
+                          AccessControlLevel.Editor
+                      )
                     : true,
         ],
         insightChanged: [

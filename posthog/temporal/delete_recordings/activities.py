@@ -1,18 +1,13 @@
 import json
+from collections import defaultdict
 from datetime import datetime
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 import pytz
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.schema import RecordingsQuery
-
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
-
-from posthog.models import Team
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (
     RecordingBlock,
@@ -20,17 +15,20 @@ from posthog.session_recordings.session_recording_v2_service import (
     build_block_list,
 )
 from posthog.storage import session_recording_v2_object_storage
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.delete_recordings.metrics import get_block_deleted_counter, get_block_loaded_counter
+from posthog.temporal.delete_recordings.metrics import (
+    get_block_deleted_counter,
+    get_block_deleted_error_counter,
+    get_block_loaded_counter,
+)
 from posthog.temporal.delete_recordings.types import (
-    DeleteRecordingBlocksInput,
     DeleteRecordingError,
     LoadRecordingError,
-    RecordingInput,
+    Recording,
     RecordingsWithPersonInput,
+    RecordingWithBlocks,
 )
 
 LOGGER = get_write_only_logger()
@@ -60,7 +58,7 @@ def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
 
 
 @activity.defn(name="load-recording-blocks")
-async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
+async def load_recording_blocks(input: Recording) -> list[RecordingBlock]:
     async with Heartbeater():
         bind_contextvars(session_id=input.session_id, team_id=input.team_id)
         logger = LOGGER.bind()
@@ -74,11 +72,11 @@ async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
             "ttl_days": 365,
         }
 
+        ch_query_id = str(uuid4())
+        logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
         raw_response: bytes = b""
         async with get_client() as client:
-            async with client.aget_query(
-                query=query, query_parameters=parameters, query_id=str(uuid4())
-            ) as ch_response:
+            async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
                 raw_response = await ch_response.content.read()
 
         block_listing: RecordingBlockListing | None = SessionReplayEvents.build_recording_block_listing(
@@ -93,22 +91,55 @@ async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
         return blocks
 
 
+@activity.defn(name="group-recording-blocks")
+async def group_recording_blocks(input: RecordingWithBlocks) -> list[list[RecordingBlock]]:
+    async with Heartbeater():
+        block_count = len(input.blocks)
+        bind_contextvars(
+            session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=block_count
+        )
+        logger = LOGGER.bind()
+        logger.info("Grouping recording blocks")
+
+        block_map = defaultdict(list)
+
+        for block in input.blocks:
+            scheme, netloc, path, _, _, _ = urlparse(block.url)
+            base_key = urlunparse((scheme, netloc, path, None, None, None))
+            block_map[base_key].append(block)
+
+        block_groups: list[list[RecordingBlock]] = list(block_map.values())
+
+        logger.info(f"Grouped {block_count} blocks into {len(block_groups)} groups")
+        return block_groups
+
+
 @activity.defn(name="delete-recording-blocks")
-async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
+async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
     async with Heartbeater():
         bind_contextvars(
             session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=len(input.blocks)
         )
         logger = LOGGER.bind()
         logger.info("Deleting recording blocks")
+
         async with session_recording_v2_object_storage.async_client() as storage:
-            block_deleted_counter = get_block_deleted_counter()
+            block_deleted_counter = 0
+            block_deleted_error_counter = 0
 
             for block in input.blocks:
-                await storage.delete_block(block.url)
-                block_deleted_counter.add(1)
+                try:
+                    await storage.delete_block(block.url)
+                    logger.info(f"Deleted block at {block.url}")
+                    block_deleted_counter += 1
+                except session_recording_v2_object_storage.BlockDeleteError:
+                    logger.warning(f"Failed to delete block at {block.url}, skipping...")
+                    block_deleted_error_counter += 1
 
-        logger.info(f"Successfully deleted {len(input.blocks)} blocks")
+        get_block_deleted_counter().add(block_deleted_counter)
+        get_block_deleted_error_counter().add(block_deleted_error_counter)
+        logger.info(f"Successfully deleted {block_deleted_counter} blocks")
+        logger.info(f"Skipped {block_deleted_error_counter} blocks")
 
 
 def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
@@ -132,36 +163,21 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
         logger = LOGGER.bind()
         logger.info(f"Loading all sessions for {len(input.distinct_ids)} distinct IDs")
 
-        team = await Team.objects.aget(id=input.team_id)
+        query: str = SessionReplayEvents.get_sessions_from_distinct_id_query(format="JSON")
+        parameters = {
+            "team_id": input.team_id,
+            "distinct_ids": input.distinct_ids,
+            "python_now": datetime.now(pytz.timezone("UTC")),
+            "ttl_days": 365,
+        }
 
-        logger.info("Building ClickHouse query")
-        query = SessionRecordingListFromQuery(
-            team,
-            RecordingsQuery(distinct_ids=input.distinct_ids, date_from=f"-{team.session_recording_retention_period}"),
-        )
-
-        hogql_query = await database_sync_to_async(query.get_query)()
-
-        hogql_context = HogQLContext(
-            team=team,
-            output_format="JSON",
-            enable_select_queries=True,
-        )
-
-        raw_query = await database_sync_to_async(print_ast)(
-            hogql_query,
-            hogql_context,
-            "clickhouse",
-        )
-
-        logger.info("Querying ClickHouse")
+        ch_query_id = str(uuid4())
+        logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
+        raw_response: bytes = b""
         async with get_client() as client:
-            async with client.aget_query(
-                query=raw_query, query_parameters=hogql_context.values, query_id=str(uuid4())
-            ) as ch_response:
+            async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
                 raw_response = await ch_response.content.read()
 
         session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-
         logger.info(f"Successfully loaded {len(session_ids)} session IDs")
         return session_ids

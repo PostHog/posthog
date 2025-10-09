@@ -856,4 +856,71 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
                 self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
 
+        @patch("posthog.tasks.calculate_cohort.chain")
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+        def test_increment_version_and_enqueue_calculate_cohort_with_referencing_cohorts(
+            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+        ) -> None:
+            # Create cohort A (base cohort)
+            cohort_a = Cohort.objects.create(
+                team=self.team,
+                name="Cohort A",
+                filters={
+                    "properties": {"type": "AND", "values": [{"key": "$browser", "value": "Chrome", "type": "person"}]}
+                },
+                is_static=False,
+            )
+
+            # Create cohort B that references A
+            cohort_b = Cohort.objects.create(
+                team=self.team,
+                name="Cohort B (references A)",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "id", "value": cohort_a.id, "type": "cohort"},
+                            {"key": "$os", "value": "Windows", "type": "person"},
+                        ],
+                    }
+                },
+                is_static=False,
+            )
+
+            # Create cohort C that references B
+            cohort_c = Cohort.objects.create(
+                team=self.team,
+                name="Cohort C (references B)",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "id", "value": cohort_b.id, "type": "cohort"},
+                            {"key": "$country", "value": "US", "type": "person"},
+                        ],
+                    }
+                },
+                is_static=False,
+            )
+
+            mock_chain_instance = MagicMock()
+            mock_chain.return_value = mock_chain_instance
+            mock_task = MagicMock()
+            mock_calculate_cohort_ch_si.return_value = mock_task
+
+            # Update cohort A - should trigger recalculation of A, B, then C
+            increment_version_and_enqueue_calculate_cohort(cohort_a, initiating_user=None)
+
+            # Should call calculate_cohort_ch.si for all 3 cohorts (A, B, C)
+            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
+
+            # Verify all cohorts are included
+            actual_calls = mock_calculate_cohort_ch_si.call_args_list
+            actual_cohort_ids = {call[0][0] for call in actual_calls}
+            expected_cohort_ids = {cohort_a.id, cohort_b.id, cohort_c.id}
+            self.assertEqual(actual_cohort_ids, expected_cohort_ids)
+
+            mock_chain.assert_called_once()
+            mock_chain_instance.apply_async.assert_called_once()
+
     return TestCalculateCohort
