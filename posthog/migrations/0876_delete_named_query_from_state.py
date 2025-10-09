@@ -13,6 +13,14 @@ class Migration(migrations.Migration):
             state_operations=[
                 migrations.DeleteModel(name="NamedQuery"),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE posthog_namedquery DROP CONSTRAINT IF EXISTS posthog_namedquery_created_by_id_4fe5251a_fk_posthog_user_id;
+                        ALTER TABLE posthog_namedquery DROP CONSTRAINT IF EXISTS posthog_namedquery_team_id_584054f1_fk_posthog_team_id;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
         ),
     ]
