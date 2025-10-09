@@ -6,6 +6,7 @@ mod team;
 
 // Events
 pub use event::CapturedEvent;
+pub use event::CapturedEventHeaders;
 pub use event::ClickHouseEvent;
 pub use event::InternallyCapturedEvent;
 pub use event::PersonMode;
