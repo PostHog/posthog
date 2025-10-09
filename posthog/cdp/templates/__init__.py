@@ -82,6 +82,7 @@ from .sendgrid.template_sendgrid import (
 from .slack.template_slack import template as slack
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
+from .userlist.template_userlist import template as userlist
 from .zapier.template_zapier import template as zapier
 from .zendesk.template_zendesk import template as zendesk
 
@@ -128,6 +129,7 @@ HOG_FUNCTION_TEMPLATES = [
     sendgrid,
     snapchat_pixel,
     tiktok_pixel,
+    userlist,
     zapier,
     zendesk,
     early_access_features,
