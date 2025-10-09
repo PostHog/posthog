@@ -1,7 +1,9 @@
 import json
+import asyncio
 import logging
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 
 import litellm
@@ -18,9 +20,8 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
-from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-from ee.hogai.utils.asgi import SyncIterableToAsync
+from ee.hogai.utils.aio import async_to_sync
 
 from .serializers import (
     AnthropicMessagesRequestSerializer,
@@ -32,39 +33,44 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-SCOPE_OBJECT = "task"
-
 
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = SCOPE_OBJECT
+    scope_object = "task"
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
         return [LLMGatewayBurstRateThrottle(), LLMGatewaySustainedRateThrottle()]
 
-    async def _stream_response(self, response, request: Request) -> AsyncGenerator[bytes, None]:
+    async def _anthropic_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
+        response = await litellm.anthropic_messages(**data)
+        async for chunk in response:
+            yield chunk
+
+    async def _openai_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
+        response = await litellm.acompletion(**data)
+        async for chunk in response:
+            yield chunk
+
+    async def _format_as_sse(self, llm_stream: AsyncGenerator, request: Request) -> AsyncGenerator[bytes, None]:
         try:
-            async for chunk in response:
+            async for chunk in llm_stream:
                 if not request.META.get("SERVER_NAME"):
                     return
                 chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
                 yield f"data: {json.dumps(chunk_dict)}\n\n".encode()
             yield b"data: [DONE]\n\n"
         except Exception as e:
-            logger.exception(f"Error in LLM gateway stream: {e}")
-            error_data = {"error": {"message": "An internal error occurred", "type": "internal_error"}}
+            logger.exception(f"Error in LLM stream: {e}")
+            error_data = {"error": {"message": str(e), "type": "internal_error"}}
             yield f"data: {json.dumps(error_data)}\n\n".encode()
 
-    def _create_streaming_response(
-        self, stream: AsyncGenerator[bytes, None] | Generator[bytes, None, None]
-    ) -> StreamingHttpResponse:
-        if SERVER_GATEWAY_INTERFACE == "ASGI":
-            response = StreamingHttpResponse(streaming_content=stream, content_type=ServerSentEventRenderer.media_type)
-        else:
-            astream = SyncIterableToAsync(stream)
-            response = StreamingHttpResponse(streaming_content=astream, content_type=ServerSentEventRenderer.media_type)
+    def _create_streaming_response(self, async_generator: AsyncGenerator[bytes, None]) -> StreamingHttpResponse:
+        streaming_content = (
+            async_generator if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_generator)
+        )
+        response = StreamingHttpResponse(streaming_content, content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
@@ -105,39 +111,38 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ],
         tags=["LLM Gateway"],
     )
-    @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=f"{SCOPE_OBJECT}:write")
-    async def anthropic_messages(self, request: Request, *args, **kwargs):
-        try:
-            serializer = AnthropicMessagesRequestSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response(
-                    {"error": {"message": str(serializer.errors), "type": "invalid_request_error"}},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+    @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=["task:write"])
+    def anthropic_messages(self, request: Request, *args, **kwargs):
+        serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
-            data = dict(serializer.validated_data)
-            is_streaming = data.get("stream", False)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"message": str(serializer.errors), "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            if is_streaming:
-                response = await litellm.anthropic_messages(**data)
-                stream_gen = self._stream_response(response, request)
-                return self._create_streaming_response(stream_gen)
-            else:
-                response = await litellm.anthropic_messages(**data)
+        data = dict(serializer.validated_data)
+        is_streaming = data.get("stream", False)
+
+        if is_streaming:
+            sse_stream = self._format_as_sse(self._anthropic_stream(data), request)
+            return self._create_streaming_response(sse_stream)
+        else:
+            try:
+                response = asyncio.run(litellm.anthropic_messages(**data))
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
                 return Response(response_dict)
-
-        except Exception as e:
-            logger.exception(f"Error in Anthropic messages endpoint: {e}")
-            error_response = {
-                "error": {
-                    "message": getattr(e, "message", str(e)),
-                    "type": getattr(e, "type", "internal_error"),
-                    "code": getattr(e, "code", None),
+            except Exception as e:
+                logger.exception(f"Error in Anthropic messages endpoint: {e}")
+                error_response = {
+                    "error": {
+                        "message": getattr(e, "message", str(e)),
+                        "type": getattr(e, "type", "internal_error"),
+                        "code": getattr(e, "code", None),
+                    }
                 }
-            }
-            status_code = getattr(e, "status_code", 500)
-            return Response(error_response, status=status_code)
+                status_code = getattr(e, "status_code", 500)
+                return Response(error_response, status=status_code)
 
     @extend_schema(
         summary="OpenAI Chat Completions API",
@@ -178,37 +183,35 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["POST"],
         url_path="v1/chat/completions",
-        required_scopes=f"{SCOPE_OBJECT}:write",
+        required_scopes=["task:write"],
     )
-    async def chat_completions(self, request: Request, *args, **kwargs):
-        try:
-            serializer = ChatCompletionRequestSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response(
-                    {"error": {"message": str(serializer.errors), "type": "invalid_request_error"}},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+    def chat_completions(self, request: Request, *args, **kwargs):
+        serializer = ChatCompletionRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"message": str(serializer.errors), "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            data = dict(serializer.validated_data)
-            is_streaming = data.get("stream", False)
+        data = dict(serializer.validated_data)
+        is_streaming = data.get("stream", False)
 
-            if is_streaming:
-                response = await litellm.acompletion(**data)
-                stream_gen = self._stream_response(response, request)
-                return self._create_streaming_response(stream_gen)
-            else:
-                response = await litellm.acompletion(**data)
+        if is_streaming:
+            sse_stream = self._format_as_sse(self._openai_stream(data), request)
+            return self._create_streaming_response(sse_stream)
+        else:
+            try:
+                response = asyncio.run(litellm.acompletion(**data))
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
                 return Response(response_dict)
-
-        except Exception as e:
-            logger.exception(f"Error in chat completions endpoint: {e}")
-            error_response = {
-                "error": {
-                    "message": getattr(e, "message", str(e)),
-                    "type": getattr(e, "type", "internal_error"),
-                    "code": getattr(e, "code", None),
+            except Exception as e:
+                logger.exception(f"Error in chat completions endpoint: {e}")
+                error_response = {
+                    "error": {
+                        "message": getattr(e, "message", str(e)),
+                        "type": getattr(e, "type", "internal_error"),
+                        "code": getattr(e, "code", None),
+                    }
                 }
-            }
-            status_code = getattr(e, "status_code", 500)
-            return Response(error_response, status=status_code)
+                status_code = getattr(e, "status_code", 500)
+                return Response(error_response, status=status_code)

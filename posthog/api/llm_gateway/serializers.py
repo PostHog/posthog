@@ -25,7 +25,7 @@ class AnthropicMessagesRequestSerializer(serializers.Serializer):
     stop_sequences = serializers.ListField(
         child=serializers.CharField(), required=False, help_text="Custom stop sequences"
     )
-    system = serializers.CharField(required=False, allow_blank=True, help_text="System prompt to use")
+    system = serializers.JSONField(required=False, help_text="System prompt (string or array of content blocks)")
     metadata = serializers.JSONField(required=False, help_text="Metadata to attach to the request")
     thinking = serializers.JSONField(required=False, help_text="Thinking configuration for extended thinking")
     tools = serializers.ListField(required=False, help_text="List of tools available to the model")
