@@ -27,7 +27,7 @@ def run_tests():
     # -s: no capture, show print statements
     # --tb=short: short traceback format
     result = subprocess.run(
-        [python_cmd, "-m", "pytest", "-v", "-s", "--tb=short"],
+        [python_cmd, "-m", "pytest", "-v", "-s", "--tb=short", "--numprocesses=auto"],
         cwd=test_dir,
     )
 

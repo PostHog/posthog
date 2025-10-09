@@ -56,7 +56,46 @@ class PostHogTestClient:
         result = response.json()
         logger.info("Project created with ID: %s", result.get("id"))
         logger.debug("Project API token: %s", result.get("api_token"))
+
+        # Wait for project to be available in query API
+        self._wait_for_project_ready(result.get("id"))
+
         return result
+
+    def _wait_for_project_ready(self, project_id: str, timeout: int = 30) -> None:
+        """Wait for project to be ready for queries."""
+        logger.info("Waiting for project %s to be ready for queries...", project_id)
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            try:
+                # First check if the project exists via the basic project API
+                project_response = self.session.get(f"{self.base_url}/api/projects/{project_id}/")
+                if project_response.status_code != 200:
+                    logger.debug("Project %s not accessible via API, waiting...", project_id)
+                    time.sleep(1)
+                    continue
+
+                # Then try a simple HogQL query to see if the project is ready
+                query_response = self.session.post(
+                    f"{self.base_url}/api/projects/{project_id}/query/",
+                    json={"query": {"kind": "HogQLQuery", "query": "SELECT 1 LIMIT 1"}},
+                )
+                if query_response.status_code == 200:
+                    logger.info("Project %s is ready for queries", project_id)
+                    return
+                elif query_response.status_code == 404:
+                    logger.debug("Project %s query endpoint not yet available, waiting...", project_id)
+                else:
+                    logger.debug(
+                        "Project %s query returned status %s, waiting...", project_id, query_response.status_code
+                    )
+            except Exception as e:
+                logger.debug("Project %s readiness check failed: %s, waiting...", project_id, e)
+
+            time.sleep(1)
+
+        logger.warning("Project %s may not be fully ready after %s seconds", project_id, timeout)
 
     def send_capture_event(self, api_key: str, event_data: dict[str, Any]) -> None:
         """Send an event using the PostHog Python client.
@@ -115,13 +154,18 @@ class PostHogTestClient:
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"SELECT * FROM events {where_clause} ORDER BY timestamp DESC LIMIT {limit}"
 
+        logger.debug("Executing HogQL query: %s", query)
         response = self.session.post(
             f"{self.base_url}/api/projects/{project_id}/query/",
             json={"refresh": "force_blocking", "query": {"kind": "HogQLQuery", "query": query}},
         )
+
+        logger.debug("HogQL query response status: %s", response.status_code)
         response.raise_for_status()
 
         data = response.json()
+        logger.debug("HogQL query returned %s results", len(data.get("results", [])))
+
         # Extract events from HogQL response
         if data.get("results"):
             # Convert HogQL results to event-like format
@@ -136,22 +180,6 @@ class PostHogTestClient:
             return results
         return []
 
-    def query_events_legacy(
-        self, project_id: str, event_name: Optional[str] = None, distinct_id: Optional[str] = None, limit: int = 100
-    ) -> list[dict[str, Any]]:
-        """Query events using the legacy events endpoint (deprecated but may still work)."""
-        params = {"limit": limit}
-
-        if event_name:
-            params["event"] = event_name
-        if distinct_id:
-            params["distinct_id"] = distinct_id
-
-        response = self.session.get(f"{self.base_url}/api/projects/{project_id}/events/", params=params)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("results", [])
-
     def wait_for_event(
         self,
         project_id: str,
@@ -164,12 +192,8 @@ class PostHogTestClient:
         start_time = time.time()
 
         while time.time() - start_time < timeout:
-            try:
-                # Try HogQL query first (recommended)
-                events = self.query_events_hogql(project_id, event_name, distinct_id, limit=10)
-            except:
-                # Fall back to legacy endpoint if HogQL fails
-                events = self.query_events_legacy(project_id, event_name, distinct_id, limit=10)
+            # Use HogQL query (recommended)
+            events = self.query_events_hogql(project_id, event_name, distinct_id, limit=10)
 
             for event in events:
                 if event.get("event") == event_name:
