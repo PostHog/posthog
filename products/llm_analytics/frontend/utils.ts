@@ -1,7 +1,10 @@
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 
+import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
     AnthropicInputMessage,
@@ -583,4 +586,57 @@ export function truncateValue(value: unknown): string {
     }
 
     return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
+}
+
+export function mapEvaluationRunRow(row: any): EvaluationRun {
+    return {
+        id: row[0],
+        timestamp: row[1],
+        evaluation_id: row[2],
+        evaluation_name: row[3] || 'Unknown Evaluation',
+        generation_id: row[4],
+        trace_id: row[5],
+        result: row[6],
+        reasoning: row[7] || 'No reasoning provided',
+        status: 'completed' as const,
+    }
+}
+
+export async function queryEvaluationRuns(params: {
+    evaluationId?: string
+    generationEventId?: string
+    forceRefresh?: boolean
+}): Promise<EvaluationRun[]> {
+    const { evaluationId, generationEventId, forceRefresh } = params
+
+    if (!evaluationId && !generationEventId) {
+        throw new Error('Either evaluationId or generationEventId must be provided')
+    }
+
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_target_event_id'
+    const propertyValue = evaluationId || generationEventId
+
+    const query = hogql`
+        SELECT
+            uuid,
+            timestamp,
+            properties.$ai_evaluation_id as evaluation_id,
+            properties.$ai_evaluation_name as evaluation_name,
+            properties.$ai_target_event_id as generation_id,
+            properties.$ai_trace_id as trace_id,
+            properties.$ai_evaluation_result as result,
+            properties.$ai_evaluation_reasoning as reasoning
+        FROM events
+        WHERE
+            event = '$ai_evaluation'
+            AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+        ORDER BY timestamp DESC
+        LIMIT 100
+    `
+
+    const response = await api.queryHogQL(query, {
+        ...(forceRefresh && { refresh: 'force_blocking' }),
+    })
+
+    return (response.results || []).map(mapEvaluationRunRow)
 }

@@ -7,17 +7,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-
-export interface GenerationEvaluationRun {
-    id: string
-    evaluation_id: string
-    evaluation_name: string
-    timestamp: string
-    result: boolean
-    reasoning: string
-    status: 'completed' | 'failed' | 'running'
-}
 
 export function GenerationEvalRunsTable({ generationEventId }: { generationEventId: string }): JSX.Element {
     return (
@@ -30,7 +21,7 @@ export function GenerationEvalRunsTable({ generationEventId }: { generationEvent
 function GenerationEvalRunsTableContent(): JSX.Element {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationEvaluationRunsLogic)
 
-    const columns: LemonTableColumns<GenerationEvaluationRun> = [
+    const columns: LemonTableColumns<EvaluationRun> = [
         {
             title: 'Timestamp',
             key: 'timestamp',

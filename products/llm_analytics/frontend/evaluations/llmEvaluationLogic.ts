@@ -6,9 +6,9 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
+import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationConditionSet, EvaluationConfig, EvaluationRun } from './types'
 
@@ -49,43 +49,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return []
                     }
 
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return []
-                    }
-
-                    const query = hogql`
-                        SELECT
-                            uuid,
-                            timestamp,
-                            properties.$ai_target_event_id as target_event_id,
-                            properties.$ai_trace_id as trace_id,
-                            properties.$ai_evaluation_result as result,
-                            properties.$ai_evaluation_model as model,
-                            properties.$ai_evaluation_reasoning as reasoning
-                        FROM events
-                        WHERE
-                            event = '$ai_evaluation'
-                            AND team_id = ${teamId}
-                            AND properties.$ai_evaluation_id = ${props.evaluationId}
-                        ORDER BY timestamp DESC
-                        LIMIT 100
-                    `
-
-                    const response = await api.queryHogQL(query, {
-                        ...(values.isForceRefresh && { refresh: 'force_blocking' }),
+                    return await queryEvaluationRuns({
+                        evaluationId: props.evaluationId,
+                        forceRefresh: values.isForceRefresh,
                     })
-
-                    return (response.results || []).map((row: any) => ({
-                        id: row[0],
-                        evaluation_id: props.evaluationId,
-                        generation_id: row[2],
-                        trace_id: row[3],
-                        timestamp: row[1],
-                        result: row[4],
-                        reasoning: row[6] || 'No reasoning provided',
-                        status: 'completed' as const,
-                    }))
                 },
             },
         ],
