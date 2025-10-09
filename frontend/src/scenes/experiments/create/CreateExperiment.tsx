@@ -33,11 +33,11 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-type CreateExerimentProps = Partial<{
+type CreateExperimentProps = Partial<{
     draftExperiment: Experiment
 }>
 
-export const CreateExperiment = ({ draftExperiment }: CreateExerimentProps): JSX.Element => {
+export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
     const { experiment, experimentErrors } = useValues(createExperimentLogic({ experiment: draftExperiment }))
