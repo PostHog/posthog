@@ -218,6 +218,7 @@ async def _run_activity(
         properties_data_type=properties_data_type,
         sort_key=sort_key,
         expected_fields=expected_fields,
+        copy=True,
     )
 
     return result
@@ -239,7 +240,7 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
     data_interval_start,
     data_interval_end,
     properties_data_type,
-    credentials,
+    aws_credentials,
     ateam,
 ):
     """Test that the copy_into_redshift_activity function inserts data into a Redshift table."""
@@ -292,8 +293,8 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/",
-        credentials=credentials,
+        key_prefix="/test-copy-redshift-batch-export",
+        credentials=aws_credentials,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,

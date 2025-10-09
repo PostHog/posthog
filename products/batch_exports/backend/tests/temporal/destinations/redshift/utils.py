@@ -71,6 +71,7 @@ async def assert_clickhouse_records_in_redshift(
     expected_duplicates_threshold: float = 0.0,
     expected_fields: list[str] | None = None,
     primary_key: collections.abc.Sequence[str] | None = None,
+    copy: bool = False,
 ):
     """Assert expected records are written to a given Redshift table.
 
@@ -96,6 +97,8 @@ async def assert_clickhouse_records_in_redshift(
         expected_duplicates_threshold: Threshold of duplicates we should expect relative to
             number of unique events, fail if we exceed it.
         expected_fields: The expected fields to be exported.
+        copy: Whether using Redshift's COPY or not. This impacts handling of special
+            characters as Parquet+COPY can handle a lot more than JSON.
     """
     super_columns = ["properties", "set", "set_once", "person_properties"]
     array_super_columns = ["urls"]
@@ -191,7 +194,10 @@ async def assert_clickhouse_records_in_redshift(
                         continue
 
                     elif k in super_columns and v is not None:
-                        expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
+                        if copy is False:
+                            expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
+                        else:
+                            expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC)
                     else:
