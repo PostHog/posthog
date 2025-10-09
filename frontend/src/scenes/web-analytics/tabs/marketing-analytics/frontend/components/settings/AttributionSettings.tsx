@@ -139,8 +139,7 @@ export function AttributionSettings(): JSX.Element {
                     {currentTeamLoading && <Spinner className="text-muted" />}
                 </h3>
                 <p className="text-muted-foreground text-sm mb-4">
-                    Configure how conversions are attributed to marketing campaigns.{' '}
-                    <b>Changes are saved automatically.</b>
+                    Configure how conversions are attributed to marketing campaigns.
                 </p>
             </div>
 
