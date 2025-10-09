@@ -313,7 +313,12 @@ describe('VariantsPanel', () => {
             await userEvent.click(selectFlagButton)
 
             // Should display variants
-            expect(screen.getByText('VARIANTS:')).toBeInTheDocument()
+            await waitFor(() => {
+                const variantsSection = screen.getAllByText(/variants/i).find((el) => {
+                    return el.className.includes('uppercase') && el.textContent === 'Variants'
+                })
+                expect(variantsSection).toBeInTheDocument()
+            })
             expect(screen.getByText('control')).toBeInTheDocument()
             expect(screen.getByText('variant-a')).toBeInTheDocument()
         })
