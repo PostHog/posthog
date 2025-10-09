@@ -23,7 +23,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
         outputs:
