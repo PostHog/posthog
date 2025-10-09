@@ -1,9 +1,8 @@
-from .schema import ProductSignal, ProductSignalException, ProductSignalSeverity, ProductSignalSource, ProductSignalType
+from .schema import ProductSignal, ProductSignalException, ProductSignalSeverity, ProductSignalType
 
 __all__ = [
     "ProductSignal",
     "ProductSignalException",
     "ProductSignalSeverity",
-    "ProductSignalSource",
     "ProductSignalType",
 ]

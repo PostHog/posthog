@@ -1999,7 +1999,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$product_signal_type": {
             "label": "Product signal type",
             "description": "The type of product signal being reported.",
-            "examples": ["new_issue", "funnel_anomoly"],
+            "examples": ["new_issue", "funnel_conversion_rate_change"],
         },
         "$product_signal_severity": {
             "label": "Product signal severity",

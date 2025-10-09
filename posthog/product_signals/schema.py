@@ -6,6 +6,7 @@ from typing import Any, Optional
 import structlog
 
 from posthog.api.capture import capture_internal
+from posthog.constants import Product
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -20,12 +21,7 @@ class ProductSignalSeverity(StrEnum):
 
 class ProductSignalType(StrEnum):
     NEW_ISSUE = "new_issue"
-    FUNNEL_ANOMOLY = "funnel_anomoly"
-
-
-class ProductSignalSource(StrEnum):
-    ERROR_TRACKING = "error_tracking"
-    PRODUCT_ANALYTICS = "product_analytics"
+    FUNNEL_CONVERSION_RATE_CHANGE = "funnel_conversion_rate_change"
 
 
 class ProductSignalException(Exception):
@@ -49,7 +45,7 @@ class ProductSignal:
     signal_type: ProductSignalType
     severity: ProductSignalSeverity
     title: str
-    source: ProductSignalSource
+    source: Product
     distinct_id: str
     description: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)

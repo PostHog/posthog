@@ -1071,7 +1071,7 @@
         },
         "$product_signal_type": {
             "description": "The type of product signal being reported.",
-            "examples": ["new_issue", "funnel_anomoly"],
+            "examples": ["new_issue", "funnel_conversion_rate_change"],
             "label": "Product signal type"
         },
         "$python_runtime": {
@@ -3284,7 +3284,7 @@
         },
         "$product_signal_type": {
             "description": "The type of product signal being reported.",
-            "examples": ["new_issue", "funnel_anomoly"],
+            "examples": ["new_issue", "funnel_conversion_rate_change"],
             "label": "Product signal type"
         },
         "$python_runtime": {

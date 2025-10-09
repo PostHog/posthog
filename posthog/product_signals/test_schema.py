@@ -3,11 +3,11 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.constants import Product
 from posthog.product_signals.schema import (
     ProductSignal,
     ProductSignalException,
     ProductSignalSeverity,
-    ProductSignalSource,
     ProductSignalType,
 )
 
@@ -19,7 +19,7 @@ class TestProductSignal(BaseTest):
             severity=ProductSignalSeverity.HIGH,
             title="Test Issue",
             description="Test description",
-            source=ProductSignalSource.ERROR_TRACKING,
+            source=Product.ERROR_TRACKING,
             distinct_id="team_123",
         )
 
@@ -33,17 +33,17 @@ class TestProductSignal(BaseTest):
 
     def test_to_event_properties_without_description(self):
         signal = ProductSignal(
-            signal_type=ProductSignalType.FUNNEL_ANOMOLY,
+            signal_type=ProductSignalType.FUNNEL_CONVERSION_RATE_CHANGE,
             severity=ProductSignalSeverity.MEDIUM,
             title="Test Issue",
-            source=ProductSignalSource.PRODUCT_ANALYTICS,
+            source=Product.PRODUCT_ANALYTICS,
             distinct_id="team_456",
         )
 
         props = signal.to_event_properties()
 
         assert "$product_signal_description" not in props
-        assert props["$product_signal_type"] == "funnel_anomoly"
+        assert props["$product_signal_type"] == "funnel_conversion_rate_change"
         assert props["$product_signal_severity"] == "medium"
 
     def test_to_event_properties_with_metadata(self):
@@ -51,7 +51,7 @@ class TestProductSignal(BaseTest):
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.CRITICAL,
             title="Critical Error",
-            source=ProductSignalSource.ERROR_TRACKING,
+            source=Product.ERROR_TRACKING,
             distinct_id="team_789",
             metadata={
                 "error_id": "err_123",
@@ -76,7 +76,7 @@ class TestProductSignal(BaseTest):
             severity=ProductSignalSeverity.HIGH,
             title="Test Signal",
             description="Test description",
-            source=ProductSignalSource.ERROR_TRACKING,
+            source=Product.ERROR_TRACKING,
             distinct_id="team_123",
         )
 
@@ -104,10 +104,10 @@ class TestProductSignal(BaseTest):
 
         custom_timestamp = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         signal = ProductSignal(
-            signal_type=ProductSignalType.FUNNEL_ANOMOLY,
+            signal_type=ProductSignalType.FUNNEL_CONVERSION_RATE_CHANGE,
             severity=ProductSignalSeverity.MEDIUM,
             title="Funnel Drop",
-            source=ProductSignalSource.PRODUCT_ANALYTICS,
+            source=Product.PRODUCT_ANALYTICS,
             distinct_id="team_456",
             timestamp=custom_timestamp,
         )
@@ -129,7 +129,7 @@ class TestProductSignal(BaseTest):
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.CRITICAL,
             title="Critical Bug",
-            source=ProductSignalSource.ERROR_TRACKING,
+            source=Product.ERROR_TRACKING,
             distinct_id="team_789",
             metadata={
                 "error_count": 42,
@@ -156,7 +156,7 @@ class TestProductSignal(BaseTest):
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.HIGH,
             title="Test Signal",
-            source=ProductSignalSource.ERROR_TRACKING,
+            source=Product.ERROR_TRACKING,
             distinct_id="team_123",
         )
 
@@ -179,18 +179,18 @@ class TestProductSignal(BaseTest):
 class TestProductSignalException(BaseTest):
     def test_exception_captures_signal_data(self):
         signal = ProductSignal(
-            signal_type=ProductSignalType.FUNNEL_ANOMOLY,
+            signal_type=ProductSignalType.FUNNEL_CONVERSION_RATE_CHANGE,
             severity=ProductSignalSeverity.CRITICAL,
             title="Test Exception",
             description="Test description",
-            source=ProductSignalSource.PRODUCT_ANALYTICS,
+            source=Product.PRODUCT_ANALYTICS,
             distinct_id="team_999",
             metadata={"key": "value"},
         )
 
         exception = ProductSignalException(signal)
 
-        assert exception.signal_type == ProductSignalType.FUNNEL_ANOMOLY
+        assert exception.signal_type == ProductSignalType.FUNNEL_CONVERSION_RATE_CHANGE
         assert exception.severity == ProductSignalSeverity.CRITICAL
         assert exception.title == "Test Exception"
         assert exception.description == "Test description"
@@ -202,7 +202,7 @@ class TestProductSignalException(BaseTest):
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.LOW,
             title="Low Priority Signal",
-            source=ProductSignalSource.ERROR_TRACKING,
+            source=Product.ERROR_TRACKING,
             distinct_id="team_100",
         )
 
