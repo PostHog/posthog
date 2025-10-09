@@ -5,6 +5,9 @@ from django.db import models
 from posthog.management.migration_analysis.models import OperationRisk
 from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 
+# Base URL for migration safety documentation
+SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
+
 
 class OperationAnalyzer:
     """Base class for operation-specific analyzers"""
@@ -54,10 +57,12 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Adding NOT NULL field without default locks table",
             details={"model": op.model_name, "field": op.name},
-            guidance="""Add NOT NULL fields in 3 steps:
+            guidance=f"""Add NOT NULL fields in 3 steps:
 1. Add column as nullable (`null=True`), deploy
 2. Backfill data for all rows
-3. Add NOT NULL constraint (or use `ALTER COLUMN SET NOT NULL` in RunSQL), deploy""",
+3. Add NOT NULL constraint (or use `ALTER COLUMN SET NOT NULL` in RunSQL), deploy
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-not-null-columns)""",
         )
 
     def _analyze_not_null_with_default(self, op, field) -> OperationRisk:
@@ -86,10 +91,12 @@ class AddFieldAnalyzer(OperationAnalyzer):
                 score=5,
                 reason=f"Adding NOT NULL field with volatile default ({default_name}) rewrites entire table",
                 details={"model": op.model_name, "field": op.name, "default": default_name},
-                guidance="""Volatile defaults (like `uuid4()`, `now()`, `random()`) require a table rewrite. Deploy in 3 steps:
+                guidance=f"""Volatile defaults (like `uuid4()`, `now()`, `random()`) require a table rewrite. Deploy in 3 steps:
 1. Add column as nullable without default, deploy
 2. Use RunSQL to backfill: `UPDATE table SET column = gen_random_uuid() WHERE column IS NULL`
-3. Add NOT NULL constraint, deploy""",
+3. Add NOT NULL constraint, deploy
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-not-null-columns)""",
             )
 
         return OperationRisk(
@@ -110,10 +117,12 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
-            guidance="""**Never drop columns directly.** Deploy in steps:
+            guidance=f"""**Never drop columns directly.** Deploy in steps:
 1. Remove all code references to the column, deploy
 2. Wait at least one full deploy cycle to ensure no rollback needed
-3. Optionally drop column in a later migration (consider leaving unused columns indefinitely)""",
+3. Optionally drop column in a later migration (consider leaving unused columns indefinitely)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
 
 
@@ -127,10 +136,12 @@ class DeleteModelAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping table breaks backwards compatibility and can't rollback",
             details={"model": op.name},
-            guidance="""**Never drop tables directly.** Deploy in steps:
+            guidance=f"""**Never drop tables directly.** Deploy in steps:
 1. Remove all code references to the model, deploy
 2. Wait at least one full deploy cycle to ensure no rollback needed
-3. Optionally drop table in a later migration (consider leaving unused tables indefinitely)""",
+3. Optionally drop table in a later migration (consider leaving unused tables indefinitely)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
         )
 
 
@@ -177,7 +188,9 @@ class RenameFieldAnalyzer(OperationAnalyzer):
             score=4,
             reason="Renaming column breaks old code during deployment",
             details={"model": op.model_name, "old": op.old_name, "new": op.new_name},
-            guidance="""**Don't rename columns in production** - accept the bad name. If you must: 1) Add new column, deploy code that writes to both but reads from old. 2) Backfill data. 3) Deploy code that reads from new. 4) Never drop the old column - leave it forever.""",
+            guidance=f"""**Don't rename columns in production** - accept the bad name. If you must: 1) Add new column, deploy code that writes to both but reads from old. 2) Backfill data. 3) Deploy code that reads from new. 4) Never drop the old column - leave it forever.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#renaming-columns)""",
         )
 
 
@@ -191,7 +204,9 @@ class RenameModelAnalyzer(OperationAnalyzer):
             score=4,
             reason="Renaming table breaks old code during deployment",
             details={"old": op.old_name, "new": op.new_name},
-            guidance="""**Don't rename tables in production** - accept the bad name. If you must: Use views (1. Rename table, create view with old name. 2. Deploy code. 3. Drop view). Or expand-contract (1. Create new table, write to both. 2. Backfill. 3. Read from new. 4. Never drop old table).""",
+            guidance=f"""**Don't rename tables in production** - accept the bad name. If you must: Use views (1. Rename table, create view with old name. 2. Deploy code. 3. Drop view). Or expand-contract (1. Create new table, write to both. 2. Backfill. 3. Read from new. 4. Never drop old table).
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#renaming-tables)""",
         )
 
 
@@ -221,7 +236,9 @@ class AddIndexAnalyzer(OperationAnalyzer):
                     score=4,
                     reason="Non-concurrent index creation locks table",
                     details={},
-                    guidance="Use migrations.AddIndex with index=models.Index(..., name='...', fields=[...]) and set concurrent=True in the index. In PostgreSQL this requires a separate migration with atomic=False.",
+                    guidance=f"""Use AddIndexConcurrently for large tables (requires atomic=False). For small/new tables, non-concurrent AddIndex is acceptable.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-indexes)""",
                 )
         return OperationRisk(
             type=self.operation_type,
@@ -241,11 +258,13 @@ class AddConstraintAnalyzer(OperationAnalyzer):
             score=3,
             reason="Adding constraint may lock table (use NOT VALID pattern)",
             details={},
-            guidance="""Add constraints without locking in 2 steps:
+            guidance=f"""Add constraints without locking in 2 steps:
 1. Add constraint with `NOT VALID` using RunSQL: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) NOT VALID`
 2. In a separate migration, validate: `ALTER TABLE ... VALIDATE CONSTRAINT ...`
 
-This allows writes to continue while validation happens in the background.""",
+This allows writes to continue while validation happens in the background.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-constraints)""",
         )
 
 
@@ -371,12 +390,14 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 score=4,
                 reason="RunSQL with UPDATE/DELETE needs careful review for locking",
                 details={"sql": sql},
-                guidance="""**Critical for large tables:** UPDATE/DELETE can lock tables for extended periods.
+                guidance=f"""**Critical for large tables:** UPDATE/DELETE can lock tables for extended periods.
 - Use batching: Update/delete in chunks of 1000-10000 rows with LIMIT and loop
 - Add `WHERE` clauses to limit scope
 - Consider using `SELECT ... FOR UPDATE SKIP LOCKED` for concurrent updates
 - Monitor query duration in production before deploying to large tables
-- For very large updates, consider using a background job instead of a migration""",
+- For very large updates, consider using a background job instead of a migration
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
             )
         elif "ALTER" in sql:
             return OperationRisk(
@@ -422,13 +443,15 @@ class RunPythonAnalyzer(OperationAnalyzer):
             score=2,
             reason="RunPython data migration needs review for performance",
             details={},
-            guidance="""**Large-scale considerations for data migrations:**
+            guidance=f"""**Large-scale considerations for data migrations:**
 - Use `.iterator()` for large querysets to avoid loading all rows into memory
 - Process in batches: `for obj in Model.objects.all().iterator(chunk_size=1000)`
 - Use `.bulk_update()` instead of saving individual objects
 - Add progress logging every N rows for visibility
 - Test on production-sized data before deploying
-- Consider timeout limits - migrations blocking deployment for >10min are problematic""",
+- Consider timeout limits - migrations blocking deployment for >10min are problematic
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
         )
 
 
