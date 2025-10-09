@@ -121,7 +121,18 @@ class RiskAnalyzer:
         if analyzer:
             return analyzer.analyze(op)
 
-        # Fallback for unknown operation types
+        # Fallback for unscored operation types
+        # Check if it's a known Django operation
+        is_django_operation = op.__class__.__module__.startswith("django.db.migrations.operations")
+
+        if is_django_operation:
+            return OperationRisk(
+                type=op_type,
+                score=2,
+                reason=f"Unscored Django operation: {op_type} (needs manual review)",
+                details={},
+            )
+
         return OperationRisk(
             type=op_type,
             score=2,
