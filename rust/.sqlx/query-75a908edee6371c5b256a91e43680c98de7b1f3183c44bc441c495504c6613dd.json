@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            -- the \"eligible_for_assignment!\" forces sqlx to assume not null, which is correct in this case, but\n            -- generally a risky override of sqlx's normal type checking\n            SELECT i.id, i.team_id, i.status, i.name, i.description\n            FROM posthog_errortrackingissue i\n            JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id\n            WHERE f.team_id = $1 AND f.fingerprint = $2\n            ",
+  "query": "\n            -- the \"eligible_for_assignment!\" forces sqlx to assume not null, which is correct in this case, but\n            -- generally a risky override of sqlx's normal type checking\n            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at\n            FROM posthog_errortrackingissue i\n            JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id\n            WHERE f.team_id = $1 AND f.fingerprint = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "description",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -40,8 +45,9 @@
       false,
       false,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "8029a54580dbb1cbdead38b30aba5c7b0a9fb1ea7f3bb89f67222b2d1f18be6f"
+  "hash": "75a908edee6371c5b256a91e43680c98de7b1f3183c44bc441c495504c6613dd"
 }

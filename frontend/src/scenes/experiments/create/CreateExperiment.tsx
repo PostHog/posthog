@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -35,9 +36,13 @@ export const CreateExperiment = (): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
     const { experiment, experimentErrors } = useValues(createExperimentLogic)
-    const { setExperiment, setExperimentValue } = useActions(createExperimentLogic)
+    const { setExperimentValue } = useActions(createExperimentLogic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
+
+    const debouncedOnNameChange = useDebouncedCallback((name: string) => {
+        setExperimentValue('name', name)
+    }, 500)
 
     return (
         <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
@@ -52,9 +57,7 @@ export const CreateExperiment = (): JSX.Element => {
                         }}
                         canEdit
                         forceEdit
-                        onNameChange={(name) => {
-                            setExperimentValue('name', name)
-                        }}
+                        onNameChange={debouncedOnNameChange}
                         actions={
                             <>
                                 <LemonButton
@@ -92,6 +95,7 @@ export const CreateExperiment = (): JSX.Element => {
                     <SceneDivider />
                     <LemonCollapse
                         activeKey={selectedPanel ?? undefined}
+                        defaultActiveKey="experiment-variants"
                         onChange={(key) => {
                             setSelectedPanel(key as string | null)
                         }}
@@ -103,7 +107,7 @@ export const CreateExperiment = (): JSX.Element => {
                                 content: (
                                     <ExperimentTypePanel
                                         experiment={experiment}
-                                        setExperimentType={(type) => setExperiment({ ...experiment, type })}
+                                        setExperimentType={(type) => setExperimentValue('type', type)}
                                     />
                                 ),
                             },
@@ -111,9 +115,20 @@ export const CreateExperiment = (): JSX.Element => {
                                 key: 'experiment-variants',
                                 header: 'Feature flag & variants',
                                 content: (
-                                    <div className="p-4">
-                                        <VariantsPanel experiment={experiment} onChange={(updates) => updates} />
-                                    </div>
+                                    <VariantsPanel
+                                        experiment={experiment}
+                                        updateFeatureFlag={(updates) => {
+                                            if (updates.feature_flag_key !== undefined) {
+                                                setExperimentValue('feature_flag_key', updates.feature_flag_key)
+                                            }
+                                            if (updates.parameters) {
+                                                setExperimentValue('parameters', {
+                                                    ...experiment.parameters,
+                                                    ...updates.parameters,
+                                                })
+                                            }
+                                        }}
+                                    />
                                 ),
                             },
                             {
@@ -129,12 +144,10 @@ export const CreateExperiment = (): JSX.Element => {
                                 key: 'experiment-exposure',
                                 header: 'Exposure criteria',
                                 content: (
-                                    <div className="p-4">
-                                        <ExposureCriteriaPanel
-                                            experiment={experiment}
-                                            onChange={(exposureCriteria) => exposureCriteria}
-                                        />
-                                    </div>
+                                    <ExposureCriteriaPanel
+                                        experiment={experiment}
+                                        onChange={(exposureCriteria) => exposureCriteria}
+                                    />
                                 ),
                             },
                             {
