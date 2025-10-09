@@ -1,4 +1,5 @@
-from typing import TypeVar
+from enum import Enum
+from typing import Any, TypeVar
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -17,12 +18,44 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
+from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+
+
+def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
+    """
+    Parse config value into enum with fallback to default.
+
+    Handles string values (converts via enum_class[value]),
+    existing enum instances (passes through),
+    and invalid values (returns default).
+    """
+    try:
+        if isinstance(value, str):
+            return enum_class[value]
+        elif isinstance(value, enum_class):
+            return value
+        return default
+    except (KeyError, TypeError):
+        return default
+
+
+def _validate_numeric_range(value: Any, min_val: float, max_val: float, default: float) -> float:
+    """
+    Validate numeric value is within range, return default if invalid.
+    """
+    try:
+        float_value = float(value)
+        if min_val <= float_value <= max_val:
+            return float_value
+        return default
+    except (TypeError, ValueError):
+        return default
 
 
 def get_experiment_stats_method(experiment) -> str:
@@ -166,8 +199,17 @@ def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
+    stats_config: dict | None = None,
 ) -> ExperimentQueryResponse:
-    config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
+    frequentist_config = stats_config.get("frequentist", {}) if stats_config else {}
+
+    config = FrequentistConfig(
+        alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
+        test_type=_parse_enum_config(frequentist_config.get("test_type", "TWO_SIDED"), TestType, TestType.TWO_SIDED),
+        difference_type=_parse_enum_config(
+            frequentist_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
+        ),
+    )
     method = FrequentistMethod(config)
 
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
@@ -225,17 +267,23 @@ def get_bayesian_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
+    stats_config: dict | None = None,
 ) -> ExperimentQueryResponse:
     """
     Get experiment results using the new Bayesian method with the new format
     """
-    # Configure Bayesian method
-    # TODO: Consider allowing user configuration of these parameters
+    bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
+
     config = BayesianConfig(
-        ci_level=0.95,
-        difference_type=DifferenceType.RELATIVE,  # Default to relative differences
-        inverse=False,  # Default to "higher is better"
-        proper_prior=False,  # Use non-informative prior by default
+        ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
+        difference_type=_parse_enum_config(
+            bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
+        ),
+        inverse=bayesian_config.get("inverse", False),
+        proper_prior=bayesian_config.get("proper_prior", False),
+        prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
+        prior_mean=bayesian_config.get("prior_mean", 0.0),
+        prior_variance=max(0.0, float(bayesian_config.get("prior_variance", 1.0))),
     )
     method = BayesianMethod(config)
 
