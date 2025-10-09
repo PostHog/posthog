@@ -7,15 +7,6 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
-# Import LLM analytics workflows - placed in posthog.temporal.ai since they share the MAX_AI_TASK_QUEUE
-from posthog.temporal.llm_analytics.run_evaluation import (
-    RunEvaluationWorkflow,
-    emit_evaluation_event_activity,
-    execute_llm_judge_activity,
-    fetch_evaluation_activity,
-    fetch_target_event_activity,
-)
-
 from .session_summary.summarize_session import (
     SummarizeSingleSessionStreamWorkflow,
     SummarizeSingleSessionWorkflow,
@@ -43,7 +34,6 @@ WORKFLOWS = [
     SummarizeSingleSessionWorkflow,
     SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
-    RunEvaluationWorkflow,
 ]
 
 ACTIVITIES = [
@@ -59,10 +49,6 @@ ACTIVITIES = [
     combine_patterns_from_chunks_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
     process_conversation_activity,
-    fetch_target_event_activity,
-    fetch_evaluation_activity,
-    execute_llm_judge_activity,
-    emit_evaluation_event_activity,
 ]
 
 __all__ = [

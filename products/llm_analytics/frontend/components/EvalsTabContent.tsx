@@ -21,7 +21,7 @@ function EvalsTabContentInner({ generationEventId }: { generationEventId: string
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
-    const { loadGenerationEvaluationRuns } = useActions(generationEvaluationRunsLogic)
+    const { refreshGenerationEvaluationRuns } = useActions(generationEvaluationRunsLogic)
     const { generationEvaluationRunsLoading } = useValues(generationEvaluationRunsLogic)
 
     const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null)
@@ -64,7 +64,7 @@ function EvalsTabContentInner({ generationEventId }: { generationEventId: string
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
-                    onClick={() => loadGenerationEvaluationRuns(generationEventId)}
+                    onClick={refreshGenerationEvaluationRuns}
                     loading={generationEvaluationRunsLoading}
                     size="small"
                 >
