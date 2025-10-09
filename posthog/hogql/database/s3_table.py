@@ -1,5 +1,7 @@
 import re
+from pathlib import PurePosixPath
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
@@ -12,6 +14,7 @@ from posthog.clickhouse.client.escape import substitute_params
 def build_function_call(
     url: str,
     format: str,
+    queryable_folder: Optional[str] = None,
     access_key: Optional[str] = None,
     access_secret: Optional[str] = None,
     structure: Optional[str] = None,
@@ -21,6 +24,16 @@ def build_function_call(
     use_s3_cluster = False
     if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
         use_s3_cluster = True
+
+    # If a table has a queryable url set, then use that directly
+    if queryable_folder and format == "DeltaS3Wrapper":
+        # Hack: Remove the last directory from the URL and add the queryable folder instead
+        # TODO(Gilbert09): Fix this plz
+        parsed = urlparse(url)
+        new_path = str(PurePosixPath(parsed.path).parent) + "/"
+        new_url = urlunparse(parsed._replace(path=new_path))
+        url = new_url + queryable_folder + "/**.parquet"
+        format = "Parquet"
 
     raw_params: dict[str, str] = {}
 
@@ -145,6 +158,7 @@ class S3Table(FunctionCallTable):
     requires_args: bool = False
     url: str
     format: str = "CSVWithNames"
+    queryable_folder: Optional[str] = None
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
     structure: Optional[str] = None
@@ -157,6 +171,7 @@ class S3Table(FunctionCallTable):
     def to_printed_clickhouse(self, context):
         return build_function_call(
             url=self.url,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=self.access_key,
             access_secret=self.access_secret,

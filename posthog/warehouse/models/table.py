@@ -105,6 +105,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     url_pattern = models.CharField(max_length=500)
+    queryable_folder = models.CharField(max_length=500, null=True, blank=True)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
@@ -168,6 +169,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format="Delta"  # Use deltaLake() to get table schema for evolved tables
             if self.format == "DeltaS3Wrapper"
             else self.format,
@@ -239,6 +241,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
@@ -260,6 +263,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
@@ -302,6 +306,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
@@ -383,6 +388,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=access_key,
             access_secret=access_secret,

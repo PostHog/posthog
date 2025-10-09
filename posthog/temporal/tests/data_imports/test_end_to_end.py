@@ -1,11 +1,13 @@
+import re
 import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 from django.conf import settings
@@ -273,6 +275,10 @@ async def _run(
         table: DataWarehouseTable | None = await sync_to_async(lambda: schema.table)()
         assert table is not None
         assert table.size_in_s3_mib is not None
+        assert table.queryable_folder is not None
+
+        query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
+        assert query_folder_pattern.match(table.queryable_folder)
 
     return workflow_id, inputs
 
@@ -756,33 +762,35 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe_client, minio_client):
-    workflow_id, inputs = await _run(
-        team=team,
-        schema_name="BalanceTransaction",
-        table_name="stripe_balancetransaction",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_balance_transaction["data"],
-    )
+    datetime_now = datetime.now(tz=ZoneInfo("UTC"))
+    with freeze_time(datetime_now):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="BalanceTransaction",
+            table_name="stripe_balancetransaction",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_balance_transaction["data"],
+        )
 
-    @sync_to_async
-    def get_jobs():
-        jobs = ExternalDataJob.objects.filter(
-            team_id=team.pk,
-            pipeline_id=inputs.external_data_source_id,
-        ).order_by("-created_at")
+        @sync_to_async
+        def get_jobs():
+            jobs = ExternalDataJob.objects.filter(
+                team_id=team.pk,
+                pipeline_id=inputs.external_data_source_id,
+            ).order_by("-created_at")
 
-        return list(jobs)
+            return list(jobs)
 
-    jobs = await get_jobs()
-    latest_job = jobs[0]
-    folder_path = await sync_to_async(latest_job.folder_path)()
+        jobs = await get_jobs()
+        latest_job = jobs[0]
+        folder_path = await sync_to_async(latest_job.folder_path)()
 
-    s3_objects = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
-    )
+        s3_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_now.timestamp())}/"
+        )
 
-    assert len(s3_objects["Contents"]) != 0
+        assert len(s3_objects["Contents"]) != 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2644,3 +2652,127 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
     synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert synced_schema.should_sync is False
     assert synced_schema.status == ExternalDataSchema.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_stripe_client, minio_client):
+    datetime_1 = datetime.now()
+    with freeze_time(datetime_1):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+            table_name="stripe_balancetransaction",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_balance_transaction["data"],
+        )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    folder_path = await sync_to_async(schema.folder_path)()
+
+    # Sync a second time 5 minutes later
+    datetime_2 = datetime_1 + timedelta(minutes=5)
+    with freeze_time(datetime_2):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - both sync folders should exist
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1["Contents"]) != 0
+    assert len(s3_objects_datetime_2["Contents"]) != 0
+
+    # Sync a third time 3 minutes later (still under 10 mins since the first sync)
+    datetime_3 = datetime_2 + timedelta(minutes=3)
+    with freeze_time(datetime_3):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - all 3 sync folders should exist
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    s3_objects_datetime_3 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1["Contents"]) != 0
+    assert len(s3_objects_datetime_2["Contents"]) != 0
+    assert len(s3_objects_datetime_3["Contents"]) != 0
+
+    # Sync a fourth time 5 minutes later (now over 10 mins since the first sync)
+    datetime_4 = datetime_3 + timedelta(minutes=5)
+    with freeze_time(datetime_4):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - this should delete the first sync folder but keep three others
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    s3_objects_datetime_3 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+    )
+
+    s3_objects_datetime_4 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1.get("Contents", [])) == 0  # first folder should be deleted
+    assert len(s3_objects_datetime_2["Contents"]) != 0
+    assert len(s3_objects_datetime_3["Contents"]) != 0
+    assert len(s3_objects_datetime_4["Contents"]) != 0
+
+    # Sync a fifth time 1 min later but with a reduced query file delete buffer
+    datetime_5 = datetime_4 + timedelta(minutes=1)
+    with freeze_time(datetime_5), mock.patch("posthog.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - this should delete all folders except the latest two
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    s3_objects_datetime_3 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+    )
+
+    s3_objects_datetime_4 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}/"
+    )
+
+    s3_objects_datetime_5 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_5.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1.get("Contents", [])) == 0
+    assert len(s3_objects_datetime_2.get("Contents", [])) == 0
+    assert len(s3_objects_datetime_3.get("Contents", [])) == 0
+    assert (
+        len(s3_objects_datetime_4["Contents"]) != 0  # we keep the most recent two folders if they're older than 10 mins
+    )
+    assert len(s3_objects_datetime_5["Contents"]) != 0  # this is the latest live queryable folder
+
+    # Make sure the old format query folder doesn't exist
+    s3_objects_old_format = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
+    )
+    assert len(s3_objects_old_format.get("Contents", [])) == 0
