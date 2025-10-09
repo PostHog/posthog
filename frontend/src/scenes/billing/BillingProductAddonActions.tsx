@@ -4,9 +4,10 @@ import { useMemo } from 'react'
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 
 import { BillingProductV2AddonType } from '~/types'
@@ -30,13 +31,23 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
+    const {
+        billing,
+        billingError,
+        switchPlanLoading,
+        timeTotalInSeconds,
+        timeRemainingInSeconds,
+        currentPlatformAddon,
+    } = useValues(billingLogic)
+    const { switchFlatrateSubscriptionPlan } = useActions(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
         trialLoading,
         isSubscribedToAnotherAddon,
         isDataPipelinesDeprecated,
+        isLowerTierThanCurrentAddon,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
@@ -53,6 +64,7 @@ export const BillingProductAddonActions = ({
         [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
     const isTrialEligible = !!addon.trial
+    const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
 
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
@@ -196,6 +208,68 @@ export const BillingProductAddonActions = ({
         return null
     }
 
+    const renderDowngradeActions = (): JSX.Element | null => {
+        if (!upgradePlan || !currentPlatformAddon) {
+            return null
+        }
+
+        return (
+            <More
+                overlay={
+                    <LemonButton
+                        fullWidth
+                        loading={switchPlanLoading === addon.type}
+                        // TODO: Show confirmation modal with AddonFeatureLossNotice
+                        onClick={() =>
+                            switchFlatrateSubscriptionPlan({
+                                from_product_key: String(currentPlatformAddon?.type),
+                                from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
+                                to_product_key: addon.type,
+                                to_plan_key: String(upgradePlan?.plan_key),
+                            })
+                        }
+                    >
+                        Downgrade
+                    </LemonButton>
+                }
+            />
+        )
+    }
+
+    const renderUpgradeActions = (): JSX.Element | null => {
+        if (!upgradePlan || !currentPlatformAddon) {
+            return null
+        }
+
+        const showPricing = upgradePlan.flat_rate
+
+        return (
+            <>
+                {showPricing && (
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                        {formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)}
+                    </h4>
+                )}
+
+                <LemonButton
+                    type="primary"
+                    loading={switchPlanLoading === addon.type}
+                    onClick={() =>
+                        switchFlatrateSubscriptionPlan({
+                            from_product_key: String(currentPlatformAddon?.type),
+                            from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
+                            to_product_key: addon.type,
+                            to_plan_key: String(upgradePlan?.plan_key),
+                        })
+                    }
+                >
+                    Upgrade
+                </LemonButton>
+            </>
+            // TODO: show prorated amount similar to renderPricingInfo
+        )
+    }
+
     let content
     if (addon.subscribed && !addon.inclusion_only) {
         content = renderSubscribedActions()
@@ -219,6 +293,10 @@ export const BillingProductAddonActions = ({
         // We don't allow multiple add-ons to be subscribed to at the same time so this checks if the customer is subscribed to another add-on
         // TODO: add support for when a customer has a Paid Plan trial
         content = renderPurchaseActions()
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
+        content = renderDowngradeActions()
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
+        content = renderUpgradeActions()
     }
 
     return (
