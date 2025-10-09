@@ -5,6 +5,7 @@ import { processResultsForSurveyQuestions, surveyLogic } from 'scenes/surveys/su
 
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     AnyPropertyFilter,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
@@ -72,6 +73,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 describe('set response-based survey branching', () => {
@@ -121,6 +123,7 @@ describe('set response-based survey branching', () => {
         targeting_flag_filters: undefined,
         responses_limit: null,
         schedule: SurveySchedule.Once,
+        user_access_level: AccessControlLevel.Editor,
     }
 
     describe('main', () => {

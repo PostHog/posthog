@@ -99,6 +99,7 @@ mod tests {
 
         let config = DeduplicationConfig {
             output_topic: Some("test-output".to_string()),
+            duplicate_events_topic: None,
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),

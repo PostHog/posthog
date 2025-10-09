@@ -107,7 +107,7 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               run: |
-                  mypy --version && mypy . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+                  mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
             - name: Check if "schema.py" is up to date
               shell: bash
