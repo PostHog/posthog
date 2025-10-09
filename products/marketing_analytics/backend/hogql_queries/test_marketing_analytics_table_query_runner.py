@@ -97,7 +97,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert date_range.date_to_str.startswith("2023-01-31")
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner.MarketingSourceFactory"
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.MarketingSourceFactory"
     )
     def test_get_marketing_source_adapters_success(self, mock_factory_class):
         mock_factory = Mock()
@@ -117,7 +117,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert adapters[1] == mock_adapter2
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner.MarketingSourceFactory"
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.MarketingSourceFactory"
     )
     def test_get_marketing_source_adapters_exception_handling(self, mock_factory_class):
         mock_factory = Mock()
