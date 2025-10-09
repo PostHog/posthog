@@ -184,6 +184,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         sync_execute("TRUNCATE TABLE person_distinct_id")
 
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
         self.expected_properties: dict = {}
 
@@ -967,8 +968,11 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
-    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(
+        event_properties=["$lib", "$exception_values", "$lib_version"], verify_no_jsonextract=False
+    )
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
@@ -989,7 +993,9 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(
+        event_properties=["$lib", "$exception_values", "$lib_version"], verify_no_jsonextract=False
+    )
     def test_usage_report_replay_with_zero_duration(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
 
@@ -1011,7 +1017,9 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].zero_duration_recording_count_in_period == 1
 
-    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(
+        event_properties=["$lib", "$exception_values", "$lib_version"], verify_no_jsonextract=False
+    )
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -1032,7 +1040,9 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(
+        event_properties=["$lib", "$exception_values", "$lib_version"], verify_no_jsonextract=False
+    )
     def test_usage_report_replay_with_billable_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -1087,7 +1097,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
 
 
 class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values", "$lib_version"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
@@ -1129,7 +1139,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
             assert report.query_api_rows_read == 0
             assert report.event_explorer_api_rows_read == 0
 
-    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values", "$lib_version"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_api_queries(self) -> None:
         for _ in range(0, 100):
@@ -1191,6 +1201,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @snapshot_clickhouse_queries
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -1424,6 +1435,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1560,6 +1572,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1946,6 +1959,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2132,6 +2146,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2186,6 +2201,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2277,6 +2293,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2419,6 +2436,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         flush_persons_and_events()
         TEST_clear_instance_license_cache()
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
@@ -2588,6 +2606,7 @@ class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -2605,6 +2624,7 @@ class TestSendUsageNoLicense(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -2701,6 +2721,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         flush_persons_and_events()
         TEST_clear_instance_license_cache()
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("ee.sqs.SQSProducer.get_sqs_producer")
@@ -2860,6 +2881,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
+        materialize("events", "$lib_version")
 
         # Clear existing Django data
         Team.objects.all().delete()
