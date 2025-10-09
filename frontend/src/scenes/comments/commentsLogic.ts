@@ -40,7 +40,7 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
+        actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
         values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
     })),
 
@@ -259,8 +259,12 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
         sendComposedContentSuccess: () => {
+            actions.scrollToLastComment()
             actions.incrementCommentCount()
             values.richContentEditor?.clear()
+        },
+        loadCommentsSuccess: () => {
+            actions.scrollToLastComment()
         },
     })),
 
