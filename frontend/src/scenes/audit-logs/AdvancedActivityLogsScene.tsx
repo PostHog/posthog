@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconActivity } from '@posthog/icons'
+import { IconNotification } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -50,7 +50,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                 description="Track all changes and activities in your organization with detailed filtering and export capabilities."
                 resourceType={{
                     type: 'team_activity',
-                    forceIcon: <IconActivity />,
+                    forceIcon: <IconNotification />,
                 }}
             />
             <SceneDivider />
