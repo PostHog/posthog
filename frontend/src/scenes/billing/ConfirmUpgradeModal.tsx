@@ -18,7 +18,7 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
     const isLoading = switchPlanLoading === product.type
 
     const targetPlan = currentAndUpgradePlans?.upgradePlan
-    const amountDue = Math.max(0, (proratedAmount || 0) - (unusedPlatformAddonAmount || 0))
+    const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
 
     const periodEnd = billing?.billing_period?.current_period_end
     const remainingPeriodFormatted = periodEnd

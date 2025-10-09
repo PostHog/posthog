@@ -23,9 +23,8 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
 
     const targetPlan = currentAndUpgradePlans?.upgradePlan
     const fullMonthlyPrice = parseFloat(String(targetPlan?.unit_amount_usd || '0'))
-    const credit = unusedPlatformAddonAmount || 0
-    const nextInvoiceEstimate = Math.max(0, fullMonthlyPrice + proratedAmount - credit)
-    const creditCoversNextInvoice = credit > proratedAmount + fullMonthlyPrice
+    const nextInvoiceEstimate = Math.max(0, fullMonthlyPrice + proratedAmount - unusedPlatformAddonAmount)
+    const creditCoversNextInvoice = unusedPlatformAddonAmount > proratedAmount + fullMonthlyPrice
 
     const periodEnd = billing?.billing_period?.current_period_end
     const remainingPeriodFormatted = periodEnd
@@ -40,7 +39,7 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
         {
             description: `Credit for unused time on ${currentPlatformAddon.name}`,
             dateRange: remainingPeriodFormatted,
-            amount: `-$${credit.toFixed(2)}`,
+            amount: `-$${unusedPlatformAddonAmount.toFixed(2)}`,
         },
         {
             description: `Remaining time on ${product.name}`,
@@ -111,7 +110,8 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
 
                 {creditCoversNextInvoice && (
                     <div className="mt-2 text-sm">
-                        Remaining credit ${Math.max(0, credit - proratedAmount - fullMonthlyPrice).toFixed(2)} will
+                        Remaining credit $
+                        {Math.max(0, unusedPlatformAddonAmount - proratedAmount - fullMonthlyPrice).toFixed(2)} will
                         apply to other usage-based charges or roll over to future invoices.{' '}
                         <Link
                             onClick={() => {
