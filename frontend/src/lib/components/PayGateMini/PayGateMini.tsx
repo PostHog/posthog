@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { PayGateButton } from './PayGateButton'
-import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
+import { GateVariantType, PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
@@ -214,7 +214,7 @@ function PayGateContent({
 const renderUsageLimitMessage = (
     featureAvailableOnOrg: BillingFeatureType | null | undefined,
     featureInfoOnNextPlan: BillingFeatureType | undefined,
-    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    gateVariant: GateVariantType,
     featureInfo: BillingFeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     isAddonProduct?: boolean,
@@ -274,7 +274,7 @@ const renderUsageLimitMessage = (
 }
 
 const renderGateVariantMessage = (
-    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+    gateVariant: GateVariantType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     isAddonProduct?: boolean
 ): JSX.Element => {
