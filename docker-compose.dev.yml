@@ -263,5 +263,3 @@ networks:
 
 volumes:
     redpanda-data:
-    persons-db:
-        driver: local
