@@ -512,3 +512,57 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(actionId=action.id)).calculate()
         self.assertEqual(len(response.results), 2)
         self.assertListEqual([item.property for item in response.results], ["ai", "dashboard"])
+
+    def test_property_taxonomy_handles_numeric_property_values_and_empty_string_values(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        # Numeric property value event
+        _create_event(
+            event="organization usage report",
+            distinct_id="person1",
+            properties={"organization_id": "org123", "zero_duration_recording_count_in_period": 0},
+            team=self.team,
+        )
+        _create_event(
+            event="organization usage report",
+            distinct_id="person1",
+            properties={"organization_id": "org456", "zero_duration_recording_count_in_period": 10},
+            team=self.team,
+        )
+        _create_event(
+            event="organization usage report",
+            distinct_id="person1",
+            properties={"organization_id": "org789", "zero_duration_recording_count_in_period": 100},
+            team=self.team,
+        )
+        # Empty string value for numeric property event
+        _create_event(
+            event="organization usage report",
+            distinct_id="person1",
+            properties={"organization_id": "org000", "zero_duration_recording_count_in_period": ""},
+            team=self.team,
+        )
+        # Missing numeric property event
+        _create_event(
+            event="organization usage report",
+            distinct_id="person1",
+            properties={"organization_id": "org999"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team,
+            query=EventTaxonomyQuery(
+                event="organization usage report", properties=["zero_duration_recording_count_in_period"]
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "zero_duration_recording_count_in_period")
+        self.assertEqual(response.results[0].sample_count, 3)
+        self.assertIn("0", response.results[0].sample_values)
+        self.assertIn("10", response.results[0].sample_values)
+        self.assertIn("100", response.results[0].sample_values)
