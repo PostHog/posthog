@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { PropertyType, SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
@@ -32,58 +34,24 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
     const {
         propertyGroupModalOpen,
         editingPropertyGroup,
-        modalFormName,
-        modalFormDescription,
-        modalFormProperties,
-        canSaveModalForm,
-        modalFormValidationIssues,
+        propertyGroupForm,
+        isPropertyGroupFormSubmitting,
+        propertyGroupFormValidationError,
     } = useValues(logic)
     const {
         setPropertyGroupModalOpen,
-        createPropertyGroup,
-        updatePropertyGroup,
-        setModalFormName,
-        setModalFormDescription,
-        addModalFormProperty,
-        updateModalFormProperty,
-        removeModalFormProperty,
-        resetModalForm,
+        addPropertyToForm,
+        updatePropertyInForm,
+        removePropertyFromForm,
+        submitPropertyGroupForm,
     } = useActions(logic)
-
-    const handleSave = async (): Promise<void> => {
-        const data = {
-            name: modalFormName,
-            description: modalFormDescription,
-            properties: modalFormProperties.map((p) => ({ ...p, name: p.name.trim() })),
-        }
-
-        if (editingPropertyGroup) {
-            await updatePropertyGroup({ id: editingPropertyGroup.id, data })
-        } else {
-            await createPropertyGroup(data)
-        }
-
-        handleClose()
-
-        await onAfterSave?.()
-    }
-
-    const getSaveButtonTooltip = (): JSX.Element | undefined => {
-        if (canSaveModalForm) {
-            return undefined
-        }
-        return (
-            <>
-                {modalFormValidationIssues.map((issue, i) => (
-                    <div key={i}>{issue}</div>
-                ))}
-            </>
-        )
-    }
 
     const handleClose = (): void => {
         setPropertyGroupModalOpen(false)
-        resetModalForm()
+    }
+
+    const handleAfterSubmit = async (): Promise<void> => {
+        await onAfterSave?.()
     }
 
     const columns: LemonTableColumns<SchemaPropertyGroupProperty> = [
@@ -93,9 +61,9 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonInput
                     value={property.name}
-                    onChange={(value) => updateModalFormProperty(index, { name: value })}
+                    onChange={(value) => updatePropertyInForm(index, { name: value })}
                     placeholder="Property name"
-                    status={property.name && !isValidPropertyName(property.name) ? 'danger' : undefined}
+                    status={!isValidPropertyName(property.name) ? 'danger' : undefined}
                     fullWidth
                 />
             ),
@@ -107,7 +75,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonSelect
                     value={property.property_type}
-                    onChange={(value) => updateModalFormProperty(index, { property_type: value as PropertyType })}
+                    onChange={(value) => updatePropertyInForm(index, { property_type: value as PropertyType })}
                     options={PROPERTY_TYPE_OPTIONS}
                     fullWidth
                 />
@@ -121,11 +89,11 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <div
                     className="flex justify-center items-center cursor-pointer h-full py-2 -my-2"
-                    onClick={() => updateModalFormProperty(index, { is_required: !property.is_required })}
+                    onClick={() => updatePropertyInForm(index, { is_required: !property.is_required })}
                 >
                     <LemonCheckbox
                         checked={property.is_required}
-                        onChange={(checked) => updateModalFormProperty(index, { is_required: checked })}
+                        onChange={(checked) => updatePropertyInForm(index, { is_required: checked })}
                     />
                 </div>
             ),
@@ -136,7 +104,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             render: (_, property, index) => (
                 <LemonInput
                     value={property.description}
-                    onChange={(value) => updateModalFormProperty(index, { description: value })}
+                    onChange={(value) => updatePropertyInForm(index, { description: value })}
                     placeholder="Optional description"
                     fullWidth
                 />
@@ -146,7 +114,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             key: 'actions',
             width: 50,
             render: (_, _property, index) => (
-                <LemonButton icon={<IconTrash />} size="small" onClick={() => removeModalFormProperty(index)} />
+                <LemonButton icon={<IconTrash />} size="small" onClick={() => removePropertyFromForm(index)} />
             ),
         },
     ]
@@ -157,60 +125,66 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             onClose={handleClose}
             title={editingPropertyGroup ? 'Edit Property Group' : 'New Property Group'}
             width={900}
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={handleClose}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSave}
-                        disabled={!canSaveModalForm}
-                        disabledReason={getSaveButtonTooltip()}
-                    >
-                        {editingPropertyGroup ? 'Update' : 'Create'}
-                    </LemonButton>
-                </>
-            }
         >
-            <div className="space-y-4">
-                <div>
-                    <label className="block mb-1 font-semibold">Name</label>
-                    <LemonInput
-                        value={modalFormName}
-                        onChange={setModalFormName}
-                        placeholder="e.g., Order, Product, User"
-                        autoFocus
-                    />
-                </div>
+            <Form
+                logic={schemaManagementLogic}
+                props={{ key: logicKey || 'default' }}
+                formKey="propertyGroupForm"
+                enableFormOnSubmit
+                className="space-y-4"
+            >
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="e.g., Order, Product, User" autoFocus />
+                </LemonField>
 
-                <div>
-                    <label className="block mb-1 font-semibold">Description</label>
-                    <LemonTextArea
-                        value={modalFormDescription}
-                        onChange={setModalFormDescription}
-                        placeholder="Describe what this property group represents"
-                        rows={2}
-                    />
-                </div>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea placeholder="Describe what this property group represents" rows={2} />
+                </LemonField>
 
                 <div className="border-t pt-4">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-base font-semibold mb-0">Properties</h3>
-                        <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={addModalFormProperty}>
+                        <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={addPropertyToForm}>
                             Add property
                         </LemonButton>
                     </div>
 
-                    {modalFormProperties.length > 0 ? (
-                        <LemonTable columns={columns} dataSource={modalFormProperties} pagination={undefined} />
+                    {propertyGroupForm.properties.length > 0 ? (
+                        <>
+                            <LemonTable
+                                columns={columns}
+                                dataSource={propertyGroupForm.properties}
+                                pagination={undefined}
+                            />
+                            {propertyGroupFormValidationError && (
+                                <div className="text-danger text-sm mt-2">{propertyGroupFormValidationError}</div>
+                            )}
+                        </>
                     ) : (
                         <div className="text-center text-muted py-6">
                             No properties yet. Click "Add property" to get started.
                         </div>
                     )}
                 </div>
-            </div>
+
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                    <LemonButton type="secondary" onClick={handleClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
+                        loading={isPropertyGroupFormSubmitting}
+                        disabledReason={propertyGroupFormValidationError || undefined}
+                        onClick={async () => {
+                            await submitPropertyGroupForm()
+                            await handleAfterSubmit()
+                        }}
+                    >
+                        {editingPropertyGroup ? 'Update' : 'Create'}
+                    </LemonButton>
+                </div>
+            </Form>
         </LemonModal>
     )
 }

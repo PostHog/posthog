@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -81,6 +82,12 @@ export interface SchemaManagementLogicProps {
     key?: string
 }
 
+export interface PropertyGroupFormType {
+    name: string
+    description: string
+    properties: SchemaPropertyGroupProperty[]
+}
+
 export const schemaManagementLogic = kea<schemaManagementLogicType>([
     path(['scenes', 'data-management', 'schema', 'schemaManagementLogic']),
     props({} as SchemaManagementLogicProps),
@@ -93,16 +100,9 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
         setPropertyGroupModalOpen: (open: boolean) => ({ open }),
         setEditingPropertyGroup: (propertyGroup: SchemaPropertyGroup | null) => ({ propertyGroup }),
         deletePropertyGroup: (id: string) => ({ id }),
-        setModalFormName: (name: string) => ({ name }),
-        setModalFormDescription: (description: string) => ({ description }),
-        setModalFormProperties: (properties: SchemaPropertyGroupProperty[]) => ({ properties }),
-        addModalFormProperty: true,
-        updateModalFormProperty: (index: number, updates: Partial<SchemaPropertyGroupProperty>) => ({
-            index,
-            updates,
-        }),
-        removeModalFormProperty: (index: number) => ({ index }),
-        resetModalForm: true,
+        addPropertyToForm: true,
+        updatePropertyInForm: (index: number, updates: Partial<SchemaPropertyGroupProperty>) => ({ index, updates }),
+        removePropertyFromForm: (index: number) => ({ index }),
     }),
     loaders(({ values }) => ({
         propertyGroups: [
@@ -137,6 +137,41 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
             },
         ],
     })),
+    forms(({ actions, values }) => ({
+        propertyGroupForm: {
+            options: { showErrorsOnTouch: true },
+            defaults: { name: '', description: '', properties: [] } as PropertyGroupFormType,
+            errors: ({ name }) => ({
+                name: !name?.trim() ? 'Property group name is required' : undefined,
+            }),
+            submit: async (formValues) => {
+                // Check for validation errors
+                const validationError = values.propertyGroupFormValidationError
+                if (validationError) {
+                    lemonToast.error(validationError)
+                    throw new Error(validationError)
+                }
+
+                const data = {
+                    name: formValues.name,
+                    description: formValues.description,
+                    properties: formValues.properties.map((p) => ({ ...p, name: p.name.trim() })),
+                }
+
+                try {
+                    if (values.editingPropertyGroup) {
+                        await actions.updatePropertyGroup({ id: values.editingPropertyGroup.id, data })
+                    } else {
+                        await actions.createPropertyGroup(data)
+                    }
+                    actions.setPropertyGroupModalOpen(false)
+                } catch (error) {
+                    // Error is already handled by the loaders
+                    throw error
+                }
+            },
+        },
+    })),
     reducers({
         searchTerm: [
             '',
@@ -157,45 +192,38 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 setPropertyGroupModalOpen: (state, { open }) => (open ? state : null),
             },
         ],
-        modalFormName: [
-            '',
+        propertyGroupForm: [
+            { name: '', description: '', properties: [] } as PropertyGroupFormType,
             {
-                setModalFormName: (_, { name }) => name,
-                setEditingPropertyGroup: (_, { propertyGroup }) => propertyGroup?.name || '',
-                resetModalForm: () => '',
-                setPropertyGroupModalOpen: (state, { open }) => (open ? state : ''),
-            },
-        ],
-        modalFormDescription: [
-            '',
-            {
-                setModalFormDescription: (_, { description }) => description,
-                setEditingPropertyGroup: (_, { propertyGroup }) => propertyGroup?.description || '',
-                resetModalForm: () => '',
-                setPropertyGroupModalOpen: (state, { open }) => (open ? state : ''),
-            },
-        ],
-        modalFormProperties: [
-            [] as SchemaPropertyGroupProperty[],
-            {
-                setModalFormProperties: (_, { properties }) => properties,
-                setEditingPropertyGroup: (_, { propertyGroup }) => propertyGroup?.properties || [],
-                addModalFormProperty: (state) => [
+                addPropertyToForm: (state) => ({
                     ...state,
-                    {
-                        id: `new-${Date.now()}`,
-                        name: '',
-                        property_type: 'String' as PropertyType,
-                        is_required: false,
-                        description: '',
-                        order: state.length,
-                    },
-                ],
-                updateModalFormProperty: (state, { index, updates }) =>
-                    state.map((prop, i) => (i === index ? { ...prop, ...updates } : prop)),
-                removeModalFormProperty: (state, { index }) => state.filter((_, i) => i !== index),
-                resetModalForm: () => [],
-                setPropertyGroupModalOpen: (state, { open }) => (open ? state : []),
+                    properties: [
+                        ...state.properties,
+                        {
+                            id: `new-${Date.now()}`,
+                            name: '',
+                            property_type: 'String' as PropertyType,
+                            is_required: false,
+                            description: '',
+                            order: state.properties.length,
+                        },
+                    ],
+                }),
+                updatePropertyInForm: (state, { index, updates }) => ({
+                    ...state,
+                    properties: state.properties.map((prop, i) => (i === index ? { ...prop, ...updates } : prop)),
+                }),
+                removePropertyFromForm: (state, { index }) => ({
+                    ...state,
+                    properties: state.properties.filter((_, i) => i !== index),
+                }),
+                setEditingPropertyGroup: (_, { propertyGroup }) => ({
+                    name: propertyGroup?.name || '',
+                    description: propertyGroup?.description || '',
+                    properties: propertyGroup?.properties || [],
+                }),
+                setPropertyGroupModalOpen: (state, { open }) =>
+                    open ? state : { name: '', description: '', properties: [] },
             },
         ],
     }),
@@ -215,30 +243,27 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 )
             },
         ],
-        modalFormValidationIssues: [
-            (s) => [s.modalFormName, s.modalFormProperties],
-            (modalFormName, modalFormProperties): string[] => {
-                const issues: string[] = []
-                if (!modalFormName.trim()) {
-                    issues.push('Property group name is required')
+        propertyGroupFormValidationError: [
+            (s) => [s.propertyGroupForm],
+            (form): string | null => {
+                if (form.properties.length === 0) {
+                    return null
                 }
-                const hasInvalidPropertyNames = modalFormProperties.some((prop) => {
-                    if (!prop.name || !prop.name.trim()) {
-                        return false
-                    }
-                    return !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prop.name.trim())
-                })
-                if (hasInvalidPropertyNames) {
-                    issues.push(
-                        'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
-                    )
+
+                const emptyProperties = form.properties.filter((prop) => !prop.name || !prop.name.trim())
+                if (emptyProperties.length > 0) {
+                    return 'All properties must have a name'
                 }
-                return issues
+
+                const invalidProperties = form.properties.filter(
+                    (prop) => prop.name && prop.name.trim() && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prop.name.trim())
+                )
+                if (invalidProperties.length > 0) {
+                    return 'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
+                }
+
+                return null
             },
-        ],
-        canSaveModalForm: [
-            (s) => [s.modalFormValidationIssues],
-            (modalFormValidationIssues): boolean => modalFormValidationIssues.length === 0,
         ],
     }),
     listeners(({ actions }) => ({
