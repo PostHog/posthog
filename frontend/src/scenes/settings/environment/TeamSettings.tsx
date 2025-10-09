@@ -14,7 +14,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner, userHasAccess } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -243,7 +244,11 @@ export function TeamTimezone(): JSX.Element {
 }
 
 export function TeamAuthorizedURLs(): JSX.Element {
-    const canEdit = userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+    // In Storybook, allow editing by default since we don't have full app context
+    const canEdit =
+        inStorybook() || inStorybookTestRunner()
+            ? true
+            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
     return (
         <>
