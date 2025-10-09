@@ -33,8 +33,8 @@ export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelPr
     )
 
     return (
-        <div className="space-y-6">
-            <div className="flex gap-4 mb-6">
+        <>
+            <div className="flex gap-4 mb-4">
                 <SelectableCard
                     title="Create new feature flag"
                     description="Generate a new feature flag with custom variants for this experiment."
@@ -71,6 +71,6 @@ export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelPr
                     closeSelectExistingFeatureFlagModal()
                 }}
             />
-        </div>
+        </>
     )
 }
