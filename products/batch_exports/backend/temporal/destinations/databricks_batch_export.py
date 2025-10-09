@@ -274,7 +274,7 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(
-                f"Failed to connect to Databricks. Please check that the server_hostname and http_path are valid."
+                "Failed to connect to Databricks. Please check that your connection details are valid."
             )
         except OperationalError as err:
             self.logger.info(
