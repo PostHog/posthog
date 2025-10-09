@@ -31,10 +31,9 @@ jobs:
                         - 'posthog/**/*'
                         - 'products/**/*.py'
                         # Make sure we run if someone is explicitly change the workflows
-                        # TEMPORARILY REMOVED TO TEST SKIP BEHAVIOR
-                        # - .github/workflows/ci-python.yml
-                        # - .github/workflows/ci-dagster.yml
-                        # - .github/workflows/ci-backend.yml
+                        - .github/workflows/ci-python.yml
+                        - .github/workflows/ci-dagster.yml
+                        - .github/workflows/ci-backend.yml
 
     code-quality:
         needs: changes
