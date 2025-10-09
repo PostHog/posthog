@@ -1,8 +1,8 @@
 import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { toast } from 'react-toastify'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmEvaluationExecutionLogicType } from './llmEvaluationExecutionLogicType'
@@ -28,10 +28,10 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                             target_event_id: targetEventId,
                         })
 
-                        toast.success('Evaluation started successfully')
+                        lemonToast.success('Evaluation started successfully')
                         return response
                     } catch (error) {
-                        toast.error('Failed to start evaluation')
+                        lemonToast.error('Failed to start evaluation')
                         throw error
                     }
                 },

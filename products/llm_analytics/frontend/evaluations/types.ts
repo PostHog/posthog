@@ -11,6 +11,7 @@ export interface EvaluationConfig {
     last_run_at?: string
     created_at: string
     updated_at: string
+    deleted?: boolean
 }
 
 export interface EvaluationConditionSet {
