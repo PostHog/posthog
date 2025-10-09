@@ -13,7 +13,14 @@ from django.conf import settings
 
 import pyarrow as pa
 from databricks import sql
+from databricks.sdk._base_client import _BaseClient
 from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sdk.oauth import (
+    OidcEndpoints,
+    get_account_endpoints,
+    get_azure_entra_id_workspace_endpoints,
+    get_workspace_endpoints,
+)
 from databricks.sql.client import Connection
 from databricks.sql.exc import OperationalError, ServerOperationError
 from databricks.sql.types import Row
@@ -129,6 +136,29 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     table_partition_field: str | None = None
 
 
+class DatabricksConfig(Config):
+    """Config for Databricks.
+
+    We need to override the oidc_endpoints method to use a custom client with a custom timeout since the default
+    implementation uses an unconfigurable timeout of 5 minutes. This means our code just hangs if the user provides
+    invalid connection parameters.
+
+    I have opened an issue with Databricks to make this timeout configurable:
+    https://github.com/databricks/databricks-sdk-py/issues/1046
+    """
+
+    @property
+    def oidc_endpoints(self) -> OidcEndpoints | None:
+        self._fix_host_if_needed()
+        if not self.host:
+            return None
+        if self.is_azure and self.azure_client_id:
+            return get_azure_entra_id_workspace_endpoints(self.host)
+        if self.is_account_client and self.account_id:
+            return get_account_endpoints(self.host, self.account_id)
+        return get_workspace_endpoints(self.host, client=_BaseClient(retry_timeout_seconds=5))
+
+
 class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
@@ -182,21 +212,10 @@ class DatabricksClient:
         return self._connection
 
     async def _connect(self):
-        """Establish a raw Databricks connection in a separate thread.
-
-        Note: The get_credential_provider can hang for up to 5 mins if an invalid host is provided. This is because the
-        Databricks SDK is using a default timeout of 5 minutes when fetching the oidc endpoints.
-
-        (We did try to override the timeout by subclassing the Config class, but it didn't work for some reason).
-
-        I have opened an issue with Databricks to make this timeout configurable:
-        https://github.com/databricks/databricks-sdk-py/issues/1046
-
-        In the meantime, we try to handle this the best we can by validating the hostname in the integration model.
-        """
+        """Establish a raw Databricks connection in a separate thread."""
 
         def get_credential_provider():
-            config = Config(
+            config = DatabricksConfig(
                 host=f"https://{self.server_hostname}",
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -234,7 +253,7 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(
-                "Failed to connect to Databricks. Please check that your connection details are valid."
+                f"Failed to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
         except OperationalError as err:
             self.logger.info(

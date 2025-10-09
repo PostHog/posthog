@@ -174,10 +174,10 @@ async def test_get_copy_into_table_from_volume_query():
     )
 
 
-async def test_connect_when_invalid_connection_details():
-    """Test that we raise an error when the connection details are invalid."""
+async def test_connect_when_invalid_host():
+    """Test that we raise an error when the host is invalid."""
     client = DatabricksClient(
-        server_hostname="databricks.com",
+        server_hostname="invalid",
         http_path="test",
         client_id="test",
         client_secret="test",
@@ -186,7 +186,7 @@ async def test_connect_when_invalid_connection_details():
     )
     with pytest.raises(
         DatabricksConnectionError,
-        match="Failed to connect to Databricks. Please check that your connection details are valid.",
+        match="Failed to connect to Databricks. Please check that the server_hostname and http_path are valid.",
     ):
         async with client.connect():
             pass

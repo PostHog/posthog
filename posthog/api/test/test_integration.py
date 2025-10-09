@@ -417,7 +417,7 @@ class TestDatabricksIntegration:
             {
                 "kind": "databricks",
                 "config": {
-                    "server_hostname": "my-account.cloud.databricks.com",
+                    "server_hostname": "databricks.com",
                     "client_id": "client_id",
                     "client_secret": "client_secret",
                 },
@@ -433,10 +433,10 @@ class TestDatabricksIntegration:
         integration = Integration.objects.get(id=id)
         assert integration.kind == "databricks"
         assert integration.team == self.team
-        assert integration.config == {"server_hostname": "my-account.cloud.databricks.com"}
+        assert integration.config == {"server_hostname": "databricks.com"}
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
         assert integration.created_by == self.user
-        assert integration.integration_id == "my-account.cloud.databricks.com"
+        assert integration.integration_id == "databricks.com"
 
     @pytest.mark.parametrize(
         "invalid_config,expected_error_message",

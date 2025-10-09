@@ -15,7 +15,6 @@ from django.db import models
 import jwt
 import requests
 import structlog
-import databricks.sdk.environments
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from prometheus_client import Counter
@@ -1847,25 +1846,13 @@ class DatabricksIntegration:
 
         This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
         warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
-        test here).
+        test here)
         """
         # we expect a hostname, not a full URL
         if server_hostname.startswith("http"):
             raise DatabricksIntegrationError(
                 f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
             )
-
-        # check if the hostname is a valid Databricks hostname
-        environment = None
-        for env in databricks.sdk.environments.ALL_ENVS:
-            if server_hostname.endswith(env.dns_zone):
-                environment = env
-                break
-        if environment is None:
-            raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: '{server_hostname}' is not a valid Databricks hostname"
-            )
-
         # TCP connectivity check
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
