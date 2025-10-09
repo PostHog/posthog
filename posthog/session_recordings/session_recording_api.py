@@ -343,6 +343,10 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         required=False, default=False, help_text="Whether to enable v2 blob functionality for LTS recordings"
     )
     blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
+    decompress = serializers.BooleanField(
+        default=True,
+        help_text="Whether to decompress blocks server-side (default: True for backward compatibility)",
+    )
 
     # v2
     start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
@@ -979,6 +983,7 @@ class SessionRecordingViewSet(
 
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
         is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
+        decompress: bool = validated_data.get("decompress", True)
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
@@ -1031,9 +1036,12 @@ class SessionRecordingViewSet(
                         timer,
                         min_blob_key=validated_data["min_blob_key"],
                         max_blob_key=validated_data["max_blob_key"],
+                        decompress=decompress,
                     )
                 elif "blob_key" in validated_data:
-                    response = self._stream_lts_blob_v2_to_client(blob_key=validated_data["blob_key"])
+                    response = self._stream_lts_blob_v2_to_client(
+                        blob_key=validated_data["blob_key"], decompress=decompress
+                    )
                 else:
                     response = self._gather_session_recording_sources(
                         recording, timer, is_v2_enabled, is_v2_lts_enabled
@@ -1338,6 +1346,7 @@ class SessionRecordingViewSet(
     async def _stream_lts_blob_v2_to_client_async(
         self,
         blob_key: str,
+        decompress: bool = True,
     ) -> HttpResponse:
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with (
@@ -1361,6 +1370,7 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
+        decompress: bool = True,
     ) -> HttpResponse:
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with (
@@ -1374,12 +1384,18 @@ class SessionRecordingViewSet(
             if max_blob_key >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
-            async def fetch_single_block_async(block_index: int) -> tuple[int, str | None]:
+            async def fetch_single_block_async(block_index: int) -> tuple[int, str | bytes | None]:
                 try:
                     block = blocks[block_index]
-                    content = await asyncio.to_thread(
-                        session_recording_v2_object_storage.client().fetch_block, block.url
-                    )
+                    content: str | bytes
+                    if decompress:
+                        content = await asyncio.to_thread(
+                            session_recording_v2_object_storage.client().fetch_block, block.url
+                        )
+                    else:
+                        content = await asyncio.to_thread(
+                            session_recording_v2_object_storage.client().fetch_block_bytes, block.url
+                        )
                     return block_index, content
                 except BlockFetchError:
                     logger.exception(
@@ -1398,23 +1414,32 @@ class SessionRecordingViewSet(
 
                 results = await asyncio.gather(*tasks)
 
-                decompressed_blocks: list[str | None] = [None] * len(results)
+                blocks_data: list[str | bytes | None] = [None] * len(results)
                 block_errors: list[int] = []
 
                 for block_index, content in results:
                     if content is None:
                         block_errors.append(block_index)
                     else:
-                        decompressed_blocks[block_index - min_blob_key] = content
+                        blocks_data[block_index - min_blob_key] = content
 
             if block_errors:
                 raise exceptions.APIException("Failed to load recording block")
 
-            # After error check, all values are guaranteed to be strings
-            response = HttpResponse(
-                content="\n".join(cast(list[str], decompressed_blocks)),
-                content_type="application/jsonl",
-            )
+            # After error check, all values are guaranteed to be strings or bytes
+            if decompress:
+                # Decompressed blocks are strings, join with newlines
+                response = HttpResponse(
+                    content="\n".join(cast(list[str], blocks_data)),
+                    content_type="application/jsonl",
+                )
+            else:
+                # Compressed blocks are bytes, concatenate without separators
+                response = HttpResponse(
+                    content=b"".join(cast(list[bytes], blocks_data)),
+                    content_type="application/octet-stream",
+                )
+                response["Content-Encoding"] = "snappy"
             response["Cache-Control"] = "max-age=3600"
             response["Content-Disposition"] = "inline"
             return response
@@ -1425,14 +1450,18 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
+        decompress: bool = True,
     ) -> HttpResponse:
-        return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
+        return asyncio.run(
+            self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key, decompress)
+        )
 
     def _stream_lts_blob_v2_to_client(
         self,
         blob_key: str,
+        decompress: bool = True,
     ) -> HttpResponse:
-        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key))
+        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key, decompress))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
