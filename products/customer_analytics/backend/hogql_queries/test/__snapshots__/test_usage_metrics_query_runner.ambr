@@ -30,14 +30,14 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_group_metric
   '''
-  SELECT '0199cb06-8b9c-7af5-9fec-31930093c84c' AS id,
+  SELECT '0199cb12-09ec-766a-a363-23ebbb49f9c2' AS id,
          'Test metric' AS name,
          'numeric' AS format,
          'number' AS display,
          7 AS interval,
          count() AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 22:10:28.062760', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event'))
+  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 22:23:01.308074', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event'))
   LIMIT 100
   UNION ALL
   SELECT '1d2b5e4e-c338-4de9-af6c-9671d639ce1e' AS id,
@@ -47,7 +47,7 @@
          30 AS interval,
          count() AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 22:10:28.065774', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event'))
+  WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 22:23:01.311599', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
