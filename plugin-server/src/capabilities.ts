@@ -21,7 +21,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
-                cdpCohortMembership: true,
                 cdpApi: true,
             }
 
@@ -36,7 +35,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
-                cdpCohortMembership: true,
                 cdpApi: true,
             }
 
@@ -86,10 +84,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_behavioural_events:
             return {
                 cdpBehaviouralEvents: true,
-            }
-        case PluginServerMode.cdp_cohort_membership:
-            return {
-                cdpCohortMembership: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {
