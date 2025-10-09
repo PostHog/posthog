@@ -10,7 +10,7 @@ use crate::{
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, js::RawJSFrame,
-        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
+        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame, java::RawJavaFrame
     },
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
