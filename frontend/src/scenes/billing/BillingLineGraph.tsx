@@ -79,7 +79,7 @@ function useBillingTooltip(): {
     useOnMountEffect(() => {
         return () => {
             if (tooltipRootRef.current) {
-                setTimeout(() => tooltipRootRef.current?.unmount(), 0)
+                tooltipRootRef.current.unmount()
             }
             tooltipElRef.current?.remove()
         }

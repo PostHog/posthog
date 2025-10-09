@@ -1857,7 +1857,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 2.0.16",
  "time",
  "uuid",
 ]
@@ -2467,6 +2466,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedding-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-types",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "posthog-rs",
+ "reqwest 0.12.15",
+ "serde",
+ "sqlx",
+ "tiktoken-rs",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "ena"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2538,31 +2562,6 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "et-embedding-worker"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.7.5",
- "common-alloc",
- "common-kafka",
- "common-metrics",
- "common-types",
- "envconfig",
- "futures",
- "health",
- "metrics",
- "posthog-rs",
- "reqwest 0.12.15",
- "serde",
- "sqlx",
- "tiktoken-rs",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -2706,7 +2705,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sqlx",
- "strum",
+ "strum 0.26.3",
  "test-case",
  "thiserror 2.0.16",
  "tokio",
@@ -4080,6 +4079,7 @@ dependencies = [
  "bytesize",
  "chrono",
  "common-alloc",
+ "common-kafka",
  "common-types",
  "dashmap 6.1.0",
  "envconfig",
@@ -4100,6 +4100,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serve-metrics",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
  "tempfile",
  "time",
  "tokio",
@@ -4285,7 +4287,7 @@ dependencies = [
  "governor",
  "metrics",
  "rand 0.8.5",
- "strum",
+ "strum 0.26.3",
  "tokio",
  "tracing",
 ]
@@ -7285,8 +7287,14 @@ version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.26.4",
 ]
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
 
 [[package]]
 name = "strum_macros"
@@ -7298,6 +7306,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
+ "syn 2.0.89",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
  "syn 2.0.89",
 ]
 

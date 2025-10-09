@@ -1,5 +1,3 @@
-import './NotebookScene.scss'
-
 import { useActions } from 'kea'
 import { useMemo } from 'react'
 
