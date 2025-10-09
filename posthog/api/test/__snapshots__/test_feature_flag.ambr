@@ -3739,8 +3739,7 @@
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
-  INNER JOIN "posthog_team" ON ("posthog_person"."team_id" = "posthog_team"."id")
-  WHERE "posthog_team"."project_id" = 99999
+  WHERE "posthog_person"."team_id" = 99999
   LIMIT 10
   '''
 # ---
@@ -3750,9 +3749,8 @@
           AND "posthog_group"."group_properties" ? 'email'
           AND NOT (("posthog_group"."group_properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_group"
-  INNER JOIN "posthog_team" ON ("posthog_group"."team_id" = "posthog_team"."id")
   WHERE ("posthog_group"."group_type_index" = 99999
-         AND "posthog_team"."project_id" = 99999)
+         AND "posthog_group"."team_id" = 99999)
   LIMIT 10
   '''
 # ---

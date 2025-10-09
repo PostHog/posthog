@@ -11,6 +11,10 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY
 
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from posthog.hogql import ast
@@ -382,4 +386,33 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ("lolol1:xxx", Decimal("225"), None),
                     ("lolol1:xxx2", Decimal("32.23"), None),
                 ],
+            )
+
+    # Basic regression test when grouping on events only
+    def test_basic_events(self):
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+            )
+        ]
+
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=now() - relativedelta(hours=1),
+            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(
+                results.results,
+                [(self.group0_id, Decimal("25042"), Decimal("25042"))],
             )
