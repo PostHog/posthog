@@ -25,7 +25,7 @@ export interface PayGateMiniLogicProps {
     currentUsage?: number
 }
 
-export type GateVariantType = 'add-card' | 'contact-sales' | 'move-to-cloud' | null
+export type GateVariantType = 'add-card' | 'contact-sales' | 'move-to-cloud' | 'purchase-platform-package' | null
 
 export const payGateMiniLogic = kea<payGateMiniLogicType>([
     props({} as PayGateMiniLogicProps),
@@ -144,10 +144,11 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 s.billingLoading,
                 s.hasAvailableFeature,
                 s.minimumPlanWithFeature,
+                s.billing,
                 (_, props) => props.feature,
                 (_, props) => props.currentUsage,
             ],
-            (billingLoading, hasAvailableFeature, minimumPlanWithFeature, feature, currentUsage) => {
+            (billingLoading, hasAvailableFeature, minimumPlanWithFeature, billing, feature, currentUsage) => {
                 if (hasAvailableFeature(feature, currentUsage)) {
                     return null
                 }
@@ -157,6 +158,10 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 if (values.isCloudOrDev) {
                     if (!minimumPlanWithFeature || minimumPlanWithFeature.contact_support) {
                         return 'contact-sales'
+                    }
+                    const isPaidOrg = billing?.subscription_level !== 'free'
+                    if (isPaidOrg) {
+                        return 'purchase-platform-package'
                     }
                     return 'add-card'
                 }
@@ -184,6 +189,8 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                     return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo?.name}`
                 } else if (gateVariant === 'move-to-cloud') {
                     return 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
+                } else if (gateVariant === 'purchase-platform-package') {
+                    return '/organization/billing?products=platform_and_support'
                 }
                 return undefined
             },
