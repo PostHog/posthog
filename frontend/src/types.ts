@@ -306,6 +306,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Survey = 'survey',
     Experiment = 'experiment',
 }
 
@@ -3181,7 +3182,7 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
-export interface Survey {
+export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
     name: string

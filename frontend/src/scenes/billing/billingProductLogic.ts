@@ -83,7 +83,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
+            [
+                'billing',
+                'isUnlicensedDebug',
+                'scrollToProductKey',
+                'unsubscribeError',
+                'currentPlatformAddon',
+                'platformAddons',
+            ],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -247,6 +254,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     }),
     selectors(({ values }) => ({
+        isLowerTierThanCurrentAddon: [
+            (s, p) => [p.product, s.currentPlatformAddon, s.platformAddons],
+            (product, currentPlatformAddon, platformAddons): boolean => {
+                if (!currentPlatformAddon || platformAddons.length === 0) {
+                    return false
+                }
+                const currentIdx = platformAddons.findIndex((a) => a.type === currentPlatformAddon.type)
+                const targetIdx = platformAddons.findIndex((a) => a.type === product.type)
+                if (currentIdx < 0 || targetIdx < 0) {
+                    return false
+                }
+                return targetIdx < currentIdx
+            },
+        ],
         isSubscribedToAnotherAddon: [
             (s, p) => [s.billing, p.product],
             (billing: BillingType, addon: BillingProductV2AddonType) => {

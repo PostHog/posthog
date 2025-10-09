@@ -23,6 +23,7 @@ import {
     BillingPeriod,
     BillingPlan,
     BillingPlanType,
+    BillingProductV2AddonType,
     BillingProductV2Type,
     BillingType,
     ProductKey,
@@ -64,6 +65,13 @@ export interface BillingError {
     status: 'info' | 'warning' | 'error'
     message: string
     action: LemonButtonPropsBase
+}
+
+export type SwitchPlanPayload = {
+    from_product_key: string
+    from_plan_key: string
+    to_product_key: string
+    to_plan_key: string
 }
 
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
@@ -162,6 +170,7 @@ export const billingLogic = kea<billingLogicType>([
         setComputedDiscount: (discount: number) => ({ discount }),
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
+        setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
     }),
     connect(() => ({
         values: [
@@ -280,6 +289,12 @@ export const billingLogic = kea<billingLogicType>([
                 setCreditBrackets: (_, { creditBrackets }) => creditBrackets || [],
             },
         ],
+        switchPlanLoading: [
+            null as string | null,
+            {
+                setSwitchPlanLoading: (_, { productKey }) => productKey,
+            },
+        ],
     }),
     lazyLoaders(({ actions, values }) => ({
         billing: [
@@ -372,6 +387,30 @@ export const billingLogic = kea<billingLogicType>([
                         console.error(error)
                         // This is a bit of a hack to prevent the page from re-rendering.
                         return values.billing
+                    }
+                },
+                switchFlatrateSubscriptionPlan: async (data: SwitchPlanPayload, breakpoint) => {
+                    try {
+                        await api.create('api/billing/subscription/switch-plan', data)
+
+                        const productDisplayName = capitalizeFirstLetter(data.to_product_key)
+                        lemonToast.success(`You're now on ${productDisplayName}`)
+
+                        // Reload billing, user, and organization to get the updated available features
+                        actions.loadBilling()
+                        await breakpoint(2000)
+                        actions.loadUser()
+                        actions.loadCurrentOrganization()
+
+                        return values.billing as BillingType
+                    } catch (error: any) {
+                        posthog.captureException(error)
+                        lemonToast.error(
+                            (error && error.detail) ||
+                                'There was an error switching your plan. Please try again or contact support.'
+                        )
+                        // Keep the current billing state on failure
+                        return values.billing as BillingType
                     }
                 },
             },
@@ -498,6 +537,24 @@ export const billingLogic = kea<billingLogicType>([
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
+            },
+        ],
+        platformAddons: [
+            (s) => [s.billing],
+            (billing: BillingType): BillingProductV2AddonType[] => {
+                const platformProduct = billing?.products?.find(
+                    (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return platformProduct?.addons ?? []
+            },
+        ],
+        currentPlatformAddon: [
+            (s) => [s.billing],
+            (billing: BillingType): BillingProductV2AddonType | null => {
+                const platformProduct = billing?.products?.find(
+                    (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
@@ -692,6 +749,15 @@ export const billingLogic = kea<billingLogicType>([
             if (isDismissed) {
                 posthog.capture('credits cta hero dismissed')
             }
+        },
+        switchFlatrateSubscriptionPlan: async (payload) => {
+            actions.setSwitchPlanLoading(payload.to_product_key)
+        },
+        switchFlatrateSubscriptionPlanSuccess: () => {
+            actions.setSwitchPlanLoading(null)
+        },
+        switchFlatrateSubscriptionPlanFailure: () => {
+            actions.setSwitchPlanLoading(null)
         },
         loadBillingSuccess: async (_, breakpoint) => {
             actions.registerInstrumentationProps()
