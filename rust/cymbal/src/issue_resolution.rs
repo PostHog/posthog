@@ -293,6 +293,7 @@ fn create_product_signal_event(issue: &Issue, timestamp: &DateTime<Utc>) -> Clic
         project_id: None,
         event: "$product_signal".to_string(),
         distinct_id: "team".to_string(),
+        properties: Some(properties_json),
         person_id: None,
         timestamp: timestamp_str,
         created_at: now_str,
