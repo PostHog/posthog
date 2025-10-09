@@ -52,6 +52,8 @@ jiff = "0.1"
 dateparser = "0.2"
 lz-str = { workspace = true }
 regex = { workspace = true }
+multer = "3.0"
+futures = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }

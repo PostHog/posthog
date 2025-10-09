@@ -12,6 +12,34 @@ from requests_toolbelt import MultipartEncoder
 logger = logging.getLogger(__name__)
 
 
+def assert_part_details(part, expected_name, expected_length, expected_content_type, expected_content_encoding=None):
+    """Assert comprehensive details about a multipart part."""
+    assert part["name"] == expected_name, f"Expected part name '{expected_name}', got '{part['name']}'"
+    assert part["length"] == expected_length, f"Expected part length {expected_length}, got {part['length']}"
+    assert (
+        part["content-type"] == expected_content_type
+    ), f"Expected content-type '{expected_content_type}', got '{part['content-type']}'"
+    assert (
+        part["content-encoding"] == expected_content_encoding
+    ), f"Expected content-encoding '{expected_content_encoding}', got '{part['content-encoding']}'"
+
+
+def assert_parts_order_and_details(response_data, expected_parts):
+    """Assert that parts are in the correct order and have correct details."""
+    assert "accepted_parts" in response_data, "Response should contain accepted_parts"
+    assert isinstance(response_data["accepted_parts"], list), "accepted_parts should be a list"
+
+    actual_parts = response_data["accepted_parts"]
+    assert len(actual_parts) == len(expected_parts), f"Expected {len(expected_parts)} parts, got {len(actual_parts)}"
+
+    for i, (actual_part, expected_part) in enumerate(zip(actual_parts, expected_parts)):
+        expected_name, expected_length, expected_content_type, expected_content_encoding = expected_part
+        assert_part_details(
+            actual_part, expected_name, expected_length, expected_content_type, expected_content_encoding
+        )
+        logger.debug(f"Part {i}: {actual_part['name']} - {actual_part['length']} bytes - {actual_part['content-type']}")
+
+
 @pytest.mark.requires_posthog
 @pytest.mark.usefixtures("shared_org_project")
 class TestLLMAnalytics:
@@ -185,6 +213,12 @@ class TestLLMAnalytics:
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        expected_parts = [("event", len(event_json), "application/json", None)]
+        assert_parts_order_and_details(response_data, expected_parts)
+
     def test_ai_endpoint_get_returns_405(self, shared_org_project):
         """Test that GET requests to /i/v0/ai endpoint return 405 Method Not Allowed."""
         client = shared_org_project["client"]
@@ -323,6 +357,21 @@ class TestLLMAnalytics:
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        input_json = json.dumps(input_blob)
+        output_json = json.dumps(output_blob)
+        metadata_json = json.dumps(metadata_blob)
+
+        expected_parts = [
+            ("event", len(event_json), "application/json", None),
+            ("event.properties.$ai_input", len(input_json), "application/json", None),
+            ("event.properties.$ai_output", len(output_json), "application/json", None),
+            ("event.properties.$ai_metadata", len(metadata_json), "application/json", None),
+        ]
+        assert_parts_order_and_details(response_data, expected_parts)
+
         # Verify event was processed
         event = client.wait_for_event(
             project_id=project_id, event_name="$ai_generation", distinct_id=event_data["distinct_id"], timeout=30
@@ -376,6 +425,21 @@ class TestLLMAnalytics:
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        json_blob = json.dumps({"type": "json"})
+        text_blob = "This is plain text content"
+        binary_blob = b"\x00\x01\x02\x03\x04\x05"
+
+        expected_parts = [
+            ("event", len(event_json), "application/json", None),
+            ("event.properties.$ai_json_blob", len(json_blob), "application/json", None),
+            ("event.properties.$ai_text_blob", len(text_blob), "text/plain", None),
+            ("event.properties.$ai_binary_blob", len(binary_blob), "application/octet-stream", None),
+        ]
+        assert_parts_order_and_details(response_data, expected_parts)
+
     def test_multipart_parsing_with_custom_boundary(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with custom boundary string."""
         logger.info("\n" + "=" * 60)
@@ -408,6 +472,17 @@ class TestLLMAnalytics:
 
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        data_json = json.dumps({"boundary": "custom"})
+
+        expected_parts = [
+            ("event", len(event_json), "application/json", None),
+            ("event.properties.$ai_data", len(data_json), "application/json", None),
+        ]
+        assert_parts_order_and_details(response_data, expected_parts)
 
     def test_multipart_parsing_with_large_blob(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with large blob data."""
@@ -442,6 +517,17 @@ class TestLLMAnalytics:
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        large_blob_json = json.dumps(large_blob)
+
+        expected_parts = [
+            ("event", len(event_json), "application/json", None),
+            ("event.properties.$ai_large_input", len(large_blob_json), "application/json", None),
+        ]
+        assert_parts_order_and_details(response_data, expected_parts)
+
     def test_multipart_parsing_with_empty_blob(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with empty blob part."""
         logger.info("\n" + "=" * 60)
@@ -472,6 +558,17 @@ class TestLLMAnalytics:
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        empty_content = ""  # Empty content
+
+        expected_parts = [
+            ("event", len(event_json), "application/json", None),
+            ("event.properties.$ai_empty", len(empty_content), "application/json", None),
+        ]
+        assert_parts_order_and_details(response_data, expected_parts)
+
     def test_multipart_parsing_blob_with_special_chars_in_name(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with special characters in blob names."""
         logger.info("\n" + "=" * 60)
@@ -501,3 +598,133 @@ class TestLLMAnalytics:
 
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        # Verify response includes all expected parts with exact details
+        response_data = response.json()
+        event_json = json.dumps(event_data)
+        special_json = json.dumps({"test": "special"})
+
+        expected_parts = [
+            ("event", len(event_json), "application/json", None),
+            ("event.properties.$ai_special", len(special_json), "application/json", None),
+        ]
+        assert_parts_order_and_details(response_data, expected_parts)
+
+    def test_multipart_malformed_boundary_returns_400(self, shared_org_project):
+        """Test Phase 1.3: Malformed multipart boundary returns 400 Bad Request."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Malformed multipart boundary")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-malformed-boundary"},
+        }
+
+        # Create multipart data with malformed boundary
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        # Use a malformed boundary (contains invalid characters)
+        malformed_boundary = "----InvalidBoundary\x00\x01\x02----"
+        multipart_data = MultipartEncoder(fields=fields, boundary=malformed_boundary)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for malformed boundary, got {response.status_code}"
+
+    def test_multipart_missing_boundary_returns_400(self, shared_org_project):
+        """Test Phase 1.3: Missing multipart boundary returns 400 Bad Request."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Missing multipart boundary")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-missing-boundary"},
+        }
+
+        # Create multipart data but manually set invalid Content-Type without boundary
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        # Override Content-Type to remove boundary parameter
+        headers = {
+            "Content-Type": "multipart/form-data",  # Missing boundary parameter
+            "Authorization": f"Bearer {project_api_key}",
+        }
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for missing boundary, got {response.status_code}"
+
+    def test_multipart_corrupted_boundary_returns_400(self, shared_org_project):
+        """Test Phase 1.3: Corrupted boundary in multipart data returns 400 Bad Request."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Corrupted boundary in multipart data")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-corrupted-boundary"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        # Create valid multipart data first
+        multipart_data = MultipartEncoder(fields=fields)
+
+        # Manually corrupt the boundary in the Content-Type header
+        corrupted_content_type = multipart_data.content_type.replace("boundary=", "boundary=corrupted")
+        headers = {"Content-Type": corrupted_content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for corrupted boundary, got {response.status_code}"
+
+    def test_multipart_event_not_first_returns_400(self, shared_org_project):
+        """Test Phase 1.3: Event part not being first returns 400 Bad Request."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Event part not first in multipart data")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-event-not-first"},
+        }
+
+        # Create multipart data with blob part first, then event part
+        # This should fail because event must be first
+        fields = {
+            "event.properties.$ai_input": (
+                "input.json",
+                json.dumps({"messages": [{"role": "user", "content": "test"}]}),
+                "application/json",
+            ),
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for event not being first, got {response.status_code}"

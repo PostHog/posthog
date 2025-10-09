@@ -1463,6 +1463,7 @@ dependencies = [
  "lz-str",
  "metrics",
  "metrics-exporter-prometheus",
+ "multer",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
@@ -4632,6 +4633,23 @@ dependencies = [
  "tagptr",
  "thiserror 1.0.69",
  "uuid",
+]
+
+[[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.1.0",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.9.8",
+ "version_check",
 ]
 
 [[package]]
