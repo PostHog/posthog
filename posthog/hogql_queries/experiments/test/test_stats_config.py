@@ -1,13 +1,22 @@
+from typing import cast
+
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType, ExperimentStatsBase
+from posthog.schema import (
+    EventsNode,
+    ExperimentMeanMetric,
+    ExperimentMetricMathType,
+    ExperimentStatsBase,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
+)
 
 from posthog.hogql_queries.experiments.utils import get_bayesian_experiment_result, get_frequentist_experiment_result
 
 
-class TestStatsConfig(APIBaseTest):
+class TestStatsConfig(APIBaseTest):  # type: ignore[misc]
     def create_mean_metric(self) -> ExperimentMeanMetric:
         return ExperimentMeanMetric(
             source=EventsNode(
@@ -31,7 +40,7 @@ class TestStatsConfig(APIBaseTest):
             ("frequentist_key_empty", {"frequentist": {}}),
         ]
     )
-    def test_frequentist_defaults(self, _name, stats_config):
+    def test_frequentist_defaults(self, _name, stats_config):  # type: ignore[no-untyped-def]
         # Smoke test, validate it's not blowing up if we don't send the config
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
@@ -44,12 +53,14 @@ class TestStatsConfig(APIBaseTest):
             stats_config=stats_config,
         )
 
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.baseline)
         self.assertEqual(result.baseline.key, "control")
+        self.assertIsNotNone(result.variant_results)
         self.assertEqual(len(result.variant_results), 1)
 
-        self.assertIsNotNone(result.variant_results[0].confidence_interval)
-        self.assertEqual(len(result.variant_results[0].confidence_interval), 2)
+        variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
+        self.assertIsNotNone(variant.confidence_interval)
+        self.assertEqual(len(variant.confidence_interval), 2)
 
     @parameterized.expand(
         [
@@ -58,7 +69,7 @@ class TestStatsConfig(APIBaseTest):
             ("bayesian_key_empty", {"bayesian": {}}),
         ]
     )
-    def test_bayesian_defaults(self, _name, stats_config):
+    def test_bayesian_defaults(self, _name, stats_config):  # type: ignore[no-untyped-def]
         # Smoke test, validate it's not blowing up if we don't send the config
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
@@ -71,13 +82,15 @@ class TestStatsConfig(APIBaseTest):
             stats_config=stats_config,
         )
 
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.baseline)
         self.assertEqual(result.baseline.key, "control")
+        self.assertIsNotNone(result.variant_results)
         self.assertEqual(len(result.variant_results), 1)
 
-        self.assertIsNotNone(result.variant_results[0].credible_interval)
-        self.assertEqual(len(result.variant_results[0].credible_interval), 2)
-        self.assertIsNotNone(result.variant_results[0].chance_to_win)
+        variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
+        self.assertIsNotNone(variant.credible_interval)
+        self.assertEqual(len(variant.credible_interval), 2)
+        self.assertIsNotNone(variant.chance_to_win)
 
     @parameterized.expand(
         [
@@ -86,7 +99,7 @@ class TestStatsConfig(APIBaseTest):
             ("numeric_difference_type", {"difference_type": 123}),
         ]
     )
-    def test_frequentist_invalid_enum_values_fallback_to_defaults(self, _name, config):
+    def test_frequentist_invalid_enum_values_fallback_to_defaults(self, _name, config):  # type: ignore[no-untyped-def]
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
         test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
@@ -98,7 +111,7 @@ class TestStatsConfig(APIBaseTest):
             stats_config={"frequentist": config},
         )
 
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.variant_results)
         self.assertEqual(len(result.variant_results), 1)
 
     @parameterized.expand(
@@ -107,7 +120,7 @@ class TestStatsConfig(APIBaseTest):
             ("numeric_difference_type", {"difference_type": 123}),
         ]
     )
-    def test_bayesian_invalid_enum_values_fallback_to_defaults(self, _name, config):
+    def test_bayesian_invalid_enum_values_fallback_to_defaults(self, _name, config):  # type: ignore[no-untyped-def]
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
         test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
@@ -119,10 +132,10 @@ class TestStatsConfig(APIBaseTest):
             stats_config={"bayesian": config},
         )
 
-        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.variant_results)
         self.assertEqual(len(result.variant_results), 1)
 
-    def test_bayesian_ci_level_actually_affects_interval_width(self):
+    def test_bayesian_ci_level_actually_affects_interval_width(self) -> None:
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000)
         test = self.create_variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)
@@ -141,15 +154,21 @@ class TestStatsConfig(APIBaseTest):
             stats_config={"bayesian": {"ci_level": 0.99}},
         )
 
-        ci_90 = result_90.variant_results[0].credible_interval
-        ci_99 = result_99.variant_results[0].credible_interval
+        self.assertIsNotNone(result_90.variant_results)
+        self.assertIsNotNone(result_99.variant_results)
 
-        width_90 = ci_90[1] - ci_90[0]
-        width_99 = ci_99[1] - ci_99[0]
+        variant_90 = cast(ExperimentVariantResultBayesian, result_90.variant_results[0])
+        variant_99 = cast(ExperimentVariantResultBayesian, result_99.variant_results[0])
+
+        self.assertIsNotNone(variant_90.credible_interval)
+        self.assertIsNotNone(variant_99.credible_interval)
+
+        width_90 = variant_90.credible_interval[1] - variant_90.credible_interval[0]
+        width_99 = variant_99.credible_interval[1] - variant_99.credible_interval[0]
 
         self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
 
-    def test_numeric_validation_alpha_out_of_range_uses_default(self):
+    def test_numeric_validation_alpha_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
         test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
@@ -168,15 +187,19 @@ class TestStatsConfig(APIBaseTest):
             stats_config={"frequentist": {"alpha": -0.5}},
         )
 
-        self.assertIsNotNone(result_high)
-        self.assertIsNotNone(result_negative)
+        self.assertIsNotNone(result_high.variant_results)
+        self.assertIsNotNone(result_negative.variant_results)
 
-        ci_high = result_high.variant_results[0].confidence_interval
-        ci_negative = result_negative.variant_results[0].confidence_interval
-        self.assertEqual(ci_high[0], ci_negative[0])
-        self.assertEqual(ci_high[1], ci_negative[1])
+        variant_high = cast(ExperimentVariantResultFrequentist, result_high.variant_results[0])
+        variant_negative = cast(ExperimentVariantResultFrequentist, result_negative.variant_results[0])
 
-    def test_numeric_validation_ci_level_out_of_range_uses_default(self):
+        self.assertIsNotNone(variant_high.confidence_interval)
+        self.assertIsNotNone(variant_negative.confidence_interval)
+
+        self.assertEqual(variant_high.confidence_interval[0], variant_negative.confidence_interval[0])
+        self.assertEqual(variant_high.confidence_interval[1], variant_negative.confidence_interval[1])
+
+    def test_numeric_validation_ci_level_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()
         control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
         test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
@@ -188,5 +211,6 @@ class TestStatsConfig(APIBaseTest):
             stats_config={"bayesian": {"ci_level": 1.5}},
         )
 
-        self.assertIsNotNone(result)
-        self.assertIsNotNone(result.variant_results[0].credible_interval)
+        self.assertIsNotNone(result.variant_results)
+        variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
+        self.assertIsNotNone(variant.credible_interval)

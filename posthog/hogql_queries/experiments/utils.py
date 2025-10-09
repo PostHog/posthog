@@ -283,7 +283,7 @@ def get_bayesian_experiment_result(
         proper_prior=bayesian_config.get("proper_prior", False),
         prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
         prior_mean=bayesian_config.get("prior_mean", 0.0),
-        prior_variance=max(0.0, float(bayesian_config.get("prior_variance", 1.0))),
+        prior_variance=_validate_numeric_range(bayesian_config.get("prior_variance", 1.0), 0.0, float("inf"), 1.0),
     )
     method = BayesianMethod(config)
 
