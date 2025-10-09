@@ -2,49 +2,70 @@ use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
+use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::router::State as AppState;
+use crate::token::validate_token;
 
 pub async fn ai_handler(
     State(_state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
-) -> impl IntoResponse {
-    // Log all headers
-    info!("Received request to /ai endpoint");
-    info!("Headers:");
-    for (name, value) in headers.iter() {
-        if let Ok(v) = value.to_str() {
-            info!("  {}: {}", name, v);
-        } else {
-            warn!("  {}: <binary data>", name);
-        }
+) -> Result<CaptureResponse, CaptureError> {
+    debug!("Received request to /i/v0/ai endpoint");
+
+    // Check for empty body
+    if body.is_empty() {
+        warn!("AI endpoint received empty body");
+        return Err(CaptureError::EmptyPayload);
     }
 
-    // Log body size
-    info!("Body size: {} bytes", body.len());
+    // Check content type - must be multipart/form-data
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
 
-    // Try to log body as string if possible, otherwise log first 1000 bytes as hex
-    if let Ok(body_str) = std::str::from_utf8(&body) {
-        info!("Body (as string):\n{}", body_str);
-    } else {
-        let preview_len = std::cmp::min(1000, body.len());
-        let hex_preview: String = body[..preview_len]
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<Vec<_>>()
-            .join(" ");
-        info!("Body (hex preview, first {} bytes):\n{}", preview_len, hex_preview);
-        if body.len() > preview_len {
-            info!("... {} more bytes", body.len() - preview_len);
-        }
+    if !content_type.starts_with("multipart/form-data") {
+        warn!("AI endpoint received non-multipart content type: {}", content_type);
+        return Err(CaptureError::RequestDecodingError(
+            "Content-Type must be multipart/form-data".to_string(),
+        ));
     }
 
-    // Return 200 OK
-    StatusCode::OK
+    // Check for authentication
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !auth_header.starts_with("Bearer ") {
+        warn!("AI endpoint missing or invalid Authorization header");
+        return Err(CaptureError::NoTokenError);
+    }
+
+    // Extract and validate token
+    let token = &auth_header[7..]; // Remove "Bearer " prefix
+    validate_token(token)?;
+
+    // Log request details for debugging
+    debug!("AI endpoint request validated successfully");
+    debug!("Body size: {} bytes", body.len());
+    debug!("Content-Type: {}", content_type);
+    debug!("Token: {}...", &token[..std::cmp::min(8, token.len())]);
+
+    // TODO: Parse multipart data and process AI events
+    // For now, just return success
+    Ok(CaptureResponse {
+        status: CaptureResponseCode::Ok,
+        quota_limited: None,
+    })
 }
 
-pub async fn options() -> impl IntoResponse {
-    StatusCode::OK
+pub async fn options() -> Result<CaptureResponse, CaptureError> {
+    Ok(CaptureResponse {
+        status: CaptureResponseCode::Ok,
+        quota_limited: None,
+    })
 }

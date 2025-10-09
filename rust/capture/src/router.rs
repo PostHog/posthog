@@ -255,12 +255,12 @@ pub fn router<
 
     let ai_router = Router::new()
         .route(
-            "/ai",
+            "/i/v0/ai",
             post(ai_endpoint::ai_handler)
                 .options(ai_endpoint::options),
         )
         .route(
-            "/ai/",
+            "/i/v0/ai/",
             post(ai_endpoint::ai_handler)
                 .options(ai_endpoint::options),
         )

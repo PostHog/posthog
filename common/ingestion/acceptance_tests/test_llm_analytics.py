@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 class TestLLMAnalytics:
     """Test LLM Analytics capture flow with multipart requests and S3 storage."""
 
-    @pytest.mark.parallel_group("llma")
     def test_basic_ai_generation_event(self, shared_org_project):
         """Test that we can capture an $ai_generation event with blob data via multipart request."""
         logger.info("\n" + "=" * 60)
@@ -92,10 +91,10 @@ class TestLLMAnalytics:
 
         multipart_data = MultipartEncoder(fields=fields, boundary=boundary)
 
-        # Step 4: Send multipart request to /ai endpoint
-        logger.info("Step 4: Sending multipart request to /ai endpoint")
+        # Step 4: Send multipart request to /i/v0/ai endpoint
+        logger.info("Step 4: Sending multipart request to /i/v0/ai endpoint")
 
-        capture_url = f"{client.base_url}/ai"
+        capture_url = f"{client.base_url}/i/v0/ai"
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
         logger.debug("POST %s", capture_url)
@@ -161,11 +160,10 @@ class TestLLMAnalytics:
         logger.info("Test completed successfully")
         logger.info("=" * 60)
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_returns_200_for_valid_request(self, shared_org_project):
-        """Test that /ai endpoint returns 200 for valid multipart request."""
+        """Test that /i/v0/ai endpoint returns 200 for valid multipart request."""
         logger.info("\n" + "=" * 60)
-        logger.info("TEST: /ai endpoint returns 200 for valid request")
+        logger.info("TEST: /i/v0/ai endpoint returns 200 for valid request")
         logger.info("=" * 60)
 
         client = shared_org_project["client"]
@@ -184,39 +182,35 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_get_returns_405(self, shared_org_project):
-        """Test that GET requests to /ai endpoint return 405 Method Not Allowed."""
+        """Test that GET requests to /i/v0/ai endpoint return 405 Method Not Allowed."""
         client = shared_org_project["client"]
         project_api_key = shared_org_project["api_key"]
 
-        response = requests.get(f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project_api_key}"})
+        response = requests.get(f"{client.base_url}/i/v0/ai", headers={"Authorization": f"Bearer {project_api_key}"})
         assert response.status_code == 405, f"Expected 405, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_put_returns_405(self, shared_org_project):
-        """Test that PUT requests to /ai endpoint return 405 Method Not Allowed."""
+        """Test that PUT requests to /i/v0/ai endpoint return 405 Method Not Allowed."""
         client = shared_org_project["client"]
         project_api_key = shared_org_project["api_key"]
 
         response = requests.put(
-            f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project_api_key}"}, data="test"
+            f"{client.base_url}/i/v0/ai", headers={"Authorization": f"Bearer {project_api_key}"}, data="test"
         )
         assert response.status_code == 405, f"Expected 405, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_delete_returns_405(self, shared_org_project):
-        """Test that DELETE requests to /ai endpoint return 405 Method Not Allowed."""
+        """Test that DELETE requests to /i/v0/ai endpoint return 405 Method Not Allowed."""
         client = shared_org_project["client"]
         project_api_key = shared_org_project["api_key"]
 
-        response = requests.delete(f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project_api_key}"})
+        response = requests.delete(f"{client.base_url}/i/v0/ai", headers={"Authorization": f"Bearer {project_api_key}"})
         assert response.status_code == 405, f"Expected 405, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_no_auth_returns_401(self, function_test_client):
         """Test that requests without authentication return 401 Unauthorized."""
         client = function_test_client
@@ -233,11 +227,10 @@ class TestLLMAnalytics:
 
         multipart_data = MultipartEncoder(fields=fields)
         response = requests.post(
-            f"{client.base_url}/ai", data=multipart_data, headers={"Content-Type": multipart_data.content_type}
+            f"{client.base_url}/i/v0/ai", data=multipart_data, headers={"Content-Type": multipart_data.content_type}
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_invalid_auth_returns_401(self, function_test_client):
         """Test that requests with invalid API key return 401 Unauthorized."""
         client = function_test_client
@@ -254,13 +247,12 @@ class TestLLMAnalytics:
 
         multipart_data = MultipartEncoder(fields=fields)
         response = requests.post(
-            f"{client.base_url}/ai",
+            f"{client.base_url}/i/v0/ai",
             data=multipart_data,
             headers={"Content-Type": multipart_data.content_type, "Authorization": "Bearer invalid_key_123"},
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_wrong_content_type_returns_400(self, shared_org_project):
         """Test that non-multipart content type returns 400 Bad Request."""
         client = shared_org_project["client"]
@@ -273,20 +265,18 @@ class TestLLMAnalytics:
         }
 
         response = requests.post(
-            f"{client.base_url}/ai", json=event_data, headers={"Authorization": f"Bearer {project_api_key}"}
+            f"{client.base_url}/i/v0/ai", json=event_data, headers={"Authorization": f"Bearer {project_api_key}"}
         )
         assert response.status_code == 400, f"Expected 400, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_ai_endpoint_empty_body_returns_400(self, shared_org_project):
         """Test that empty body returns 400 Bad Request."""
         client = shared_org_project["client"]
         project_api_key = shared_org_project["api_key"]
 
-        response = requests.post(f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project_api_key}"})
+        response = requests.post(f"{client.base_url}/i/v0/ai", headers={"Authorization": f"Bearer {project_api_key}"})
         assert response.status_code == 400, f"Expected 400, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_multipart_parsing_with_multiple_blobs(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with multiple blob parts."""
         logger.info("\n" + "=" * 60)
@@ -330,7 +320,7 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
         # Verify event was processed
@@ -346,7 +336,6 @@ class TestLLMAnalytics:
         assert "$ai_output" in props and props["$ai_output"].startswith("s3://")
         assert "$ai_metadata" in props and props["$ai_metadata"].startswith("s3://")
 
-    @pytest.mark.parallel_group("llma")
     def test_multipart_parsing_with_mixed_content_types(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with mixed content types."""
         logger.info("\n" + "=" * 60)
@@ -384,10 +373,9 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_multipart_parsing_with_custom_boundary(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with custom boundary string."""
         logger.info("\n" + "=" * 60)
@@ -418,10 +406,9 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields, boundary=custom_boundary)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_multipart_parsing_with_large_blob(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with large blob data."""
         logger.info("\n" + "=" * 60)
@@ -452,10 +439,9 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_multipart_parsing_with_empty_blob(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with empty blob part."""
         logger.info("\n" + "=" * 60)
@@ -483,10 +469,9 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
-    @pytest.mark.parallel_group("llma")
     def test_multipart_parsing_blob_with_special_chars_in_name(self, shared_org_project):
         """Test Phase 1.2: Multipart parsing with special characters in blob names."""
         logger.info("\n" + "=" * 60)
@@ -514,5 +499,5 @@ class TestLLMAnalytics:
         multipart_data = MultipartEncoder(fields=fields)
         headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
 
-        response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
