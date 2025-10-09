@@ -38,7 +38,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -572,7 +572,7 @@
 # name: test_create_table_query[app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -603,8 +603,8 @@
 # name: test_create_table_query[app_metrics2_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER 'posthog'
-  TO posthog_test.sharded_app_metrics2
+  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv
+  TO writable_app_metrics2
   AS SELECT
   team_id,
   timestamp,
@@ -613,8 +613,11 @@
   instance_id,
   metric_kind,
   metric_name,
-  count
-  FROM posthog_test.kafka_app_metrics2
+  count,
+  _timestamp,
+  _offset,
+  _partition
+  FROM kafka_app_metrics2
   
   '''
 # ---
@@ -648,7 +651,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
-  TO posthog_test.sharded_app_metrics
+  TO writable_app_metrics
   AS SELECT
   team_id,
   timestamp,
@@ -660,8 +663,11 @@
   failures,
   error_uuid,
   error_type,
-  error_details
-  FROM posthog_test.kafka_app_metrics
+  error_details,
+  _timestamp,
+  _offset,
+  _partition
+  FROM kafka_app_metrics
   
   '''
 # ---
@@ -1232,7 +1238,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
-  TO posthog_test.ingestion_warnings
+  TO posthog_test.writable_ingestion_warnings
   AS SELECT
   team_id,
   source,
@@ -1249,7 +1255,7 @@
 # name: test_create_table_query[kafka_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -3375,7 +3381,7 @@
 # name: test_create_table_query[sharded_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -5672,7 +5678,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
