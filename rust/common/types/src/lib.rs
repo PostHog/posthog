@@ -1,5 +1,6 @@
 mod embeddings;
 mod event;
+mod formats;
 mod group;
 mod person;
 mod team;
@@ -38,4 +39,10 @@ pub mod embedding {
     pub use crate::embeddings::EmbeddingModel;
     pub use crate::embeddings::EmbeddingRecord;
     pub use crate::embeddings::EmbeddingRequest;
+}
+
+pub mod format {
+    pub use crate::formats::format_ch_datetime;
+    pub use crate::formats::parse_datetime_assuming_utc;
+    pub use crate::formats::CH_FORMAT;
 }

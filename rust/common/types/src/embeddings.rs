@@ -24,7 +24,7 @@ pub struct EmbeddingRecord {
     pub model_name: EmbeddingModel,
     pub rendering: String,
     pub document_id: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: String, // This is clickhouse format
     pub embedding: Vec<f64>,
 }
 

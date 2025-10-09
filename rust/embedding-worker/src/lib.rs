@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
-use common_types::embedding::{EmbeddingModel, EmbeddingRecord, EmbeddingRequest};
+use common_types::{
+    embedding::{EmbeddingModel, EmbeddingRecord, EmbeddingRequest},
+    format::format_ch_datetime,
+};
 use metrics::counter;
 use reqwest::{Client, Method, Request, RequestBuilder};
 use tracing::error;
@@ -88,7 +91,7 @@ pub async fn generate_embedding(
         model_name: model,
         rendering: request.rendering.to_string(),
         document_id: request.document_id.to_string(),
-        timestamp: request.timestamp,
+        timestamp: format_ch_datetime(request.timestamp),
         embedding,
     })
 }
