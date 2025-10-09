@@ -53,9 +53,21 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 
 # Temporal metrics for temporal workers
+def get_metric_meter():
+    """Get metric meter for the current context (activity or workflow)."""
+    from temporalio import workflow
+
+    if activity.in_activity():
+        return activity.metric_meter()
+    elif workflow.in_workflow():
+        return workflow.metric_meter()
+    else:
+        raise RuntimeError("Not within workflow or activity context")
+
+
 def get_asset_generation_duration_metric(execution_path: str):
     return (
-        activity.metric_meter()
+        get_metric_meter()
         .with_additional_attributes({"execution_path": execution_path})
         .create_histogram_timedelta(
             "subscription_asset_generation_duration",
@@ -66,7 +78,7 @@ def get_asset_generation_duration_metric(execution_path: str):
 
 def get_asset_generation_timeout_metric(execution_path: str):
     return (
-        activity.metric_meter()
+        get_metric_meter()
         .with_additional_attributes({"execution_path": execution_path})
         .create_counter(
             "subscription_asset_generation_timeout",
