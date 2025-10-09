@@ -69,9 +69,26 @@ class ProductSignal:
     @staticmethod
     def create(
         team_token: str,
-        signal: "ProductSignal",
         distinct_id: str,
+        signal_type: ProductSignalType,
+        severity: ProductSignalSeverity,
+        title: str,
+        source: Product,
+        description: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        timestamp: Optional[datetime] = None,
     ) -> None:
+        signal = ProductSignal(
+            signal_type=signal_type,
+            severity=severity,
+            title=title,
+            source=source,
+            distinct_id=distinct_id,
+            description=description,
+            metadata=metadata or {},
+            timestamp=timestamp,
+        )
+
         timestamp = signal.timestamp or datetime.now()
 
         try:

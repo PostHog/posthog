@@ -71,19 +71,14 @@ class TestProductSignal(BaseTest):
     def test_create_signal_success(self, mock_capture_internal):
         mock_capture_internal.return_value = None
 
-        signal = ProductSignal(
+        ProductSignal.create(
+            team_token="test_token",
+            distinct_id="team_123",
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.HIGH,
             title="Test Signal",
-            description="Test description",
             source=Product.ERROR_TRACKING,
-            distinct_id="team_123",
-        )
-
-        ProductSignal.create(
-            team_token="test_token",
-            signal=signal,
-            distinct_id="team_123",
+            description="Test description",
         )
 
         mock_capture_internal.assert_called_once()
@@ -103,19 +98,15 @@ class TestProductSignal(BaseTest):
         mock_capture_internal.return_value = None
 
         custom_timestamp = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        signal = ProductSignal(
+
+        ProductSignal.create(
+            team_token="test_token",
+            distinct_id="team_456",
             signal_type=ProductSignalType.FUNNEL_CONVERSION_RATE_CHANGE,
             severity=ProductSignalSeverity.MEDIUM,
             title="Funnel Drop",
             source=Product.PRODUCT_ANALYTICS,
-            distinct_id="team_456",
             timestamp=custom_timestamp,
-        )
-
-        ProductSignal.create(
-            team_token="test_token",
-            signal=signal,
-            distinct_id="team_456",
         )
 
         call_kwargs = mock_capture_internal.call_args.kwargs
@@ -125,22 +116,17 @@ class TestProductSignal(BaseTest):
     def test_create_signal_with_metadata(self, mock_capture_internal):
         mock_capture_internal.return_value = None
 
-        signal = ProductSignal(
+        ProductSignal.create(
+            team_token="test_token",
+            distinct_id="team_789",
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.CRITICAL,
             title="Critical Bug",
             source=Product.ERROR_TRACKING,
-            distinct_id="team_789",
             metadata={
                 "error_count": 42,
                 "first_seen": "2024-01-01T00:00:00Z",
             },
-        )
-
-        ProductSignal.create(
-            team_token="test_token",
-            signal=signal,
-            distinct_id="team_789",
         )
 
         call_kwargs = mock_capture_internal.call_args.kwargs
@@ -152,18 +138,13 @@ class TestProductSignal(BaseTest):
     def test_create_signal_captures_exception_on_error(self, mock_capture_internal, mock_capture_exception):
         mock_capture_internal.side_effect = Exception("Capture failed")
 
-        signal = ProductSignal(
+        ProductSignal.create(
+            team_token="test_token",
+            distinct_id="team_123",
             signal_type=ProductSignalType.NEW_ISSUE,
             severity=ProductSignalSeverity.HIGH,
             title="Test Signal",
             source=Product.ERROR_TRACKING,
-            distinct_id="team_123",
-        )
-
-        ProductSignal.create(
-            team_token="test_token",
-            signal=signal,
-            distinct_id="team_123",
         )
 
         mock_capture_exception.assert_called_once()
