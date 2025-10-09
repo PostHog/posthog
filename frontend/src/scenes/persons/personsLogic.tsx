@@ -165,7 +165,7 @@ export const personsLogic = kea<personsLogicType>([
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
                     const response = await hogqlQuery(
-                        hogql`select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT person_id, distinct_id FROM (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id, argMax(pdi2.is_deleted, pdi2.version) AS is_deleted FROM raw_person_distinct_ids as pdi2 WHERE person_id = {id} AND ifNull(equals(is_deleted, 0), 0)) GROUP BY pdi2.distinct_id) WHERE person_id = {id} AND ifNull(equals(is_deleted, 0), 0)) as pdi2 ON pdi2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at`,
+                        hogql`select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at FROM persons LEFT JOIN (SELECT person_id, distinct_id FROM (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id, argMax(pdi2.is_deleted, pdi2.version) AS is_deleted FROM raw_person_distinct_ids AS pdi2 WHERE person_id = {id} AND ifNull(equals(is_deleted, 0), 0) GROUP BY pdi2.distinct_id) WHERE person_id = {id} AND ifNull(equals(is_deleted, 0), 0)) AS pdi2 ON pdi2.person_id=persons.id WHERE id = {id} GROUP BY id, properties, is_identified, created_at`,
                         { id: uuid },
                         'blocking'
                     )
