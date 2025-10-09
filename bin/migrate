@@ -21,7 +21,7 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
 fi
 
 # Run behavioral cohorts migrations
-bash $SCRIPT_DIR/../plugin-server/bin/migrate-behavioral-cohorts.sh
+bash $SCRIPT_DIR/migrate-behavioral-cohorts.sh
 if [ $? -ne 0 ]; then
     echo "Error in migrate-behavioral-cohorts.sh, exiting."
     exit 1
