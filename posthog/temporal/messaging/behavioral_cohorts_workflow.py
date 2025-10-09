@@ -272,6 +272,10 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         workload=Workload.OFFLINE,
                     )
 
+                # Send heartbeat every 1000 conditions to prevent timeout
+                if idx % 1000 == 0:
+                    temporalio.activity.heartbeat()
+
             except Exception as e:
                 logger.exception(
                     "Error processing condition in batch",
