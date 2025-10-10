@@ -450,7 +450,7 @@ class RedshiftQueryStreamTransformer:
         redshift_table: str,
         redshift_schema: str | None,
         table_columns: collections.abc.Sequence[str],
-        known_json_columns: collections.abc.Sequence[str],
+        known_json_columns: collections.abc.Iterable[str],
         use_super: bool,
         redshift_client,
     ):

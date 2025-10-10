@@ -1,18 +1,18 @@
-import aioboto3
 import io
 import json
 import typing
 import asyncio
 import datetime as dt
+import posixpath
 import contextlib
 import dataclasses
 import collections.abc
-import posixpath
 
 from django.conf import settings
 
 import psycopg
 import pyarrow as pa
+import aioboto3
 from psycopg import sql
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -209,26 +209,40 @@ class RedshiftClient(PostgreSQLClient):
             delete_extra_conditions=delete_extra_conditions,
         )
 
-        select_stage_table_fields = sql.SQL(
-            ",".join(
-                f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_json else field[0]
-                for field in final_table_fields
+        if stage_fields_cast_to_json:
+            select_stage_table_fields = sql.SQL(
+                ",".join(
+                    f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_json else field[0]
+                    for field in final_table_fields
+                )
             )
-        )
 
-        merge_query = sql.SQL(
-            """\
-        MERGE INTO {final_table}
-        USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
-        ON {merge_condition}
-        REMOVE DUPLICATES
-        """
-        ).format(
-            final_table=final_table_identifier,
-            select_stage_table_fields=select_stage_table_fields,
-            stage_table=stage_table_identifier,
-            merge_condition=merge_condition,
-        )
+            merge_query = sql.SQL(
+                """\
+            MERGE INTO {final_table}
+            USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
+            ON {merge_condition}
+            REMOVE DUPLICATES
+            """
+            ).format(
+                final_table=final_table_identifier,
+                select_stage_table_fields=select_stage_table_fields,
+                stage_table=stage_table_identifier,
+                merge_condition=merge_condition,
+            )
+        else:
+            merge_query = sql.SQL(
+                """\
+            MERGE INTO {final_table}
+            USING {stage_table} AS stage
+            ON {merge_condition}
+            REMOVE DUPLICATES
+            """
+            ).format(
+                final_table=final_table_identifier,
+                stage_table=stage_table_identifier,
+                merge_condition=merge_condition,
+            )
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
@@ -306,7 +320,7 @@ def redshift_default_fields() -> list[BatchExportField]:
 
 
 def get_redshift_fields_from_record_schema(
-    record_schema: pa.Schema, known_super_columns: list[str], use_super: bool
+    record_schema: pa.Schema, known_super_columns: collections.abc.Container[str], use_super: bool
 ) -> Fields:
     """Generate a list of supported Redshift fields from PyArrow schema.
 
@@ -758,7 +772,7 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
 class TableSchemas(typing.NamedTuple):
     table_schema: Fields
     stage_table_schema: Fields
-    super_columns: collections.abc.Sequence[str]
+    super_columns: set[str]
 
 
 def _get_table_schemas(
@@ -1017,6 +1031,14 @@ async def upload_manifest_file(
     files_uploaded: list[str],
     manifest_key: str,
 ):
+    """Upload manifest file used by Redshift COPY.
+
+    The manifest file Redshift uses is slightly different to the manifest file that our
+    `ConcurrentS3Consumer` produces: The top level key is `"entries"` and each entry has
+    a `"meta"` key with the `"content_length"` of each file. The content length is a
+    requirement when using Parquet. Since we don't track exactly the size of bytes of
+    each Parquet file produced, this function gets it from S3 instead.
+    """
     session = aioboto3.Session()
     async with session.client(
         "s3",
@@ -1027,6 +1049,7 @@ async def upload_manifest_file(
         entries = []
 
         async def populate_entry(f: str):
+            """Obtain size for file `f` and construct entry dictionary."""
             nonlocal entries
 
             response = await client.list_objects_v2(Bucket=bucket, Prefix=f)
@@ -1044,7 +1067,7 @@ async def upload_manifest_file(
 
         manifest = {"entries": entries}
 
-        resp = await client.put_object(
+        await client.put_object(
             Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps(manifest),
@@ -1225,7 +1248,8 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
                     files_uploaded=consumer.files_uploaded,
                     aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
-                    manifest_key=manifest_key,
+                    # manifest_key is always str, but posixpath.relpath can return both str and bytes.
+                    manifest_key=manifest_key if isinstance(manifest_key, str) else manifest_key.decode("utf-8"),
                 )
 
                 external_logger.info(f"Copying file/s {len(consumer.files_uploaded)} into Redshift")
@@ -1249,7 +1273,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     stage_fields_cast_to_json=json_columns,
                 )
 
-                external_logger.info("Finished copying file/s {len(consumer.files_uploaded)} into Redshift")
+                external_logger.info(f"Finished copying file/s {len(consumer.files_uploaded)} into Redshift")
 
         return result
 
