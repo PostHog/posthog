@@ -1,6 +1,7 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { disposables } from '../../../../kea-disposables'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
 
@@ -92,6 +93,7 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
+    disposables(),
     connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
@@ -141,30 +143,29 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
 
     listeners(({ actions, cache }) => ({
         loadStatusPageSuccess: () => {
-            clearTimeout(cache.timeout)
-            cache.timeout = setTimeout(() => actions.loadStatusPage(), REFRESH_INTERVAL)
+            cache.disposables.dispose('refreshTimeout')
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.loadStatusPage(), REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'refreshTimeout')
         },
         setPageVisibility: ({ visible }) => {
-            if (visible && !cache.timeout) {
+            if (visible) {
                 actions.loadStatusPage()
             } else {
-                clearTimeout(cache.timeout)
-                cache.timeout = null
+                cache.disposables.dispose('refreshTimeout')
             }
         },
     })),
 
     afterMount(({ actions, cache }) => {
         actions.loadStatusPage()
-        cache.onVisibilityChange = () => {
-            actions.setPageVisibility(document.visibilityState === 'visible')
-        }
-        document.addEventListener('visibilitychange', cache.onVisibilityChange)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.timeout)
-        cache.timeout = null
-        document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        cache.disposables.add(() => {
+            const onVisibilityChange = (): void => {
+                actions.setPageVisibility(document.visibilityState === 'visible')
+            }
+            document.addEventListener('visibilitychange', onVisibilityChange)
+            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+        }, 'visibilityListener')
     }),
 ])

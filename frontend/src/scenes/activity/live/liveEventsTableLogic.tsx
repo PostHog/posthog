@@ -9,6 +9,7 @@ import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { disposables } from '~/kea-disposables'
 import { Breadcrumb, LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
@@ -23,6 +24,7 @@ export interface LiveEventsTableProps {
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     tabAwareScene(),
+    disposables(),
     props({} as LiveEventsTableProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
@@ -210,9 +212,13 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             } finally {
-                cache.statsTimer = setTimeout(() => {
-                    actions.pollStats()
-                }, 1500)
+                cache.disposables.dispose('statsTimer')
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.pollStats()
+                    }, 1500)
+                    return () => clearTimeout(timerId)
+                }, 'statsTimer')
             }
         },
         addEvents: ({ events }) => {
@@ -235,9 +241,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         beforeUnmount: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
-            }
-            if (cache.statsTimer) {
-                clearTimeout(cache.statsTimer)
             }
         },
     })),

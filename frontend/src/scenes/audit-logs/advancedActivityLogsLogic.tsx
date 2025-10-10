@@ -10,6 +10,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs, objectClean } from 'lib/utils'
 
+import { disposables } from '~/kea-disposables'
 import { ActivityScope } from '~/types'
 
 import { userLogic } from '../userLogic'
@@ -83,6 +84,7 @@ const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_f
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
+    disposables(),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     })),
@@ -331,17 +333,16 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             if (tab === 'exports') {
                 // Start polling when switching to exports tab
                 actions.loadExports()
-                if (!cache.exportPollingInterval) {
-                    cache.exportPollingInterval = setInterval(() => {
+                cache.disposables.dispose('exportPollingInterval')
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
                         actions.loadExports()
                     }, 5000)
-                }
+                    return () => clearInterval(intervalId)
+                }, 'exportPollingInterval')
             } else {
                 // Stop polling when switching away from exports tab
-                if (cache.exportPollingInterval) {
-                    clearInterval(cache.exportPollingInterval)
-                    cache.exportPollingInterval = null
-                }
+                cache.disposables.dispose('exportPollingInterval')
             }
         },
 
@@ -546,16 +547,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
     })),
 
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadAvailableFilters()
             actions.loadAdvancedActivityLogs({})
-        },
-        beforeUnmount: () => {
-            if (cache.exportPollingInterval) {
-                clearInterval(cache.exportPollingInterval)
-                cache.exportPollingInterval = null
-            }
         },
     })),
 ])

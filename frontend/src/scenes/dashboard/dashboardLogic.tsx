@@ -38,6 +38,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { disposables } from '~/kea-disposables'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -139,6 +140,7 @@ export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layou
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
+    disposables(),
     connect(() => ({
         values: [
             teamLogic,
@@ -1259,7 +1261,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, cache, props, values }) => ({
+    events(({ actions, props, values }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
@@ -1288,10 +1290,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         beforeUnmount: () => {
             actions.abortAnyRunningQuery()
-            if (cache.autoRefreshInterval) {
-                window.clearInterval(cache.autoRefreshInterval)
-                cache.autoRefreshInterval = null
-            }
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -1675,10 +1673,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.resetInterval()
         },
         resetInterval: () => {
-            if (cache.autoRefreshInterval) {
-                window.clearInterval(cache.autoRefreshInterval)
-                cache.autoRefreshInterval = null
-            }
+            cache.disposables.dispose('autoRefreshInterval')
 
             if (values.autoRefresh.enabled) {
                 // Refresh right now after enabling if we haven't refreshed recently
@@ -1692,12 +1687,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         forceRefresh: true,
                     })
                 }
-                cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Refresh,
-                        forceRefresh: true,
-                    })
-                }, values.autoRefresh.interval * 1000)
+                cache.disposables.add(() => {
+                    const intervalId = window.setInterval(() => {
+                        actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    }, values.autoRefresh.interval * 1000)
+                    return () => clearInterval(intervalId)
+                }, 'autoRefreshInterval')
             }
         },
         loadDashboardSuccess: [

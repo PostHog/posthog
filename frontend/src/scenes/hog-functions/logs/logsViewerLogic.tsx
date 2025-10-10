@@ -542,7 +542,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         actions.loadLogs()
     }),
     beforeUnmount(({ cache }) => {
-        clearInterval(cache.pollingTimeout)
+        clearTimeout(cache.pollingTimeout)
     }),
     actionToUrl(({ values }) => {
         const syncProperties = (

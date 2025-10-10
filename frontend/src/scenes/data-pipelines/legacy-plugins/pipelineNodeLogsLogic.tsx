@@ -8,6 +8,7 @@ import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { disposables } from '~/kea-disposables'
 import api from '~/lib/api'
 import { LogEntry, LogEntryLevel, LogEntryRequestParams } from '~/types'
 
@@ -64,6 +65,7 @@ export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     props({} as PipelineNodeLogsLogicProps),
     key(({ id }) => id),
+    disposables(),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect(() => ({
         values: [teamLogic(), ['currentTeamId']],
@@ -97,9 +99,10 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                     }
 
-                    if (!cache.pollingInterval) {
-                        cache.pollingInterval = setInterval(actions.pollBackgroundLogs, 5000)
-                    }
+                    cache.disposables.add(() => {
+                        const intervalId = setInterval(actions.pollBackgroundLogs, 5000)
+                        return () => clearInterval(intervalId)
+                    }, 'pollingInterval')
                     actions.clearBackgroundLogs()
                     return results
                 },

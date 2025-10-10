@@ -250,6 +250,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         beforeUnmount: () => {
             clearTimeout(cache.savedQueriesRefreshTimeout)
+            clearTimeout(cache.dataModelingJobsRefreshTimeout)
         },
     })),
 ])

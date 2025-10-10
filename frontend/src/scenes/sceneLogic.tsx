@@ -1,18 +1,6 @@
 import { arrayMove } from '@dnd-kit/sortable'
 import equal from 'fast-deep-equal'
-import {
-    BuiltLogic,
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -49,6 +37,7 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { disposables } from '~/kea-disposables'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
 
@@ -122,6 +111,7 @@ export const sceneLogic = kea<sceneLogicType>([
         }
     ),
     path(['scenes', 'sceneLogic']),
+    disposables(),
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
         actions: [
@@ -1064,27 +1054,27 @@ export const sceneLogic = kea<sceneLogicType>([
         },
     })),
     afterMount(({ actions, cache, values }) => {
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-                const element = event.target as HTMLElement
-                if (element?.closest('.NotebookEditor')) {
-                    return
-                }
-
-                event.preventDefault()
-                event.stopPropagation()
-                if (event.shiftKey) {
-                    if (values.activeTab) {
-                        actions.removeTab(values.activeTab)
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                    const element = event.target as HTMLElement
+                    if (element?.closest('.NotebookEditor')) {
+                        return
                     }
-                } else {
-                    actions.newTab()
+
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (event.shiftKey) {
+                        if (values.activeTab) {
+                            actions.removeTab(values.activeTab)
+                        }
+                    } else {
+                        actions.newTab()
+                    }
                 }
             }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
-    }),
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        }, 'keydownListener')
     }),
 ])

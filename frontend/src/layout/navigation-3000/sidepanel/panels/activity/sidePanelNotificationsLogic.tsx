@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog, { JsonRecord } from 'posthog-js'
 
@@ -12,6 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 
+import { disposables } from '../../../../../kea-disposables'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
@@ -36,6 +37,7 @@ export interface ChangelogFlagPayload {
 
 export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>([
     path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
+    disposables(),
     connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
@@ -63,7 +65,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
                     await breakpoint(1)
 
-                    clearTimeout(cache.pollTimeout)
+                    cache.disposables.dispose('pollTimeout')
 
                     try {
                         const response = await api.get<ChangesResponse>(
@@ -84,7 +86,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             ? POLL_TIMEOUT * values.errorCounter
                             : POLL_TIMEOUT
 
-                        cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                        cache.disposables.add(() => {
+                            const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                            return () => clearTimeout(timerId)
+                        }, 'pollTimeout')
                     }
                 },
                 markAllAsRead: async () => {
@@ -121,7 +126,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             if (pageIsVisible) {
                 actions.loadImportantChanges()
             } else {
-                clearTimeout(cache.pollTimeout)
+                cache.disposables.dispose('pollTimeout')
             }
         },
     })),
@@ -193,13 +198,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
     afterMount(({ cache, actions }) => {
-        cache.onVisibilityChange = () => {
-            actions.togglePolling(document.visibilityState === 'visible')
-        }
-        document.addEventListener('visibilitychange', cache.onVisibilityChange)
-    }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.pollTimeout)
-        document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        cache.disposables.add(() => {
+            const onVisibilityChange = (): void => {
+                actions.togglePolling(document.visibilityState === 'visible')
+            }
+            document.addEventListener('visibilitychange', onVisibilityChange)
+            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+        }, 'visibilityListener')
     }),
 ])
