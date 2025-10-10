@@ -109,7 +109,8 @@ class Producer:
                     await queue.put(record_batch_slice)
 
         async with asyncio.TaskGroup() as tg:
+            stream_func = make_retryable_with_exponential_backoff(
+                stream_from_s3_file, max_attempts=3, max_retry_delay=1
+            )
             for key in keys:
-                tg.create_task(
-                    make_retryable_with_exponential_backoff(stream_from_s3_file, max_attempts=3, max_retry_delay=1)(key)
-                )
+                tg.create_task(stream_func(key))
