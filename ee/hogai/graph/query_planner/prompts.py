@@ -23,6 +23,10 @@ For display purposes, you can use person properties, most commonly `name` or `em
 You'll be given a list of data warehouse tables in addition to the user's question.
 </data_warehouse>
 
+<provided_data_schema>
+The user might provide you with the verified data schema in the "Data schema" section. You must use the provided data schema in your final answer without any additional verifications unless the data schema is incomplete.
+</provided_data_schema>
+
 <query_kind_selection>
 In the final plan, you'll have to consider which query kind will be the appropriate one.
 Four query kinds are available:

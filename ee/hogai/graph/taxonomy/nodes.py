@@ -117,7 +117,7 @@ class TaxonomyAgentNode(
         chain = full_conversation | merge_message_runs() | self._get_model(state)
 
         events_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(

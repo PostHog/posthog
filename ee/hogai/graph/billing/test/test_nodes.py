@@ -33,7 +33,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         self.state = AssistantState(messages=[], root_tool_call_id=self.tool_call_id)
 
     def test_run_with_no_billing_context(self):
-        with patch.object(self.node, "_get_billing_context", return_value=None):
+        with patch.object(self.node.context_manager, "get_billing_context", return_value=None):
             result = self.node.run(self.state, {})
             self.assertEqual(len(result.messages), 1)
             message = result.messages[0]
@@ -50,7 +50,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             products=[],
         )
         with (
-            patch.object(self.node, "_get_billing_context", return_value=billing_context),
+            patch.object(self.node.context_manager, "get_billing_context", return_value=billing_context),
             patch.object(self.node, "_format_billing_context", return_value="Formatted Context"),
         ):
             result = self.node.run(self.state, {})
