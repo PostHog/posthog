@@ -39,7 +39,6 @@ export interface NewTabTreeDataItem extends TreeDataItem {
 interface NewTabCategoryItem {
     key: NEW_TAB_CATEGORY_ITEMS
     label: string
-    description?: string
 }
 
 export type SpecialSearchMode = 'persons' | null
@@ -210,25 +209,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): NewTabCategoryItem[] => {
                 const categories: NewTabCategoryItem[] = [
-                    { key: 'all', label: 'All', description: 'All items in PostHog' },
+                    { key: 'all', label: 'All' },
                     {
                         key: 'create-new',
                         label: 'Create new',
-                        description: 'Create new insights, queries, experiments, etc.',
                     },
-                    { key: 'apps', label: 'Apps', description: "All of PostHog's apps, tools, and features" },
+                    { key: 'apps', label: 'Apps' },
                     {
                         key: 'data-management',
                         label: 'Data management',
-                        description: 'Manage your data sources and destinations',
                     },
-                    { key: 'recents', label: 'Recents', description: 'Project-based recently accessed items' },
+                    { key: 'recents', label: 'Recents' },
                 ]
                 if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     categories.push({
                         key: 'persons',
                         label: 'Persons',
-                        description: 'Click to view a persons details on the persons page',
                     })
                 }
                 return categories
@@ -365,21 +361,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-                // If in person search mode, ensure persons category always appears
+                // If in person search mode, return persons items (can be empty array)
                 if (newTabSceneData && specialSearchMode === 'persons') {
-                    // Always include at least an empty persons category to prevent layout shift
-                    if (personSearchItems.length === 0) {
-                        return [
-                            {
-                                id: 'persons-placeholder',
-                                name: '',
-                                category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
-                                href: '',
-                                icon: null,
-                                record: { type: 'placeholder', path: '' },
-                            },
-                        ]
-                    }
                     return personSearchItems
                 }
 
