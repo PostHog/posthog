@@ -50,10 +50,11 @@
     }
 
     &.LemonCheckbox--disabled {
-        opacity: var(--opacity-disabled);
+        .LemonCheckbox__box {
+            opacity: var(--opacity-disabled);
+        }
 
         label {
-            color: var(--color-text-secondary);
             cursor: not-allowed;
         }
     }
