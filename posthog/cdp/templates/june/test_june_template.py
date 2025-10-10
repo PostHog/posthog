@@ -340,3 +340,45 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
                 },
             )
         )
+
+    def test_token_excluded_when_include_all_properties(self):
+        # Test with event properties
+        self.run_function(
+            inputs=create_inputs(include_all_properties=True),
+            globals={
+                "event": {
+                    "event": "custom_event",
+                    "uuid": "151234234",
+                    "distinct_id": "abc123",
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "properties": {
+                        "$is_identified": True,
+                        "custom_prop": "value",
+                        "token": "secret_token",
+                    },
+                },
+            },
+        )
+
+        traits = self.get_mock_fetch_calls()[0][1]["body"]["traits"]
+        assert "token" not in traits
+        assert traits["custom_prop"] == "value"
+
+        # Test with person properties (identify action)
+        self.run_function(
+            inputs=create_inputs(include_all_properties=True),
+            globals={
+                "event": {
+                    "event": "$identify",
+                    "uuid": "151234234",
+                    "distinct_id": "abc123",
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "properties": {"$is_identified": True},
+                },
+                "person": {"properties": {"plan": "pro", "token": "secret_token"}},
+            },
+        )
+
+        traits = self.get_mock_fetch_calls()[0][1]["body"]["traits"]
+        assert "token" not in traits
+        assert traits["plan"] == "pro"

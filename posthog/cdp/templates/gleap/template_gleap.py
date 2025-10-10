@@ -19,7 +19,14 @@ if (empty(inputs.userId)) {
     return
 }
 
-let attributes := inputs.include_all_properties ? person.properties : {}
+let attributes := {}
+if (inputs.include_all_properties) {
+    for (let key, value in person.properties) {
+        if (key != 'token') {
+            attributes[key] := value
+        }
+    }
+}
 
 attributes['userId'] := inputs.userId
 

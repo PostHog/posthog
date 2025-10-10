@@ -79,3 +79,17 @@ class TestTemplateGleap(BaseHogFunctionTemplateTest):
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No User ID set. Skipping...",)])
+
+    def test_token_excluded_when_include_all_properties(self):
+        # Test that token is excluded from person properties
+        self.run_function(
+            inputs=create_inputs(include_all_properties=True),
+            globals={
+                "person": {"properties": {"account_status": "paid", "token": "secret_token"}},
+            },
+        )
+
+        body = self.get_mock_fetch_calls()[0][1]["body"]
+        assert "token" not in body
+        assert body["account_status"] == "paid"
+        assert body["userId"] == "edad9282-25d0-4cf1-af0e-415535ee1161"

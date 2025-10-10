@@ -203,6 +203,24 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
             self.run_function(inputs=self.create_inputs())
         assert e.value.message == "Found multiple contacts with the same email address. Skipping..."
 
+    def test_token_excluded_when_include_all_properties(self):
+        # Test that token is excluded from person properties
+        self.mock_fetch_response = lambda url, options: {  # type: ignore
+            "status": 200,
+            "body": {"total_count": 1, "data": [{"id": "123"}]},
+        }
+
+        self.run_function(
+            inputs=self.create_inputs(include_all_properties=True),
+            globals={
+                "person": {"properties": {"plan": "pay-as-you-go", "token": "secret_token"}},
+            },
+        )
+
+        body = self.get_mock_fetch_calls()[1][1]["body"]
+        assert "token" not in body
+        assert body["plan"] == "pay-as-you-go"
+
 
 class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
     template = template_intercom_event
@@ -354,6 +372,30 @@ class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
                 },
             )
         )
+
+    def test_token_excluded_when_include_all_properties_event(self):
+        # Test that token is excluded from event properties
+        self.fetch_responses = {
+            "https://api.intercom.io/contacts/search": {
+                "status": 200,
+                "body": {"total_count": 1, "data": [{"id": "123"}]},
+            },
+            "https://api.intercom.io/events": {"status": 200, "body": {"ok": True}},
+        }
+
+        self.run_function(
+            inputs=self.create_inputs(include_all_properties=True),
+            globals={
+                "event": {
+                    "event": "purchase",
+                    "properties": {"customerType": "B2C", "token": "secret_token"},
+                },
+            },
+        )
+
+        metadata = self.get_mock_fetch_calls()[1][1]["body"]["metadata"]
+        assert "token" not in metadata
+        assert metadata["customerType"] == "B2C"
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=self.create_inputs(email=""))

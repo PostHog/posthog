@@ -26,7 +26,7 @@ let payload := {
 
 if (inputs.include_all_properties) {
     for (let key, value in person.properties) {
-        if (not empty(value) and not key like '$%') {
+        if (not empty(value) and not key like '$%' and key != 'token') {
             payload[key] := value
         }
     }
@@ -127,7 +127,7 @@ let payload := {
 
 if (inputs.include_all_properties) {
     for (let key, value in event.properties) {
-        if (not empty(value) and not key like '$%') {
+        if (not empty(value) and not key like '$%' and key != 'token') {
             payload.eventProperties[key] := value
         }
     }

@@ -16,16 +16,25 @@ if (empty(inputs.userId)) {
     return
 }
 
+let properties := {}
+if (inputs.include_all_properties) {
+    for (let key, value in event.properties) {
+        if (key != 'token') {
+            properties[key] := value
+        }
+    }
+    if (not empty(event.elements_chain)) {
+        properties['$elements_chain'] := event.elements_chain
+    }
+}
+
 let body := {
     'type': 'track',
     'event': event.event,
     'userId': inputs.userId,
-    'properties': inputs.include_all_properties ? event.properties : {},
+    'properties': properties,
     'messageId': event.uuid,
     'timestamp': event.timestamp
-}
-if (inputs.include_all_properties and not empty(event.elements_chain)) {
-    body['properties']['$elements_chain'] := event.elements_chain
 }
 
 for (let key, value in inputs.attributes) {

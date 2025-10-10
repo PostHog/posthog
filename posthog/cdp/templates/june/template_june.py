@@ -74,7 +74,7 @@ for (let key, value in inputs.properties) {
 
 if (inputs.include_all_properties) {
     for (let key, value in (type == 'identify' ? person.properties : event.properties)) {
-        if (not empty(value) and not key like '$%') {
+        if (not empty(value) and not key like '$%' and key != 'token') {
             traits[key] := value
         }
     }

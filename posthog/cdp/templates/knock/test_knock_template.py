@@ -112,3 +112,28 @@ class TestTemplateKnock(BaseHogFunctionTemplateTest):
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No User ID set. Skipping...",)])
+
+    def test_token_excluded_when_include_all_properties(self):
+        # Test that token is excluded from event properties
+        self.run_function(
+            inputs=create_inputs(include_all_properties=True),
+            globals={
+                "event": {
+                    "uuid": "9d67cc3f-edf7-490d-b311-f03c21c64caf",
+                    "distinct_id": "8b9c729c-c59b-4c39-b5a6-af9fa1233054",
+                    "event": "$pageview",
+                    "timestamp": "2024-09-16T16:11:48.577Z",
+                    "url": "http://localhost:8000/project/1/events/",
+                    "properties": {
+                        "$browser": "Chrome",
+                        "price": 15,
+                        "token": "secret_token",
+                    },
+                },
+            },
+        )
+
+        properties = self.get_mock_fetch_calls()[0][1]["body"]["properties"]
+        assert "token" not in properties
+        assert properties["price"] == 15
+        assert properties["$browser"] == "Chrome"
