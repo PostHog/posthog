@@ -86,8 +86,6 @@ tmp*/
 upgrade/
 venv
 yalc.lock
-# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
-.flox/env/manifest.lock
 
 playwright/.auth/
 playwright-report/
