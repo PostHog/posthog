@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
+import { urls } from '~/scenes/urls'
 import { EventDefinition } from '~/types'
 
 import { PropertyGroupModal } from '../schema/PropertyGroupModal'
@@ -122,10 +123,34 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                         )}
                                         <div className="p-4 bg-bg-light">
                                             <h4 className="font-semibold mb-2 text-sm flex items-center gap-1">
-                                                Property Coverage Trends (90 days)
-                                                <Tooltip title="% of events containing this property">
-                                                    <IconInfo className="text-xl text-secondary shrink-0" />
-                                                </Tooltip>
+                                                {(() => {
+                                                    const query = buildPropertyGroupTrendsQuery(
+                                                        definition.name,
+                                                        schema.property_group.properties
+                                                    )
+                                                    const linkQuery = {
+                                                        ...query,
+                                                        showHeader: true,
+                                                        showTable: true,
+                                                        showFilters: true,
+                                                        embedded: false,
+                                                    }
+                                                    const insightUrl = urls.insightNew({ query: linkQuery })
+
+                                                    return (
+                                                        <>
+                                                            <Link
+                                                                to={insightUrl}
+                                                                className="text-default hover:text-link"
+                                                            >
+                                                                Property Coverage Trends (90 days)
+                                                            </Link>
+                                                            <Tooltip title="% of events containing this property">
+                                                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                                            </Tooltip>
+                                                        </>
+                                                    )
+                                                })()}
                                             </h4>
                                             <div>
                                                 {(() => {
