@@ -4808,6 +4808,7 @@ class SessionRecordingType(BaseModel):
     distinct_id: Optional[str] = None
     email: Optional[str] = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
+    expiry_time: str
     id: str
     inactive_seconds: Optional[float] = None
     keypress_count: Optional[float] = None
@@ -4824,6 +4825,7 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    recording_ttl: float
     retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
