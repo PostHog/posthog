@@ -60,6 +60,8 @@ export const variablesLogic = kea<variablesLogicType>([
         updateSourceQuery: true,
         resetVariables: true,
         updateInternalSelectedVariable: (variable: HogQLVariable) => ({ variable }),
+        setSearchTerm: (search: string) => ({ search }),
+        clickVariable: (variable: Variable & { selected: boolean }) => ({ variable }),
     })),
     propsChanged(({ props, actions, values }, oldProps) => {
         if (oldProps.queryInput !== props.queryInput) {
@@ -161,6 +163,12 @@ export const variablesLogic = kea<variablesLogicType>([
                 setEditorQuery: (_, { query }) => query,
             },
         ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { search }) => search,
+            },
+        ],
     }),
     selectors({
         variablesForInsight: [
@@ -188,8 +196,40 @@ export const variablesLogic = kea<variablesLogicType>([
                 return !dashboardId
             },
         ],
+        filteredVariables: [
+            (s) => [s.variables, s.searchTerm, s.internalSelectedVariables],
+            (variables, searchTerm, internalSelectedVariables): (Variable & { selected: boolean })[] => {
+                const selectedVariableIds = new Set(internalSelectedVariables.map((variable) => variable.variableId))
+
+                const trimmedSearch = searchTerm.trim().toLowerCase()
+
+                const visibleVariables = trimmedSearch
+                    ? variables.filter((variable) => {
+                          const nameMatch = variable.name.toLowerCase().includes(trimmedSearch)
+                          const codeNameMatch = variable.code_name?.toLowerCase().includes(trimmedSearch)
+                          const typeMatch = variable.type.toLowerCase().includes(trimmedSearch)
+
+                          return nameMatch || codeNameMatch || typeMatch
+                      })
+                    : variables
+
+                return visibleVariables.map((variable) => ({
+                    ...variable,
+                    selected: selectedVariableIds.has(variable.id),
+                }))
+            },
+        ],
     }),
     listeners(({ props, values, actions }) => ({
+        clickVariable: ({ variable }) => {
+            if (
+                variable.id === values.internalSelectedVariables.find((v) => v.variableId === variable.id)?.variableId
+            ) {
+                actions.removeVariable(variable.id)
+            } else {
+                actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
+            }
+        },
         addVariable: () => {
             // dashboard items handle source query separately
             if (!props.readOnly) {

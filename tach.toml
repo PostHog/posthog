@@ -33,6 +33,8 @@ depends_on = [
     "products.revenue_analytics",
     "products.user_interviews",
     "products.llm_analytics",
+    "products.marketing_analytics",
+    "products.endpoints",
 ]
 
 [[modules]]
@@ -49,4 +51,12 @@ depends_on = ["posthog"]
 
 [[modules]]
 path = "products.revenue_analytics"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.endpoints"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.marketing_analytics"
 depends_on = ["posthog"]

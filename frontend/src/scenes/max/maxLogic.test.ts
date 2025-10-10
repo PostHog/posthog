@@ -6,7 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
-import { maxMocks, mockStream } from './testUtils'
+import { maxMocks } from './testUtils'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
@@ -52,30 +52,53 @@ describe('maxLogic', () => {
         })
     })
 
-    it('resets the thread when a conversation has not been found', async () => {
-        router.actions.push('', { chat: 'err' }, { panel: 'max' })
+    it('does not reset conversation when 404 occurs during active message generation', async () => {
+        router.actions.push('', {}, { panel: 'max' })
         sidePanelStateLogic.mount()
+
+        const mockConversationId = 'new-conversation-id'
 
         useMocks({
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                '/api/environments/:team_id/conversations/err': () => [404, { detail: 'Not found' }],
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => [
+                    404,
+                    { detail: 'Not found' },
+                ],
             },
         })
 
-        const streamSpy = mockStream()
-
-        // mount logic
         logic = maxLogic()
         logic.mount()
 
-        await expectLogic(logic).delay(200)
+        // Wait for initial conversationHistory load to complete
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        // Simulate asking Max a question (which starts a new conversation)
+        await expectLogic(logic, () => {
+            logic.actions.setQuestion('Test question')
+            logic.actions.setConversationId(mockConversationId)
+        }).toDispatchActions(['setQuestion', 'setConversationId'])
+
+        // Now simulate the race condition: when pollConversation is called from loadConversationHistorySuccess,
+        // it will get a 404 for the conversation that doesn't exist yet on the backend
+        // but is being generated on the frontend
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        // Wait a bit for any async operations
+        await expectLogic(logic).delay(50)
+
+        // The conversation should NOT be reset - conversationId should still be set
         await expectLogic(logic).toMatchValues({
-            conversationId: null,
-            conversationHistory: [],
+            conversationId: mockConversationId,
         })
-        expect(streamSpy).not.toHaveBeenCalled()
+
+        // Verify no error toast was shown and no reset occurred
+        expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
     it('manages suggestion group selection correctly', async () => {

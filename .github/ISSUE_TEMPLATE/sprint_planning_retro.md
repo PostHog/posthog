@@ -15,7 +15,7 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 
 For your team sprint planning copy this template into a comment below for each team.
 
-```
+```text
 # Team ___
 
 **Support hero:** ___
@@ -40,5 +40,4 @@ For your team sprint planning copy this template into a comment below for each t
 ### Low priority / side quests
 
 -
-
 ```

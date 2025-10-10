@@ -462,6 +462,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         'hogQL',
                         values.activeTab.uri
                     )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
 
                     initModel(
                         newModel,
@@ -508,6 +510,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         'hogQL',
                         values.activeTab.uri
                     )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
                     initModel(
                         newModel,
                         codeEditorLogic({
@@ -556,6 +560,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 let model = props.monaco.editor.getModel(uri)
                 if (!model) {
                     model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(model)
                     props.editor?.setModel(model)
                     initModel(
                         model,
@@ -767,7 +773,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             const umount = logic.mount()
             logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
-            window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+            const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+            cache.timeouts = cache.timeouts || []
+            cache.timeouts.push(timeoutId)
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
 
@@ -1246,5 +1254,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
+
+        cache.createdModels?.forEach((m: editor.ITextModel) => {
+            try {
+                m.dispose()
+            } catch {}
+        })
+        cache.createdModels = []
+
+        const timeouts = cache.timeouts as Array<number> | undefined
+        timeouts?.forEach((t) => {
+            try {
+                clearTimeout(t)
+            } catch {}
+        })
+        cache.timeouts = []
     }),
 ])
