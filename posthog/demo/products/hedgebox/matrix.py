@@ -967,7 +967,6 @@ class HedgeboxMatrix(Matrix):
                 property_type=PropertyType.Numeric,
                 is_required=True,
                 description="",
-                order=0,
             )
 
             SchemaPropertyGroupProperty.objects.create(
@@ -976,7 +975,6 @@ class HedgeboxMatrix(Matrix):
                 property_type=PropertyType.String,
                 is_required=False,
                 description="",
-                order=1,
             )
 
             SchemaPropertyGroupProperty.objects.create(
@@ -985,7 +983,6 @@ class HedgeboxMatrix(Matrix):
                 property_type=PropertyType.String,
                 is_required=False,
                 description="",
-                order=2,
             )
 
             uploaded_file_def = EventDefinition.objects.get_or_create(
