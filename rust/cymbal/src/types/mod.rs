@@ -1,3 +1,5 @@
+use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
+use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -10,7 +12,8 @@ use crate::fingerprinting::{
     Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
 };
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
-use crate::frames::{Frame, FrameId, RawFrame};
+use crate::frames::{Frame, RawFrame};
+use crate::issue_resolution::Issue;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -99,6 +102,28 @@ impl ExceptionList {
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false)
+    }
+}
+
+impl From<&ExceptionList> for Vec<ExceptionData> {
+    fn from(exception_list: &ExceptionList) -> Self {
+        exception_list
+            .iter()
+            .map(|exception| ExceptionData {
+                exception_type: exception.exception_type.clone(),
+                exception_value: exception.exception_message.clone(),
+                frames: exception
+                    .stack
+                    .as_ref()
+                    .map(|stack| match stack {
+                        Stacktrace::Raw { frames: _ } => vec![], // Exception
+                        Stacktrace::Resolved { frames } => {
+                            frames.clone().into_iter().map(FrameData::from).collect()
+                        }
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect()
     }
 }
 
@@ -316,6 +341,69 @@ impl OutputErrProps {
                 frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
             }
         });
+    }
+
+    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
+        let mut content = String::with_capacity(2048);
+
+        for exception in &self.exception_list.0 {
+            // Add exception type and value
+            let type_and_value = &format!(
+                "{}: {}\n",
+                exception.exception_type,
+                exception
+                    .exception_message
+                    .chars()
+                    .take(300)
+                    .collect::<String>()
+            );
+
+            content.push_str(type_and_value);
+
+            let Some(stack) = &exception.stack else {
+                continue;
+            };
+
+            // Add frame information
+            for frame in stack.get_frames() {
+                // Add resolved or mangled name
+                if let Some(resolved_name) = &frame.resolved_name {
+                    content.push_str(resolved_name);
+                } else {
+                    content.push_str(&frame.mangled_name);
+                }
+
+                // Add source file if available
+                if let Some(source) = &frame.source {
+                    content.push_str(&format!(" in {source}"));
+                }
+
+                // Add line number if available
+                if let Some(line) = frame.line {
+                    content.push_str(&format!(" line {line}"));
+                }
+
+                if let Some(column) = frame.column {
+                    content.push_str(&format!(" column {column}"));
+                }
+
+                content.push('\n');
+            }
+        }
+
+        EmbeddingRequest {
+            team_id: issue.team_id,
+            product: "error_tracking".to_string(),
+            document_type: "fingerprint".to_string(),
+            rendering: "type_message_and_stack".to_string(),
+            document_id: self.fingerprint.clone(),
+            timestamp: issue.created_at,
+            content,
+            models: vec![
+                EmbeddingModel::OpenAITextEmbeddingLarge,
+                EmbeddingModel::OpenAITextEmbeddingSmall,
+            ],
+        }
     }
 }
 

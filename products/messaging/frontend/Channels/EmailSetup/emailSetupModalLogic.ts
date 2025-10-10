@@ -17,7 +17,7 @@ export interface EmailSetupModalLogicProps {
 
 export interface DnsRecord {
     type: string
-    status: string
+    status: 'success' | 'pending'
     recordValue: string
     recordType: string
     recordHostname: string
@@ -42,7 +42,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     forms(({ actions }) => ({
         emailSender: {
             defaults: {
-                provider: 'mailjet',
+                provider: 'ses',
                 email: '',
                 name: '',
             } as EmailSenderFormType,

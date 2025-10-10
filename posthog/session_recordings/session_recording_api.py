@@ -963,6 +963,9 @@ class SessionRecordingViewSet(
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
 
+        trace.get_current_span().set_attribute("team_id", self.team_id)
+        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
+
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
@@ -1494,47 +1497,6 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("Invalid JSON response from OpenAI")
 
         return Response(response_data)
-
-    @extend_schema(
-        exclude=True,
-        description="Find recordings with similar event sequences to the given recording. This is in development and likely to change, you should not depend on this API.",
-    )
-    @action(methods=["GET"], detail=True, url_path="analyze/similar")
-    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
-        """Find recordings with similar event sequences to the given recording."""
-        timer = ServerTimingsGathered()
-        tag_queries(product=Product.REPLAY)
-        recording = self.get_object()
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
-
-        # Find recordings with similar event sequences using ClickHouse
-        with timer("get_similar_recordings"):
-            similar_recordings = SessionReplayEvents().get_similar_recordings(
-                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.9
-            )
-
-        recordings = []
-        recording_ids = []
-        for rec in similar_recordings:
-            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
-            recordings.append(recording_instance)
-            recording_ids.append(recording_instance.session_id)
-
-        # Filter out recordings that have been viewed by the current user
-        with timer("filter_viewed_recordings"):
-            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
-            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
-
-        response = Response(
-            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
-        )
-        response.headers["Server-Timing"] = timer.to_header_string()
-        return response
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
