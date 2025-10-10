@@ -229,7 +229,7 @@ export function ChannelTypeEditor({
                                 }
                                 options={channelTypeOptions}
                                 placeholder="Enter a channel type name"
-                                disabledReason={!canEdit ? 'You need editor access to modify channel types' : undefined}
+                                disabled={!canEdit}
                             />
                         </div>
                         {rule.items.length > 0 ? (

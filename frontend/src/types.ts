@@ -4544,6 +4544,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'web_analytics'
     | 'webhook'
     | 'warehouse_view'
     | 'warehouse_table'
