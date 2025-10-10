@@ -18,7 +18,7 @@ import { ProductKey } from '~/types'
 import { NEW_EXPERIMENT } from '../constants'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 
-type CreateExperimentLogicProps = Partial<{
+export type CreateExperimentLogicProps = Partial<{
     experiment: Experiment
 }>
 
