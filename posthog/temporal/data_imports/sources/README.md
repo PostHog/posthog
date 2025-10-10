@@ -1,37 +1,11 @@
 # Adding a new source to data pipelines
 
-Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a minimal amount of other files. Simply copy the source template file and address all the TODOs in that file in order.
+Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a small number of other files. Simply copy the source template file and address all the TODOs in that file in order.
 
 ```sh
 mkdir -p posthog/temporal/data_imports/sources/{SOURCE_NAME}
 cp posthog/temporal/data_imports/sources/_template.py posthog/temporal/data_imports/sources/{SOURCE_NAME}/source.py
 ```
-
-4. Define the fields you'd like to collect via the `get_source_config()` method. Look at the other sources in `posthog/temporal/data_imports/sources` for examples. More info on the type of fields available is below
-5. Generate the config class by running `pnpm generate:source-configs`. This will add a new class to the `posthog/temporal/data_imports/sources/generated_configs.py` file. Update all references of `Config` in the below template to your new generated class
-6. Implement the logic of your source. More info on how to do this is below.
-7. Add a new icon for your source - add the icon file in `frontend/public/services/` and add the path to the `SourceConfig` (note: the path should be `/static/services/<source_name>.png`) - this is rendered in the frontend by `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx` -
-8. **Register your source** in `posthog/temporal/data_imports/sources/__init__.py`:
-    - Add import: `from .your_source.source import YourSourceClass`
-    - Add to `__all__` list: `"YourSourceClass"`
-
-    **This step is REQUIRED** - without it, `@SourceRegistry.register` won't work and your source won't be discoverable.
-
-9. **Re-run config generation** after implementing source logic:
-
-    ```bash
-    pnpm generate:source-configs
-    ```
-
-    This updates `generated_configs.py` with your actual implemented source class.
-
-10. **Build schemas** to update types:
-
-    ```bash
-    pnpm schema:build
-    ```
-
-    This ensures your source appears in frontend dropdowns and forms.
 
 ## Source fields
 
