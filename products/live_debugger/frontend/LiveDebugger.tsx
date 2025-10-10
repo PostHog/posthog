@@ -57,25 +57,11 @@ export function LiveDebugger(): JSX.Element {
         selectedLineForHits,
         hitsForSelectedLine,
     } = useValues(liveDebuggerLogic)
+
     const {
         selectInstance,
-        loadBreakpoints,
-        loadBreakpointInstances,
         showHitsForLine,
     } = useActions(liveDebuggerLogic)
-
-    // Load initial data and set up polling
-    React.useEffect(() => {
-        loadBreakpoints()
-        loadBreakpointInstances()
-
-        // Poll for breakpoint hits every second
-        const interval = setInterval(() => {
-            loadBreakpointInstances()
-        }, 10000)
-
-        return () => clearInterval(interval)
-    }, [loadBreakpoints, loadBreakpointInstances])
 
     return (
         <>

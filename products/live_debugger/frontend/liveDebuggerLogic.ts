@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -38,6 +38,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
         markInstanceAsOld: (instanceId: string) => ({ instanceId }),
         showHitsForLine: (lineNumber: number | null) => ({ lineNumber }),
         setExpandedFolderPaths: (paths: string[]) => ({ paths }),
+        startPollingBreakpoints: true,
+        stopPollingBreakpoints: true,
+        savePollingInterval: (intervalHdl: NodeJS.Timeout) => ({ intervalHdl }),
     }),
 
     loaders(() => ({
@@ -120,6 +123,12 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 showHitsForLine: (_, { lineNumber }) => lineNumber,
             },
         ],
+        breakpointPollingInterval: [
+            null as NodeJS.Timeout | null,
+            {
+                savePollingInterval: (_, { intervalHdl }) => intervalHdl,
+            }
+        ]
     }),
 
     listeners(({ actions, values }) => ({
@@ -188,6 +197,20 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
         },
+        startPollingBreakpoints: async () => {
+            actions.loadBreakpoints()
+            actions.loadBreakpointInstances()
+
+            const interval = setInterval(() => {
+                actions.loadBreakpoints()
+                actions.loadBreakpointInstances()
+            }, 15000)
+
+            actions.savePollingInterval(interval)
+        },
+        stopPollingBreakpoints: async () => {
+            clearInterval(values.breakpointPollingInterval)
+        }
     })),
 
     selectors({
@@ -273,4 +296,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             },
         ],
     }),
+
+    events(({ actions }) => ({
+        afterMount: [actions.startPollingBreakpoints],
+        beforeUnmount: [actions.stopPollingBreakpoints],
+    }))
 ])
