@@ -5,12 +5,14 @@ import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { Query } from '~/queries/Query/Query'
 import { EventDefinition } from '~/types'
 
 import { PropertyGroupModal } from '../schema/PropertyGroupModal'
 import { SelectPropertyGroupModal } from '../schema/SelectPropertyGroupModal'
 import { SchemaPropertyGroupProperty, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import { EventSchema, eventDefinitionSchemaLogic } from './eventDefinitionSchemaLogic'
+import { buildPropertyGroupTrendsQuery } from './propertyGroupTrendsQuery'
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
     return (
@@ -117,6 +119,19 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                                 <PropertyRow key={property.id} property={property} />
                                             )
                                         )}
+                                        <div className="p-4 border-t bg-bg-light">
+                                            <h4 className="font-semibold mb-2 text-sm">Property Coverage Trends</h4>
+                                            <div style={{ minHeight: '300px' }}>
+                                                {(() => {
+                                                    const query = buildPropertyGroupTrendsQuery(
+                                                        definition.name,
+                                                        schema.property_group.properties
+                                                    )
+
+                                                    return <Query query={query} readOnly embedded />
+                                                })()}
+                                            </div>
+                                        </div>
                                     </>
                                 )}
                             </div>
