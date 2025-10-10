@@ -1,12 +1,9 @@
 import os
 import uuid
-import asyncio
 import datetime as dt
 
 import pytest
 
-import aioboto3
-import botocore.exceptions
 from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
@@ -34,26 +31,8 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    has_valid_credentials,
 )
-
-
-async def check_valid_credentials() -> bool:
-    """Check if there are valid AWS credentials in the environment."""
-    session = aioboto3.Session()
-    async with session.client("sts") as sts:
-        try:
-            await sts.get_caller_identity()
-        except botocore.exceptions.ClientError:
-            return False
-        else:
-            return True
-
-
-def has_valid_credentials() -> bool:
-    """Synchronous wrapper around check_valid_credentials."""
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(check_valid_credentials())
-
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -63,64 +42,6 @@ pytestmark = [
         reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
     ),
 ]
-
-
-@pytest.fixture
-def bucket_name() -> str:
-    """Name for a test S3 bucket."""
-    test_bucket = os.getenv("S3_TEST_BUCKET")
-
-    if not test_bucket:
-        raise ValueError("Missing S3_TEST_BUCKET environment variable")
-
-    return test_bucket
-
-
-@pytest.fixture
-def bucket_region() -> str:
-    """Region for a test S3 bucket."""
-    bucket_region = os.getenv("AWS_REGION")
-
-    if not bucket_region:
-        raise ValueError("Missing AWS region environment variable")
-
-    return bucket_region
-
-
-@pytest.fixture
-def aws_credentials() -> Credentials:
-    aws_access_key_id, aws_secret_access_key = os.getenv("AWS_ACCESS_KEY_ID"), os.getenv("AWS_SECRET_ACCESS_KEY")
-
-    if not aws_access_key_id or not aws_secret_access_key:
-        raise ValueError("Missing AWS credentials")
-
-    return Credentials(aws_access_key_id, aws_secret_access_key)
-
-
-async def delete_all_from_s3(s3_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
-
-
-@pytest.fixture
-async def s3_client(bucket_name, s3_key_prefix):
-    """Manage an S3 client to interact with an S3 bucket.
-
-    Yields the client after assuming the test bucket exists. Upon resuming, we delete
-    the contents of the bucket under the key prefix we are testing. This opens up the door
-    to bugs that could delete all other data in your bucket. I *strongly* recommend
-    using a disposable bucket to run these tests or sticking to other tests that use the
-    local development MinIO.
-    """
-    async with aioboto3.Session().client("s3") as s3_client:
-        yield s3_client
-
-        await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
 async def _run_activity(
@@ -247,6 +168,7 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
     data_interval_end,
     properties_data_type,
     aws_credentials,
+    key_prefix,
     ateam,
 ):
     """Test that the copy_into_redshift_activity function inserts data into a Redshift table."""
@@ -299,7 +221,7 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         credentials=aws_credentials,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
@@ -324,7 +246,7 @@ async def test_copy_into_redshift_activity_merges_persons_data_in_follow_up_runs
     data_interval_end,
     ateam,
     aws_credentials,
-    use_internal_stage,
+    key_prefix,
 ):
     """Test that the `copy_into_redshift_activity` merges new versions of rows.
 
@@ -349,7 +271,7 @@ async def test_copy_into_redshift_activity_merges_persons_data_in_follow_up_runs
         bucket_name=bucket_name,
         credentials=aws_credentials,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -392,7 +314,7 @@ async def test_copy_into_redshift_activity_merges_persons_data_in_follow_up_runs
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         credentials=aws_credentials,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
@@ -436,6 +358,7 @@ async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_run
     bucket_name,
     bucket_region,
     aws_credentials,
+    key_prefix,
 ):
     """Test that the `copy_into_redshift_activity` merges new versions of rows.
 
@@ -459,7 +382,7 @@ async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_run
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         credentials=aws_credentials,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -501,7 +424,7 @@ async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_run
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         credentials=aws_credentials,
         data_interval_start=new_data_interval_start,
         data_interval_end=new_data_interval_end,
@@ -544,6 +467,7 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
     bucket_name,
     bucket_region,
     aws_credentials,
+    key_prefix,
 ):
     """Test that the `copy_into_redshift_activity` handles changes to the
     person schema.
@@ -581,7 +505,7 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         credentials=aws_credentials,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -635,7 +559,7 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
         table_name=table_name,
         bucket_name=bucket_name,
         bucket_region=bucket_region,
-        key_prefix="/test-copy-redshift-batch-export",
+        key_prefix=key_prefix,
         credentials=aws_credentials,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
