@@ -226,17 +226,14 @@ export const exportsLogic = kea<exportsLogicType>([
                             const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
-                                lemonToast.info(
-                                    apiError?.data?.detail || 'You reached your export limit after 30 days.',
-                                    {
-                                        button: {
-                                            label: 'I want more',
-                                            className: 'replay-export-limit-reached-button',
-                                            action: () => {},
-                                            dataAttr: 'export-limit-reached-button',
-                                        },
-                                    }
-                                )
+                                lemonToast.info(apiError?.data?.detail || 'You reached your export limit.', {
+                                    button: {
+                                        label: 'I want more',
+                                        className: 'replay-export-limit-reached-button',
+                                        action: () => {}, //we trigger the survey by clicking the button, but we need to keep the action for the toast to show
+                                        dataAttr: 'export-limit-reached-button',
+                                    },
+                                })
                             } else {
                                 const message = error instanceof Error ? error.message : String(error)
                                 lemonToast.error('Export failed: ' + message)
