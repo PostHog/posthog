@@ -116,7 +116,7 @@ const EXAMPLES: Record<
 
 const generateLogs = (): LogMessage[] => {
     const results: LogMessage[] = []
-    const startTime = dayjs().subtract(24, 'hours')
+    const startTime = dayjs().subtract(48, 'hours')
     const endTime = dayjs()
 
     // Iterate each minute adding N logs to the results
