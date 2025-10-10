@@ -19,7 +19,8 @@ import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
+import type { SdkType, SdkVersionInfo } from './sdk_doctor/types'
+import { sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
 
 const IS_DEBUG_MODE = (() => {
     const appContext = getAppContext()
