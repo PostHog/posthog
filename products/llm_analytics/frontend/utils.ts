@@ -500,6 +500,10 @@ export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
+export function getTraceTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMTraceEvent(event)) {
         if (event.event === '$ai_generation') {

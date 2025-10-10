@@ -41,9 +41,9 @@ TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateTyp
 
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyReasoningNodeMixin,
     TaxonomyNodeBound,
     StateClassMixin,
-    TaxonomyReasoningNodeMixin,
     ABC,
 ):
     """Base node for taxonomy agents."""
@@ -151,7 +151,7 @@ class TaxonomyAgentNode(
 
 
 class TaxonomyAgentToolsNode(
-    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, TaxonomyReasoningNodeMixin
+    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
 ):
     """Base tools node for taxonomy agents."""
 
@@ -210,6 +210,11 @@ class TaxonomyAgentToolsNode(
                 tools_metadata[tool_input.name] = []
             tools_metadata[tool_input.name].append((tool_input, action.log))
 
+        # Taxonomy is a separate graph, so it dispatches its own messages
+        reasoning_message = await self.get_reasoning_message(state)
+        if reasoning_message:
+            await self._write_message(reasoning_message)
+        
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
         for action, _ in intermediate_steps:

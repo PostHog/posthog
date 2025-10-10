@@ -12,11 +12,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
+    EndpointLastExecutionTimesRequest,
+    EndpointRequest,
+    EndpointRunRequest,
     HogQLQuery,
     HogQLQueryModifiers,
-    NamedQueryLastExecutionTimesRequest,
-    NamedQueryRequest,
-    NamedQueryRunRequest,
     QueryRequest,
     QueryStatus,
     QueryStatusResponse,
@@ -99,7 +99,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         return Response({"results": results})
 
-    def validate_request(self, data: NamedQueryRequest, strict: bool = True) -> None:
+    def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
             raise ValidationError("Must specify query")
@@ -116,13 +116,13 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             )
 
     @extend_schema(
-        request=NamedQueryRequest,
+        request=EndpointRequest,
         description="Create a new named query",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create a new named query."""
         upgraded_query = upgrade(request.data)
-        data = self.get_model(upgraded_query, NamedQueryRequest)
+        data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=True)
 
         try:
@@ -156,7 +156,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             raise ValidationError("Failed to create named query.")
 
     @extend_schema(
-        request=NamedQueryRequest,
+        request=EndpointRequest,
         description="Update an existing named query. Parameters are optional.",
     )
     def update(self, request: Request, name=None, *args, **kwargs) -> Response:
@@ -164,7 +164,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name)
 
         upgraded_query = upgrade(request.data)
-        data = self.get_model(upgraded_query, NamedQueryRequest)
+        data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=False)
 
         try:
@@ -204,14 +204,14 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
-        request=NamedQueryRunRequest,
+        request=EndpointRunRequest,
         description="Update an existing named query. Parameters are optional.",
     )
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a named query with optional parameters."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name, is_active=True)
-        data = self.get_model(request.data, NamedQueryRunRequest)
+        data = self.get_model(request.data, EndpointRunRequest)
 
         self.validate_run_request(data, named_query)
         data.variables_values = data.variables_values or {}
@@ -276,19 +276,19 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             capture_exception(e)
             raise
 
-    def validate_run_request(self, data: NamedQueryRunRequest, named_query: NamedQuery) -> None:
+    def validate_run_request(self, data: EndpointRunRequest, named_query: NamedQuery) -> None:
         if named_query.query.get("kind") == "HogQLQuery" and data.query_override:
             raise ValidationError("Query override is not supported for HogQL queries")
 
     @extend_schema(
-        description="Get the last execution times in the past 6 monthsfor multiple named queries.",
-        request=NamedQueryLastExecutionTimesRequest,
+        description="Get the last execution times in the past 6 months for multiple named queries.",
+        request=EndpointLastExecutionTimesRequest,
         responses={200: QueryStatusResponse},
     )
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_named_queries_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
-            data = NamedQueryLastExecutionTimesRequest.model_validate(request.data)
+            data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
                 return Response(
