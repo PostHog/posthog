@@ -223,7 +223,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_evaluation": {
             "label": "AI evaluation (LLM)",
-            "description": "An automated evaluation of an AI event. Contains the verdict, target event, and evaluation metadata.",
+            "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
         },
         "$ai_metric": {
             "label": "AI metric (LLM)",
