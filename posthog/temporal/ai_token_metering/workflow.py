@@ -1,7 +1,6 @@
 import json
 from datetime import datetime, timedelta
 
-import structlog
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, CancelledError
@@ -34,17 +33,20 @@ TRANSIENT_FAILURE_BASE_BACKOFF_SECONDS = 30
 TRANSIENT_FAILURE_MAX_BACKOFF_SECONDS = 5 * 60
 
 
+MAX_TRANSIENT_FAILURES_PER_RUN = 5
+
+
 @workflow.defn(name="team-ai-token-metering")
 class TeamAITokenMeteringWorkflow(PostHogWorkflow):
     """
-    Workflow that continuously processes AI token usage for a specific team.
+    Workflow that processes AI token usage for a specific team.
 
     This workflow:
     1. Checks if Stripe is still enabled for the team
     2. Processes token usage in time windows
     3. Sends aggregated data to Stripe
     4. Updates processing state
-    5. Sleeps and repeats
+    5. Exits once caught up so schedules can trigger the next run
     """
 
     @staticmethod
@@ -89,11 +91,11 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: TeamTokenMeteringInputs) -> None:
         """Main workflow execution."""
-        logger = structlog.get_logger().bind(
+        workflow_logger = logger.bind(
             workflow_id=workflow.info().workflow_id,
             team_id=inputs.team_id,
         )
-        logger.info(
+        workflow_logger.info(
             "Starting team AI token metering workflow",
             stripe_enabled_at=inputs.stripe_enabled_at,
         )
@@ -118,7 +120,6 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
                 batch_end: datetime | None = None
 
                 try:
-                    # Check if Stripe is still enabled
                     is_enabled = await workflow.execute_activity(
                         check_stripe_enabled,
                         CheckStripeEnabledInputs(team_id=inputs.team_id),
@@ -127,51 +128,44 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
                     )
 
                     if not is_enabled:
-                        logger.info("Stripe integration disabled, stopping workflow")
+                        workflow_logger.info("Stripe integration disabled, stopping workflow")
                         return
 
-                    # Calculate the time range to process
                     now = workflow.now()
-                    # Don't process data that's too recent (give events time to settle)
                     max_end_time = now - timedelta(minutes=5)
 
                     if last_processed >= max_end_time:
-                        # We're caught up, sleep and check again
-                        logger.debug(
-                            "Caught up with processing, sleeping",
+                        workflow_logger.debug(
+                            "Caught up with processing, exiting run",
                             last_processed=last_processed,
                             max_end_time=max_end_time,
                         )
-                        await workflow.sleep(PROCESSING_INTERVAL_MINUTES * 60)
-                        continue
+                        break
 
-                    # Process in chunks
                     batch_start = last_processed
                     batch_end = min(
                         batch_start + timedelta(hours=BATCH_SIZE_HOURS),
                         max_end_time,
                     )
 
-                    logger.info(
+                    workflow_logger.info(
                         "Processing time range",
                         start=batch_start,
                         end=batch_end,
                     )
 
-                    # Update current processing start
                     await workflow.execute_activity(
                         update_processing_state,
                         UpdateProcessingStateInputs(
                             team_id=inputs.team_id,
                             state_id=metering_state.state_id,
-                            last_processed_timestamp=last_processed,  # Keep the same
+                            last_processed_timestamp=last_processed,
                             current_processing_start=batch_start,
                         ),
                         start_to_close_timeout=timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
 
-                    # Aggregate token usage for this time range
                     aggregation_result = await workflow.execute_activity(
                         aggregate_token_usage,
                         AggregateTokenUsageInputs(
@@ -187,7 +181,6 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
                         heartbeat_timeout=timedelta(minutes=1),
                     )
 
-                    # If we have data, send it to Stripe
                     if aggregation_result.aggregations:
                         idempotency_key = f"team-{inputs.team_id}-{batch_start.isoformat()}-{batch_end.isoformat()}"
 
@@ -207,26 +200,25 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
                             ),
                         )
 
-                        logger.info(
+                        workflow_logger.info(
                             "Sent usage to Stripe",
                             customers_processed=stripe_result.customers_processed,
                             total_events=aggregation_result.total_events_processed,
                         )
                     else:
-                        logger.info(
+                        workflow_logger.info(
                             "No token usage found in time range",
                             start=batch_start,
                             end=batch_end,
                         )
 
-                    # Update the last processed timestamp
                     await workflow.execute_activity(
                         update_processing_state,
                         UpdateProcessingStateInputs(
                             team_id=inputs.team_id,
                             state_id=metering_state.state_id,
                             last_processed_timestamp=batch_end,
-                            current_processing_start=None,  # Clear current processing
+                            current_processing_start=None,
                         ),
                         start_to_close_timeout=timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -235,7 +227,6 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
                     last_processed = batch_end
                     consecutive_failures = 0
 
-                    # Small sleep between batches to avoid overwhelming the system
                     if batch_end < max_end_time:
                         await workflow.sleep(SLEEP_BETWEEN_BATCHES_SECONDS)
                 except ActivityError as activity_error:
@@ -246,20 +237,33 @@ class TeamAITokenMeteringWorkflow(PostHogWorkflow):
                         TRANSIENT_FAILURE_BASE_BACKOFF_SECONDS * consecutive_failures,
                         TRANSIENT_FAILURE_MAX_BACKOFF_SECONDS,
                     )
-                    logger.warning(
+                    workflow_logger.warning(
                         "Transient activity failure; backing off",
                         error=failure_message,
                         failure_count=consecutive_failures,
                         backoff_seconds=backoff_seconds,
                     )
+
+                    if consecutive_failures >= MAX_TRANSIENT_FAILURES_PER_RUN:
+                        workflow_logger.exception(
+                            "Exceeded transient failure threshold, failing workflow run",
+                            failure_count=consecutive_failures,
+                        )
+                        raise
+
                     await workflow.sleep(backoff_seconds)
                     continue
 
         except CancelledError:
-            logger.info("Workflow cancelled, cleaning up")
+            workflow_logger.info("Workflow cancelled, cleaning up")
             # Mark the state as inactive when cancelled
             # Lifecycle hooks that cancel the workflow should mark the state inactive
             raise
         except Exception as e:
-            logger.exception("Unexpected error in workflow", error=str(e))
+            workflow_logger.exception("Unexpected error in workflow", error=str(e))
             raise
+        else:
+            workflow_logger.info(
+                "Completed metering run",
+                last_processed_timestamp=last_processed,
+            )
