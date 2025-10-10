@@ -574,11 +574,9 @@ jobs:
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
 
             - name: Install Flox
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: flox/install-flox-action@v2
 
             - name: Activate Flox and install Python dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: flox/activate-action@v1
               with:
                   command: |
@@ -587,7 +585,6 @@ jobs:
                       uv sync --frozen --dev
 
             - name: Build plugin transpiler
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: flox/activate-action@v1
               with:
                   command: |
@@ -595,7 +592,7 @@ jobs:
                       bin/turbo --filter=@posthog/plugin-transpiler build
 
             - name: Install the working version of hogql-parser
-              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
+              if: steps.hogql-parser-diff.outputs.changed == 'true'
               shell: bash
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
@@ -621,13 +618,12 @@ jobs:
                   cd ..
 
             - name: Install hogql_parser
-              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
+              if: steps.hogql-parser-diff.outputs.changed == 'true'
               uses: flox/activate-action@v1
               with:
                   command: pip install ./common/hogql_parser
 
             - name: Set up needed files
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: flox/activate-action@v1
               with:
                   command: |
@@ -638,7 +634,6 @@ jobs:
                       ./bin/download-mmdb
 
             - name: Wait for services to be available
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: flox/activate-action@v1
               with:
                   command: |
@@ -646,7 +641,7 @@ jobs:
                       bin/check_postgres_up
 
             - name: Wait for Temporal
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              if: matrix.segment == 'Temporal'
               uses: flox/activate-action@v1
               with:
                   command: bin/check_temporal_up
@@ -654,14 +649,14 @@ jobs:
             - name: Determine if --snapshot-update should be on
               # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
               # runs, as we want to ignore snapshots diverging there
-              if: ${{ needs.changes.outputs.backend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || matrix.person-on-events) }}
+              if: github.event.pull_request.head.repo.full_name == github.repository || matrix.person-on-events
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
             # Tests
             - name: Run Core tests
               id: run-core-tests
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              if: matrix.segment == 'Core'
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
               uses: flox/activate-action@v1
@@ -699,7 +694,7 @@ jobs:
 
             - name: Run /decide read replica tests
               id: run-decide-read-replica-tests
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.group == 1 && !matrix.person-on-events }}
+              if: matrix.segment == 'Core' && matrix.group == 1 && !matrix.person-on-events
               env:
                   POSTHOG_DB_NAME: posthog
                   READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
@@ -715,7 +710,7 @@ jobs:
 
             - name: Run Temporal tests
               id: run-temporal-tests
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              if: matrix.segment == 'Temporal'
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   RUNLOOP_API_KEY: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.RUNLOOP_API_KEY || '' }}
@@ -739,13 +734,13 @@ jobs:
 
             # Post tests
             - name: Show docker compose logs on failure
-              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
+              if: failure() && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure'
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v4
-              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98' }}
+              if: !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98'
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -754,7 +749,7 @@ jobs:
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && !matrix.person-on-events
               with:
                   add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
@@ -764,7 +759,7 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && !matrix.person-on-events
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -782,7 +777,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v4
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events
+              if: matrix.segment == 'Core' && !matrix.person-on-events
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
