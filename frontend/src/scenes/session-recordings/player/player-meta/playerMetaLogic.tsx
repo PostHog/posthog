@@ -32,7 +32,6 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
-import { calculateTTL } from '../../utils'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
 
@@ -162,14 +161,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
-
         endTime: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData) => {
                 return sessionPlayerData.end ?? null
             },
         ],
-
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
@@ -200,19 +197,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
-        sessionTTLDays: [
-            (s) => [s.sessionPlayerMetaData],
-            (sessionPlayerMetaData) => {
-                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
-                    return calculateTTL(sessionPlayerMetaData.start_time, sessionPlayerMetaData.retention_period_days)
-                }
-
-                return null
-            },
-        ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.sessionTTLDays],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById, sessionTTLDays) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
@@ -235,19 +222,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         type: 'text',
                     })
                 }
-                if (sessionPlayerMetaData?.retention_period_days) {
-                    items.push({
-                        label: 'Retention Period',
-                        value: `${sessionPlayerMetaData.retention_period_days}d`,
-                        type: 'text',
-                        keyTooltip: 'The total number of days this recording will be retained',
-                    })
-                }
-                if (sessionTTLDays !== null) {
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.recording_ttl) {
                     items.push({
                         icon: <IconHourglass />,
                         label: 'TTL',
-                        value: `${sessionTTLDays}d`,
+                        value: `${sessionPlayerMetaData.recording_ttl}d / ${sessionPlayerMetaData.retention_period_days}d`,
                         type: 'text',
                         keyTooltip: 'The number of days left before this recording expires',
                     })
