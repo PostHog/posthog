@@ -32,7 +32,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
-import { calculateTTL } from '../utils/ttlUtils'
+import { calculateTTL } from '../../utils'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
 

@@ -58,6 +58,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
+            max(s.retention_period_days) as retention_period_days,
             {ongoing_selection},
             round((
             ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
@@ -89,6 +90,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "console_log_count",
             "console_warn_count",
             "console_error_count",
+            "retention_period_days",
             "ongoing",
             "activity_score",
         ]

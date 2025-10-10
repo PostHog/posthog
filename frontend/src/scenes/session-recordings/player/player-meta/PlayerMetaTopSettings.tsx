@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
+import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -15,8 +16,6 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerMetaLogic } from './playerMetaLogic'
-
-const TTL_WARNING_THRESHOLD_DAYS = 10 // days
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -70,7 +69,7 @@ function TTLWarning(): JSX.Element | null {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionTTLDays } = useValues(playerMetaLogic(logicProps))
 
-    if (sessionTTLDays === null || sessionTTLDays > TTL_WARNING_THRESHOLD_DAYS) {
+    if (sessionTTLDays === null || sessionTTLDays > SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS) {
         return null
     }
     posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
