@@ -694,7 +694,7 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checkpoint::target::CheckpointTarget;
+    use crate::checkpoint::{CheckpointTarget, CHECKPOINT_METADATA_SUBDIR};
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
@@ -756,6 +756,35 @@ mod tests {
         }
 
         Ok(checkpoint_files)
+    }
+
+    fn find_local_metadata_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
+        let mut metadata_files = Vec::new();
+        let mut stack = vec![base_dir.to_path_buf()];
+
+        while let Some(current_path) = stack.pop() {
+            let entries = std::fs::read_dir(&current_path)?;
+
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+
+                if path.is_file() {
+                    metadata_files.push(path);
+                } else if path.is_dir() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
+                            || name.starts_with(CHECKPOINT_PARTITION_PREFIX)
+                            || name == CHECKPOINT_METADATA_SUBDIR
+                        {
+                            stack.push(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(metadata_files)
     }
 
     #[tokio::test]
@@ -857,6 +886,12 @@ mod tests {
 
         // Flush all should succeed
         assert!(manager.flush_all().await.is_ok());
+
+        let checkpoint_base_dir = Path::new(&config.local_checkpoint_dir);
+        let checkpoint_files = find_local_checkpoint_files(checkpoint_base_dir).unwrap();
+        assert!(!checkpoint_files.is_empty());
+        let metadata_files = find_local_metadata_files(checkpoint_base_dir).unwrap();
+        assert!(!metadata_files.is_empty());
     }
 
     #[tokio::test]
@@ -945,8 +980,8 @@ mod tests {
 
         // there should be lots of checkpoint files collected from
         // various attempt directories of form /<base_path>/topic/partition/timestamp
-        let checkpoint_files =
-            find_local_checkpoint_files(Path::new(&expected_checkpoint_dir)).unwrap();
+        let checkpoint_base_dir = Path::new(&expected_checkpoint_dir);
+        let checkpoint_files = find_local_checkpoint_files(checkpoint_base_dir).unwrap();
         assert!(!checkpoint_files.is_empty());
         assert!(checkpoint_files
             .iter()
@@ -972,6 +1007,9 @@ mod tests {
             .map(|p| p.parent().unwrap())
             .collect::<HashSet<_>>();
         assert!(!checkpoint_attempts.is_empty());
+
+        let metadata_files = find_local_metadata_files(checkpoint_base_dir).unwrap();
+        assert!(!metadata_files.is_empty());
     }
 
     #[tokio::test]
@@ -1065,9 +1103,11 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         manager.stop().await;
 
-        let found_files =
-            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
-        assert!(!found_files.is_empty());
+        let checkpoint_base_dir = Path::new(&config.local_checkpoint_dir);
+        let checkpoint_files = find_local_checkpoint_files(checkpoint_base_dir).unwrap();
+        assert!(!checkpoint_files.is_empty());
+        let metadata_files = find_local_metadata_files(checkpoint_base_dir).unwrap();
+        assert!(!metadata_files.is_empty());
 
         // reconfigure the manager to not run checkpoints, but to clean up immediately
         // with a very recent retention time (now!)
@@ -1086,9 +1126,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         manager.stop().await;
 
-        let found_files =
-            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
-        assert!(found_files.is_empty());
+        let checkpoint_files = find_local_checkpoint_files(checkpoint_base_dir).unwrap();
+        assert!(checkpoint_files.is_empty());
+        let metadata_files = find_local_metadata_files(checkpoint_base_dir).unwrap();
+        assert!(metadata_files.is_empty());
     }
 
     #[tokio::test]
@@ -1133,9 +1174,11 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         manager.stop().await;
 
-        let found_files =
-            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
-        assert!(!found_files.is_empty());
+        let checkpoint_base_dir = Path::new(&config.local_checkpoint_dir);
+        let checkpoint_files = find_local_checkpoint_files(checkpoint_base_dir).unwrap();
+        assert!(!checkpoint_files.is_empty());
+        let metadata_files = find_local_metadata_files(checkpoint_base_dir).unwrap();
+        assert!(!metadata_files.is_empty());
 
         // reconfigure the manager to not run checkpoints, but to clean up immediately
         // with a very recent retention time (now!)
@@ -1154,9 +1197,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         manager.stop().await;
 
-        let found_files =
-            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
-        assert!(found_files.is_empty());
+        let checkpoint_files = find_local_checkpoint_files(checkpoint_base_dir).unwrap();
+        assert!(checkpoint_files.is_empty());
+        let metadata_files = find_local_metadata_files(checkpoint_base_dir).unwrap();
+        assert!(metadata_files.is_empty());
     }
 
     #[tokio::test]

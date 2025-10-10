@@ -17,8 +17,8 @@ pub use metadata::{CheckpointFile, CheckpointMetadata, CheckpointType};
 pub use s3_downloader::S3Downloader;
 pub use s3_uploader::S3Uploader;
 pub use target::{
-    CheckpointTarget, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_REMOTE_PATH_NAMESPACE,
-    CHECKPOINT_TOPIC_PREFIX,
+    CheckpointTarget, CHECKPOINT_METADATA_SUBDIR, CHECKPOINT_PARTITION_PREFIX,
+    CHECKPOINT_REMOTE_PATH_NAMESPACE, CHECKPOINT_TOPIC_PREFIX,
 };
 pub use uploader::CheckpointUploader;
 pub use worker::{CheckpointMode, CheckpointWorker};
