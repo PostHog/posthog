@@ -62,3 +62,7 @@ class ExternalDataSourceType(models.TextChoices):
     REDDITADS = "RedditAds", "RedditAds"
     TIKTOKADS = "TikTokAds", "TikTokAds"
     SHOPIFY = "Shopify", "Shopify"
+
+
+# discrimated union type for successful validation or unsuccessful accompanied by a reason
+SourceCredentialsValidationResult = tuple[True, None] | tuple[False, str]

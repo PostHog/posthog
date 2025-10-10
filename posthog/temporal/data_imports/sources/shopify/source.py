@@ -26,13 +26,13 @@ class ShopifySource(BaseSource[ShopifySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHOPIFY,
+            iconPath="/static/services/shopify.png",
             caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.
 
 You can find your store ID in your store's URL which typically looks like https://shop.{store_id}.com. To create and configure your access token go to [your store's admin panel](https://admin.shopify.com) and [follow these steps]()
 
 The simplest setup for permissions is to only allow **read** permissions for the resources you are interested in syncing with your warehouse.
-""",
-            iconPath="/static/services/shopify.png",
+        """,
             docsUrl="",
             fields=cast(
                 list[FieldType],
@@ -56,10 +56,10 @@ The simplest setup for permissions is to only allow **read** permissions for the
             unreleasedSource=True,
         )
 
-    def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
         raise NotImplementedError()
 
-    def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         raise NotImplementedError()
 
     def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:

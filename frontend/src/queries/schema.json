@@ -12540,7 +12540,8 @@
                 "DoIt",
                 "LinkedinAds",
                 "RedditAds",
-                "TikTokAds"
+                "TikTokAds",
+                "Shopify"
             ],
             "type": "string"
         },
@@ -15355,7 +15356,8 @@
                 "clickup",
                 "reddit-ads",
                 "databricks",
-                "tiktok-ads"
+                "tiktok-ads",
+                "shopify"
             ],
             "type": "string"
         },
