@@ -314,7 +314,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                             experimentId={experimentId as ExperimentIdType}
                             variantKey={variant.key}
                             fontSize={10}
-                            muted
                         />
                     </foreignObject>
 
