@@ -4,7 +4,7 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
 
 ```sh
 mkdir -p posthog/temporal/data_imports/sources/{SOURCE_NAME}
-cp posthog/temporal/data_imports/sources/_template.py posthog/temporal/data_imports/sources/{SOURCE_NAME}/source.py
+cp posthog/temporal/data_imports/sources/source.template posthog/temporal/data_imports/sources/{SOURCE_NAME}/source.py
 ```
 
 ## Source fields

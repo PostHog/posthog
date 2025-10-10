@@ -64,5 +64,4 @@ class ExternalDataSourceType(models.TextChoices):
     SHOPIFY = "Shopify", "Shopify"
 
 
-# discrimated union type for successful validation or unsuccessful accompanied by a reason
-SourceCredentialsValidationResult = tuple[True, None] | tuple[False, str]
+SourceCredentialsValidationResult = tuple[bool, str | None]
