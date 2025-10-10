@@ -2174,6 +2174,10 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "AttributionMode": {
+            "enum": ["first_touch", "last_touch"],
+            "type": "string"
+        },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
             "properties": {
@@ -9946,6 +9950,74 @@
             "additionalProperties": false,
             "type": "object"
         },
+        "EndpointLastExecutionTimesRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["names"],
+            "type": "object"
+        },
+        "EndpointRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/InsightQueryNode"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
+        "EndpointRunRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "client_query_id": {
+                    "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
+                    "type": "string"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "query_override": {
+                    "type": "object"
+                },
+                "refresh": {
+                    "$ref": "#/definitions/RefreshType",
+                    "default": "blocking",
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "type": "object"
+                    },
+                    "type": "object"
+                },
+                "variables_values": {
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "EntityNode": {
             "additionalProperties": false,
             "properties": {
@@ -10202,6 +10274,9 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "revenue": {
+                    "type": "number"
+                },
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
                     "type": "string"
@@ -10397,7 +10472,7 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -10418,6 +10493,7 @@
                     "type": "string"
                 }
             },
+            "required": ["orderBy"],
             "type": "object"
         },
         "ErrorTrackingIssueImpactToolOutput": {
@@ -10473,15 +10549,26 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
                     "type": "string"
                 },
                 "orderDirection": {
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
+                "personId": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
+                },
+                "revenueEntity": {
+                    "enum": ["person", "group_0", "group_1", "group_2", "group_3", "group_4"],
+                    "type": "string"
+                },
+                "revenuePeriod": {
+                    "enum": ["all_time", "last_30_days"],
+                    "type": "string"
                 },
                 "searchQuery": {
                     "type": "string"
@@ -10510,7 +10597,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["dateRange", "kind", "volumeResolution"],
+            "required": ["dateRange", "kind", "orderBy", "volumeResolution"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
@@ -11490,6 +11577,9 @@
                 "experiment_id": {
                     "$ref": "#/definitions/integer"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "funnels_query": {
                     "$ref": "#/definitions/FunnelsQuery"
                 },
@@ -12156,6 +12246,9 @@
                 "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "kind": {
                     "const": "ExperimentTrendsQuery",
                     "type": "string"
@@ -12447,7 +12540,8 @@
                 "TemporalIO",
                 "DoIt",
                 "LinkedinAds",
-                "RedditAds"
+                "RedditAds",
+                "TikTokAds"
             ],
             "type": "string"
         },
@@ -15261,7 +15355,8 @@
                 "meta-ads",
                 "clickup",
                 "reddit-ads",
-                "databricks"
+                "databricks",
+                "tiktok-ads"
             ],
             "type": "string"
         },
@@ -15834,6 +15929,12 @@
         "MarketingAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "attribution_mode": {
+                    "$ref": "#/definitions/AttributionMode"
+                },
+                "attribution_window_days": {
+                    "type": "number"
+                },
                 "conversion_goals": {
                     "items": {
                         "$ref": "#/definitions/ConversionGoalFilter"
@@ -16720,74 +16821,6 @@
         "MultipleBreakdownType": {
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
-        },
-        "NamedQueryLastExecutionTimesRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "names": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["names"],
-            "type": "object"
-        },
-        "NamedQueryRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "query": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/HogQLQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/InsightQueryNode"
-                        }
-                    ]
-                }
-            },
-            "type": "object"
-        },
-        "NamedQueryRunRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "client_query_id": {
-                    "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
-                    "type": "string"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
-                },
-                "query_override": {
-                    "type": "object"
-                },
-                "refresh": {
-                    "$ref": "#/definitions/RefreshType",
-                    "default": "blocking",
-                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
-                },
-                "variables_override": {
-                    "additionalProperties": {
-                        "type": "object"
-                    },
-                    "type": "object"
-                },
-                "variables_values": {
-                    "type": "object"
-                }
-            },
-            "type": "object"
         },
         "NewExperimentQueryResponse": {
             "additionalProperties": false,

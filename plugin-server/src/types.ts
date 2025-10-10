@@ -441,6 +441,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
+    SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
     // New: switchover flag for v2 session recording metadata
     SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
@@ -1356,6 +1357,7 @@ export interface EventHeaders {
     timestamp?: string
     event?: string
     uuid?: string
+    force_disable_person_processing: boolean
 }
 
 export interface IncomingEvent {

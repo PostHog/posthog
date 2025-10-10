@@ -18,6 +18,7 @@ import {
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { fullName } from 'lib/utils'
+import { getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
@@ -27,14 +28,6 @@ import {
     RoleResourceAccessControls,
     resourcesAccessControlLogic,
 } from './resourcesAccessControlLogic'
-
-const pluralizeResource = (resource: APIScopeObject): string => {
-    if (resource === 'revenue_analytics') {
-        return 'revenue analytics'
-    }
-
-    return resource.replace(/_/g, ' ') + 's'
-}
 
 const SummarizeAccessLevels = ({
     accessControlByResource,
@@ -517,13 +510,21 @@ function ResourceAccessControlModal(props: {
     }
 
     // Create options for the access level dropdown
-    const getLevelOptions = (): { value: AccessControlLevel | null; label: string }[] => {
-        const options: { value: AccessControlLevel | null; label: string }[] = availableLevels.map((level) => ({
-            value: level as AccessControlLevel,
-            label: capitalizeFirstLetter(level ?? ''),
-        }))
+    const getLevelOptions = (
+        resource: APIScopeObject
+    ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
+        const minimumLevel = getMinimumAccessLevel(resource)
+        const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
+            availableLevels.map((level) => {
+                const isDisabled =
+                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                return {
+                    value: level as AccessControlLevel,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })
 
-        // Add "No override" option
         options.push({
             value: null,
             label: 'No override',
@@ -532,6 +533,7 @@ function ResourceAccessControlModal(props: {
         return options
     }
 
+    // Get appropriate title based on the type (member or role)
     const getModalTitle = (): string => {
         if (isEditMode) {
             return props.type === 'member' ? 'Edit member resource access' : 'Edit role resource access'
@@ -595,7 +597,7 @@ function ResourceAccessControlModal(props: {
 
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <h5 className="mb-0">Resource access levels</h5>
+                        <h5 className="mb-2">Resource access levels</h5>
                         <Link
                             to="#"
                             onClick={(e) => {
@@ -623,7 +625,7 @@ function ResourceAccessControlModal(props: {
                                     onChange={(newValue) =>
                                         updateResourceLevel(resource, newValue as AccessControlLevel | null)
                                     }
-                                    options={getLevelOptions()}
+                                    options={getLevelOptions(resource)}
                                     disabled={!canEditRoleBasedAccessControls}
                                 />
                             </div>
@@ -673,11 +675,20 @@ function DefaultResourceAccessControlModal(props: {
         }))
     }
 
-    const getLevelOptions = (): { value: AccessControlLevel | null; label: string }[] => {
-        const options: { value: AccessControlLevel | null; label: string }[] = availableLevels.map((level) => ({
-            value: level as AccessControlLevel,
-            label: capitalizeFirstLetter(level ?? ''),
-        }))
+    const getLevelOptions = (
+        resource: APIScopeObject
+    ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
+        const minimumLevel = getMinimumAccessLevel(resource)
+        const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
+            availableLevels.map((level) => {
+                const isDisabled =
+                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                return {
+                    value: level as AccessControlLevel,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })
 
         options.push({
             value: null,
@@ -740,7 +751,7 @@ function DefaultResourceAccessControlModal(props: {
                                 onChange={(newValue) =>
                                     updateResourceLevel(resource, newValue as AccessControlLevel | null)
                                 }
-                                options={getLevelOptions()}
+                                options={getLevelOptions(resource)}
                                 disabled={!canEditRoleBasedAccessControls}
                             />
                         </div>
