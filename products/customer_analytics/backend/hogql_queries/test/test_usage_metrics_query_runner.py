@@ -14,6 +14,8 @@ from posthog.test.base import (
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import UsageMetricsQuery
 
 from posthog.models.group.util import create_group
@@ -86,16 +88,18 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner._is_person_query is True
         assert runner._is_group_query is False
 
-    def test_init_with_group_parameters(self):
-        query = UsageMetricsQuery(group_key="test-group-key", group_type_index=0)
+    @parameterized.expand(["test-group-key", "0"])
+    def test_init_with_group_parameters(self, group_key: str):
+        query = UsageMetricsQuery(group_key=group_key, group_type_index=0)
         runner = UsageMetricsQueryRunner(team=self.team, query=query)
-        assert runner.query.group_key == "test-group-key"
+        assert runner.query.group_key == group_key
         assert runner.query.group_type_index == 0
         assert runner._is_group_query is True
         assert runner._is_person_query is False
 
-    def test_init_with_neither_person_nor_group_raises_error(self):
-        query = UsageMetricsQuery()
+    @parameterized.expand(["", None])
+    def test_init_with_neither_person_nor_group_raises_error(self, group_key: str | None):
+        query = UsageMetricsQuery(group_key=group_key)
         with pytest.raises(ValueError, match="UsageMetricsQuery must have either group_key or person_id"):
             UsageMetricsQueryRunner(team=self.team, query=query)
 
