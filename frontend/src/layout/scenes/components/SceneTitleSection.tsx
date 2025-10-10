@@ -133,7 +133,10 @@ export function SceneTitleSection({
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
+
+    const effectiveDescription = description !== undefined ? description : sceneLayoutConfig?.description
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
@@ -199,10 +202,11 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {description !== null && (description || canEdit) && (
+
+                {effectiveDescription !== null && (effectiveDescription || canEdit) && (
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full group-data-[editable=true]:mt-1">
                         <SceneDescription
-                            description={description}
+                            description={effectiveDescription}
                             markdown={markdown}
                             isLoading={isLoading}
                             onChange={onDescriptionChange}

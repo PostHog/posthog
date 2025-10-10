@@ -79,6 +79,10 @@ export function loadPostHogJS(): void {
             }
 
             posthog.capture('onFeatureFlags error')
+
+            // Track that we failed to load feature flags
+            window.POSTHOG_GLOBAL_ERRORS ||= {}
+            window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
     } else {
         posthog.init('fake_token', {

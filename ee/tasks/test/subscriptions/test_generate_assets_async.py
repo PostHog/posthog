@@ -27,7 +27,10 @@ async def mock_export_asset():
         asset.content = b"fake image data"
         asset.save()
 
-    with patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct", side_effect=set_content):
+    with (
+        patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct", side_effect=set_content),
+        patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock()),
+    ):
         yield
 
 

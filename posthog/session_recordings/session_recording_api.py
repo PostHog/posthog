@@ -963,6 +963,9 @@ class SessionRecordingViewSet(
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
 
+        trace.get_current_span().set_attribute("team_id", self.team_id)
+        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
+
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
