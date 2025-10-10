@@ -17,7 +17,7 @@ use super::{exception::add_error_to_event, IncomingEvent};
 // Adds team info, and folds set, set_once and ip address data into the event properties
 pub fn prepare_events(
     events: Vec<IncomingEvent>,
-    teams_lut: HashMap<String, Option<Team>>,
+    teams_lut: &HashMap<String, Option<Team>>,
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
     let mut buffer = Vec::with_capacity(events.len());
 

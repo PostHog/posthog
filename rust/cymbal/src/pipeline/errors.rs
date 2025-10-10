@@ -82,5 +82,9 @@ pub async fn report_error(_context: Arc<AppContext>, error: EventError) {
             // Totally mundane
             counter!(DROPPED_EVENTS, "reason" => "filtered_by_team_id").increment(1);
         }
+        EventError::DroppedByTransformation => {
+            // Totally mundane
+            counter!(DROPPED_EVENTS, "reason" => "dropped_by_transformation").increment(1);
+        }
     }
 }

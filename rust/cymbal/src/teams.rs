@@ -10,7 +10,10 @@ use crate::{
     error::{PipelineFailure, UnhandledError},
     fingerprinting::grouping_rules::GroupingRule,
     metric_consts::ANCILLARY_CACHE,
-    pipeline::IncomingEvent,
+    pipeline::{
+        transformations::transform::{HogFunctionManager, HogFunctionManagerConfig},
+        IncomingEvent,
+    },
     sanitize_string, WithIndices,
 };
 
@@ -19,6 +22,7 @@ pub struct TeamManager {
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
+    pub function_manager: HogFunctionManager,
 }
 
 impl TeamManager {
@@ -49,11 +53,14 @@ impl TeamManager {
             })
             .build();
 
+        let function_manager = HogFunctionManager::new(HogFunctionManagerConfig::default());
+
         Self {
             token_cache: cache,
             assignment_rules,
             grouping_rules,
             group_type_indices,
+            function_manager,
         }
     }
 

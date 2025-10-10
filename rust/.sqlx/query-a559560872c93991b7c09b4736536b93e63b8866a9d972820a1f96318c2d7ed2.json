@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    id,\n                    project_id,\n                    organization_id,\n                    uuid,\n                    api_token,\n                    name,\n                    created_at,\n                    updated_at,\n                    anonymize_ips,\n                    person_processing_opt_out\n                FROM posthog_team\n                WHERE id = $1\n                LIMIT 1\n            ",
+  "query": "\n                SELECT\n                    id,\n                    project_id,\n                    organization_id,\n                    uuid,\n                    api_token,\n                    name,\n                    created_at,\n                    updated_at,\n                    anonymize_ips,\n                    person_processing_opt_out,\n                    person_display_name_properties\n                FROM posthog_team\n                WHERE id = $1\n                LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,11 @@
         "ordinal": 9,
         "name": "person_processing_opt_out",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "person_display_name_properties",
+        "type_info": "VarcharArray"
       }
     ],
     "parameters": {
@@ -69,8 +74,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "3afcf202ecf9f429c97848f17a0ca32edb60f3bce27bbc7f5038100ba582375c"
+  "hash": "a559560872c93991b7c09b4736536b93e63b8866a9d972820a1f96318c2d7ed2"
 }

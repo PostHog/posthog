@@ -1,0 +1,161 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    id,\n                    team_id,\n                    name,\n                    description,\n                    created_at,\n                    created_by_id,\n                    deleted,\n                    updated_at,\n                    enabled,\n                    type,\n                    kind,\n                    icon_url,\n                    hog,\n                    bytecode,\n                    transpiled,\n                    inputs_schema,\n                    inputs,\n                    encrypted_inputs,\n                    filters,\n                    mappings,\n                    masking,\n                    template_id,\n                    hog_function_template_id,\n                    execution_order\n                FROM posthog_hogfunction\n                WHERE team_id = $1 AND deleted = false AND enabled = true AND type = $2\n                ORDER BY execution_order, created_at ASC NULLS LAST -- in line with `sortHogFunctions` in plugin-server\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "team_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "deleted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "icon_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "hog",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "bytecode",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
+        "name": "transpiled",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "inputs_schema",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "inputs",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 17,
+        "name": "encrypted_inputs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "filters",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 19,
+        "name": "mappings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 20,
+        "name": "masking",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 21,
+        "name": "template_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 22,
+        "name": "hog_function_template_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 23,
+        "name": "execution_order",
+        "type_info": "Int2"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "ab7f880102bab167d7ebd1bcad53b84a1688cb1aca2e5ddbbae5caeac0aade98"
+}
