@@ -58,8 +58,16 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, isLegacyPlugin } =
-        useValues(hogFunctionConfigurationLogic)
+    const {
+        configuration,
+        type,
+        useMapping,
+        filtersContainPersonProperties,
+        oldFilters,
+        newFilters,
+        isLegacyPlugin,
+        configurationErrors,
+    } = useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
         setNewFilters,
@@ -68,6 +76,7 @@ export function HogFunctionFilters({
         reportAIFiltersAccepted,
         reportAIFiltersRejected,
         reportAIFiltersPromptOpen,
+        setConfigurationManualErrors,
     } = useActions(hogFunctionConfigurationLogic)
 
     const isTransformation = type === 'transformation'
@@ -127,6 +136,14 @@ export function HogFunctionFilters({
                 embedded && 'p-2'
             )}
         >
+            {configurationErrors?.filters && (
+                <LemonBanner type="error" className="mb-2">
+                    <div className="space-y-1">
+                        <div>Failed to save: Filter configuration error</div>
+                        <div className="text-xs">{configurationErrors.filters}</div>
+                    </div>
+                </LemonBanner>
+            )}
             {showSourcePicker && (
                 <LemonField
                     name="filters"
@@ -173,6 +190,10 @@ export function HogFunctionFilters({
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
                             clearFiltersDiff()
+                        }
+                        // Clear any existing filter errors when the user changes filters
+                        if (configurationErrors?.filters) {
+                            setConfigurationManualErrors({ ...configurationErrors, filters: undefined })
                         }
                         _onChange(newValue)
                     }
