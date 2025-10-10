@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,6 +59,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     })),
 
     reducers({
+        originalEvaluation: [
+            null as EvaluationConfig | null,
+            {
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation,
+                saveEvaluationSuccess: (_, { evaluation }) => evaluation,
+            },
+        ],
         evaluation: [
             null as EvaluationConfig | null,
             {
@@ -69,7 +76,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
-                resetEvaluation: () => null,
             },
         ],
         isForceRefresh: [
@@ -149,6 +155,31 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
+        },
+
+        resetEvaluation: () => {
+            if (props.evaluationId === 'new') {
+                const newEvaluation: EvaluationConfig = {
+                    id: '',
+                    name: '',
+                    description: '',
+                    enabled: false,
+                    prompt: '',
+                    conditions: [
+                        {
+                            id: `cond-${Date.now()}`,
+                            rollout_percentage: 100,
+                            properties: [],
+                        },
+                    ],
+                    total_runs: 0,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                }
+                actions.loadEvaluationSuccess(newEvaluation)
+            } else {
+                actions.loadEvaluationSuccess(values.originalEvaluation)
+            }
         },
 
         saveEvaluation: async () => {
@@ -236,6 +267,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             ],
         ],
     }),
+
+    urlToAction(({ actions, props }) => ({
+        '/llm-analytics/evaluations/:id': (_, __, ___, { method }) => {
+            // Only reload when user clicked link, not on browser back/forward
+            if (method === 'PUSH') {
+                actions.loadEvaluation()
+                if (props.evaluationId !== 'new') {
+                    actions.loadEvaluationRuns()
+                }
+            }
+        },
+    })),
 
     afterMount(({ actions, props }) => {
         actions.loadEvaluation()
