@@ -29,8 +29,8 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     const { openModal } = useActions(sampledSessionsModalLogic)
 
     const variantKey = Array.isArray(step.breakdown_value)
-        ? step.breakdown_value[0]?.toString()
-        : step.breakdown_value?.toString()
+        ? step.breakdown_value[0]?.toString() || ''
+        : step.breakdown_value?.toString() || ''
 
     const seriesColor =
         experiment?.parameters?.feature_flag_variants && variantKey
