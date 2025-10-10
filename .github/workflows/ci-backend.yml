@@ -122,7 +122,7 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: 3.11.13
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
@@ -505,7 +505,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |
@@ -567,7 +567,7 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python-version }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv-tests
@@ -769,7 +769,7 @@ jobs:
                   message: 'Update query snapshots'
                   pull: --rebase --autostash # Make sure we're up-to-date with other segments' updates
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
