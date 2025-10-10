@@ -22,6 +22,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
+import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
@@ -51,7 +52,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
-            <BindLogic logic={errorTrackingIssueSceneLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                 <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
                     <SceneBreadcrumbBackButton />
                     {hasIssueSplitting && (
