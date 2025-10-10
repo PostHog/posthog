@@ -19,7 +19,7 @@ export function initPostHog(): void {
             persistence: 'memory', // Use memory persistence for replay mode to avoid conflicts
             opt_out_useragent_filter: true, // We do want capture to work in a bot environment (Playwright)
         })
-        console.log(`PostHog initialized with host: ${localApiHost}`)
+        console.info(`PostHog initialized for Hedgebox with host: ${localApiHost}, api token: ${demoApiToken}`)
     }
     ;(window as any).posthog = posthog
 }
