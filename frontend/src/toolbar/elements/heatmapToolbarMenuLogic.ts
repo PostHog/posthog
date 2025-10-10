@@ -462,7 +462,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 if (values.heatmapScrollY !== scrollY) {
                     actions.setHeatmapScrollY(scrollY)
                 }
-            }, 100)
+            }, 50)
             return () => clearInterval(timerId)
         }, 'scrollCheckTimer')
 

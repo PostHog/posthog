@@ -363,13 +363,12 @@ def get_experiment_exposure_query(
         variant
         first_exposure_time
     """
-    event, feature_flag_variant_property = get_exposure_event_and_property(
+    _, feature_flag_variant_property = get_exposure_event_and_property(
         feature_flag_key=feature_flag.key, exposure_criteria=experiment.exposure_criteria
     )
 
     # Build common exposure conditions
     exposure_conditions = build_common_exposure_conditions(
-        event=event,
         feature_flag_variant_property=feature_flag_variant_property,
         variants=variants,
         date_range_query=date_range_query,
@@ -677,10 +676,16 @@ def get_winsorized_metric_values_query(
         lower_bound_expr = parse_expr("min(value)")
 
     if metric.upper_bound_percentile is not None:
-        upper_bound_expr = parse_expr(
-            "quantile({level})(value)",
-            placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
-        )
+        if getattr(metric, "ignore_zeros", False):
+            upper_bound_expr = parse_expr(
+                "quantile({level})(if(value != 0, value, null))",
+                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
+            )
+        else:
+            upper_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
+            )
     else:
         upper_bound_expr = parse_expr("max(value)")
 

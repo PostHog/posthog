@@ -27,7 +27,6 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
-import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
@@ -50,6 +49,7 @@ import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
+import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
@@ -264,11 +264,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: (
                     <AccessControlAction
                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel="editor"
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
                         <BaseCurrency hideTitle />
                     </AccessControlAction>
                 ),
+                hideWhenNoSection: true,
             },
             {
                 id: 'revenue-analytics-filter-test-accounts',
@@ -301,7 +302,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'marketing-settings',
                 title: 'Marketing settings',
-                component: <MarketingAnalyticsSettings hideTitle />,
+                component: <MarketingAnalyticsSettingsWrapper />,
             },
         ],
     },
@@ -571,7 +572,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-activity-logs',
         title: 'Activity logs',
-        flag: 'ADVANCED_ACTIVITY_LOGS',
         to: urls.advancedActivityLogs(),
         settings: [],
     },

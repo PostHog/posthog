@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -313,5 +313,15 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     afterMount(({ actions }) => {
         actions.loadSource()
         actions.loadJobs()
+    }),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up refresh timeouts to prevent memory leaks and continued API calls
+        if (cache.sourceRefreshTimeout) {
+            clearTimeout(cache.sourceRefreshTimeout)
+        }
+        if (cache.jobsRefreshTimeout) {
+            clearTimeout(cache.jobsRefreshTimeout)
+        }
     }),
 ])

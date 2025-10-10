@@ -7,14 +7,10 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
-import {
-    NotebookNodeReplayTimestampAttrs,
-    buildTimestampCommentContent,
-} from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -136,12 +132,6 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
-        insertReplayCommentByTimestamp: (options: {
-            timestamp: number
-            sessionRecordingId: string
-            knownStartingPosition?: number
-            nodeId?: string
-        }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -483,7 +473,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 (shouldBeEditable &&
                     !previewContent &&
                     !!notebook?.user_access_level &&
-                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
         ],
     }),
     listeners(({ values, actions, cache, disposables }) => ({
@@ -526,41 +520,15 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition, nodeId }) => {
-            await runWhenEditorIsReady(
-                () => !!values.editor,
-                () => {
-                    let insertionPosition =
-                        knownStartingPosition || values.editor?.findNodePositionByAttrs({ id: sessionRecordingId })
-                    let nextNode = values.editor?.nextNode(insertionPosition)
-                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
-                        const candidateTimestampAttributes = nextNode.node.content.firstChild
-                            ?.attrs as NotebookNodeReplayTimestampAttrs
-                        const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
-                        if (nextNodePlaybackTime <= timestamp) {
-                            insertionPosition = nextNode.position
-                            nextNode = values.editor?.nextNode(insertionPosition)
-                        } else {
-                            nextNode = null
-                        }
-                    }
-
-                    values.editor?.insertContentAfterNode(
-                        insertionPosition,
-                        buildTimestampCommentContent({
-                            playbackTime: timestamp,
-                            sessionRecordingId,
-                            sourceNodeId: nodeId,
-                        })
-                    )
-                }
-            )
-        },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
-                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+                !accessLevelSatisfied(
+                    AccessControlResourceType.Notebook,
+                    values.notebook.user_access_level,
+                    AccessControlLevel.Editor
+                )
             ) {
                 actions.clearLocalContent()
                 return
@@ -622,7 +590,14 @@ export const notebookLogic = kea<notebookLogicType>([
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
-            actions.onUpdateEditor()
+            // Throttle onUpdateEditor to avoid performance issues with many notebook nodes
+            if (cache.throttledOnUpdateEditorTimeout) {
+                clearTimeout(cache.throttledOnUpdateEditorTimeout)
+            }
+            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                actions.onUpdateEditor()
+                cache.throttledOnUpdateEditorTimeout = null
+            }, 16) // ~60fps throttling
         },
         setEditor: () => {
             values.editor?.setContent(values.content)
@@ -646,7 +621,14 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorSelectionUpdate: () => {
             if (values.editor) {
-                actions.onUpdateEditor()
+                // Throttle this too to avoid excessive calls
+                if (cache.throttledOnUpdateEditorTimeout) {
+                    clearTimeout(cache.throttledOnUpdateEditorTimeout)
+                }
+                cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                    actions.onUpdateEditor()
+                    cache.throttledOnUpdateEditorTimeout = null
+                }, 16) // ~60fps throttling
             }
         },
         scrollToSelection: () => {

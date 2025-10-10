@@ -19,6 +19,7 @@ import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -31,6 +32,11 @@ jest.mock('../utils/posthog', () => {
         captureException: jest.fn(),
     }
 })
+
+// Mock the event pipeline runner v1 step for error testing
+jest.mock('./event-processing/event-pipeline-runner-v1-step', () => ({
+    createEventPipelineRunnerV1Step: jest.fn(),
+}))
 
 let offsetIncrementer = 0
 
@@ -59,6 +65,12 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 token: Buffer.from(event.token || ''),
             },
+            {
+                event: Buffer.from(event.event || ''),
+            },
+            {
+                uuid: Buffer.from(event.uuid || ''),
+            },
         ],
     }
 }
@@ -79,6 +91,7 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Inco
             headers: {
                 token: e.token || '',
                 distinct_id: e.distinct_id || '',
+                force_disable_person_processing: false,
             },
         })
     )
@@ -151,12 +164,17 @@ describe('IngestionConsumer', () => {
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
+
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer) => {
+            const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
+            return original.createEventPipelineRunnerV1Step(hub, hogTransformer)
+        })
+
+        ingester = await createIngestionConsumer(hub)
     })
 
     afterEach(async () => {
-        if (ingester) {
-            await ingester.stop()
-        }
+        await ingester.stop()
         await closeHub(hub)
     })
 
@@ -165,10 +183,6 @@ describe('IngestionConsumer', () => {
     })
 
     describe('general', () => {
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
-        })
-
         it('should have the correct config', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
@@ -288,14 +302,16 @@ describe('IngestionConsumer', () => {
             })
 
             describe('force overflow', () => {
-                beforeEach(async () => {
-                    // Reset ingester with force overflow token:distinct_id pair
+                let ingester: IngestionConsumer
+
+                afterEach(async () => {
                     await ingester.stop()
-                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
-                    ingester = await createIngestionConsumer(hub)
                 })
 
                 it('should force events with matching token:distinct_id to overflow', async () => {
+                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
+                    ingester = await createIngestionConsumer(hub)
+
                     const events = [
                         createEvent({ token: team.api_token, distinct_id: 'team1-user' }), // should overflow
                         createEvent({ token: team.api_token, distinct_id: 'team1-other' }), // should not overflow (different distinct_id)
@@ -329,8 +345,6 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('should handle multiple token:distinct_id pairs in force overflow setting', async () => {
-                    // Reset ingester with multiple force overflow token:distinct_id pairs
-                    await ingester.stop()
                     hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
                     ingester = await createIngestionConsumer(hub)
 
@@ -378,7 +392,6 @@ describe('IngestionConsumer', () => {
 
                 describe('via headers (preprocessing)', () => {
                     it('forces overflow using headers even if payload token/distinct_id differ', async () => {
-                        await ingester.stop()
                         hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
                         ingester = await createIngestionConsumer(hub)
 
@@ -404,7 +417,6 @@ describe('IngestionConsumer', () => {
 
                     it('preserves partition locality when not skipping person; drops key when skipping person', async () => {
                         // Not skipping person -> key preserved
-                        await ingester.stop()
                         hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
                         hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = ''
                         hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
@@ -453,6 +465,52 @@ describe('IngestionConsumer', () => {
     })
 
     describe('dropping events', () => {
+        it('should drop $exception events', async () => {
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$exception',
+                    properties: { $exception_message: 'Test error' },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_dlq_test')
+            ).toHaveLength(0)
+        })
+
+        it('should capture ingestion warning for $groupidentify with too long $group_key', async () => {
+            const longKey = 'x'.repeat(401)
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$groupidentify',
+                    properties: {
+                        $group_key: longKey,
+                        $group_type: 'company',
+                        $group_set: { name: 'Test Company' },
+                    },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            // Event should be dropped
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+
+            // Should produce ingestion warning
+            const warningMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'clickhouse_ingestion_warnings_test'
+            )
+            expect(warningMessages).toHaveLength(1)
+            expect(warningMessages[0].value).toMatchObject({
+                team_id: team.id,
+                type: 'group_key_too_long',
+                details: expect.stringContaining(longKey),
+            })
+        })
+
         describe.each(['headers', 'payload'] as const)('via %s', (kind) => {
             const addMessageHeaders = (message: Message, token?: string, distinctId?: string) => {
                 if (kind !== 'headers') {
@@ -653,6 +711,7 @@ describe('IngestionConsumer', () => {
                         token: team.api_token,
                         distinct_id: event.distinct_id || '',
                         timestamp: (Date.now() + index * 1000).toString(),
+                        force_disable_person_processing: false,
                     },
                 }
             })
@@ -666,12 +725,14 @@ describe('IngestionConsumer', () => {
                 token: team.api_token,
                 distinct_id: 'distinct-id-1',
                 timestamp: expect.any(String),
+                force_disable_person_processing: false,
             })
 
             expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
                 token: team.api_token,
                 distinct_id: 'distinct-id-2',
                 timestamp: expect.any(String),
+                force_disable_person_processing: false,
             })
 
             // Verify the timestamp values are different
@@ -684,14 +745,11 @@ describe('IngestionConsumer', () => {
     describe('error handling', () => {
         let messages: Message[]
 
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+        beforeEach(() => {
             // Simulate some sort of error happening by mocking out the runner
             messages = createKafkaMessages([createEvent()])
             jest.spyOn(logger, 'error').mockImplementation(() => {})
         })
-
-        afterEach(() => {})
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
             // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
@@ -699,12 +757,15 @@ describe('IngestionConsumer', () => {
 
             const error: any = new Error('test')
             error.isRetriable = false
-            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
-                runEventPipeline: () => {
-                    throw error
-                },
+
+            // Mock the event pipeline runner v1 step to throw the error
+            jest.mocked(createEventPipelineRunnerV1Step).mockImplementation(() => {
+                return async function eventPipelineRunnerV1Step() {
+                    return Promise.reject(error)
+                }
             })
 
+            const ingester = await createIngestionConsumer(hub)
             await ingester.handleKafkaBatch(messages)
 
             expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
@@ -715,13 +776,43 @@ describe('IngestionConsumer', () => {
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
             const error: any = new Error('test')
             error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
-                runEventPipeline: () => {
-                    throw error
-                },
+
+            // Mock the event pipeline runner v1 step to throw the error
+            jest.mocked(createEventPipelineRunnerV1Step).mockImplementation(() => {
+                return async function eventPipelineRunnerV1Step() {
+                    return Promise.reject(error)
+                }
             })
 
+            const ingester = await createIngestionConsumer(hub)
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        })
+
+        it('should emit failures to dead letter queue for non-retriable errors', async () => {
+            const error = new Error('Non-retriable processing error')
+            const errorAny = error as any
+            errorAny.isRetriable = false
+
+            // Mock the event pipeline runner v1 step to throw the error
+            jest.mocked(createEventPipelineRunnerV1Step).mockImplementation(() => {
+                return async function eventPipelineRunnerV1Step() {
+                    return Promise.reject(error)
+                }
+            })
+
+            const ingester = await createIngestionConsumer(hub)
+            await ingester.handleKafkaBatch(messages)
+
+            // Should not produce to clickhouse
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+
+            // Should produce to DLQ
+            const dlqMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'events_plugin_ingestion_dlq_test'
+            )
+            expect(dlqMessages).toHaveLength(1)
+            expect(dlqMessages[0].value).toEqual(parseJSON(messages[0].value!.toString()))
+            expect(dlqMessages[0].headers!['dlq-reason']).toEqual(error.message)
         })
     })
 
@@ -1187,7 +1278,9 @@ describe('IngestionConsumer', () => {
                   {
                     "headers": {
                       "distinct_id": "user-1",
+                      "event": "$pageview",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                      "uuid": "<REPLACED-UUID-0>",
                     },
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",

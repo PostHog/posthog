@@ -1,5 +1,3 @@
-import './NotebookScene.scss'
-
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
@@ -29,7 +27,6 @@ export function NotebooksScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Notebooks"
-                description="Notebooks are a way to organize your work and share it with others."
                 resourceType={{
                     type: 'notebook',
                 }}

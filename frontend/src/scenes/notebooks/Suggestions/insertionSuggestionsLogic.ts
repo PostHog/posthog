@@ -4,7 +4,6 @@ import { RichContentEditorType, RichContentNode } from 'lib/components/RichConte
 
 import { disposables } from '../../../kea-disposables'
 import { InsertionSuggestion } from './InsertionSuggestion'
-import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
 
@@ -22,7 +21,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     }),
     reducers({
         suggestions: [
-            [ReplayTimestampSuggestion] as InsertionSuggestion[],
+            [] as InsertionSuggestion[],
             {
                 setSuggestions: (_, { suggestions }) => suggestions,
             },

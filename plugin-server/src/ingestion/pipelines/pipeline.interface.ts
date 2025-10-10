@@ -7,6 +7,8 @@ import { PipelineResult } from './results'
  */
 export interface PipelineContext {
     message: Message
+    lastStep?: string
+    sideEffects: Promise<unknown>[]
 }
 
 /**
