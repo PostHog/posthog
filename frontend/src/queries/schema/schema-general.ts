@@ -2837,8 +2837,6 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
     funnelStep?: integer
-    /** Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use. */
-    funnelCustomSteps?: integer[]
     /** The breakdown value for which to get persons for. This is an array for
      * person and event properties, a string for groups and an integer for cohorts. */
     funnelStepBreakdown?: BreakdownKeyType

@@ -13942,12 +13942,6 @@ class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelCustomSteps: Optional[list[int]] = Field(
-        default=None,
-        description=(
-            "Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use."
-        ),
-    )
     funnelStep: Optional[int] = Field(
         default=None,
         description=(
