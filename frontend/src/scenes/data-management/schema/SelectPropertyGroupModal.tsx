@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -34,7 +34,6 @@ interface SelectPropertyGroupModalProps {
     isOpen: boolean
     onClose: () => void
     onSelect: (propertyGroupId: string) => void
-    availablePropertyGroups: SchemaPropertyGroup[]
     selectedPropertyGroupIds?: Set<string>
     onPropertyGroupCreated?: () => void
 }
@@ -43,15 +42,15 @@ export function SelectPropertyGroupModal({
     isOpen,
     onClose,
     onSelect,
-    availablePropertyGroups,
     selectedPropertyGroupIds = new Set(),
     onPropertyGroupCreated,
 }: SelectPropertyGroupModalProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const logic = schemaManagementLogic({ key: 'select-property-group-modal' })
-    const { setPropertyGroupModalOpen } = useActions(logic)
+    const { propertyGroups } = useValues(logic)
+    const { setPropertyGroupModalOpen, loadPropertyGroups } = useActions(logic)
 
-    const filteredPropertyGroups = availablePropertyGroups.filter(
+    const filteredPropertyGroups = propertyGroups.filter(
         (group) =>
             !selectedPropertyGroupIds.has(group.id) &&
             (searchTerm === '' || group.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -59,6 +58,11 @@ export function SelectPropertyGroupModal({
 
     const handleCreateNewGroup = (): void => {
         setPropertyGroupModalOpen(true)
+    }
+
+    const handleAfterPropertyGroupSave = async (): Promise<void> => {
+        await loadPropertyGroups()
+        onPropertyGroupCreated?.()
     }
 
     const columns: LemonTableColumns<SchemaPropertyGroup> = [
@@ -159,7 +163,7 @@ export function SelectPropertyGroupModal({
                     />
                 </div>
             </LemonModal>
-            <PropertyGroupModal logicKey="select-property-group-modal" onAfterSave={onPropertyGroupCreated} />
+            <PropertyGroupModal logicKey="select-property-group-modal" onAfterSave={handleAfterPropertyGroupSave} />
         </>
     )
 }
