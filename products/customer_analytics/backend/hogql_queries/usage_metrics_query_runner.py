@@ -43,7 +43,11 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             )
 
         with self.timings.measure("post_processing_query_results"):
-            results = [UsageMetric.model_validate(dict(zip(response.columns, row))) for row in response.results]
+            if not response.columns or not response.results:
+                # Check is here so that mypy is happy
+                results = []
+            else:
+                results = [UsageMetric.model_validate(dict(zip(response.columns, row))) for row in response.results]
             results.sort(key=lambda x: x.name, reverse=True)
 
         return UsageMetricsQueryResponse(
@@ -54,7 +58,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        metric_queries: list[ast.SelectQuery] = [
+        metric_queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             query for metric in self._get_usage_metrics() if (query := self._get_metric_query(metric)) is not None
         ]
 
@@ -75,7 +79,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 GroupUsageMetric.objects.filter(team=self.team).only("name", "format", "interval", "display", "filters")
             )
 
-    def _get_metric_query(self, metric: GroupUsageMetric) -> ast.SelectQuery | None:
+    def _get_metric_query(self, metric: GroupUsageMetric) -> ast.SelectQuery | ast.SelectSetQuery | None:
         with self.timings.measure("get_metric_query"):
             filter_expr = metric.get_expr()
             if filter_expr == ast.Constant(value=True):
