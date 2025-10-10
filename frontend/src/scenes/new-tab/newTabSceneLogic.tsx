@@ -36,9 +36,10 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     flag?: string
 }
 
-interface NewTabCategoryItem {
+export interface NewTabCategoryItem {
     key: NEW_TAB_CATEGORY_ITEMS
     label: string
+    description?: string
 }
 
 export type SpecialSearchMode = 'persons' | null
@@ -75,6 +76,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         loadRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         setPersonSearchPagination: (pagination: { count: number; hasMore: boolean; limit: number }) => ({ pagination }),
+        setNewTabSceneDataIncludePersons: (includePersons: boolean) => ({ includePersons }),
     }),
     loaders(({ actions, values }) => ({
         recents: [
@@ -192,6 +194,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             { count: 0, hasMore: false, limit: 20 } as { count: number; hasMore: boolean; limit: number },
             {
                 setPersonSearchPagination: (_, { pagination }) => pagination,
+            },
+        ],
+        newTabSceneDataIncludePersons: [
+            false,
+            {
+                setNewTabSceneDataIncludePersons: (_, { includePersons }) => includePersons,
             },
         ],
         rawSelectedIndex: [
@@ -445,6 +453,51 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
+        newTabSceneDataGroupedItems: [
+            (s) => [s.itemsGrid, s.search, s.newTabSceneDataIncludePersons, s.personSearchItems, s.featureFlags],
+            (
+                itemsGrid: NewTabTreeDataItem[],
+                search: string,
+                includePersons: boolean,
+                personSearchItems: NewTabTreeDataItem[],
+                featureFlags
+            ): Record<string, NewTabTreeDataItem[]> => {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                if (!newTabSceneData) {
+                    return {}
+                }
+
+                // Filter all items by search term
+                const searchLower = search.toLowerCase().trim()
+                const filterBySearch = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] => {
+                    if (!searchLower) {
+                        return items
+                    }
+                    const searchChunks = searchLower.split(' ').filter((s) => s)
+                    return items.filter((item) =>
+                        searchChunks.every(
+                            (chunk) =>
+                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                        )
+                    )
+                }
+
+                // Group items by category and filter
+                const grouped: Record<string, NewTabTreeDataItem[]> = {
+                    'create-new': filterBySearch(itemsGrid.filter((item) => item.category === 'create-new')),
+                    apps: filterBySearch(itemsGrid.filter((item) => item.category === 'apps')),
+                    'data-management': filterBySearch(itemsGrid.filter((item) => item.category === 'data-management')),
+                    recents: filterBySearch(itemsGrid.filter((item) => item.category === 'recents')),
+                }
+
+                // Add persons section if filter is enabled
+                if (includePersons) {
+                    grouped['persons'] = filterBySearch(personSearchItems)
+                }
+
+                return grouped
+            },
+        ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
             (rawSelectedIndex, filteredItemsGrid): number | null => {
@@ -505,6 +558,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 values.search.trim()
             ) {
                 actions.debouncedPersonSearch(values.search.trim())
+            }
+
+            // For newTabSceneData mode, trigger person search if includePersons is enabled and there's a search term
+            if (newTabSceneData && values.newTabSceneDataIncludePersons && values.search.trim()) {
+                actions.debouncedPersonSearch(values.search.trim())
+            }
+        },
+        setNewTabSceneDataIncludePersons: ({ includePersons }) => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+            if (newTabSceneData && includePersons && values.search.trim()) {
+                // If enabling persons filter and there's a search term, trigger person search
+                actions.debouncedPersonSearch(values.search.trim())
+            } else if (newTabSceneData && !includePersons) {
+                // If disabling persons filter, clear person search results
+                actions.loadPersonSearchResultsSuccess([])
             }
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {

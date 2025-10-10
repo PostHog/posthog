@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconInfo, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -54,12 +54,18 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { filteredItemsGrid, search, selectedItem, categories, selectedCategory, specialSearchMode } = useValues(
-        newTabSceneLogic({ tabId })
-    )
+    const {
+        filteredItemsGrid,
+        search,
+        selectedItem,
+        categories,
+        selectedCategory,
+        specialSearchMode,
+        newTabSceneDataIncludePersons,
+    } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
-    const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, setSelectedCategory, setNewTabSceneDataIncludePersons } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
@@ -108,47 +114,62 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         />
                     </div>
                 </div>
-                <TabsPrimitive
-                    value={selectedCategory}
-                    onValueChange={(value) => setSelectedCategory(value as NEW_TAB_CATEGORY_ITEMS)}
-                >
-                    <TabsPrimitiveList className="border-b">
-                        <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
-                            {categories.map((category) => (
-                                <TabsPrimitiveTrigger
-                                    value={category.key}
-                                    className="px-2 py-1 cursor-pointer"
-                                    key={category.key}
-                                    onClick={() => {
-                                        if (!mobileLayout) {
-                                            // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
-                                            inputRef.current?.focus()
-                                            // Reset listbox focus on first item
-                                            listboxRef.current?.focusFirstItem()
-                                        }
-                                    }}
-                                >
-                                    {category.label}
-                                    {newTabSceneData && category.key === 'persons' ? '*' : null}
-                                </TabsPrimitiveTrigger>
-                            ))}
-                            {source === 'homepage' ? (
-                                <>
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="small"
-                                        data-attr="project-home-customize-homepage"
-                                        className="ml-auto"
-                                        onClick={showSceneDashboardChoiceModal}
+                {!newTabSceneData ? (
+                    <TabsPrimitive
+                        value={selectedCategory}
+                        onValueChange={(value) => setSelectedCategory(value as NEW_TAB_CATEGORY_ITEMS)}
+                    >
+                        <TabsPrimitiveList className="border-b">
+                            <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
+                                {categories.map((category) => (
+                                    <TabsPrimitiveTrigger
+                                        value={category.key}
+                                        className="px-2 py-1 cursor-pointer"
+                                        key={category.key}
+                                        onClick={() => {
+                                            if (!mobileLayout) {
+                                                // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
+                                                inputRef.current?.focus()
+                                                // Reset listbox focus on first item
+                                                listboxRef.current?.focusFirstItem()
+                                            }
+                                        }}
                                     >
-                                        Customize homepage
-                                    </LemonButton>
-                                    <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
-                                </>
-                            ) : null}
+                                        {category.label}
+                                        {newTabSceneData && category.key === 'persons' ? '*' : null}
+                                    </TabsPrimitiveTrigger>
+                                ))}
+                                {source === 'homepage' ? (
+                                    <>
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            data-attr="project-home-customize-homepage"
+                                            className="ml-auto"
+                                            onClick={showSceneDashboardChoiceModal}
+                                        >
+                                            Customize homepage
+                                        </LemonButton>
+                                        <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                    </>
+                                ) : null}
+                            </div>
+                        </TabsPrimitiveList>
+                    </TabsPrimitive>
+                ) : (
+                    <div className="border-b">
+                        <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-3">
+                            <div className="flex items-center gap-4">
+                                <span className="text-sm text-tertiary">Include:</span>
+                                <LemonCheckbox
+                                    checked={newTabSceneDataIncludePersons}
+                                    onChange={setNewTabSceneDataIncludePersons}
+                                    label="Persons"
+                                />
+                            </div>
                         </div>
-                    </TabsPrimitiveList>
-                </TabsPrimitive>
+                    </div>
+                )}
             </div>
 
             <ScrollableShadows
@@ -182,6 +203,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     </ListBox.Item>
                                 </div>
                             </div>
+                        </div>
+                    ) : newTabSceneData ? (
+                        <div className="flex flex-col gap-4">
+                            <Results tabId={tabId || ''} />
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true">
