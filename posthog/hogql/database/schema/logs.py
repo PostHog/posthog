@@ -25,10 +25,6 @@ class LogsTable(Table):
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
-        # internal fields for query optimization
-        # TODO: hide/block in hogql
-        "_part_starting_offset": IntegerDatabaseField(name="_part_starting_offset", nullable=True),
-        "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True),
     }
 
     def to_printed_clickhouse(self, context):
