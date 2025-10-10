@@ -59,7 +59,7 @@ export const Settings = ({
         <BindLogic logic={issueFiltersLogic} props={{ key: personId }}>
             <BindLogic logic={issueQueryOptionsLogic} props={{ key: personId }}>
                 <div className="space-y-2 mb-2">
-                    <ListOptions isSticky={false} />
+                    <ListOptions />
                     <IssuesFilters />
                 </div>
             </BindLogic>

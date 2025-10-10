@@ -41,7 +41,7 @@ export const errorTrackingQuery = ({
     | 'personId'
 > & {
     filterGroup: UniversalFiltersGroup
-    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee' | 'library')[]
+    columns: string[]
     volumeResolution?: number
 }): DataTableNode => {
     return {
@@ -97,6 +97,7 @@ export const errorTrackingIssueQuery = ({
         issueId,
         dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
+        orderBy: 'last_seen',
         filterTestAccounts,
         searchQuery,
         volumeResolution,

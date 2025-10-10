@@ -426,6 +426,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # Replace dynamic event_date and event_time filters in query_log_archive queries
+    query = re.sub(
+        rf"event_date >= '({days_to_sub})'",
+        r"event_date >= 'today'",
+        query,
+    )
+    query = re.sub(
+        rf"event_time >= '({days_to_sub}) \d\d:\d\d:\d\d'",
+        r"event_time >= 'today 00:00:00'",
+        query,
+    )
+
     return query
 
 

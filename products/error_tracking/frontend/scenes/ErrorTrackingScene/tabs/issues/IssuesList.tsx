@@ -53,7 +53,9 @@ export function IssuesList(): JSX.Element {
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
             <div>
-                <ListOptions />
+                <SceneStickyBar showBorderBottom={false}>
+                    <ListOptions />
+                </SceneStickyBar>
                 <Query query={query} context={context} />
             </div>
         </BindLogic>
@@ -83,6 +85,7 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
 
 const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
     const { results } = useValues(issuesDataNodeLogic)
+
     return <IssueListTitleHeader results={results} />
 }
 
@@ -109,18 +112,13 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     )
 }
 
-export const ListOptions = ({ isSticky = true }: { isSticky?: boolean }): JSX.Element => {
+export const ListOptions = (): JSX.Element => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { results } = useValues(issuesDataNodeLogic)
-    const component =
-        selectedIssueIds.length > 0 ? (
-            <IssueActions issues={results} selectedIds={selectedIssueIds} />
-        ) : (
-            <IssueQueryOptions />
-        )
 
-    if (isSticky) {
-        return <SceneStickyBar showBorderBottom={false}>{component}</SceneStickyBar>
-    }
-    return component
+    return selectedIssueIds.length > 0 ? (
+        <IssueActions issues={results} selectedIds={selectedIssueIds} />
+    ) : (
+        <IssueQueryOptions />
+    )
 }
