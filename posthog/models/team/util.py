@@ -16,7 +16,7 @@ actions_that_require_current_team = [
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
-    from posthog.models.cohort import CohortPeople
+    from posthog.models.cohort import Cohort, CohortPeople
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId

@@ -29,6 +29,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.comment import Comment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
