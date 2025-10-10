@@ -127,9 +127,11 @@ git add model_migration/
 git commit -m "feat(migration-scripts): [describe script improvements]"
 ```
 
-### Step 2.5: Move API Files (Manual Step)
+### Step 2.5: Move API and Query Runner Files (Manual Step)
 
-After the migration script completes, manually move product API files from `posthog/api/` to the product's backend:
+After the migration script completes, manually move product-specific files from shared locations to the product's backend:
+
+#### A. Move API Files
 
 ```bash
 # Check if product has API files in posthog/api/
@@ -159,6 +161,42 @@ rg "from posthog.api.<product> import" --type py
 pytest products/<product>/backend/api/test/
 ```
 
+#### B. Move HogQL Query Runners
+
+```bash
+# Check if product has query runners in posthog/hogql_queries/
+ls posthog/hogql_queries/<product>_*query_runner.py 2>/dev/null
+
+# If they exist, create hogql_queries structure
+mkdir -p products/<product>/backend/hogql_queries
+touch products/<product>/backend/hogql_queries/__init__.py
+
+# Move query runner files
+git mv posthog/hogql_queries/<product>_*query_runner.py products/<product>/backend/hogql_queries/
+
+# Move related test files if they exist
+git mv posthog/hogql_queries/test/test_<product>_*query_runner.py products/<product>/backend/hogql_queries/test/ 2>/dev/null || true
+
+# Update imports in the moved query runners
+# Find files that import from posthog.hogql_queries.<product>
+rg "from posthog.hogql_queries.<product>" --type py
+# Update each file to import from products.<product>.backend.hogql_queries
+
+# Test the changes
+pytest products/<product>/backend/hogql_queries/
+```
+
+#### C. Files that should NOT be moved
+
+Leave these in shared locations:
+
+- **HogQL schema definitions**: `posthog/hogql/database/schema/<product>_*.py`
+  - These define ClickHouse table schemas - shared infrastructure
+  - Used by the HogQL query engine across products
+- **Email templates**: `posthog/templates/email/<product>_*.html`
+  - Centralized template system
+  - May move in future but not part of this migration
+
 **Why manual?**
 
 - API files are complex (ViewSets, serializers, routing)
@@ -169,11 +207,20 @@ pytest products/<product>/backend/api/test/
 
 **Example products**:
 
+API files:
+
 - ✅ llm_analytics: Already has `products/llm_analytics/backend/api/`
 - ✅ messaging: Already has `products/messaging/backend/api/`
 - ✅ data_warehouse: Already has `products/data_warehouse/backend/api/`
 - ❌ error_tracking: Still has `posthog/api/error_tracking.py` (needs manual move)
 - ❌ surveys: Still has `posthog/api/survey.py` (future work)
+
+HogQL query runners:
+
+- ✅ marketing_analytics: Already has `products/marketing_analytics/backend/hogql_queries/`
+- ✅ revenue_analytics: Already has `products/revenue_analytics/backend/hogql_queries/`
+- ✅ logs: Already has `products/logs/backend/*_query_runner.py`
+- ❌ error*tracking: Still has `posthog/hogql_queries/error_tracking*\*query_runner.py` (needs manual move)
 
 **Commit this separately**:
 
