@@ -119,9 +119,11 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                                 <PropertyRow key={property.id} property={property} />
                                             )
                                         )}
-                                        <div className="p-4 border-t bg-bg-light">
-                                            <h4 className="font-semibold mb-2 text-sm">Property Coverage Trends</h4>
-                                            <div style={{ minHeight: '300px' }}>
+                                        <div className="p-4 bg-bg-light">
+                                            <h4 className="font-semibold mb-2 text-sm">
+                                                Property Coverage Trends (90 days)
+                                            </h4>
+                                            <div>
                                                 {(() => {
                                                     const query = buildPropertyGroupTrendsQuery(
                                                         definition.name,
