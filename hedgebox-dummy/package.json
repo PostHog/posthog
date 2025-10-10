@@ -4,8 +4,8 @@
     "private": true,
     "scripts": {
         "fetch-posthog-key": "node scripts/fetch-posthog-key.js",
-        "dev": "npm run fetch-posthog-key && next dev",
-        "build": "npm run fetch-posthog-key && next build",
+        "dev": "pnpm run fetch-posthog-key && next dev",
+        "build": "pnpm run fetch-posthog-key && next build",
         "start": "next start",
         "lint": "next lint"
     },

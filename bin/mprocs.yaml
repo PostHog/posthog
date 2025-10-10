@@ -125,7 +125,7 @@ procs:
         autostart: false
 
     hedgebox-dummy:
-        shell: 'bin/check_postgres_up && cd hedgebox-dummy && npm install && npm run dev'
+        shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
 
 mouse_scroll_speed: 1
