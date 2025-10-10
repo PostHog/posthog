@@ -208,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrls(StrEnum):
+class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -408,6 +408,11 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: Optional[YAxisScaleType] = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
+
+
+class AttributionMode(StrEnum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -1067,6 +1072,7 @@ class OrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    REVENUE = "revenue"
 
 
 class OrderDirection(StrEnum):
@@ -1088,6 +1094,20 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
+
+
+class RevenueEntity(StrEnum):
+    PERSON = "person"
+    GROUP_0 = "group_0"
+    GROUP_1 = "group_1"
+    GROUP_2 = "group_2"
+    GROUP_3 = "group_3"
+    GROUP_4 = "group_4"
+
+
+class RevenuePeriod(StrEnum):
+    ALL_TIME = "all_time"
+    LAST_30_DAYS = "last_30_days"
 
 
 class Status4(StrEnum):
@@ -8301,6 +8321,7 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
+    revenue: Optional[float] = None
     status: Status
 
 
@@ -8334,7 +8355,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             ]
         ]
     ] = None
-    orderBy: Optional[OrderBy] = None
+    orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
     removedFilterIndexes: Optional[list[int]] = None
     searchQuery: Optional[str] = None
@@ -9093,6 +9114,8 @@ class MarketingAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attribution_mode: Optional[AttributionMode] = None
+    attribution_window_days: Optional[float] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
@@ -12705,9 +12728,12 @@ class ErrorTrackingQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: Optional[OrderBy] = None
+    orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
+    personId: Optional[str] = None
     response: Optional[ErrorTrackingQueryResponse] = None
+    revenueEntity: Optional[RevenueEntity] = None
+    revenuePeriod: Optional[RevenuePeriod] = None
     searchQuery: Optional[str] = None
     status: Optional[Status2] = None
     tags: Optional[QueryLogTags] = None
@@ -13600,6 +13626,7 @@ class ExperimentTrendsQuery(BaseModel):
     count_query: TrendsQuery
     experiment_id: Optional[int] = None
     exposure_query: Optional[TrendsQuery] = None
+    fingerprint: Optional[str] = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -13939,6 +13966,7 @@ class ExperimentFunnelsQuery(BaseModel):
         extra="forbid",
     )
     experiment_id: Optional[int] = None
+    fingerprint: Optional[str] = None
     funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(

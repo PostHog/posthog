@@ -116,6 +116,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -1921,9 +1923,9 @@ class DatabricksIntegration:
             sock.close()
         except OSError:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
         except Exception:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
