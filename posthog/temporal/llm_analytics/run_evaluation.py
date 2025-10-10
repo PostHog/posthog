@@ -32,7 +32,7 @@ class RunEvaluationInputs:
 
 
 @temporalio.activity.defn
-async def fetch_target_event_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
+async def fetch_target_event_activity(inputs: RunEvaluationInputs, team_id: int) -> dict[str, Any]:
     """Fetch target event from ClickHouse"""
     query = """
         SELECT
@@ -44,17 +44,17 @@ async def fetch_target_event_activity(inputs: RunEvaluationInputs) -> dict[str, 
             distinct_id,
             person_id
         FROM events
-        WHERE uuid = %(event_id)s
+        WHERE uuid = %(event_id)s AND team_id = %(team_id)s
         LIMIT 1
     """
 
     result = await database_sync_to_async(sync_execute, thread_sensitive=False)(
-        query, {"event_id": inputs.target_event_id}
+        query, {"event_id": inputs.target_event_id, "team_id": team_id}
     )
 
     if not result:
-        logger.exception("Event not found", target_event_id=inputs.target_event_id)
-        raise ValueError(f"Event {inputs.target_event_id} not found")
+        logger.exception("Event not found", target_event_id=inputs.target_event_id, team_id=team_id)
+        raise ValueError(f"Event {inputs.target_event_id} not found for team {team_id}")
 
     row = result[0]
     event_data = {
@@ -64,7 +64,7 @@ async def fetch_target_event_activity(inputs: RunEvaluationInputs) -> dict[str, 
         "timestamp": row[3],
         "team_id": row[4],
         "distinct_id": row[5],
-        "person_id": str(row[6]),
+        "person_id": str(row[6]) if row[6] is not None else None,
     }
     return event_data
 
@@ -155,7 +155,7 @@ Output: {output_data}"""
     content = response.choices[0].message.content
     if content is None:
         logger.exception("LLM judge returned empty response", evaluation_id=evaluation["id"])
-        return {"verdict": False, "reasoning": "LLM judge returned empty response"}
+        raise ValueError(f"LLM judge returned empty response for evaluation {evaluation['id']}")
 
     try:
         result = json.loads(content)
@@ -166,8 +166,7 @@ Output: {output_data}"""
         logger.exception(
             "Failed to parse LLM judge response", response=content, evaluation_id=evaluation["id"], error=str(e)
         )
-        # Default to False on parse error
-        return {"verdict": False, "reasoning": f"Failed to parse LLM response: {content[:200]}"}
+        raise ValueError(f"Failed to parse LLM judge response for evaluation {evaluation['id']}: {str(e)}") from e
 
 
 @temporalio.activity.defn
@@ -230,16 +229,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> dict[str, Any]:
         start_time = temporalio.workflow.now()
-
-        # Activity 1: Fetch target event
-        event_data = await temporalio.workflow.execute_activity(
-            fetch_target_event_activity,
-            inputs,
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        # Activity 2: Fetch evaluation config
         evaluation = await temporalio.workflow.execute_activity(
             fetch_evaluation_activity,
             inputs,
@@ -247,11 +236,12 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Verify team_id matches
-        if event_data["team_id"] != evaluation["team_id"]:
-            raise ValueError(
-                f"Team mismatch: event team_id={event_data['team_id']}, evaluation team_id={evaluation['team_id']}"
-            )
+        event_data = await temporalio.workflow.execute_activity(
+            fetch_target_event_activity,
+            args=[inputs, evaluation["team_id"]],
+            schedule_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
         # Activity 3: Execute LLM judge
         result = await temporalio.workflow.execute_activity(

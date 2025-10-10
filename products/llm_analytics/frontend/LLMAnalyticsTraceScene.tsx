@@ -64,6 +64,12 @@ import {
     removeMilliseconds,
 } from './utils'
 
+enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Evals = 'evals',
+}
+
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
     logic: llmAnalyticsTraceLogic,
@@ -548,7 +554,7 @@ const EventContent = React.memo(
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
 
-        const [viewMode, setViewMode] = useState<'conversation' | 'raw' | 'evals'>('conversation')
+        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
         const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -687,7 +693,7 @@ const EventContent = React.memo(
                             onChange={setViewMode}
                             tabs={[
                                 {
-                                    key: 'conversation',
+                                    key: TraceViewMode.Conversation,
                                     label: 'Conversation',
                                     content: (
                                         <>
@@ -737,7 +743,7 @@ const EventContent = React.memo(
                                     ),
                                 },
                                 {
-                                    key: 'raw',
+                                    key: TraceViewMode.Raw,
                                     label: 'Raw',
                                     content: (
                                         <div className="p-2">
@@ -748,7 +754,7 @@ const EventContent = React.memo(
                                 ...(showEvalsTab
                                     ? [
                                           {
-                                              key: 'evals' as const,
+                                              key: TraceViewMode.Evals,
                                               label: 'Evaluations',
                                               content: <EvalsTabContent generationEventId={event.id} />,
                                           },

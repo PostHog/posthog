@@ -588,7 +588,18 @@ export function truncateValue(value: unknown): string {
     return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }
 
-export function mapEvaluationRunRow(row: any): EvaluationRun {
+type RawEvaluationRunRow = [
+    id: string,
+    timestamp: string,
+    evaluation_id: string,
+    evaluation_name: string | null,
+    generation_id: string,
+    trace_id: string,
+    result: boolean,
+    reasoning: string | null,
+]
+
+export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
     return {
         id: row[0],
         timestamp: row[1],

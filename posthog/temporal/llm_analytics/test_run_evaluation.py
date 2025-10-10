@@ -60,11 +60,16 @@ class TestRunEvaluationWorkflow:
 
             inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=event_id)
 
-            result = await fetch_target_event_activity(inputs)
+            result = await fetch_target_event_activity(inputs, team.id)
 
             assert result["uuid"] == event_id
             assert result["event"] == "$ai_generation"
             assert result["team_id"] == team.id
+
+            # Verify team_id was passed to the query
+            mock_execute.assert_called_once()
+            call_args = mock_execute.call_args
+            assert call_args[0][1]["team_id"] == team.id
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
