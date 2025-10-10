@@ -1,8 +1,7 @@
-# 1. TODO: add a new value for your source in the following four places:
+# 1. TODO: add a new value for your source in the following three places:
 #       - ExternalDataSourceType at `posthog/warehouse/types.py`
 #       - ExternalDataSourceType at `posthog/schema.py`. this is only needed so type checking doesn't initially fail
 #       - externalDataSources at `frontend/src/queries/schema/schema-general.ts`
-#       - INTEGRATION_KINDS at `frontend/src/types.ts`
 #
 #       following the casing conventions for each file whether ALL_CAPS_WITH_UNDERS, PascalCase, or
 #       lower-kebab-case

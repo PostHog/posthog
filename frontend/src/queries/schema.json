@@ -15554,8 +15554,7 @@
                 "clickup",
                 "reddit-ads",
                 "databricks",
-                "tiktok-ads",
-                "shopify"
+                "tiktok-ads"
             ],
             "type": "string"
         },

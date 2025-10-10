@@ -1693,7 +1693,6 @@ class IntegrationKind(StrEnum):
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
-    SHOPIFY = "shopify"
 
 
 class IntervalType(StrEnum):
