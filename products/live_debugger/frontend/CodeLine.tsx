@@ -1,16 +1,17 @@
 import clsx from 'clsx'
+
 import { highlightPythonSyntax } from './codeUtils'
 
 export function CodeLine({
-                      line,
-                      lineNumber,
-                      hasBreakpoint,
-                      hasInstances,
-                      hitCount,
-                      hasNewHits,
-                      onClick,
-                      onHitCountClick,
-                  }: {
+    line,
+    lineNumber,
+    hasBreakpoint,
+    hasInstances,
+    hitCount,
+    hasNewHits,
+    onClick,
+    onHitCountClick,
+}: {
     line: string
     lineNumber: number
     hasBreakpoint: boolean

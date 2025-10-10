@@ -1,6 +1,6 @@
-const OWNER = 'PostHog';
-const REPO = 'posthog';
-const BRANCH = 'master';
+const OWNER = 'PostHog'
+const REPO = 'posthog'
+const BRANCH = 'master'
 
 export interface GitHubTreeItem {
     path: string
@@ -34,15 +34,11 @@ export interface GitHubFileContent {
 
 export async function loadRepositoryTree(): Promise<GitHubTreeResponse> {
     // NOTE(Marce): In the future of course we'll make this properly
-    const branchResponse = await fetch(
-        `https://api.github.com/repos/${OWNER}/${REPO}/branches/${BRANCH}`
-    )
+    const branchResponse = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/branches/${BRANCH}`)
     const branchData = await branchResponse.json()
     const sha = branchData.commit.sha
 
-    const response = await fetch(
-        `https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${sha}?recursive=1`
-    )
+    const response = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${sha}?recursive=1`)
 
     return (await response.json()) as GitHubTreeResponse
 }

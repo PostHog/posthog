@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -30,14 +30,17 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
     path(['products', 'live_debugger', 'frontend', 'liveDebuggerLogic']),
 
     actions({
-        toggleBreakpoint: (lineNumber: number) => ({ lineNumber }),
+        toggleBreakpoint: (filename: string, lineNumber: number) => ({ filename, lineNumber }),
         toggleBreakpointForFile: (filename: string, lineNumber: number) => ({ filename, lineNumber }),
         setHoveredLine: (lineNumber: number | null) => ({ lineNumber }),
         selectInstance: (instanceId: string | null) => ({ instanceId }),
         clearAllBreakpoints: true,
         markInstanceAsOld: (instanceId: string) => ({ instanceId }),
         showHitsForLine: (lineNumber: number | null) => ({ lineNumber }),
-        setExpandedFolderPaths: (paths: string[]) => ({ paths }),
+        startPollingBreakpoints: true,
+        stopPollingBreakpoints: true,
+        savePollingInterval: (intervalHdl: NodeJS.Timeout) => ({ intervalHdl }),
+        setSelectedFilePath: (filePath: string) => ({ filePath }),
     }),
 
     loaders(() => ({
@@ -65,33 +68,15 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
 
     reducers({
         selectedFilePath: [
-            null as string | null,
+            '',
             {
-                selectFile: (_, { filePath }) => filePath,
-            },
-        ],
-        expandedFolderPaths: [
-            [] as string[],
-            {
-                setExpandedFolderPaths: (_, { paths }) => paths,
-            },
-        ],
-        hoveredLine: [
-            null as number | null,
-            {
-                setHoveredLine: (_, { lineNumber }) => lineNumber,
+                setSelectedFilePath: (_, { filePath }) => filePath,
             },
         ],
         selectedInstanceId: [
             null as string | null,
             {
                 selectInstance: (_, { instanceId }) => instanceId,
-            },
-        ],
-        code: [
-            '' as string,
-            {
-                loadCode: (_, { code }: { code: string }) => code,
             },
         ],
         seenInstanceIds: [
@@ -120,6 +105,12 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 showHitsForLine: (_, { lineNumber }) => lineNumber,
             },
         ],
+        breakpointPollingInterval: [
+            null as NodeJS.Timeout | null,
+            {
+                savePollingInterval: (_, { intervalHdl }) => intervalHdl,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -134,13 +125,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 }, 2000)
             }
         },
-        toggleBreakpoint: async ({ lineNumber }) => {
-            const filename = values.selectedFilePath
-            if (!filename) {
-                console.warn('No file selected, cannot set breakpoint')
-                return
-            }
-
+        toggleBreakpoint: async ({ filename, lineNumber }) => {
             const existingBreakpoint = Array.isArray(values.breakpoints)
                 ? values.breakpoints.find((bp) => bp.line_number === lineNumber && bp.filename === filename)
                 : undefined
@@ -187,6 +172,23 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
 
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
+        },
+        startPollingBreakpoints: async () => {
+            console.log("START POLLING BREAKPOINTS")
+            actions.loadBreakpoints()
+            actions.loadBreakpointInstances()
+
+            const interval = setInterval(() => {
+                actions.loadBreakpoints()
+                actions.loadBreakpointInstances()
+            }, 15000)
+
+            actions.savePollingInterval(interval)
+        },
+        stopPollingBreakpoints: async () => {
+            if (values.breakpointPollingInterval) {
+                clearInterval(values.breakpointPollingInterval)
+            }
         },
     })),
 
@@ -273,4 +275,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             },
         ],
     }),
+
+    events(({ actions }) => ({
+        afterMount: [actions.startPollingBreakpoints],
+        beforeUnmount: [actions.stopPollingBreakpoints],
+    })),
 ])

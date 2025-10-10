@@ -1,38 +1,24 @@
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { CodeLine } from '../CodeLine'
-import { liveDebuggerLogic } from '../liveDebuggerLogic'
-import { repoBrowserLogic} from './repoBrowserLogic'
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
+
+import { CodeLine } from '../CodeLine'
+import { liveDebuggerLogic } from '../liveDebuggerLogic'
+import { repoBrowserLogic } from './repoBrowserLogic'
+
 export function RepositoryBrowser(): JSX.Element {
-    const {
-        fileSearchQuery,
-        repositoryTreeLoading,
-        treeData,
-        codeLines,
-        selectedFilePath,
-    } = useValues(repoBrowserLogic)
+    const { fileSearchQuery, repositoryTreeLoading, treeData, codeLines, selectedFilePath } =
+        useValues(repoBrowserLogic)
 
-    const {
-        loadFileContent,
-        setFileSearchQuery,
-    } = useActions(repoBrowserLogic)
+    const { loadFileContent, setFileSearchQuery } = useActions(repoBrowserLogic)
 
-    const {
-        breakpoints,
-        breakpointsByLine,
-        instancesByLine,
-        hitCountsByLine,
-        newHitsByLine,
-    } = useValues(liveDebuggerLogic)
+    const { breakpoints, breakpointsByLine, instancesByLine, hitCountsByLine, newHitsByLine } =
+        useValues(liveDebuggerLogic)
 
-    const {
-        clearAllBreakpoints,
-        toggleBreakpoint,
-        showHitsForLine,
-    } = useActions(liveDebuggerLogic)
+    const { clearAllBreakpoints, toggleBreakpoint, showHitsForLine, setSelectedFilePath } =
+        useActions(liveDebuggerLogic)
 
     return (
         <>
@@ -61,9 +47,7 @@ export function RepositoryBrowser(): JSX.Element {
                             data={treeData}
                             onFolderClick={() => {}}
                             onItemClick={(item) => {
-                                console.log("Item clicked", item)
                                 if (item?.record?.type === 'file') {
-                                    console.log('loadFileContent')
                                     loadFileContent(item.record.fullPath)
                                 }
                             }}
@@ -106,7 +90,12 @@ export function RepositoryBrowser(): JSX.Element {
                                     hasInstances={hasInstances}
                                     hitCount={hitCount}
                                     hasNewHits={hasNewHits}
-                                    onClick={() => toggleBreakpoint(lineNumber)}
+                                    onClick={() => {
+                                        if (selectedFilePath) {
+                                            setSelectedFilePath(selectedFilePath)
+                                            toggleBreakpoint(selectedFilePath, lineNumber)
+                                        }
+                                    }}
                                     onHitCountClick={() => showHitsForLine(lineNumber)}
                                 />
                             )

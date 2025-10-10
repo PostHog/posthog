@@ -1,4 +1,3 @@
-
 /// Very very scrappy function to do some syntax highlighting
 export function highlightPythonSyntax(line: string): string {
     let highlighted = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

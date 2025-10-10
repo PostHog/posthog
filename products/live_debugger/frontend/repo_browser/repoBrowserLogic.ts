@@ -1,10 +1,17 @@
+import _Fuse from 'fuse.js'
 import { actions, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import _Fuse from 'fuse.js'
 
-import type { repoBrowserLogicType } from './repoBrowserLogicType'
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { loadFileContent, loadRepositoryTree, GitHubFileContent, GitHubTreeResponse, GitHubTreeItem } from './githubClient'
+
+import {
+    GitHubFileContent,
+    GitHubTreeItem,
+    GitHubTreeResponse,
+    loadFileContent,
+    loadRepositoryTree,
+} from './githubClient'
+import type { repoBrowserLogicType } from './repoBrowserLogicType'
 
 // Hack so kea-typegen picks up the type
 export type Fuse<T> = _Fuse<T>
@@ -14,16 +21,12 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
 
     actions({
         setFileSearchQuery: (query: string) => ({ query }),
-        selectFile: (filePath: string | null) => ({ filePath }),
         loadFileContent: (filePath: string) => ({ filePath }),
-        setExpandedFolderPaths: (paths: string[])  => ({ paths }),
+        setExpandedFolderPaths: (paths: string[]) => ({ paths }),
     }),
 
     loaders(() => ({
-        repositoryTree: [
-            null as GitHubTreeResponse | null,
-            { loadRepositoryTree: async () => loadRepositoryTree() },
-        ],
+        repositoryTree: [null as GitHubTreeResponse | null, { loadRepositoryTree: async () => loadRepositoryTree() }],
         fileContent: [
             null as GitHubFileContent | null,
             { loadFileContent: async ({ filePath }) => loadFileContent(filePath) },
@@ -35,25 +38,25 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
             '',
             {
                 setFileSearchQuery: (_, { query }) => query,
-            }
+            },
         ],
         repositoryTree: [
             null as GitHubTreeResponse | null,
             {
-                repositoryTreeSuccess: (_, { repositoryTree }) => repositoryTree
+                repositoryTreeSuccess: (_, { repositoryTree }) => repositoryTree,
             },
         ],
         fileContent: [
             null as GitHubFileContent | null,
             {
-                fileContentSuccess: (_, { fileContent }) => fileContent
+                fileContentSuccess: (_, { fileContent }) => fileContent,
             },
         ],
         selectedFilePath: [
             null as string | null,
             {
-                selectFile: (_, { filePath }) => filePath
-            }
+                loadFileContent: (_, { filePath }) => filePath,
+            },
         ],
     }),
 
@@ -66,7 +69,7 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
                 }
 
                 return fileContent.content.split('\n')
-            }
+            },
         ],
         relevantFiles: [
             (s) => [s.repositoryTree],
@@ -75,11 +78,10 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
                     return []
                 }
 
-                return tree.tree.filter((item) =>
-                    item.type === 'tree' ||
-                    (item.type === 'blob' && item.path.endsWith('.py'))
+                return tree.tree.filter(
+                    (item) => item.type === 'tree' || (item.type === 'blob' && item.path.endsWith('.py'))
                 )
-            }
+            },
         ],
         fuzzyIndex: [
             (s) => [s.relevantFiles],
@@ -88,17 +90,21 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
                     keys: ['path', 'name'],
                     threshold: 0.3,
                 })
-            }
+            },
         ],
         visibleFilesAndFolders: [
             (s) => [s.fileSearchQuery, s.relevantFiles, s.fuzzyIndex],
-            (fileSearchQuery: string, relevantFiles: GitHubTreeItem[], fuzzyIndex: Fuse<GitHubTreeItem>): GitHubTreeItem[] => {
+            (
+                fileSearchQuery: string,
+                relevantFiles: GitHubTreeItem[],
+                fuzzyIndex: Fuse<GitHubTreeItem>
+            ): GitHubTreeItem[] => {
                 if (fileSearchQuery) {
-                    return fuzzyIndex.search(fileSearchQuery).map(r => r.item)
+                    return fuzzyIndex.search(fileSearchQuery).map((r) => r.item)
                 }
 
                 return relevantFiles
-            }
+            },
         ],
         treeData: [
             (s) => [s.visibleFilesAndFolders],
@@ -113,11 +119,7 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
                 const rootElements: TreeDataItem[] = []
 
                 visibleFilesAndFolders.forEach((item: GitHubTreeItem) => {
-                    const {
-                        pathPrefix,
-                        filename,
-                        fullPath,
-                    } = extractPathAndFilename(item)
+                    const { pathPrefix, filename, fullPath } = extractPathAndFilename(item)
 
                     const recordType = item.type === 'tree' ? 'folder' : 'file'
                     const children = item.type === 'tree' ? [] : undefined
@@ -145,18 +147,17 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
                 })
 
                 rootElements.sort(filesSortFn)
-                return rootElements;
-            }
+                return rootElements
+            },
         ],
     }),
 
     events(({ actions }) => ({
-        afterMount: [actions.loadRepositoryTree]
-    }))
+        afterMount: [actions.loadRepositoryTree],
+    })),
 ])
 
-
-function extractPathAndFilename(item: GitHubTreeItem): { pathPrefix: string, filename: string, fullPath: string } {
+function extractPathAndFilename(item: GitHubTreeItem): { pathPrefix: string; filename: string; fullPath: string } {
     // This is very hacky, probably need to use a path handling library
     const sections = item.path.split('/')
     const filename = sections.at(-1)!
@@ -167,11 +168,16 @@ function extractPathAndFilename(item: GitHubTreeItem): { pathPrefix: string, fil
 
 function filesSortFn(a: TreeDataItem, b: TreeDataItem): -1 | 0 | 1 {
     if (a.record!.type !== b.record!.type) {
-        if (a.record!.type === 'folder') { return -1 }
+        if (a.record!.type === 'folder') {
+            return -1
+        }
         return 1
     }
 
-    if (a.name < b.name) { return -1 }
-    else if (b.name < a.name) { return 1 }
+    if (a.name < b.name) {
+        return -1
+    } else if (b.name < a.name) {
+        return 1
+    }
     return 0
 }

@@ -1,16 +1,18 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 
+import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { BreakpointInstance, liveDebuggerLogic } from './liveDebuggerLogic'
 import { StateInspector } from 'products/live_debugger/frontend/StateInspector'
+
+import { BreakpointInstance, liveDebuggerLogic } from './liveDebuggerLogic'
 import { RepositoryBrowser } from './repo_browser/RepositoryBrowser'
 
 export const scene: SceneExport = {
@@ -49,33 +51,16 @@ function BreakpointInstanceCard({
     )
 }
 
-
 export function LiveDebugger(): JSX.Element {
-    const {
-        selectedInstance,
-        newInstanceIds,
-        selectedLineForHits,
-        hitsForSelectedLine,
-    } = useValues(liveDebuggerLogic)
-    const {
-        selectInstance,
-        loadBreakpoints,
-        loadBreakpointInstances,
-        showHitsForLine,
-    } = useActions(liveDebuggerLogic)
+    const isEnabled = useFeatureFlag('LIVE_DEBUGGER')
 
-    // Load initial data and set up polling
-    React.useEffect(() => {
-        loadBreakpoints()
-        loadBreakpointInstances()
+    if (!isEnabled) {
+        return <NotFound object="Live debugger" caption="This feature is not enabled for your project." />
+    }
 
-        // Poll for breakpoint hits every second
-        const interval = setInterval(() => {
-            loadBreakpointInstances()
-        }, 10000)
+    const { selectedInstance, newInstanceIds, selectedLineForHits, hitsForSelectedLine } = useValues(liveDebuggerLogic)
 
-        return () => clearInterval(interval)
-    }, [loadBreakpoints, loadBreakpointInstances])
+    const { selectInstance, showHitsForLine } = useActions(liveDebuggerLogic)
 
     return (
         <>
@@ -139,7 +124,9 @@ export function LiveDebugger(): JSX.Element {
                         </div>
                     </div>
 
-                    {selectedInstance && <StateInspector selectedInstance={selectedInstance} selectInstance={selectInstance} />}
+                    {selectedInstance && (
+                        <StateInspector selectedInstance={selectedInstance} selectInstance={selectInstance} />
+                    )}
                 </div>
             </SceneContent>
         </>
