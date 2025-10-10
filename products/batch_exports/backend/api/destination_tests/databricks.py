@@ -27,7 +27,7 @@ class DatabricksTestStep(DestinationTestStep):
         client_secret: Databricks client secret.
         catalog: Databricks catalog.
         schema: Databricks schema.
-        table: Databricks table.
+        table_name: Databricks table name.
     """
 
     def __init__(
@@ -38,7 +38,7 @@ class DatabricksTestStep(DestinationTestStep):
         client_secret: str | None = None,
         catalog: str | None = None,
         schema: str | None = None,
-        table: str | None = None,
+        table_name: str | None = None,
     ) -> None:
         super().__init__()
         self.server_hostname = server_hostname
@@ -47,7 +47,7 @@ class DatabricksTestStep(DestinationTestStep):
         self.client_secret = client_secret
         self.catalog = catalog
         self.schema = schema
-        self.table = table
+        self.table_name = table_name
 
     @contextlib.asynccontextmanager
     async def connect(self, set_context: bool = True) -> AsyncGenerator[DatabricksClient, None]:
@@ -196,7 +196,7 @@ class DatabricksTableTestStep(DatabricksTestStep):
             or self.client_secret is None
             or self.catalog is None
             or self.schema is None
-            or self.table is None
+            or self.table_name is None
         ):
             return False
         return True
@@ -206,33 +206,33 @@ class DatabricksTableTestStep(DatabricksTestStep):
 
         assert self.catalog is not None
         assert self.schema is not None
-        assert self.table is not None
+        assert self.table_name is not None
 
         async with self.connect(set_context=False) as databricks_client:
             await databricks_client.use_catalog(self.catalog)
             await databricks_client.use_schema(self.schema)
-            columns = await databricks_client.aget_table_columns(self.table)
+            columns = await databricks_client.aget_table_columns(self.table_name)
             if columns:
                 # table exists
                 return DestinationTestStepResult(status=Status.PASSED)
 
             # table does not exist, so try to create a test table
-            table_name = f"{self.table}_test"
+            test_table_name = f"{self.table_name}_test"
             try:
-                await databricks_client.acreate_table(table_name, [("event", "STRING")])
+                await databricks_client.acreate_table(test_table_name, [("event", "STRING")])
             except DatabricksInsufficientPermissionsError as err:
                 return DestinationTestStepResult(
                     status=Status.FAILED,
-                    message=f"A table could not be created: {err}",
+                    message=f"A test table could not be created: {err}",
                 )
 
             # now try to delete the test table
             try:
-                await databricks_client.adelete_table(table_name)
+                await databricks_client.adelete_table(test_table_name)
             except DatabricksInsufficientPermissionsError as err:
                 return DestinationTestStepResult(
                     status=Status.FAILED,
-                    message=f"A test table {table_name} was created, but could not be deleted afterwards: {err}",
+                    message=f"A test table {test_table_name} was created, but could not be deleted afterwards: {err}",
                 )
 
         return DestinationTestStepResult(status=Status.PASSED)
@@ -248,7 +248,7 @@ class DatabricksDestinationTest(DestinationTest):
         self.client_secret = None
         self.catalog = None
         self.schema = None
-        self.table = None
+        self.table_name = None
 
     def configure(self, **kwargs):
         """Configure this test with necessary attributes."""
@@ -258,7 +258,7 @@ class DatabricksDestinationTest(DestinationTest):
         self.client_secret = kwargs.get("client_secret", None)
         self.catalog = kwargs.get("catalog", None)
         self.schema = kwargs.get("schema", None)
-        self.table = kwargs.get("table", None)
+        self.table_name = kwargs.get("table_name", None)
 
     @property
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
@@ -292,6 +292,6 @@ class DatabricksDestinationTest(DestinationTest):
                 client_secret=self.client_secret,
                 catalog=self.catalog,
                 schema=self.schema,
-                table=self.table,
+                table_name=self.table_name,
             ),
         ]
