@@ -37,7 +37,8 @@ export function ErrorTrackingIssueBreakdownsScene({ id }: ErrorTrackingIssueScen
                 />
                 <h1 className="mb-0">Breakdowns</h1>
                 <span className="text-muted text-sm">
-                    This is a work in progress. Hidden behind feature flag. Available to posthog employees only for now
+                    This is a work in progress. Hidden behind a feature flag. Available to posthog employees only for
+                    now
                 </span>
             </div>
 
