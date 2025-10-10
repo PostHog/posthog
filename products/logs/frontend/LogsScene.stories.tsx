@@ -11,7 +11,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 
-const delayIfNotTestRunner = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, inStorybookTestRunner() ? 0 : 200 + Math.random() * 1000))
     await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 1000))
 }
 
