@@ -42,21 +42,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 modifiers=self.modifiers,
             )
 
-        with self.timings.measure("parsing_query_results"):
-            results = []
-            for id, name, format, display, interval, value in response.results:
-                results.append(
-                    UsageMetric(
-                        id=id,
-                        name=name,
-                        format=format,
-                        display=display,
-                        interval=interval,
-                        value=value,
-                    )
-                )
-
-        results.sort(key=lambda x: x.name, reverse=True)
+        with self.timings.measure("post_processing_query_results"):
+            results = [UsageMetric.model_validate(dict(zip(response.columns, row))) for row in response.results]
+            results.sort(key=lambda x: x.name, reverse=True)
 
         return UsageMetricsQueryResponse(
             results=results,
@@ -66,9 +54,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        metrics = self._get_usage_metrics()
-        metric_queries_raw = [self._get_metric_query(metric=metric) for metric in metrics]
-        metric_queries: list[ast.SelectQuery] = [query for query in metric_queries_raw if query is not None]
+        metric_queries: list[ast.SelectQuery] = [
+            query for metric in self._get_usage_metrics() if (query := self._get_metric_query(metric)) is not None
+        ]
 
         if not metric_queries:
             return ast.SelectQuery.empty(columns=["id", "name", "format", "display", "interval", "value"])
@@ -89,25 +77,32 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def _get_metric_query(self, metric: GroupUsageMetric) -> ast.SelectQuery | None:
         with self.timings.measure("get_metric_query"):
-            from_expr = parse_select("SELECT 1 FROM events").select_from  # type: ignore
-
             filter_expr = metric.get_expr()
             if filter_expr == ast.Constant(value=True):
                 return None
 
-            where_expr = [self._get_entity_filter(), *self._get_date_filter(metric=metric), filter_expr]
+            where_expr = ast.And(exprs=[self._get_entity_filter(), *self._get_date_filter(metric=metric), filter_expr])
 
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(alias="id", expr=ast.Constant(value=str(metric.id))),
-                ast.Alias(alias="name", expr=ast.Constant(value=metric.name)),
-                ast.Alias(alias="format", expr=ast.Constant(value=metric.format)),
-                ast.Alias(alias="display", expr=ast.Constant(value=metric.display)),
-                ast.Alias(alias="interval", expr=ast.Constant(value=metric.interval)),
-                ast.Alias(alias="value", expr=ast.Call(name="count", args=[])),
-            ],
-            select_from=from_expr,
-            where=ast.And(exprs=where_expr),
+        return parse_select(
+            """
+            SELECT
+                {id} as id,
+                {name} as name,
+                {format} as format,
+                {display} as display,
+                {interval} as interval,
+                COUNT(*) as value
+            FROM events
+            WHERE {where_expr}
+        """,
+            placeholders={
+                "id": ast.Constant(value=str(metric.id)),
+                "name": ast.Constant(value=metric.name),
+                "format": ast.Constant(value=metric.format),
+                "display": ast.Constant(value=metric.display),
+                "interval": ast.Constant(value=metric.interval),
+                "where_expr": where_expr,
+            },
         )
 
     def _get_entity_filter(self) -> ast.CompareOperation:

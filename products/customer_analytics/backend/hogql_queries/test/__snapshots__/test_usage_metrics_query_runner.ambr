@@ -6,7 +6,7 @@
          'numeric' AS format,
          'number' AS display,
          7 AS interval,
-         count() AS value
+         count(*) AS value
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -35,7 +35,7 @@
          'numeric' AS format,
          'number' AS display,
          7 AS interval,
-         count() AS value
+         count(*) AS value
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'metric_event'))
   LIMIT 100
@@ -45,7 +45,7 @@
          'currency' AS format,
          'sparkline' AS display,
          30 AS interval,
-         count() AS value
+         count(*) AS value
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.`$group_0`, 'test_group'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, 'another_metric_event'))
   LIMIT 100 SETTINGS readonly=2,
@@ -88,7 +88,7 @@
          'numeric' AS format,
          'number' AS display,
          7 AS interval,
-         count() AS value
+         count(*) AS value
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -138,7 +138,7 @@
          'numeric' AS format,
          'number' AS display,
          7 AS interval,
-         count() AS value
+         count(*) AS value
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -155,7 +155,7 @@
          'currency' AS format,
          'sparkline' AS display,
          30 AS interval,
-         count() AS value
+         count(*) AS value
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
