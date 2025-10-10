@@ -1662,6 +1662,7 @@ def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
     skip_capture_event: bool = False,
+    organization_ids: Optional[list[str]] = None,
 ) -> None:
     import posthoganalytics
 
@@ -1687,10 +1688,34 @@ def send_all_org_usage_reports(
 
     pha_client = get_ph_client(sync_mode=True)
 
+    if organization_ids:
+        logger.info(
+            "Sending usage reports for specific organizations",
+            org_count=len(organization_ids),
+            organization_ids=organization_ids,
+        )
+
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
     org_reports = _get_all_org_reports(period_start, period_end)
+
+    if organization_ids:
+        original_count = len(org_reports)
+        org_reports = {org_id: report for org_id, report in org_reports.items() if org_id in organization_ids}
+        filtered_count = len(org_reports)
+        missing_orgs = set(organization_ids) - set(org_reports.keys())
+        logger.info(
+            f"Filtered org reports from {original_count} to {filtered_count} organizations",
+            requested_org_count=len(organization_ids),
+            found_org_count=filtered_count,
+            missing_orgs=missing_orgs or None,
+        )
+
+    filtering_properties: dict[str, Any] = {"filtered": organization_ids is not None}
+    if organization_ids:
+        filtering_properties["requested_org_count"] = len(organization_ids)
+        filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
 
     query_time_duration = (datetime.now() - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")
@@ -1707,6 +1732,7 @@ def send_all_org_usage_reports(
         properties={
             "total_orgs": total_orgs,
             "region": get_instance_region(),
+            **filtering_properties,
         },
         groups={"instance": settings.SITE_URL},
     )
@@ -1758,6 +1784,7 @@ def send_all_org_usage_reports(
             "queue_time": queue_time_duration,
             "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
+            **filtering_properties,
         },
         groups={"instance": settings.SITE_URL},
     )
