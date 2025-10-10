@@ -1,1 +1,1 @@
-0867_add_updated_at_to_feature_flags
+0877_delete_named_query_from_state

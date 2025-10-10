@@ -13,6 +13,11 @@ pub struct Config {
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
 
+    // supplied by k8s deploy env, used as part of kafka
+    // consumer client ID for sticky partition mappings
+    #[envconfig(from = "HOSTNAME")]
+    pub pod_hostname: Option<String>,
+
     #[envconfig(default = "events")]
     pub kafka_consumer_topic: String,
 
@@ -43,6 +48,9 @@ pub struct Config {
 
     // Output topic for deduplicated events (optional - if not set, events are only consumed for metrics)
     pub output_topic: Option<String>,
+
+    // Topic for publishing duplicate detection results (optional)
+    pub duplicate_events_topic: Option<String>,
 
     // RocksDB storage configuration
     #[envconfig(default = "/tmp/deduplication-store")]
@@ -89,16 +97,16 @@ pub struct Config {
     pub port: u16,
 
     // Checkpoint configuration - integrated from checkpoint::config
-    #[envconfig(default = "900")] // 15 minutes in seconds
+    #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "1680")] // 28 minutes in seconds
+    #[envconfig(default = "900")] // 15 minutes in seconds
     pub checkpoint_cleanup_interval_secs: u64,
 
-    #[envconfig(default = "72")] // 72 hours
+    #[envconfig(default = "2")] // 2 hours
     pub max_checkpoint_retention_hours: u32,
 
-    #[envconfig(default = "3")]
+    #[envconfig(default = "8")]
     pub max_concurrent_checkpoints: usize,
 
     #[envconfig(default = "200")]
@@ -107,7 +115,7 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub checkpoint_worker_shutdown_timeout_secs: u64,
 
-    #[envconfig(default = "5")]
+    #[envconfig(default = "2")]
     pub max_local_checkpoints: usize,
 
     #[envconfig(default = "/tmp/checkpoints")]
