@@ -177,14 +177,14 @@ export const personsLogic = kea<personsLogicType>([
                                 pdi2.distinct_id,
                                 argMax(pdi2.person_id, pdi2.version) AS person_id
                             FROM person_distinct_id2 pdi2
-                            WHERE pdi2.person_id = {id}
-                                AND pdi2.distinct_id IN (
+                            WHERE pdi2.distinct_id IN (
                                     SELECT distinct_id
                                     FROM person_distinct_id2
                                     WHERE person_id = {id}
                                 )
                             GROUP BY pdi2.distinct_id
                             HAVING argMax(pdi2.is_deleted, pdi2.version) = 0
+                                AND argMax(pdi2.person_id, pdi2.version) = {id}
                         ) AS pdi2 ON pdi2.person_id = persons.id
                         WHERE persons.id = {id}
                         GROUP BY id, properties, is_identified, created_at`,
