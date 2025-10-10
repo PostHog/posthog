@@ -829,7 +829,9 @@ class TaxonomyAgentToolkit:
 
         # Execute batch operations and distribute results in single passes
         if collected_tools["entity_property_values"]:
-            entity_property_values = await self.retrieve_entity_property_values(collected_tools["entity_property_values"])
+            entity_property_values = await self.retrieve_entity_property_values(
+                collected_tools["entity_property_values"]
+            )
             for entity, property_results in entity_property_values.items():
                 for i, property_name in enumerate(collected_tools["entity_property_values"][entity]):
                     results[collected_tools["entity_prop_mapping"][(entity, property_name)]] = property_results[i]
@@ -848,7 +850,9 @@ class TaxonomyAgentToolkit:
                     results[collected_tools["event_prop_mapping"][(event_name, property_name)]] = property_results[i]
 
         if collected_tools["event_properties"]:
-            event_properties = await self.retrieve_event_or_action_properties_parallel(collected_tools["event_properties"])
+            event_properties = await self.retrieve_event_or_action_properties_parallel(
+                collected_tools["event_properties"]
+            )
             for event_name, result in event_properties.items():
                 results[collected_tools["event_mapping"][event_name]] = result
 
