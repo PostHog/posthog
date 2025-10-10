@@ -6,12 +6,7 @@ import pytest
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import get_tiktok_resource, tiktok_ads_source
-from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
-    flatten_tiktok_report_record,
-    flatten_tiktok_reports,
-    generate_date_chunks,
-    get_incremental_date_range,
-)
+from posthog.temporal.data_imports.sources.tiktok_ads.utils import TikTokDateRangeManager, TikTokReportResource
 
 
 class TestTikTokAdsHelpers:
@@ -24,7 +19,7 @@ class TestTikTokAdsHelpers:
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50"},
         }
 
-        result = flatten_tiktok_report_record(nested_record)
+        result = TikTokReportResource.flatten_record(nested_record)
 
         expected = {
             "campaign_id": "123456",
@@ -40,7 +35,7 @@ class TestTikTokAdsHelpers:
         """Test flattening already flat record (entity endpoints)."""
         flat_record = {"campaign_id": "123456", "campaign_name": "Test Campaign", "status": "ENABLE"}
 
-        result = flatten_tiktok_report_record(flat_record)
+        result = TikTokReportResource.flatten_record(flat_record)
         assert result == flat_record
 
     def test_flatten_tiktok_reports(self):
@@ -50,7 +45,7 @@ class TestTikTokAdsHelpers:
             {"dimensions": {"campaign_id": "456"}, "metrics": {"clicks": "200"}},
         ]
 
-        result = flatten_tiktok_reports(reports)
+        result = TikTokReportResource.flatten_records(reports)
 
         expected = [{"campaign_id": "123", "clicks": "100"}, {"campaign_id": "456", "clicks": "200"}]
 
@@ -67,7 +62,7 @@ class TestTikTokAdsHelpers:
     )
     def test_get_incremental_date_range(self, name, should_use_incremental, last_value, expected_days_back):
         """Test incremental date range calculation."""
-        start_date, end_date = get_incremental_date_range(should_use_incremental, last_value)
+        start_date, end_date = TikTokDateRangeManager.get_incremental_range(should_use_incremental, last_value)
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -77,7 +72,7 @@ class TestTikTokAdsHelpers:
 
     def test_get_incremental_date_range_parse_error(self):
         """Test date range calculation with invalid last value."""
-        start_date, end_date = get_incremental_date_range(True, "invalid_date")
+        start_date, end_date = TikTokDateRangeManager.get_incremental_range(True, "invalid_date")
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -119,7 +114,7 @@ class TestTikTokAdsHelpers:
     )
     def test_generate_date_chunks(self, name, start_date, end_date, chunk_days, expected_chunks):
         """Test date chunk generation."""
-        chunks = generate_date_chunks(start_date, end_date, chunk_days)
+        chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
 
         assert len(chunks) == expected_chunks
 

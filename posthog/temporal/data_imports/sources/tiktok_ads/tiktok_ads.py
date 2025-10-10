@@ -1,24 +1,16 @@
-from datetime import datetime, timedelta
+import asyncio
 from typing import Any, Optional, cast
 
 from posthog.temporal.common.utils import asyncify, make_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
-    BASE_URL,
-    MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
-    TIKTOK_ADS_CONFIG,
-)
+from posthog.temporal.data_imports.sources.tiktok_ads.settings import BASE_URL, TIKTOK_ADS_CONFIG
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
     TikTokAdsAuth,
     TikTokAdsPaginator,
-    create_date_chunked_resources,
-    flatten_tiktok_report_record,
-    flatten_tiktok_reports,
-    get_incremental_date_range,
-    is_report_endpoint,
-    is_tiktok_exception_retryable,
+    TikTokErrorHandler,
+    TikTokReportResource,
 )
 
 
@@ -80,24 +72,14 @@ def tiktok_ads_source(
     """TikTok Ads source using rest_api_resources with date chunking support."""
 
     endpoint_config = TIKTOK_ADS_CONFIG[endpoint]
-    is_report = is_report_endpoint(endpoint)
+    is_report = TikTokReportResource.is_report_endpoint(endpoint)
+    base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
 
     if is_report:
-        # For report endpoints, we need date chunking
-        starts_at, ends_at = get_incremental_date_range(should_use_incremental_field, db_incremental_field_last_value)
-
-        # If not using incremental field, use full date range
-        if not should_use_incremental_field:
-            ends_at = datetime.now().strftime("%Y-%m-%d")
-            starts_at = (datetime.now() - timedelta(days=MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS)).strftime("%Y-%m-%d")
-
-        # Get base resource configuration (dates will be set per chunk)
-        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
-
-        resources = create_date_chunked_resources(base_resource, starts_at, ends_at, advertiser_id)
+        resources = TikTokReportResource.setup_report_resources(
+            base_resource, advertiser_id, should_use_incremental_field, db_incremental_field_last_value
+        )
     else:
-        # For non-report endpoints, use single resource without dates
-        base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
         resources = [base_resource]
 
     # Create REST API config
@@ -134,50 +116,20 @@ def tiktok_ads_source(
     retryable_get_resources = make_retryable_with_exponential_backoff(
         async_get_dlt_resources,
         max_attempts=5,
-        initial_retry_delay=301.0,  # TikTok's 5-minute circuit breaker
-        max_retry_delay=301.0 * (1.68**5),  # Max delay after 5 retries
-        exponential_backoff_coefficient=1.68,
+        initial_retry_delay=301.0,  # TikTok's 5-minute circuit breaker (5 minutes + 1 second)
+        max_retry_delay=301.0 * 60,  # Cap at ~5 hours
+        exponential_backoff_coefficient=2,  # Standard exponential backoff: attempt^2
         retryable_exceptions=(TikTokAdsAPIError, Exception),
-        is_exception_retryable=is_tiktok_exception_retryable,
+        is_exception_retryable=TikTokErrorHandler.is_retryable,
     )
 
-    def get_dlt_resources_with_retry():
-        import asyncio
+    dlt_resources = asyncio.run(retryable_get_resources())
 
-        return asyncio.run(retryable_get_resources())
-
-    dlt_resources = get_dlt_resources_with_retry()
-
-    if is_report and len(dlt_resources) > 1:
-
-        def combined_resource():
-            for resource in dlt_resources:
-                for item in resource:
-                    if isinstance(item, list):
-                        yield from flatten_tiktok_reports(item)
-                    else:
-                        yield flatten_tiktok_report_record(item)
-
-        items = combined_resource()
+    if is_report:
+        items = TikTokReportResource.process_resources(dlt_resources)
     else:
-        assert len(dlt_resources) == 1, "Expected 1 resource, got {}".format(len(dlt_resources))
-        resource = dlt_resources[0]
-
-        if is_report:
-
-            def flattened_resource():
-                for item in resource:
-                    if isinstance(item, list):
-                        yield from flatten_tiktok_reports(item)
-                    elif isinstance(item, dict):
-                        yield flatten_tiktok_report_record(item)
-                    else:
-                        # Handle other types by converting to dict if possible
-                        yield item
-
-            items = flattened_resource()
-        else:
-            items = resource
+        assert len(dlt_resources) == 1, f"Expected 1 resource for non-report endpoint, got {len(dlt_resources)}"
+        items = dlt_resources[0]
 
     return SourceResponse(
         name=endpoint,

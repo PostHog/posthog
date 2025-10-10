@@ -11,11 +11,8 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
     TikTokAdsPaginator,
-    flatten_tiktok_report_record,
-    flatten_tiktok_reports,
-    generate_date_chunks,
-    get_incremental_date_range,
-    is_report_endpoint,
+    TikTokDateRangeManager,
+    TikTokReportResource,
 )
 
 
@@ -29,7 +26,7 @@ class TestFlattenFunctions:
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50", "cpm": "5.40", "ctr": "4.08"},
         }
 
-        result = flatten_tiktok_report_record(nested_record)
+        result = TikTokReportResource.flatten_record(nested_record)
 
         expected = {
             "campaign_id": "123456789",
@@ -54,14 +51,14 @@ class TestFlattenFunctions:
             "modify_time": "2025-09-27 15:30:00",
         }
 
-        result = flatten_tiktok_report_record(flat_record)
+        result = TikTokReportResource.flatten_record(flat_record)
         assert result == flat_record
 
     def test_flatten_tiktok_report_record_missing_dimensions(self):
         """Test flattening record with metrics but no dimensions."""
         record_with_metrics_only = {"metrics": {"clicks": "100", "impressions": "1000"}}
 
-        result = flatten_tiktok_report_record(record_with_metrics_only)
+        result = TikTokReportResource.flatten_record(record_with_metrics_only)
 
         expected = {"metrics": {"clicks": "100", "impressions": "1000"}}
 
@@ -71,7 +68,7 @@ class TestFlattenFunctions:
         """Test flattening record with dimensions but no metrics."""
         record_with_dimensions_only = {"dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"}}
 
-        result = flatten_tiktok_report_record(record_with_dimensions_only)
+        result = TikTokReportResource.flatten_record(record_with_dimensions_only)
 
         expected = {"dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"}}
 
@@ -81,7 +78,7 @@ class TestFlattenFunctions:
         """Test flattening record with empty dimensions and metrics."""
         record_with_empty_nested: dict[str, dict] = {"dimensions": {}, "metrics": {}}
 
-        result = flatten_tiktok_report_record(record_with_empty_nested)
+        result = TikTokReportResource.flatten_record(record_with_empty_nested)
         assert result == {}
 
     def test_flatten_tiktok_report_record_non_dict_input(self):
@@ -89,7 +86,7 @@ class TestFlattenFunctions:
         non_dict_inputs: list[object] = ["string_input", 123, ["list", "input"], None]
 
         for input_value in non_dict_inputs:
-            result = flatten_tiktok_report_record(cast(dict[str, Any], input_value))
+            result = TikTokReportResource.flatten_record(cast(dict[str, Any], input_value))
             assert result == input_value
 
     def test_flatten_tiktok_reports_batch_processing(self):
@@ -106,7 +103,7 @@ class TestFlattenFunctions:
             {"campaign_id": "789", "campaign_name": "Test Campaign", "status": "ENABLE"},
         ]
 
-        result = flatten_tiktok_reports(reports)
+        result = TikTokReportResource.flatten_records(reports)
 
         expected = [
             {"campaign_id": "123", "stat_time_day": "2025-09-27", "clicks": "100", "impressions": "1000"},
@@ -118,7 +115,7 @@ class TestFlattenFunctions:
 
     def test_flatten_tiktok_reports_empty_list(self):
         """Test batch flattening with empty list."""
-        result = flatten_tiktok_reports([])
+        result = TikTokReportResource.flatten_records([])
         assert result == []
 
 
@@ -144,7 +141,7 @@ class TestDateRangeFunctions:
     )
     def test_get_incremental_date_range_scenarios(self, name, should_use_incremental, last_value, expected_max_days):
         """Test various incremental date range calculation scenarios."""
-        start_date, end_date = get_incremental_date_range(should_use_incremental, last_value)
+        start_date, end_date = TikTokDateRangeManager.get_incremental_range(should_use_incremental, last_value)
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -158,7 +155,7 @@ class TestDateRangeFunctions:
 
     def test_get_incremental_date_range_invalid_date_string(self):
         """Test date range calculation with invalid date string."""
-        start_date, end_date = get_incremental_date_range(True, "invalid_date_string")
+        start_date, end_date = TikTokDateRangeManager.get_incremental_range(True, "invalid_date_string")
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -169,7 +166,7 @@ class TestDateRangeFunctions:
     def test_get_incremental_date_range_future_date(self):
         """Test date range calculation with future date (should use future date as start)."""
         future_date = datetime.now() + timedelta(days=10)
-        start_date, end_date = get_incremental_date_range(True, future_date)
+        start_date, end_date = TikTokDateRangeManager.get_incremental_range(True, future_date)
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -227,7 +224,7 @@ class TestDateRangeFunctions:
     )
     def test_generate_date_chunks_scenarios(self, name, start_date, end_date, chunk_days, expected_chunks):
         """Test date chunk generation for various scenarios."""
-        chunks = generate_date_chunks(start_date, end_date, chunk_days)
+        chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
 
         assert len(chunks) == expected_chunks
 
@@ -250,13 +247,13 @@ class TestDateRangeFunctions:
         """Test date chunk generation with invalid date format."""
         valid_end_date = datetime.now().strftime("%Y-%m-%d")
         with pytest.raises(ValueError):
-            generate_date_chunks("invalid-date", valid_end_date, 30)
+            TikTokDateRangeManager.generate_chunks("invalid-date", valid_end_date, 30)
 
     def test_generate_date_chunks_end_before_start(self):
         """Test date chunk generation when end date is before start date."""
         start_date = datetime.now().strftime("%Y-%m-%d")
         end_date = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
-        chunks = generate_date_chunks(start_date, end_date, 30)
+        chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, 30)
         assert len(chunks) == 0
 
 
@@ -433,5 +430,5 @@ class TestHelperFunctions:
     )
     def test_is_report_endpoint(self, endpoint_name, expected_is_report):
         """Test identification of report endpoints."""
-        result = is_report_endpoint(endpoint_name)
+        result = TikTokReportResource.is_report_endpoint(endpoint_name)
         assert result == expected_is_report
