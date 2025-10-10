@@ -2,83 +2,67 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
-use common_types::{EmbeddingModel, EmbeddingRecord, EmbeddingRequest};
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use tiktoken_rs::CoreBPE;
+use common_types::{
+    embedding::{EmbeddingModel, EmbeddingRecord, EmbeddingRequest},
+    format::format_ch_datetime,
+};
+use metrics::counter;
+use reqwest::{Client, Method, Request, RequestBuilder};
 use tracing::error;
 
-use crate::app_context::AppContext;
+use crate::{
+    app_context::AppContext,
+    metric_consts::{DROPPED_REQUESTS, EMBEDDINGS_GENERATED, MESSAGES_RECEIVED},
+    organization::apply_ai_opt_in,
+};
 
 pub mod app_context;
 pub mod config;
 pub mod metric_consts;
+pub mod organization;
 
 pub async fn handle_batch(
     requests: Vec<EmbeddingRequest>,
-    _offsets: &[Offset],
+    _offsets: &[Offset], // TODO - tie errors to offsets
     context: Arc<AppContext>,
 ) -> Result<Vec<EmbeddingRecord>> {
     let mut handles = vec![];
-    let client = Client::new();
-    let api_key = context.config.openai_api_key.clone();
+
+    counter!(MESSAGES_RECEIVED).increment(requests.len() as u64);
+
     for request in requests {
+        let Some(request) = apply_ai_opt_in(&context, request).await? else {
+            counter!(DROPPED_REQUESTS, &[("cause", "ai_opt_in")]).increment(1);
+            continue;
+        };
         for model in &request.models {
-            handles.push(generate_embedding(
-                client.clone(),
-                api_key.clone(),
-                *model,
-                request.clone(),
-            ));
+            handles.push(generate_embedding(context.clone(), *model, request.clone()));
         }
     }
     let results = futures::future::join_all(handles).await;
     results.into_iter().collect()
 }
 
-#[derive(Serialize)]
-struct OpenAIEmbeddingRequest {
-    input: String,
-    model: String,
-}
-
-#[derive(Deserialize)]
-struct OpenAIEmbeddingResponse {
-    data: Vec<EmbeddingData>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingData {
-    embedding: Vec<f64>,
-}
-
 pub async fn generate_embedding(
-    client: Client,
-    api_key: String,
+    context: Arc<AppContext>,
     model: EmbeddingModel,
     request: EmbeddingRequest,
 ) -> Result<EmbeddingRecord> {
-    // TODO - once we have a larger model zoo, we'll need to select this more carefully
-    let encoder = tiktoken_rs::cl100k_base()?;
-
     // Generate the text to actually send to OpenAI
-    // TODO - as above, a larger model zoo will require more careful selection of the dimensionality
-    let text = generate_embedding_text(&request, &encoder, 8192)?;
+    let (text, token_count) = generate_embedding_text(&request.content, &model)?;
 
-    // Call OpenAI API to generate embeddings
-    let api_request = OpenAIEmbeddingRequest {
-        input: text,
-        model: model.name().to_string(),
-    };
+    let api_req = construct_request(
+        &text,
+        model,
+        &context.config.openai_api_key,
+        context.client.clone(),
+    );
 
-    let response = client
-        .post("https://api.openai.com/v1/embeddings")
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .json(&api_request)
-        .send()
-        .await?;
+    context.respect_rate_limits(model, token_count).await;
 
+    let response = context.client.execute(api_req).await?; // Unhandled - network errors etc
+
+    // TODO - implement 429 backoff and retry
     if !response.status().is_success() {
         error!(
             "Failed to generate embeddings, got non-200 from openai: {}",
@@ -92,20 +76,13 @@ pub async fn generate_embedding(
         return Err(anyhow::anyhow!("Failed to generate embeddings"));
     }
 
-    let response_body: OpenAIEmbeddingResponse = match response.json().await {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            error!("Failed to parse OpenAI response: {}", err);
-            return Err(anyhow::anyhow!("Failed to generate embeddings"));
-        }
-    };
+    context.update_rate_limits(model, &response).await;
 
-    let embedding = response_body
-        .data
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("No embedding data returned from OpenAI"))?
-        .embedding
-        .clone();
+    let embedding = model
+        .extract_embedding_from_response_body(&response.json().await?)
+        .ok_or_else(|| anyhow::anyhow!("Failed to extract embedding"))?;
+
+    counter!(EMBEDDINGS_GENERATED, &[("model", model.name())]).increment(1);
 
     Ok(EmbeddingRecord {
         team_id: request.team_id,
@@ -114,20 +91,49 @@ pub async fn generate_embedding(
         model_name: model,
         rendering: request.rendering.to_string(),
         document_id: request.document_id.to_string(),
-        timestamp: request.timestamp,
+        timestamp: format_ch_datetime(request.timestamp),
         embedding,
     })
 }
 
-fn generate_embedding_text(
-    request: &EmbeddingRequest,
-    encoder: &CoreBPE,
-    max_tokens: usize,
-) -> Result<String> {
-    let tokens = encoder
-        .encode_with_special_tokens(&request.content)
-        .into_iter()
-        .take(max_tokens)
-        .collect();
-    encoder.decode(tokens)
+// This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
+// can reconsider it later if we want
+fn generate_embedding_text(content: &str, model: &EmbeddingModel) -> Result<(String, usize)> {
+    match model {
+        EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+            let encoder = tiktoken_rs::cl100k_base()?;
+            let tokens: Vec<_> = encoder
+                .encode_with_special_tokens(content)
+                .into_iter()
+                .take(model.model_input_window())
+                .collect();
+            let token_count = tokens.len();
+            let text = encoder.decode(tokens)?;
+            Ok((text, token_count))
+        }
+    }
+}
+
+fn construct_request(
+    content: &str,
+    model: EmbeddingModel,
+    api_key: &str,
+    client: Client,
+) -> Request {
+    let req = Request::new(
+        Method::POST,
+        model
+            .model_url()
+            .parse()
+            .expect("The models enum only produces valid urls"),
+    );
+
+    let req = RequestBuilder::from_parts(client, req)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&model.construct_request_body(content));
+
+    // This expect is fine, because we have total control over everything in the
+    // request, except the string of input content, which will serialize correctly.
+    req.build().expect("we manage to build the request")
 }

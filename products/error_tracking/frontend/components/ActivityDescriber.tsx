@@ -16,7 +16,7 @@ import {
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './Assignee/AssigneeDisplay'
@@ -55,7 +55,7 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
 }
 
 const errorTrackingIssueActionsMapping: Record<
-    keyof ErrorTrackingIssue,
+    keyof ErrorTrackingRelationalIssue,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
     assignee: (change, logItem) => {
@@ -114,12 +114,7 @@ const errorTrackingIssueActionsMapping: Record<
     id: () => null,
     name: () => null,
     description: () => null,
-    aggregations: () => null,
     first_seen: () => null,
-    last_seen: () => null,
-    first_event: () => null,
-    last_event: () => null,
-    library: () => null,
     external_issues: () => null,
 }
 
@@ -133,7 +128,7 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
         let changes: Description[] = []
 
         for (const change of logItem.detail.changes || []) {
-            const field = change.field as keyof ErrorTrackingIssue
+            const field = change.field as keyof ErrorTrackingRelationalIssue
 
             if (!change?.field || !errorTrackingIssueActionsMapping[field]) {
                 continue //  not all fields are describable

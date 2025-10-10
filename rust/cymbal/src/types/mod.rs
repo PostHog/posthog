@@ -1,5 +1,5 @@
+use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
-use common_types::{EmbeddingModel, EmbeddingRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
