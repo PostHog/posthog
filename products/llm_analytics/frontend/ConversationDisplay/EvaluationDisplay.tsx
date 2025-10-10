@@ -9,7 +9,8 @@ import { EventType } from '~/types'
 import { MetadataTag } from '../components/MetadataTag'
 
 export function EvaluationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const result = eventProperties.$ai_evaluation_result
+    const rawResult = eventProperties.$ai_evaluation_result
+    const result = rawResult === true || rawResult === 'true'
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_evaluation_model

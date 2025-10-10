@@ -595,7 +595,7 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean,
+    result: boolean | string,
     reasoning: string | null,
 ]
 
@@ -607,7 +607,7 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        result: row[6],
+        result: row[6] === true || row[6] === 'true',
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
     }
