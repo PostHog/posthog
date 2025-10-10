@@ -154,6 +154,9 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+
+    // Customer analytics
+    UsageMetricsQuery = 'UsageMetricsQuery',
 }
 
 export type AnyDataNode =
@@ -198,6 +201,7 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | VectorSearchQuery
+    | UsageMetricsQuery
 
 /**
  * @discriminator kind
@@ -276,6 +280,9 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | VectorSearchQuery
+
+    // Customer analytics
+    | UsageMetricsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -4066,4 +4073,33 @@ export interface PlaywrightWorkspaceSetupResult {
     user_id: string
     user_email: string
     personal_api_key: string
+}
+
+export type UsageMetricFormat = 'numeric' | 'currency'
+
+export type UsageMetricDisplay = 'number' | 'sparkline'
+
+export interface UsageMetric {
+    id: string
+    name: string
+    value: number
+    format: UsageMetricFormat
+    display: UsageMetricDisplay
+    interval: integer
+}
+
+export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: UsageMetric[]
+}
+
+export type CachedUsageMetricsQueryResponse = CachedQueryResponse<UsageMetricsQueryResponse>
+
+export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
+    kind: NodeKind.UsageMetricsQuery
+    /** Person ID to fetch metrics for. Mutually exclusive with group parameters. */
+    person_id?: string
+    /** Group type index. Required with group_key for group queries. */
+    group_type_index?: integer
+    /** Group key. Required with group_type_index for group queries. */
+    group_key?: string
 }

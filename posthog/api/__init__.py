@@ -211,13 +211,8 @@ project_features_router = projects_router.register(
 
 projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 
-# Agents endpoints
 projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
 
-# Task progress endpoints
-projects_router.register(r"task_progress", tasks.TaskProgressViewSet, "project_task_progress", ["team_id"])
-
-# Workflows endpoints
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 project_workflows_router = projects_router.register(
