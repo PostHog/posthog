@@ -380,7 +380,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 }),
         ],
     }),
-    listeners(({ actions, values, disposables }) => ({
+    listeners(({ actions, values, cache }) => ({
         setActiveTab: ({ tab }) => {
             if (tab === 'kanban') {
                 actions.loadAllWorkflows()
@@ -454,10 +454,10 @@ export const tasksLogic = kea<tasksLogicType>([
 
         startPolling: () => {
             // Remove any existing polling interval
-            disposables.remove('pollingInterval')
+            cache.disposables.remove('pollingInterval')
 
             // Add new polling interval
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const intervalId = setInterval(() => {
                     if (values.hasActiveTasks) {
                         actions.pollForUpdates()
@@ -469,7 +469,7 @@ export const tasksLogic = kea<tasksLogicType>([
             }, 'pollingInterval')
         },
         stopPolling: () => {
-            disposables.remove('pollingInterval')
+            cache.disposables.remove('pollingInterval')
         },
         loadTasksSuccess: () => {
             // Start polling when tasks are loaded if there are active tasks

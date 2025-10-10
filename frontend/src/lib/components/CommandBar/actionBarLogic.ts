@@ -62,12 +62,12 @@ export const actionBarLogic = kea<actionBarLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, disposables }) => {
+    afterMount(({ actions, values, cache }) => {
         // trigger show action from legacy palette
         actions.showPalette()
 
         // register keyboard shortcuts
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
                 if (event.key === 'Enter' && values.commandSearchResults.length) {
                     // execute result

@@ -1001,7 +1001,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
     }),
-    listeners(({ props, values, actions, cache, disposables }) => ({
+    listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
             // eslint-disable-next-line no-console
             console.log('caughtAssetErrorFromIframe', errorDetails)
@@ -1107,7 +1107,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 return () => {
                     Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
                         if (timer) {
@@ -1153,9 +1153,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 if (iframeContentWindow) {
                     // Clean up any previous listeners before adding new ones
-                    disposables.dispose('iframeErrorListeners')
+                    cache.disposables.dispose('iframeErrorListeners')
 
-                    disposables.add(() => {
+                    cache.disposables.add(() => {
                         return registerErrorListeners({
                             iframeWindow: iframeContentWindow,
                             onError: (error) => actions.caughtAssetErrorFromIframe(error),
@@ -1526,13 +1526,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = requestAnimationFrame(actions.updateAnimation)
                 return () => cancelAnimationFrame(timerId)
             }, 'animationTimer')
         },
         stopAnimation: () => {
-            disposables.dispose('animationTimer')
+            cache.disposables.dispose('animationTimer')
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
@@ -1702,7 +1702,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentState = values.playingTimeTracking.state
             const interval = currentState === 'playing' ? 5000 : 30000
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.updatePlayerTimeTracking()
                     actions.schedulePlayerTimeTracking()
@@ -1786,13 +1786,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         )
     }),
 
-    afterMount(({ props, actions, cache, disposables }) => {
+    afterMount(({ props, actions, cache }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview || props.sessionRecordingId.trim() === '') {
             return
         }
 
         cache.pausedMediaElements = []
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const fullScreenListener = (): void => {
                 actions.setIsFullScreen(document.fullscreenElement !== null)
             }

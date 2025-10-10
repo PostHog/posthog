@@ -68,7 +68,7 @@ export const resizerLogic = kea<resizerLogicType>([
         isVertical: [(_, p) => [p.placement], (placement) => ['left', 'right'].includes(placement)],
         isStart: [(_, p) => [p.placement], (placement) => ['left', 'top'].includes(placement)],
     }),
-    listeners(({ cache, props, actions, values, disposables }) => ({
+    listeners(({ cache, props, actions, values }) => ({
         beginResize: ({ startXOrY }) => {
             if (!props.containerRef.current) {
                 return
@@ -103,7 +103,7 @@ export const resizerLogic = kea<resizerLogicType>([
             document.body.classList.add('is-resizing')
 
             // Add dynamic event listeners using disposables
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const onMouseMove = (e: MouseEvent): void => {
                     const event = calculateEvent(e)
                     actions.setResizingSize(event.desiredSize)
@@ -121,7 +121,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 return () => document.removeEventListener('mousemove', onMouseMove)
             }, 'dynamicMouseMove')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const onMouseUp = (e: MouseEvent): void => {
                     if (e.button === 0) {
                         const event = calculateEvent(e)
@@ -156,8 +156,8 @@ export const resizerLogic = kea<resizerLogicType>([
 
         endResize: () => {
             // Remove the dynamic listeners we added
-            disposables.remove('dynamicMouseMove')
-            disposables.remove('dynamicMouseUp')
+            cache.disposables.remove('dynamicMouseMove')
+            cache.disposables.remove('dynamicMouseUp')
 
             document.body.classList.remove('is-resizing')
         },

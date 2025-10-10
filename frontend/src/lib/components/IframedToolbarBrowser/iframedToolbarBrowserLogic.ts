@@ -201,7 +201,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, disposables }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
@@ -300,10 +300,10 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.setIframeBanner(null)
 
             // Clear any existing timeouts
-            disposables.dispose('errorTimeout')
-            disposables.dispose('warnTimeout')
+            cache.disposables.dispose('errorTimeout')
+            cache.disposables.dispose('warnTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const errorTimerId = setTimeout(() => {
                     actions.setIframeBanner({
                         level: 'error',
@@ -313,7 +313,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 return () => clearTimeout(errorTimerId)
             }, 'errorTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const warnTimerId = setTimeout(() => {
                     actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
                 }, 3000)
@@ -325,8 +325,8 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.setIframeBanner(null)
 
             // Clear timeouts using disposables
-            disposables.dispose('errorTimeout')
-            disposables.dispose('warnTimeout')
+            cache.disposables.dispose('errorTimeout')
+            cache.disposables.dispose('warnTimeout')
         },
         setIframeBanner: ({ banner }) => {
             posthog.capture('in-app iFrame banner set', {

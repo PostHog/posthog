@@ -102,9 +102,9 @@ export const themeLogic = kea<themeLogicType>([
             actions.setPreviewingCustomCss(null)
         },
     })),
-    events(({ disposables, actions }) => ({
+    events(({ cache, actions }) => ({
         afterMount() {
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
                 const onPrefersColorSchemeChange = (e: MediaQueryListEvent): void =>
                     actions.syncDarkModePreference(e.matches)

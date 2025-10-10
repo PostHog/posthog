@@ -53,9 +53,9 @@ export const commandBarLogic = kea<commandBarLogicType>([
             }
         },
     })),
-    afterMount(({ actions, disposables }) => {
+    afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
                 if (shouldIgnoreInput(event)) {
                     return

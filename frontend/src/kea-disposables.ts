@@ -14,8 +14,6 @@ type DisposablesManager = {
 // Type for logic with disposables added
 type LogicWithCache = BuiltLogic & {
     cache: { disposables?: DisposablesManager | null; [key: string]: any }
-    // Note: disposables is a reference to cache.disposables for API convenience
-    disposables: DisposablesManager
 }
 
 export function disposables(): LogicBuilder {
@@ -64,9 +62,6 @@ export function disposables(): LogicBuilder {
                 },
             }
         }
-
-        // Expose disposables manager on logic
-        typedLogic.disposables = typedLogic.cache.disposables
 
         beforeUnmount(() => {
             // Only dispose on final unmount when logic.isMounted() becomes false

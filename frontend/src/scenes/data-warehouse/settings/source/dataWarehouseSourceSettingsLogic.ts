@@ -190,12 +190,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         },
     })),
-    listeners(({ values, actions, props, disposables }) => ({
+    listeners(({ values, actions, props, cache }) => ({
         loadSourceSuccess: () => {
             // Clear any existing source refresh timeout
-            disposables.dispose('sourceRefreshTimeout')
+            cache.disposables.dispose('sourceRefreshTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadSource()
                 }, REFRESH_INTERVAL)
@@ -210,9 +210,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         },
         loadSourceFailure: () => {
             // Clear any existing source refresh timeout
-            disposables.dispose('sourceRefreshTimeout')
+            cache.disposables.dispose('sourceRefreshTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadSource()
                 }, REFRESH_INTERVAL)
@@ -221,9 +221,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         },
         loadJobsSuccess: () => {
             // Clear any existing jobs refresh timeout
-            disposables.dispose('jobsRefreshTimeout')
+            cache.disposables.dispose('jobsRefreshTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadJobs()
                 }, REFRESH_INTERVAL)
@@ -232,9 +232,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         },
         loadJobsFailure: () => {
             // Clear any existing jobs refresh timeout
-            disposables.dispose('jobsRefreshTimeout')
+            cache.disposables.dispose('jobsRefreshTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadJobs()
                 }, REFRESH_INTERVAL)

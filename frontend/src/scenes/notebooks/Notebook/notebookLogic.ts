@@ -480,7 +480,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     )),
         ],
     }),
-    listeners(({ values, actions, cache, disposables }) => ({
+    listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
@@ -651,10 +651,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             // Remove any existing refresh timeout
-            disposables.remove('refreshTimeout')
+            cache.disposables.remove('refreshTimeout')
 
             // Add new refresh timeout
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const refreshTimeout = setTimeout(() => {
                     actions.loadNotebook()
                 }, NOTEBOOK_REFRESH_MS)

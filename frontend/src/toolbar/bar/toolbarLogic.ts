@@ -431,9 +431,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, disposables }) => {
+    afterMount(({ actions, values, cache }) => {
         // Add window event listeners using disposables
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const clickListener = (e: MouseEvent): void => {
                 const target = e.target as HTMLElement
                 const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
@@ -445,7 +445,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             return () => window.removeEventListener('mousedown', clickListener)
         }, 'clickListener')
 
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const popstateHandler = (): void => actions.maybeSendNavigationMessage()
             window.addEventListener('popstate', popstateHandler)
             return () => window.removeEventListener('popstate', popstateHandler)
@@ -454,7 +454,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         // Use a setInterval to periodically check for URL changes
         // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
         // And mutation observers don't seem to work :shrug:
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const navigationInterval = setInterval(() => {
                 actions.maybeSendNavigationMessage()
             }, 500)
@@ -466,7 +466,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         const isInIframe = window !== window.parent
 
         if (isInIframe) {
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const iframeEventListener = (e: MessageEvent): void => {
                     // TODO: Probably need to have strict checks here
                     const type: PostHogAppToolbarEvent = e?.data?.type

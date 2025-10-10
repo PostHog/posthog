@@ -44,8 +44,8 @@ export const bulkSelectLogic = kea<bulkSelectLogicType>([
         mutationFailure: () => actions.setSelectedIssueIds([]),
     })),
 
-    afterMount(({ actions, disposables }) => {
-        disposables.add(() => {
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
             const onKeyChange = (event: KeyboardEvent): void => {
                 actions.setShiftKeyHeld(event.shiftKey)
             }

@@ -112,9 +112,9 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    afterMount(({ actions, disposables }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadRecords()
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const timerId = setInterval(() => actions.maybeRefreshRecords(), 5000)
             return () => clearInterval(timerId)
         }, 'refreshInterval')

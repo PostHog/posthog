@@ -455,8 +455,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadHeatmap()
         },
     })),
-    afterMount(({ actions, values, cache, disposables }) => {
-        disposables.add(() => {
+    afterMount(({ actions, values, cache }) => {
+        cache.disposables.add(() => {
             const timerId = setInterval(() => {
                 const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
                 if (values.heatmapScrollY !== scrollY) {
@@ -469,7 +469,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
         // oxlint-disable-next-line compat/compat
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const intersectionObserver = new IntersectionObserver((entries) => {
                 const observedElements: [HTMLElement, boolean][] = []
                 entries.forEach((entry) => {

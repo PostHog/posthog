@@ -71,9 +71,9 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
             }
         },
     })),
-    events(({ actions, disposables }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const onKeyDown = (e: KeyboardEvent): void => {
                     if (e.key === 'Tab') {
                         e.preventDefault()

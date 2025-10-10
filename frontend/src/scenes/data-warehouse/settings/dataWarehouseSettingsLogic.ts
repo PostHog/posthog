@@ -133,7 +133,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             actions.loadSources(null)
         },
     })),
-    listeners(({ actions, values, disposables }) => ({
+    listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
@@ -193,10 +193,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         },
         loadSourcesSuccess: () => {
             // Clear any existing refresh timeout
-            disposables.dispose('refreshTimeout')
+            cache.disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                disposables.add(() => {
+                cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadSources(null)
                     }, REFRESH_INTERVAL)
@@ -206,10 +206,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         },
         loadSourcesFailure: () => {
             // Clear any existing refresh timeout
-            disposables.dispose('refreshTimeout')
+            cache.disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                disposables.add(() => {
+                cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadSources(null)
                     }, REFRESH_INTERVAL)

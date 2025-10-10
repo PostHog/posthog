@@ -91,10 +91,10 @@ export const currentPageLogic = kea<currentPageLogicType>([
         },
     })),
 
-    afterMount(({ actions, values, disposables }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.setHref(withoutPostHogInit(values.href))
 
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const interval = window.setInterval(() => {
                 if (window.location.href !== values.href) {
                     actions.setHref(withoutPostHogInit(window.location.href))

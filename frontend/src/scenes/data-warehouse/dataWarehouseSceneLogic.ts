@@ -201,7 +201,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, disposables }) => ({
+    listeners(({ values, actions, cache }) => ({
         setActivityCurrentPage: () => {
             actions.checkAutoLoadMore()
         },
@@ -231,10 +231,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         },
         loadSourcesSuccess: () => {
             // Remove any existing refresh timeout
-            disposables.remove('refreshTimeout')
+            cache.disposables.remove('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                disposables.add(() => {
+                cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadSources(null)
                     }, REFRESH_INTERVAL)

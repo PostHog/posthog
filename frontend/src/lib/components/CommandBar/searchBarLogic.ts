@@ -621,9 +621,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, disposables }) => {
+    afterMount(({ actions, values, cache }) => {
         // register keyboard shortcuts
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
                 if (event.key === 'Enter') {
                     // open result

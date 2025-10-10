@@ -305,7 +305,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, disposables }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         setDisplayUrl: ({ url }) => {
             if (!values.dataUrl || values.dataUrl.trim() === '') {
                 actions.setDataUrl(url)
@@ -403,9 +403,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.setIframeBanner(null)
 
             // Clear any existing timeout
-            disposables.dispose('errorTimeout')
+            cache.disposables.dispose('errorTimeout')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.setIframeBanner({
                         level: 'error',
@@ -420,8 +420,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.setIframeBanner(null)
 
             // Clear timeouts using disposables
-            disposables.dispose('errorTimeout')
-            disposables.dispose('warnTimeout')
+            cache.disposables.dispose('errorTimeout')
+            cache.disposables.dispose('warnTimeout')
         },
     })),
 

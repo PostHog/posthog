@@ -93,7 +93,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         ],
     })),
 
-    listeners(({ cache, actions, values, disposables }) => ({
+    listeners(({ cache, actions, values }) => ({
         selectNotebook: (options) => {
             if (options.silent) {
                 return
@@ -117,7 +117,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             }
 
             // Add drag listener using disposables
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const dragListener = (event: MouseEvent): void => {
                     if (!cache.dragStart) {
                         cache.dragStart = event.pageX
@@ -149,7 +149,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                     actions.openSidePanel(cache.initialPanelState.selectedTab)
                 }
             }
-            disposables.remove('dragListener')
+            cache.disposables.remove('dragListener')
         },
     })),
 

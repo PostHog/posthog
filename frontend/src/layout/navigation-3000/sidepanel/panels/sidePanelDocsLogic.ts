@@ -138,7 +138,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         },
     })),
 
-    afterMount(async ({ actions, values, disposables }) => {
+    afterMount(async ({ actions, values, cache }) => {
         // Set message receiver for the iframe very early on the `afterMount` hook
         const onWindowMessage = (event: MessageEvent): void => {
             if (event.origin === POSTHOG_WEBSITE_ORIGIN) {
@@ -170,7 +170,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             }
         }
 
-        disposables.add(() => {
+        cache.disposables.add(() => {
             window.addEventListener('message', onWindowMessage)
             return () => window.removeEventListener('message', onWindowMessage)
         }, 'windowMessageListener')

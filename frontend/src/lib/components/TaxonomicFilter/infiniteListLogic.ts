@@ -407,7 +407,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
     }),
-    listeners(({ values, actions, props, cache, disposables }) => ({
+    listeners(({ values, actions, props, cache }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.hasRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -469,10 +469,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         },
         abortAnyRunningQuery: () => {
             // Remove any existing abort controller
-            disposables.remove('abortController')
+            cache.disposables.remove('abortController')
 
             // Add new abort controller
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const abortController = new AbortController()
                 // Store reference in cache for the fetch operation to use
                 cache.abortController = abortController
@@ -480,7 +480,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }, 'abortController')
         },
     })),
-    events(({ actions, values, props, disposables }) => ({
+    events(({ actions, values, props, cache }) => ({
         afterMount: () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
@@ -490,7 +490,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
 
             // Clean up all cache timers to prevent memory leaks
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 return () => {
                     Object.values(apiCacheTimers).forEach((timerId) => {
                         window.clearTimeout(timerId)

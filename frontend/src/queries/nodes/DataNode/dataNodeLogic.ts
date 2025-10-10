@@ -880,7 +880,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache, props, disposables }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -921,11 +921,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         resetLoadingTimer: () => {
             // Clear any existing loading timer
-            disposables.dispose('loadingTimer')
+            cache.disposables.dispose('loadingTimer')
 
             if (values.dataLoading) {
                 const startTime = Date.now()
-                disposables.add(() => {
+                cache.disposables.add(() => {
                     const timerId = window.setInterval(() => {
                         const seconds = Math.floor((Date.now() - startTime) / 1000)
                         actions.setLoadingTime(seconds)
@@ -935,17 +935,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    subscriptions(({ props, actions, values, disposables }) => ({
+    subscriptions(({ props, actions, values, cache }) => ({
         responseError: (error: string | null) => {
             props.onError?.(error)
         },
         autoLoadRunning: (autoLoadRunning) => {
             // Clear any existing autoload interval
-            disposables.dispose('autoLoadInterval')
+            cache.disposables.dispose('autoLoadInterval')
 
             if (autoLoadRunning) {
                 actions.loadNewData()
-                disposables.add(() => {
+                cache.disposables.add(() => {
                     const timerId = window.setInterval(() => {
                         if (!values.responseLoading) {
                             actions.loadNewData()
@@ -958,7 +958,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         dataLoading: (dataLoading) => {
             if (!dataLoading) {
                 // Clear loading timer when data loading finishes
-                disposables.dispose('loadingTimer')
+                cache.disposables.dispose('loadingTimer')
             }
         },
     })),

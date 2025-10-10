@@ -502,7 +502,7 @@ export const elementsLogic = kea<elementsLogicType>([
             actions.newAction(element)
         },
     })),
-    events(({ cache, values, actions, disposables }) => ({
+    events(({ cache, values, actions }) => ({
         afterMount: () => {
             cache.updateRelativePosition = debounce(() => {
                 const relativePositionCompensation =
@@ -514,7 +514,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             }, 100)
             // Add event listeners using disposables
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const onClick = (): void => actions.updateRects()
                 window.addEventListener('click', onClick)
                 return () => window.removeEventListener('click', onClick)
@@ -522,11 +522,11 @@ export const elementsLogic = kea<elementsLogicType>([
 
             const onScrollResize = (): void => {
                 // Clear any existing timeout
-                disposables.remove('clickDelayTimeout')
+                cache.disposables.remove('clickDelayTimeout')
                 actions.updateRects()
 
                 // Add new timeout
-                disposables.add(() => {
+                cache.disposables.add(() => {
                     const timeout = window.setTimeout(actions.updateRects, 100)
                     return () => window.clearTimeout(timeout)
                 }, 'clickDelayTimeout')
@@ -534,12 +534,12 @@ export const elementsLogic = kea<elementsLogicType>([
                 cache.updateRelativePosition()
             }
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 window.addEventListener('resize', onScrollResize)
                 return () => window.removeEventListener('resize', onScrollResize)
             }, 'resizeListener')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 const onKeyDown = (e: KeyboardEvent): void => {
                     if (e.keyCode !== 27) {
                         return
@@ -568,7 +568,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 return () => window.removeEventListener('keydown', onKeyDown)
             }, 'keydownListener')
 
-            disposables.add(() => {
+            cache.disposables.add(() => {
                 window.document.addEventListener('scroll', onScrollResize, true)
                 return () => window.document.removeEventListener('scroll', onScrollResize, true)
             }, 'scrollListener')

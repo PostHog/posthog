@@ -12,9 +12,9 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
     connect(() => ({
         actions: [commandBarLogic, ['hideCommandBar']],
     })),
-    afterMount(({ actions, disposables }) => {
+    afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
-        disposables.add(() => {
+        cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
                 if (event.key === 'Escape') {
                     // hide command bar
