@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 
-from temporalio import activity
-
 from products.tasks.backend.services.sandbox_agent import SandboxAgent
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import RepositorySetupError
 from products.tasks.backend.temporal.observability import log_activity_execution
+from temporalio import activity
 
 
 @dataclass

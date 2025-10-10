@@ -4,13 +4,10 @@ from typing import Optional, cast
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.utils import timezone
-
 from django_deprecate_fields import deprecate_field
-
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-
 from products.tasks.backend.agents import get_agent_by_id
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
 

@@ -1,12 +1,5 @@
-from posthog.test.base import BaseTest
-from pytest import fixture
-from unittest import mock
-
 from django.core.cache import cache
-
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
-
 from posthog.models import Cohort
 from posthog.models.cohort.dependencies import (
     COHORT_DEPENDENCY_CACHE_COUNTER,
@@ -16,6 +9,10 @@ from posthog.models.cohort.dependencies import (
     get_cohort_dependents,
     warm_team_cohort_dependency_cache,
 )
+from posthog.test.base import BaseTest
+from pytest import fixture
+from rest_framework.exceptions import ValidationError
+from unittest import mock
 
 
 class TestCohortDependencies(BaseTest):

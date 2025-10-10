@@ -6,9 +6,7 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
-
 from posthog.hogql.errors import BaseHogQLError
-
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation

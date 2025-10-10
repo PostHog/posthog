@@ -1,11 +1,8 @@
 import time
 
 import pytest
-
 from asgiref.sync import sync_to_async
-
 from posthog.models.integration import Integration
-
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
     CheckSnapshotExistsForRepositoryInput,

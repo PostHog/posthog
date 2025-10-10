@@ -5,7 +5,14 @@ from uuid import UUID
 
 import orjson
 import structlog
-
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
     IntervalType,
@@ -16,16 +23,6 @@ from posthog.schema import (
     TracesQuery,
     TracesQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
-
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 

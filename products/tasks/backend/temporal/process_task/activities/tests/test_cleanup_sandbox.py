@@ -1,8 +1,7 @@
-import os
 import asyncio
+import os
 
 import pytest
-
 from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironment,
     SandboxEnvironmentConfig,

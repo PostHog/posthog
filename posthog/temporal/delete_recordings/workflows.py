@@ -1,9 +1,6 @@
-import json
 import asyncio
+import json
 from datetime import timedelta
-
-from temporalio import common, workflow
-from temporalio.workflow import ParentClosePolicy
 
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.common.base import PostHogWorkflow
@@ -15,6 +12,8 @@ from posthog.temporal.delete_recordings.activities import (
 )
 from posthog.temporal.delete_recordings.types import Recording, RecordingsWithPersonInput, RecordingWithBlocks
 from posthog.temporal.delete_recordings.utils import batched
+from temporalio import common, workflow
+from temporalio.workflow import ParentClosePolicy
 
 
 @workflow.defn(name="delete-recording")

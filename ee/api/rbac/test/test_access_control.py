@@ -1,9 +1,5 @@
 import json
 
-from unittest.mock import MagicMock, patch
-
-from rest_framework import status
-
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -14,6 +10,8 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
+from rest_framework import status
+from unittest.mock import MagicMock, patch
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership

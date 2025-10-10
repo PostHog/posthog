@@ -1,8 +1,7 @@
 from asgiref.sync import async_to_sync
 from langgraph.graph.state import CompiledStateGraph
-from rest_framework import serializers
-
 from posthog.exceptions_capture import capture_exception
+from rest_framework import serializers
 
 from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.deep_research.types import DeepResearchState

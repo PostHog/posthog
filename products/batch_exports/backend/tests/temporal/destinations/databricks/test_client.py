@@ -1,5 +1,4 @@
 import pytest
-
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
     DatabricksConnectionError,

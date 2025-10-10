@@ -3,16 +3,13 @@ import logging
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-
-from posthog.schema import RevenueAnalyticsAssistantFilters
-
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
+from posthog.schema import RevenueAnalyticsAssistantFilters
 from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-
 from products.revenue_analytics.backend.api import find_values_for_revenue_analytics_property
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.format import enrich_props_with_descriptions, format_properties_xml

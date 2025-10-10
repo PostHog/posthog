@@ -1,14 +1,11 @@
 from dataclasses import dataclass
 
 from django.core.exceptions import ObjectDoesNotExist
-
-from temporalio import activity
-
 from posthog.temporal.common.utils import asyncify
-
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import log_with_activity_context
+from temporalio import activity
 
 
 @dataclass

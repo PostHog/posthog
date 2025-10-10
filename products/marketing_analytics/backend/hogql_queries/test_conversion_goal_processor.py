@@ -1,14 +1,11 @@
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    events_cache_tests,
-    persons_cache_tests,
-)
-
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.models import Action
+from posthog.models.event.util import bulk_create_events
+from posthog.models.person.util import bulk_create_persons
 from posthog.schema import (
     AttributionMode,
     BaseMathType,
@@ -21,15 +18,14 @@ from posthog.schema import (
     PropertyMathType,
     PropertyOperator,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
-
-from posthog.models import Action
-from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
-
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    events_cache_tests,
+    persons_cache_tests,
+)
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
     ConversionGoalProcessor,
     add_conversion_goal_property_filters,

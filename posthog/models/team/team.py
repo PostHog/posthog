@@ -6,6 +6,9 @@ from typing import TYPE_CHECKING, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import posthoganalytics
+import pydantic
+import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
@@ -13,11 +16,6 @@ from django.core.validators import MaxValueValidator, MinLengthValidator, MinVal
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
-
-import pytz
-import pydantic
-import posthoganalytics
-
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template

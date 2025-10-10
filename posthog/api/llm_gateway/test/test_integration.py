@@ -2,7 +2,6 @@ import os
 
 import pytest
 from posthog.test.base import APIBaseTest
-
 from rest_framework import status
 
 SKIP_IF_NO_ANTHROPIC_KEY = pytest.mark.skipif(

@@ -1,25 +1,22 @@
-import io
-import gzip
-import json
-import typing
 import asyncio
-import contextlib
 import collections
 import collections.abc
-import multiprocessing as mp
 import concurrent.futures
-
-from django.conf import settings
+import contextlib
+import gzip
+import io
+import json
+import multiprocessing as mp
+import typing
 
 import brotli
 import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
-from psycopg import sql
-
+from django.conf import settings
 from posthog.temporal.common.logger import get_write_only_logger
-
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
+from psycopg import sql
 
 logger = get_write_only_logger()
 

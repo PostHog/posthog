@@ -1,5 +1,4 @@
 import pytest
-
 from products.batch_exports.backend.tests.temporal.utils import (
     create_clickhouse_tables_and_views,
     truncate_events,

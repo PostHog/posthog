@@ -1,16 +1,15 @@
-import time
-import uuid
 import asyncio
 import logging
+import time
+import uuid
 from typing import Optional
 
 import posthoganalytics
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-
 from posthog.constants import TASKS_TASK_QUEUE
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from .inputs import TaskProcessingInputs
 

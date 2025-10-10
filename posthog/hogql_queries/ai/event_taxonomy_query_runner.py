@@ -1,23 +1,21 @@
 from typing import cast
 
-from posthog.schema import (
-    CachedEventTaxonomyQueryResponse,
-    EventTaxonomyItem,
-    EventTaxonomyQuery,
-    EventTaxonomyQueryResponse,
-)
-
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action
+from posthog.schema import (
+    CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
+    EventTaxonomyQuery,
+    EventTaxonomyQueryResponse,
+)
 
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):

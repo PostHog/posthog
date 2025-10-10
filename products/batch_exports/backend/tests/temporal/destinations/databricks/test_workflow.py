@@ -1,21 +1,19 @@
 """Databricks batch export destination tests using the common test framework."""
 
-import os
-import json
-import uuid
-import typing as t
-import datetime as dt
 import contextlib
+import datetime as dt
+import json
+import os
+import typing as t
+import uuid
 from collections.abc import Callable, Generator
 
+import numpy as np
 import pytest
 import unittest.mock
-
-import numpy as np
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 from databricks.sql.exc import ServerOperationError
-
 from posthog.batch_exports.service import (
     BaseBatchExportInputs,
     BatchExportField,
@@ -29,7 +27,6 @@ from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksBatchExportWorkflow,
     databricks_default_fields,

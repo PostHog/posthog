@@ -1,10 +1,8 @@
 from typing import Any
 
-from posthog.test.base import BaseTest
-
 from parameterized import parameterized
-
 from posthog.models.property import Property
+from posthog.test.base import BaseTest
 
 
 class TestPropertyParseValue(BaseTest):

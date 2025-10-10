@@ -1,15 +1,12 @@
-import os
 import ast
-import json
-import datetime as dt
-import operator
 import collections.abc
-
-from psycopg import sql
+import datetime as dt
+import json
+import operator
+import os
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
-
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
@@ -18,6 +15,7 @@ from products.batch_exports.backend.tests.temporal.utils import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
+from psycopg import sql
 
 REQUIRED_ENV_VARS = (
     "REDSHIFT_USER",

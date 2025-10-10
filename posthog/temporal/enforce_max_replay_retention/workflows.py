@@ -1,11 +1,10 @@
 import json
 from datetime import timedelta
 
-from temporalio import common, workflow
-
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.enforce_max_replay_retention.activities import enforce_max_replay_retention
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from temporalio import common, workflow
 
 
 @workflow.defn(name="enforce-max-replay-retention")

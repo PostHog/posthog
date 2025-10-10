@@ -1,5 +1,4 @@
 import pytest
-
 from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
 
 

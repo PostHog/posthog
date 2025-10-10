@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional, Union
 
+from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.models import Action, Team
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -8,11 +11,6 @@ from posthog.schema import (
     ConversionGoalFilter3,
     PropertyMathType,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
-
-from posthog.models import Action, Team
 
 from .marketing_analytics_config import MarketingAnalyticsConfig
 

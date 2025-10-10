@@ -3,15 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import ANY
-
+from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -23,8 +15,6 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SimpleIntervalType,
 )
-
-from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -32,9 +22,15 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_mrr_query_runner import (
     RevenueAnalyticsMRRQueryRunner,
 )
@@ -46,6 +42,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
+from unittest.mock import ANY
 
 CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"

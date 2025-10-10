@@ -5,18 +5,14 @@ from collections.abc import Iterable
 from typing import Optional, cast
 
 from django.db.models import Prefetch
-
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.timings import HogQLTimings
-
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
-
 from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.core import (
     BuiltQuery,

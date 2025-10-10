@@ -1,22 +1,15 @@
+import asyncio
+import dataclasses
+import hashlib
 import json
 import uuid
-import asyncio
-import hashlib
-import dataclasses
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from math import ceil
 
-from django.conf import settings
-
 import structlog
 import temporalio
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
-
-from posthog.schema import CachedSessionBatchEventsQueryResponse
-
+from django.conf import settings
 from posthog import constants
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
@@ -24,6 +17,7 @@ from posthog.hogql_queries.ai.session_batch_events_query_runner import (
 )
 from posthog.models.team.team import Team
 from posthog.redis import get_async_client
+from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
@@ -51,6 +45,9 @@ from posthog.temporal.ai.session_summary.types.group import (
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 
 from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,

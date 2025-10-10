@@ -2,7 +2,6 @@ from typing import Any, Optional
 
 from django.db import connections, models, transaction
 from django.db.models import F, Q
-
 from posthog.models.utils import UUIDT
 
 from ..team import Team

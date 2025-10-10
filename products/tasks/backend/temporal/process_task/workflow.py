@@ -4,11 +4,10 @@ from datetime import timedelta
 from typing import Optional
 
 import temporalio
-from temporalio import workflow
-from temporalio.common import RetryPolicy
-
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from temporalio import workflow
+from temporalio.common import RetryPolicy
 
 from .activities.check_snapshot_exists_for_repository import (
     CheckSnapshotExistsForRepositoryInput,

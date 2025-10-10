@@ -3,12 +3,6 @@ from typing import Any, cast
 
 from django.db.models import Count
 from django.dispatch import receiver
-
-from rest_framework import request, serializers, viewsets
-from rest_framework.response import Response
-from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import TemporaryTokenAuthentication
@@ -20,6 +14,10 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.signals import model_activity_signal
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from rest_framework import request, serializers, viewsets
+from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin

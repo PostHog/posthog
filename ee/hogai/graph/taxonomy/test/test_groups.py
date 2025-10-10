@@ -1,9 +1,8 @@
 from datetime import datetime
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
-
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.property_definition import PropertyDefinition
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit

@@ -1,14 +1,13 @@
-import json
 import asyncio
+import json
 from dataclasses import dataclass
 
 from asgiref.sync import sync_to_async
-from temporalio import activity
-
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import SandboxTimeoutError, SnapshotCreationError
 from products.tasks.backend.temporal.observability import log_activity_execution
+from temporalio import activity
 
 
 @dataclass

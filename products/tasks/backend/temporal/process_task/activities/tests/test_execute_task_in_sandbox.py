@@ -1,8 +1,6 @@
 import os
 
 import pytest
-from unittest.mock import patch
-
 from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironment,
     SandboxEnvironmentConfig,
@@ -17,6 +15,7 @@ from products.tasks.backend.temporal.process_task.activities.execute_task_in_san
     ExecuteTaskInput,
     execute_task_in_sandbox,
 )
+from unittest.mock import patch
 
 
 @pytest.mark.skipif(not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set")

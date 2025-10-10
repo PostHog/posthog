@@ -1,28 +1,20 @@
-import io
-import json
-import time
-import typing
 import asyncio
-import logging
-import datetime as dt
-import functools
+import collections.abc
 import contextlib
 import dataclasses
-import collections.abc
-
-from django.conf import settings
+import datetime as dt
+import functools
+import io
+import json
+import logging
+import time
+import typing
 
 import pyarrow as pa
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.cursor import ResultMetadata
-from snowflake.connector.errors import InterfaceError, OperationalError
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
@@ -34,7 +26,6 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     OverBillingLimitError,
@@ -73,6 +64,12 @@ from products.batch_exports.backend.temporal.utils import (
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
+from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.cursor import ResultMetadata
+from snowflake.connector.errors import InterfaceError, OperationalError
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")

@@ -1,11 +1,10 @@
 import logging
 from dataclasses import dataclass
 
-from temporalio import activity
-
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution
+from temporalio import activity
 
 logger = logging.getLogger(__name__)
 

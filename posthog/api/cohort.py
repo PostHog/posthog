@@ -5,32 +5,12 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
+import structlog
 from django.conf import settings
 from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
-
-import structlog
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
-from prometheus_client import Counter
-from pydantic import (
-    BaseModel,
-    Field,
-    ValidationError as PydanticValidationError,
-    model_validator,
-)
-from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
-
-from posthog.schema import ActorsQuery, HogQLQuery
-
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.context import HogQLContext
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import get_funnel_actor_class
@@ -49,6 +29,8 @@ from posthog.constants import (
 )
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.context import HogQLContext
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import (
@@ -85,7 +67,21 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
+from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError as PydanticValidationError,
+    model_validator,
+)
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 
 
 class EventPropFilter(BaseModel, extra="forbid"):

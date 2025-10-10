@@ -2,9 +2,7 @@ import os
 import uuid
 
 import pytest
-
 from asgiref.sync import sync_to_async
-
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError

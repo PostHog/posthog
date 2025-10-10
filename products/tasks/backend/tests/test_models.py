@@ -1,16 +1,12 @@
 import uuid
 
-from unittest.mock import MagicMock, patch
-
 from django.db import IntegrityError
 from django.test import TestCase
-
 from parameterized import parameterized
-
 from posthog.models import Integration, Organization, Team
-
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowStageTemplate, WorkflowTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskProgress, TaskWorkflow, WorkflowStage
+from unittest.mock import MagicMock, patch
 
 
 class TestTaskWorkflow(TestCase):

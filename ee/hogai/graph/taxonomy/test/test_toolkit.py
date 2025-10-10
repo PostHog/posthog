@@ -1,9 +1,8 @@
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from langchain_core.agents import AgentAction
 from parameterized import parameterized
+from posthog.test.base import BaseTest
 from pydantic import BaseModel
+from unittest.mock import patch
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 

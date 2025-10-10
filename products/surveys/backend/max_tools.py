@@ -5,16 +5,13 @@ MaxTool for AI-powered survey creation.
 from typing import Any, Literal
 
 import django.utils.timezone
-
 from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-
-from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
-
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
+from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode

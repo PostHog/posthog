@@ -1,11 +1,9 @@
 import re
 
 import pytest
-from unittest.mock import patch
-
 from braintrust import EvalCase
-
 from posthog.schema import HumanMessage, VisualizationMessage
+from unittest.mock import patch
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph

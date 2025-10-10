@@ -2,17 +2,13 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import patch
-
 from braintrust import EvalCase, Score
-from pydantic import BaseModel
-
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-
 from posthog.sync import database_sync_to_async
-
 from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorNode, HogQLGeneratorTool
+from pydantic import BaseModel
+from unittest.mock import patch
 
 from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness, SQLSyntaxCorrectness

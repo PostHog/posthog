@@ -2,24 +2,20 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union, cast
 
-from django.conf import settings
-from django.utils import timezone
-
 import structlog
 from dateutil import parser
-from rest_framework.exceptions import ValidationError
-
+from django.conf import settings
+from django.utils import timezone
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
+from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
-
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
-from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
@@ -41,6 +37,7 @@ from posthog.models.person.sql import (
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+from rest_framework.exceptions import ValidationError
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")

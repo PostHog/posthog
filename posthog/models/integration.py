@@ -1,22 +1,29 @@
+import base64
+import hashlib
 import hmac
 import json
-import time
-import base64
 import socket
-import hashlib
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlencode
 
-from django.conf import settings
-from django.db import models
-
 import jwt
 import requests
 import structlog
+from django.conf import settings
+from django.db import models
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.instance_setting import get_instance_settings
+from posthog.models.user import User
+from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.sync import database_sync_to_async
+from products.messaging.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework import status
@@ -25,16 +32,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-
-from posthog.cache_utils import cache_for
-from posthog.exceptions_capture import capture_exception
-from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.instance_setting import get_instance_settings
-from posthog.models.user import User
-from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.sync import database_sync_to_async
-
-from products.messaging.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 

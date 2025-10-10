@@ -1,14 +1,10 @@
-import uuid
 import datetime as dt
 import operator
+import uuid
 
 import pytest
-
 import temporalio.common
-from temporalio import activity
-
 from posthog.batch_exports.service import BatchExportModel
-
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftInsertInputs,
     insert_into_redshift_activity,
@@ -16,6 +12,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import (
     assert_clickhouse_records_in_redshift,
 )
+from temporalio import activity
 
 pytestmark = [
     pytest.mark.asyncio,

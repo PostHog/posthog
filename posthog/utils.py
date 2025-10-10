@@ -531,6 +531,7 @@ async def initialize_self_capture_api_token():
 
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
+
     try:
         user = (
             await User.objects.filter(last_login__isnull=False)
@@ -538,15 +539,16 @@ async def initialize_self_capture_api_token():
             .select_related("current_team")
             .afirst()
         )
-        # Get the current user's team (or first team in the instance) to set self capture configs
-        team = None
-        if user and getattr(user, "current_team", None):
-            team = user.current_team
-        else:
-            team = await Team.objects.only("api_token").afirst()
-        local_api_key = team.api_token if team else None
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
-        local_api_key = None
+    except ProgrammingError as e:
+        logger.warning(f"Failed to get user for self-capture, ignoring: {e}")
+        return
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team = None
+    if user and getattr(user, "current_team", None):
+        team = user.current_team
+    else:
+        team = await Team.objects.only("api_token").afirst()
+    local_api_key = team.api_token if team else None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:

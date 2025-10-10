@@ -3,11 +3,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsEventItem
-
 from posthog.hogql import ast
-
 from posthog.models.team.team import Team
+from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsEventItem
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 

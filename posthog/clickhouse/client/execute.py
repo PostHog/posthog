@@ -1,20 +1,17 @@
-import types
 import logging
 import threading
 import traceback
+import types
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
 
-from django.conf import settings as app_settings
-
 import sqlparse
 from clickhouse_driver import Client as SyncClient
+from django.conf import settings as app_settings
 from opentelemetry import trace
-from prometheus_client import Counter
-
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     Workload,
@@ -37,6 +34,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.settings import API_QUERIES_ON_ONLINE_CLUSTER, CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
+from prometheus_client import Counter
 
 QUERY_STARTED_COUNTER = Counter(
     "posthog_clickhouse_query_sent",
@@ -363,8 +361,8 @@ def format_sql(rendered_sql, colorize=True):
     formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
     if colorize:
         try:
-            import pygments.lexers
             import pygments.formatters
+            import pygments.lexers
 
             return pygments.highlight(
                 formatted_sql,

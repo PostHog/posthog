@@ -1,30 +1,25 @@
-import uuid
-import typing
 import asyncio
 import datetime as dt
+import typing
+import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
-from django.conf import settings
-
 import aioboto3
 from aiobotocore.config import AioConfig
-from temporalio import activity
-
+from django.conf import settings
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from temporalio import activity
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
-
-from structlog.contextvars import bind_contextvars
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClientTimeoutError, ClickHouseQueryStatus, get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -45,6 +40,7 @@ from products.batch_exports.backend.temporal.sql import (
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
+from structlog.contextvars import bind_contextvars
 
 LOGGER = get_write_only_logger()
 

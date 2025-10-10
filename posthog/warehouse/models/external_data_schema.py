@@ -2,14 +2,12 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
-from django.conf import settings
-from django.db import models
-
 import numpy
 from dateutil import parser
+from django.conf import settings
+from django.db import models
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team

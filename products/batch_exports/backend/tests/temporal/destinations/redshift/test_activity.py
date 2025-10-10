@@ -1,17 +1,13 @@
-import uuid
 import datetime as dt
+import uuid
 
 import pytest
-
-from psycopg import sql
-
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftInsertInputs,
     insert_into_redshift_activity,
@@ -27,6 +23,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
 )
+from psycopg import sql
 
 pytestmark = [
     pytest.mark.asyncio,

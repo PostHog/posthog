@@ -4,15 +4,12 @@ Shared utilities for experiment-related Dagster schedules and sensors.
 
 from datetime import time
 
+import dagster
 from django.db import connection
 from django.db.models import Q
-
-import dagster
-
-from posthog.schema import ExperimentQueryResponse
-
 from posthog.models.experiment import Experiment
 from posthog.models.team import Team
+from posthog.schema import ExperimentQueryResponse
 
 # Default hour (UTC) for experiment recalculation when team has no specific time set
 DEFAULT_EXPERIMENT_RECALCULATION_HOUR = 2  # 02:00 UTC

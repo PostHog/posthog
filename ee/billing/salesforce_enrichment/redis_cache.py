@@ -1,6 +1,6 @@
+import asyncio
 import gzip
 import json
-import asyncio
 from typing import Any, Optional
 
 from posthog.exceptions_capture import capture_exception

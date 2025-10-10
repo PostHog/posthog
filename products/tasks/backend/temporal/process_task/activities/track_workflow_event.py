@@ -2,9 +2,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import posthoganalytics
-from temporalio import activity
-
 from posthog.temporal.common.logger import get_logger
+from temporalio import activity
 
 logger = get_logger(__name__)
 

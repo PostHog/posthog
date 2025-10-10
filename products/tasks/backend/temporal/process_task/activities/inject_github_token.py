@@ -1,11 +1,10 @@
 import shlex
 from dataclasses import dataclass
 
-from temporalio import activity
-
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, SandboxExecutionError
 from products.tasks.backend.temporal.observability import log_activity_execution
+from temporalio import activity
 
 from ..utils import get_github_token
 

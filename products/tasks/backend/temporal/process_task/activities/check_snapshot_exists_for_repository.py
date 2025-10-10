@@ -1,11 +1,9 @@
 from dataclasses import dataclass
 
-from temporalio import activity
-
 from posthog.temporal.common.utils import asyncify
-
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.observability import log_with_activity_context
+from temporalio import activity
 
 
 @dataclass

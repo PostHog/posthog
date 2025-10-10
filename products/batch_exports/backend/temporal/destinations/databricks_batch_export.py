@@ -1,15 +1,13 @@
+import asyncio
+import collections.abc
+import contextlib
+import dataclasses
+import datetime as dt
 import io
 import json
 import time
 import typing as t
-import asyncio
-import datetime as dt
-import contextlib
-import dataclasses
-import collections.abc
 from collections.abc import AsyncGenerator
-
-from django.conf import settings
 
 import pyarrow as pa
 from databricks import sql
@@ -24,10 +22,7 @@ from databricks.sdk.oauth import (
 from databricks.sql.client import Connection
 from databricks.sql.exc import OperationalError, ServerOperationError
 from databricks.sql.types import Row
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
@@ -39,7 +34,6 @@ from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     events_model_default_fields,
@@ -57,6 +51,9 @@ from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
 )
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")

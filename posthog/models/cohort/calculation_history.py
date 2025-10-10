@@ -2,7 +2,6 @@ from typing import Optional, Union
 
 from django.db import models
 from django.utils import timezone
-
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
 

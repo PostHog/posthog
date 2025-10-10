@@ -1,5 +1,4 @@
 from django.test import TestCase
-
 from posthog.api.llm_gateway.serializers import (
     AnthropicMessagesRequestSerializer,
     AnthropicMessagesResponseSerializer,

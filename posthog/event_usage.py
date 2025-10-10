@@ -5,7 +5,6 @@ Module to centralize event reporting on the server-side.
 from typing import Optional
 
 import posthoganalytics
-
 from posthog.models import Organization, User
 from posthog.models.team import Team
 from posthog.settings import SITE_URL

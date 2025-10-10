@@ -1,5 +1,4 @@
 from django.core.management.base import BaseCommand
-
 from posthog.tasks.usage_report import send_all_org_usage_reports
 
 

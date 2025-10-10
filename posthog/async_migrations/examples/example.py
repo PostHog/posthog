@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,

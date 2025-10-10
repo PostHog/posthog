@@ -5,19 +5,17 @@ from typing import cast
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from .agents import get_agent_dict_by_id, get_all_agents
 from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage

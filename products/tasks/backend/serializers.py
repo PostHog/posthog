@@ -1,9 +1,7 @@
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-
-from rest_framework import serializers
-
 from posthog.models.integration import Integration
+from rest_framework import serializers
 
 from .agents import get_agent_dict_by_id
 from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage

@@ -1,5 +1,3 @@
-from temporalio import activity
-
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.session_recordings.data_retention import (
@@ -11,6 +9,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from temporalio import activity
 
 LOGGER = get_write_only_logger()
 

@@ -2,9 +2,6 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional, Union
 
-from stripe import ListObject, StripeClient
-from structlog.types import FilteringBoundLogger
-
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
@@ -26,6 +23,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
 from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
+from stripe import ListObject, StripeClient
+from structlog.types import FilteringBoundLogger
 
 DEFAULT_LIMIT = 100
 

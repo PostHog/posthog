@@ -1,5 +1,8 @@
 import datetime
 
+from posthog.clickhouse.client import query_with_columns, sync_execute
+from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.utils import uuid7
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -7,10 +10,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-
-from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
-from posthog.models.utils import uuid7
 
 distinct_id_counter = 0
 session_id_counter = 0

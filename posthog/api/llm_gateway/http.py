@@ -1,25 +1,23 @@
-import json
 import asyncio
+import json
 import logging
 from collections.abc import AsyncGenerator
 
+import litellm
 from django.conf import settings
 from django.http import StreamingHttpResponse
-
-import litellm
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.permissions import APIScopePermission
+from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission
-from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
-from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
 from ee.hogai.utils.aio import async_to_sync
 

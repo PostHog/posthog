@@ -1,19 +1,16 @@
-import time
 import hashlib
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, Union, cast
 
+import structlog
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connections
 from django.db.models import CharField, Expression, F, Func, Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
-
-import structlog
-from prometheus_client import Counter
-
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
@@ -31,6 +28,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.utils import label_for_team_id_to_track
+from prometheus_client import Counter
 
 from .feature_flag import (
     FeatureFlag,

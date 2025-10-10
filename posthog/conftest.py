@@ -1,11 +1,8 @@
 import pytest
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
-
 from django.conf import settings
-
 from infi.clickhouse_orm import Database
-
 from posthog.clickhouse.client import sync_execute
+from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
 def create_clickhouse_tables():

@@ -1,19 +1,12 @@
+import hashlib
 import re
 import time
-import hashlib
 from contextlib import suppress
 from functools import lru_cache
 from typing import Optional
 
 from django.conf import settings
 from django.urls import resolve
-
-from prometheus_client import Counter
-from rest_framework.request import Request
-from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
-from statshog.defaults.django import statsd
-from token_bucket import Limiter, MemoryStorage
-
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -23,6 +16,11 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from posthog.utils import patchable
+from prometheus_client import Counter
+from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
+from statshog.defaults.django import statsd
+from token_bucket import Limiter, MemoryStorage
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -75,7 +73,6 @@ def is_decide_rate_limit_enabled() -> bool:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     from django.conf import settings
-
     from posthog.utils import str_to_bool
 
     return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)

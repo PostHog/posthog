@@ -1,13 +1,11 @@
-import os
 import json
+import os
 from contextlib import suppress
 from typing import Optional
 from urllib.parse import urlparse
 
-from django.core.exceptions import ImproperlyConfigured
-
 import dj_database_url
-
+from django.core.exceptions import ImproperlyConfigured
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 

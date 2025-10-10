@@ -1,8 +1,9 @@
-import json
 import dataclasses
+import json
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
+import structlog
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
@@ -11,9 +12,6 @@ from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
-
-import structlog
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 

@@ -10,12 +10,10 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from pydantic import ValidationError
-
-from posthog.schema import MaxEventContext
-
 from posthog.models import Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.schema import MaxEventContext
+from pydantic import ValidationError
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml

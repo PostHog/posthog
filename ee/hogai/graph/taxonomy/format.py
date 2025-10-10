@@ -3,7 +3,6 @@ from typing import Optional
 from xml.etree import ElementTree as ET
 
 import yaml
-
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 

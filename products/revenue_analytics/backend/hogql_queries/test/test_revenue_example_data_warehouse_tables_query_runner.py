@@ -2,19 +2,16 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-
 from posthog.schema import (
     CurrencyCode,
     HogQLQueryModifiers,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
 )
-
 from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
     RevenueExampleDataWarehouseTablesQueryRunner,
 )

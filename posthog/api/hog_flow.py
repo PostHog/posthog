@@ -1,19 +1,12 @@
 import json
 from typing import Optional, cast
 
-from django.db.models import QuerySet
-
-import structlog
 import posthoganalytics
+import structlog
+from django.db.models import QuerySet
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, serializers, viewsets
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.serializers import BaseSerializer
-
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -23,6 +16,11 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+from rest_framework import exceptions, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 logger = structlog.get_logger(__name__)
 

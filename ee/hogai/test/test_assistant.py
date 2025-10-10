@@ -2,15 +2,11 @@ from itertools import cycle
 from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
-from unittest.mock import AsyncMock, patch
-
-from django.test import override_settings
-
 from asgiref.sync import async_to_sync
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
+from django.test import override_settings
 from langchain_core import messages
 from langchain_core.messages import AIMessageChunk
 from langchain_core.prompts.chat import ChatPromptValue
@@ -18,8 +14,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
-from pydantic import BaseModel
-
+from posthog.models import Action
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
@@ -53,8 +48,9 @@ from posthog.schema import (
     TrendsQuery,
     VisualizationMessage,
 )
-
-from posthog.models import Action
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from pydantic import BaseModel
+from unittest.mock import AsyncMock, patch
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

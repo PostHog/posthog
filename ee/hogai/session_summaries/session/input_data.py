@@ -1,6 +1,6 @@
-import re
-import json
 import datetime
+import json
+import re
 from typing import cast
 
 from posthog.models import Team

@@ -3,14 +3,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
 
+import posthoganalytics
+import structlog
+from celery import shared_task
 from django.conf import settings
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
-
-import structlog
-import posthoganalytics
-from celery import shared_task
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud

@@ -1,21 +1,18 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-from unittest import TestCase
-
-from django.utils.timezone import now
-
 from dateutil.relativedelta import relativedelta
-
+from django.utils.timezone import now
+from freezegun import freeze_time
+from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+    override_error_tracking_issue_fingerprint,
+    update_error_tracking_issue_fingerprints,
+)
+from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
@@ -27,16 +24,15 @@ from posthog.schema import (
     PropertyOperator,
     RevenueAnalyticsEventItem,
 )
-
-from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
-from posthog.models.error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingIssueFingerprintV2,
-    override_error_tracking_issue_fingerprint,
-    update_error_tracking_issue_fingerprints,
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
-from posthog.models.utils import uuid7
+from unittest import TestCase
 
 from ee.models.rbac.role import Role
 

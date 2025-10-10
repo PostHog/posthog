@@ -2,17 +2,11 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import ANY
-
 from parameterized import parameterized
-
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -22,24 +16,25 @@ from posthog.schema import (
     RevenueCurrencyPropertyConfig,
     TrendsQuery,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.warehouse.models import DataWarehouseJoin, ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     STRIPE_CUSTOMER_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
 )
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
+from unittest.mock import ANY
 
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"

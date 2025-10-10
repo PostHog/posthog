@@ -5,6 +5,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
+import nh3
+import orjson
+import posthoganalytics
+import structlog
+from axes.decorators import axes_dispatch
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
@@ -12,19 +17,8 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
-
-import nh3
-import orjson
-import structlog
-import posthoganalytics
-from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from posthoganalytics import capture_exception
-from rest_framework import exceptions, filters, request, serializers, status, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -55,6 +49,10 @@ from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
+from posthoganalytics import capture_exception
+from rest_framework import exceptions, filters, request, serializers, status, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 

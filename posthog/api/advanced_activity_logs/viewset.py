@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -7,12 +7,6 @@ from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
-
-from rest_framework import mixins, serializers, viewsets
-from rest_framework.decorators import action
-from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
-from rest_framework.response import Response
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
@@ -20,6 +14,10 @@ from posthog.models import NotificationViewed
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
+from rest_framework.response import Response
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager

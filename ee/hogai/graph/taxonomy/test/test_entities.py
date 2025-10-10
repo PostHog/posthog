@@ -1,9 +1,8 @@
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
-from unittest.mock import patch
-
 from posthog.models.person import Person
 from posthog.models.property_definition import PropertyDefinition
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest.mock import patch
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 

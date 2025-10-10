@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from django.utils import timezone
-
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 

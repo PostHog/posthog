@@ -5,9 +5,6 @@ from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 import pytz
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (
     RecordingBlock,
@@ -29,6 +26,8 @@ from posthog.temporal.delete_recordings.types import (
     RecordingsWithPersonInput,
     RecordingWithBlocks,
 )
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 LOGGER = get_write_only_logger()
 

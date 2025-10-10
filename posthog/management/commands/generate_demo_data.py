@@ -1,16 +1,14 @@
 # ruff: noqa: T201 allow print statements
 
+import datetime as dt
 import logging
 import secrets
-import datetime as dt
 from time import monotonic
 from typing import Optional
 
+from dagster_graphql import DagsterGraphQLClient
 from django.core import exceptions
 from django.core.management.base import BaseCommand
-
-from dagster_graphql import DagsterGraphQLClient
-
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
@@ -198,8 +196,6 @@ class Command(BaseCommand):
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8000/login?email={user.email}\n"
                     f"The password is:\n{password}\n\n"
-                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8000/signup?email={user.email}\n"
                 )
             )
         else:

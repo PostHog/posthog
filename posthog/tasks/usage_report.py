@@ -1,29 +1,22 @@
-import os
+import base64
+import dataclasses
 import gzip
 import json
-import base64
 import logging
-import dataclasses
+import os
 from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
-
-from django.conf import settings
-from django.db import connection
-from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
-from posthoganalytics.client import Client as PostHogClient
-from psycopg import sql
-from retry import retry
-
-from posthog.schema import AIEventType
-
+from django.conf import settings
+from django.db import connection
+from django.db.models import Count, F, Q, Sum
 from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
@@ -44,11 +37,15 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.schema import AIEventType
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthoganalytics.client import Client as PostHogClient
+from psycopg import sql
+from retry import retry
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

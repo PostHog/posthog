@@ -2,10 +2,8 @@ import logging
 from typing import Optional
 
 from django.conf import settings
-
-from pydantic import BaseModel
-
 from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
+from pydantic import BaseModel
 
 from .sandbox_environment import ExecutionResult, SandboxEnvironment
 

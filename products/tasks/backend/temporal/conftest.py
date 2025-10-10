@@ -1,16 +1,13 @@
 import random
 
 import pytest
-
 from asgiref.sync import sync_to_async
-from temporalio.testing import ActivityEnvironment
-
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.temporal.common.logger import configure_logger
-
 from products.tasks.backend.models import Task, TaskWorkflow, WorkflowStage
+from temporalio.testing import ActivityEnvironment
 
 
 @pytest.fixture

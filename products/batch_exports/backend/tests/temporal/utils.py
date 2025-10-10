@@ -1,26 +1,23 @@
-import uuid
-import typing
 import asyncio
-import contextlib
 import collections.abc
-
-import pytest
+import contextlib
+import typing
+import uuid
 
 import aiohttp.client_exceptions
+import pytest
 from asgiref.sync import sync_to_async
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ActivityError, ApplicationError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import create_batch_export_run
 from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_METRICS2_MV_TABLE_SQL
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient
-
 from products.batch_exports.backend.temporal.batch_exports import StartBatchExportRunInputs
 from products.batch_exports.backend.temporal.spmc import slice_record_batch
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ActivityError, ApplicationError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 
 @retry(

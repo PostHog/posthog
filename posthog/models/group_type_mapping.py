@@ -1,7 +1,6 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
-
 from posthog.models.utils import RootTeamMixin
 
 # Defined here for reuse between OS and EE

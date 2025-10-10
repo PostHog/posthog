@@ -1,12 +1,9 @@
 import os
 import warnings
 
-import pytest
-
-from django.conf import settings
-
 import psycopg
-
+import pytest
+from django.conf import settings
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import MISSING_REQUIRED_ENV_VARS
 
 

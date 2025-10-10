@@ -1,13 +1,13 @@
-import json
-import typing
 import asyncio
-import datetime as dt
-import posixpath
 import dataclasses
+import datetime as dt
+import json
+import posixpath
+import typing
 
-import pyarrow as pa
 import aioboto3
 import botocore.exceptions
+import pyarrow as pa
 from aiobotocore.config import AioConfig
 from aiobotocore.session import ClientCreatorContext
 
@@ -16,16 +16,10 @@ if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import CompletedPartTypeDef, UploadPartOutputTypeDef
 
 from django.conf import settings
-
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, S3BatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -47,6 +41,9 @@ from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
 )
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.

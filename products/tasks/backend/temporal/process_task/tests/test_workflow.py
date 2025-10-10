@@ -5,15 +5,8 @@ from datetime import timedelta
 from typing import cast
 
 import pytest
-from unittest.mock import patch
-
 from asgiref.sync import sync_to_async
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog import constants
-
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment, SandboxEnvironmentStatus
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
@@ -35,6 +28,10 @@ from products.tasks.backend.temporal.process_task.activities.setup_repository im
 from products.tasks.backend.temporal.process_task.activities.tests.constants import POSTHOG_JS_SNAPSHOT
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import track_workflow_event
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest.mock import patch
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

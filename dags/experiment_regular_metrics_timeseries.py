@@ -12,15 +12,12 @@ from datetime import datetime
 from typing import Any, Union
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q
-
 import dagster
-
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
-
+from django.db.models import Q
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import Experiment, ExperimentMetricResult
+from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from dags.common import JobOwners
 from dags.experiments import (

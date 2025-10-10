@@ -1,31 +1,30 @@
-import uuid
 import functools
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
-import pytest
-from unittest import mock
-
-from django.conf import settings
-from django.test import override_settings
-
-import s3fs
-import psycopg
 import aioboto3
 import deltalake
-import pytest_asyncio
 import posthoganalytics
+import psycopg
+import pytest
+import pytest_asyncio
+import s3fs
 from asgiref.sync import sync_to_async
 from deltalake import DeltaTable
+from django.conf import settings
+from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
-from stripe import ListObject
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.models import DataWarehouseTable
+from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
@@ -34,15 +33,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import DataWarehouseTable
-from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -71,6 +61,11 @@ from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, Extern
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
+from stripe import ListObject
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest import mock
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

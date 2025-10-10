@@ -1,6 +1,6 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-import uuid
 import contextvars
+import uuid
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum

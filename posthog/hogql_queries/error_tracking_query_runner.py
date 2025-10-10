@@ -1,12 +1,18 @@
-import re
 import datetime
+import re
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from django.core.exceptions import ValidationError
-
 import structlog
-
+from django.core.exceptions import ValidationError
+from posthog.api.error_tracking import ErrorTrackingIssueSerializer
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property.util import property_to_django_filter
 from posthog.schema import (
     CachedErrorTrackingQueryResponse,
     DateRange,
@@ -15,16 +21,6 @@ from posthog.schema import (
     HogQLFilters,
     RevenueEntity,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-
-from posthog.api.error_tracking import ErrorTrackingIssueSerializer
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.error_tracking import ErrorTrackingIssue
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property.util import property_to_django_filter
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)

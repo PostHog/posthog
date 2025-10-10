@@ -1,7 +1,6 @@
 """Operation-specific analyzers for Django migration operations."""
 
 from django.db import models
-
 from posthog.management.migration_analysis.models import OperationRisk
 from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 

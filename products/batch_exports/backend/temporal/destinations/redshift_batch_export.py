@@ -1,21 +1,15 @@
+import asyncio
+import collections.abc
+import contextlib
+import dataclasses
+import datetime as dt
 import io
 import json
 import typing
-import asyncio
-import datetime as dt
-import contextlib
-import dataclasses
-import collections.abc
-
-from django.conf import settings
 
 import psycopg
 import pyarrow as pa
-from psycopg import sql
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
@@ -26,7 +20,6 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     OverBillingLimitError,
@@ -69,6 +62,10 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
+from psycopg import sql
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()

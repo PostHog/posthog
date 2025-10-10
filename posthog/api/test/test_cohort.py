@@ -2,26 +2,10 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
-from unittest import mock
-from unittest.mock import MagicMock, patch
-
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
-
 from parameterized import parameterized
-from rest_framework import status
-
-from posthog.schema import PersonsOnEventsMode, PropertyOperator
-
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Action, FeatureFlag, Person, User
@@ -30,12 +14,24 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
+from posthog.schema import PersonsOnEventsMode, PropertyOperator
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
     get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
 )
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
+from rest_framework import status
+from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 

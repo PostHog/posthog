@@ -1,15 +1,13 @@
 import datetime
 from typing import TYPE_CHECKING, Any
 
-from django.conf import settings
-
 import pytz
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
-
 from posthog.settings import CLOUD_DEPLOYMENT
 
 if TYPE_CHECKING:

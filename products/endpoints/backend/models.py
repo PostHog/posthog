@@ -3,7 +3,6 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
-
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel

@@ -1,33 +1,29 @@
-import re
-import time
-import uuid
-import inspect
 import datetime as dt
+import inspect
+import re
 import resource
 import threading
+import time
+import uuid
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
 
-import pytest
-import unittest
 import freezegun
-from unittest.mock import patch
 
+# we have to import pendulum for the side effect of importing it
+# freezegun.FakeDateTime and pendulum don't play nicely otherwise
+import pendulum  # noqa F401
+import pytest
+import sqlparse
+import unittest
 from django.apps import apps
 from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
-
-# we have to import pendulum for the side effect of importing it
-# freezegun.FakeDateTime and pendulum don't play nicely otherwise
-import pendulum  # noqa F401
-import sqlparse
-from rest_framework.test import APITestCase as DRFTestCase
-
 from posthog import rate_limit, redis
 from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
@@ -168,6 +164,8 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
+from rest_framework.test import APITestCase as DRFTestCase
+from unittest.mock import patch
 
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])

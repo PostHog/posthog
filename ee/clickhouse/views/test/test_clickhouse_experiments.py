@@ -1,14 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import MagicMock, patch
-
-from django.core.cache import cache
-
 from dateutil import parser
-from rest_framework import status
-
+from django.core.cache import cache
+from freezegun import freeze_time
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -16,7 +10,10 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.user import User
+from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_journeys import journeys_for
+from rest_framework import status
+from unittest.mock import MagicMock, patch
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer

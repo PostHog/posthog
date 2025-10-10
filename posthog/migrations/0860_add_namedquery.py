@@ -3,11 +3,10 @@
 import re
 
 import django.db.models.deletion
+import posthog.models.utils
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import migrations, models
-
-import posthog.models.utils
 
 
 def validate_query_name(value: str) -> None:

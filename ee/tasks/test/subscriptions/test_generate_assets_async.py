@@ -1,9 +1,6 @@
 import pytest
-from unittest.mock import MagicMock, patch
-
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -11,6 +8,7 @@ from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from unittest.mock import MagicMock, patch
 
 from ee.tasks.subscriptions import deliver_subscription_report_async
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets_async

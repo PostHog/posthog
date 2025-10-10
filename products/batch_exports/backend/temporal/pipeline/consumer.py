@@ -4,9 +4,7 @@ import collections.abc
 
 import pyarrow as pa
 import temporalio.common
-
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.transformer import TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult

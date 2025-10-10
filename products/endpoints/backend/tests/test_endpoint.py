@@ -2,17 +2,13 @@ from datetime import datetime
 from time import sleep
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from rest_framework import status
-
-from posthog.schema import EndpointLastExecutionTimesRequest
-
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.team import Team
 from posthog.models.user import User
-
+from posthog.schema import EndpointLastExecutionTimesRequest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from products.endpoints.backend.models import Endpoint
+from rest_framework import status
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):

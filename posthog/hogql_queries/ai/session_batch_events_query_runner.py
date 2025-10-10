@@ -1,5 +1,9 @@
 from typing import Any
 
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedSessionBatchEventsQueryResponse,
     EventsQuery,
@@ -7,11 +11,6 @@ from posthog.schema import (
     SessionBatchEventsQueryResponse,
     SessionEventsItem,
 )
-
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.session_recordings.constants import (
     DEFAULT_TOTAL_EVENTS_PER_QUERY,
     EXTRA_SUMMARY_EVENT_FIELDS,

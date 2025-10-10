@@ -1,12 +1,11 @@
-import re
 import json
 import math
+import re
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
-from django.conf import settings
-
 import posthoganalytics
+from django.conf import settings
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -16,9 +15,11 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from posthoganalytics import capture_exception
-from pydantic import BaseModel
-
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
+from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -38,12 +39,8 @@ from posthog.schema import (
     RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
-
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
-)
-from posthog.models.organization import OrganizationMembership
+from posthoganalytics import capture_exception
+from pydantic import BaseModel
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes

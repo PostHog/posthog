@@ -4,21 +4,15 @@ This module provides a common test interface that can be implemented by each
 destination to ensure consistent behavior and error handling across all destinations.
 """
 
-import json
-import uuid
-import typing as t
 import datetime as dt
+import json
 import operator
+import typing as t
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable
 
 import pytest
-
-from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog import constants
 from posthog.batch_exports.models import BatchExport
 from posthog.batch_exports.service import (
@@ -33,7 +27,6 @@ from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVITY_TYPES, BATCH_EXPORT_WORKFLOW_TYPES
@@ -45,6 +38,10 @@ from products.batch_exports.backend.tests.temporal.utils import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
+from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 
 class RetryableTestException(Exception):

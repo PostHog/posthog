@@ -1,14 +1,12 @@
 import datetime
 
-import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, Mock, PropertyMock, patch
-
 import dagster
-
+import pytest
 from posthog.models import Organization, Team, User
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from dags.experiment_regular_metrics_timeseries import experiment_regular_metrics_timeseries_refresh_schedule
 from dags.experiments import _parse_partition_key

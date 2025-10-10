@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 
 from asgiref.sync import sync_to_async
-from temporalio import activity
-
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironment,
@@ -11,6 +9,7 @@ from products.tasks.backend.services.sandbox_environment import (
 )
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
+from temporalio import activity
 
 
 @dataclass

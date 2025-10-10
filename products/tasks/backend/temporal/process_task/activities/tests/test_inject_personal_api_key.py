@@ -1,11 +1,8 @@
 import os
 
 import pytest
-
 from asgiref.sync import sync_to_async
-
 from posthog.models import PersonalAPIKey
-
 from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironment,
     SandboxEnvironmentConfig,

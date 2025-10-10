@@ -3,9 +3,8 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import posthoganalytics
-from temporalio import activity, workflow
-
 from posthog.temporal.common.logger import get_logger
+from temporalio import activity, workflow
 
 logger = get_logger(__name__)
 

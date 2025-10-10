@@ -2,15 +2,11 @@ import shlex
 from dataclasses import dataclass
 
 from django.core.exceptions import ObjectDoesNotExist
-
-from temporalio import activity
-
 from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.scopes import API_SCOPE_OBJECTS
 from posthog.temporal.common.utils import asyncify
-
 from products.tasks.backend.models import Task
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import (
@@ -20,6 +16,7 @@ from products.tasks.backend.temporal.exceptions import (
     TaskNotFoundError,
 )
 from products.tasks.backend.temporal.observability import log_activity_execution
+from temporalio import activity
 
 
 @dataclass

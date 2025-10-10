@@ -1,9 +1,6 @@
 import pytest
-
-from django.core.exceptions import ValidationError
-
 from asgiref.sync import sync_to_async
-
+from django.core.exceptions import ValidationError
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_details import TaskDetails, get_task_details

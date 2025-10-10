@@ -4,14 +4,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, TypedDict, cast
 
+import dateutil.parser
+import posthoganalytics
 from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Q
 from django.utils import timezone
-
-import dateutil.parser
-import posthoganalytics
-
 from posthog.cache_utils import cache_for
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_organization_action

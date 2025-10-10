@@ -1,10 +1,9 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-from unittest import mock
-
 from parameterized import parameterized
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 from rest_framework import status
+from unittest import mock
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):

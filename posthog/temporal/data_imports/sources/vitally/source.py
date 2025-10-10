@@ -9,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
 )
-
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry

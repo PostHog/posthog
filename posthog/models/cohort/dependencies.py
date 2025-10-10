@@ -2,13 +2,11 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.team.team import Team
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 from structlog import get_logger
-
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.team.team import Team
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week

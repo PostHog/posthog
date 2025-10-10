@@ -4,10 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
-from posthog.schema import AttributionMode, NodeKind, SourceMap
-
 from posthog.models.team import Team
+from posthog.schema import AttributionMode, NodeKind, SourceMap
 
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 

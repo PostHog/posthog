@@ -1,10 +1,8 @@
 import json
 from collections.abc import Callable
 
-from django.core.management.base import BaseCommand
-
 import requests
-
+from django.core.management.base import BaseCommand
 from posthog.models import FeatureFlag, Project, User
 from posthog.ph_client import PH_US_API_KEY
 

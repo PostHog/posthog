@@ -1,13 +1,11 @@
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsCustomerView,

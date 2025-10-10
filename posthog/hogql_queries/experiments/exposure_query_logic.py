@@ -8,21 +8,19 @@ including multiple variant handling and exposure filtering logic.
 import logging
 from typing import Optional, Union
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     MultipleVariantHandling,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
-
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
-from posthog.models.team.team import Team
 
 logger = logging.getLogger(__name__)
 

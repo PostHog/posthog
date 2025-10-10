@@ -1,14 +1,12 @@
-from django.db.models import Q, QuerySet
-
-import structlog
 import django_filters
+import structlog
+from django.db.models import Q, QuerySet
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from rest_framework import serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from ..models.evaluations import Evaluation
 
