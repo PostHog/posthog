@@ -126,24 +126,3 @@ async def s3_client(aws_credentials, bucket_name):
 
     async with aioboto3.Session().client("s3") as s3_client:
         yield s3_client
-
-
-async def delete_all_from_s3(s3_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
-
-
-@pytest.fixture(autouse=True)
-async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
-    """Clean-up S3 bucket used in Redshift copy activity."""
-    yield
-
-    if not s3_client:
-        return
-
-    await delete_all_from_s3(s3_client, bucket_name, key_prefix)
