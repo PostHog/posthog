@@ -57,8 +57,7 @@ import {
     getEventType,
     getSessionID,
     getTraceTimestamp,
-    hasSessionID,
-    isLLMTraceEvent,
+    isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
 } from './utils'
@@ -343,7 +342,7 @@ const TreeNode = React.memo(function TraceNode({
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
 
     const children = [
-        isLLMTraceEvent(item) && item.properties.$ai_is_error && (
+        isLLMEvent(item) && item.properties.$ai_is_error && (
             <LemonTag key="error-tag" type="danger">
                 Error
             </LemonTag>
@@ -403,7 +402,7 @@ const TreeNode = React.memo(function TraceNode({
 })
 
 export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
             // if we don't have a span name, we don't want to render the model row as its covered by the event title
             if (!event.properties.$ai_span_name) {
@@ -548,12 +547,16 @@ const EventContent = React.memo(
         const { featureFlags } = useValues(featureFlagLogic)
         const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
-        const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
+        const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
+
+        const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
+        const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
+        const hasSessionRecording = !!sessionId
 
         const showPlaygroundButton =
             event &&
-            isLLMTraceEvent(event) &&
+            isLLMEvent(event) &&
             event.event === '$ai_generation' &&
             featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
@@ -568,7 +571,7 @@ const EventContent = React.memo(
             let input: any = undefined
             let tools: any = undefined
 
-            if (isLLMTraceEvent(event)) {
+            if (isLLMEvent(event)) {
                 model = event.properties.$ai_model
                 // Prefer $ai_input if available, otherwise fallback to $ai_input_state
                 input = event.properties.$ai_input ?? event.properties.$ai_input_state
@@ -591,7 +594,7 @@ const EventContent = React.memo(
                                     {formatLLMEventTitle(event)}
                                 </h3>
                             </div>
-                            {isLLMTraceEvent(event) ? (
+                            {isLLMEvent(event) ? (
                                 <MetadataHeader
                                     isError={event.properties.$ai_is_error}
                                     inputTokens={event.properties.$ai_input_tokens}
@@ -612,7 +615,7 @@ const EventContent = React.memo(
                                     timestamp={event.createdAt}
                                 />
                             )}
-                            {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
+                            {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                             {aggregation && (
                                 <div className="flex flex-row flex-wrap items-center gap-2">
                                     {aggregation.totalCost > 0 && (
@@ -633,7 +636,7 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionID(event) || showSaveToDatasetButton) && (
+                            {(showPlaygroundButton || hasSessionRecording || showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -652,12 +655,12 @@ const EventContent = React.memo(
                                             timestamp={trace.createdAt}
                                             sourceId={event.id}
                                             input={
-                                                isLLMTraceEvent(event)
+                                                isLLMEvent(event)
                                                     ? (event.properties.$ai_input ?? event.properties.$ai_input_state)
                                                     : event.inputState
                                             }
                                             output={
-                                                isLLMTraceEvent(event)
+                                                isLLMEvent(event)
                                                     ? (event.properties.$ai_output_choices ??
                                                       event.properties.$ai_output ??
                                                       event.properties.$ai_output_state ??
@@ -667,13 +670,13 @@ const EventContent = React.memo(
                                             metadata={eventMetadata}
                                         />
                                     )}
-                                    {hasSessionID(event) && (
+                                    {hasSessionRecording && (
                                         <ViewRecordingButton
                                             inModal
                                             type="secondary"
                                             size="xsmall"
                                             data-attr="llm-analytics"
-                                            sessionId={getSessionID(event) || undefined}
+                                            sessionId={sessionId || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
                                         />
                                     )}
@@ -689,7 +692,7 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {isLLMTraceEvent(event) ? (
+                                            {isLLMEvent(event) ? (
                                                 event.event === '$ai_generation' ? (
                                                     <ConversationMessagesDisplay
                                                         inputNormalized={normalizeMessages(
