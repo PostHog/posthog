@@ -89,7 +89,6 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
