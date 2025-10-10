@@ -6,7 +6,7 @@
             "target_app": "error_tracking",
             "create_backend_dir": false,
             "product_already_exists": true,
-            "status": "todo"
+            "status": "done"
         },
         {
             "name": "batch_exports",
