@@ -72,7 +72,7 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
     updates = HogFunction.objects.bulk_update(successfully_compiled_hog_functions, ["filters", "updated_at"])
 
     reload_hog_functions_on_workers(
-        team_id=team_id, hog_function_ids=[str(hog_function.id) for hog_function in affected_hog_functions]
+        team_id=team_id, hog_function_ids=[str(hog_function.id) for hog_function in successfully_compiled_hog_functions]
     )
 
     return updates
