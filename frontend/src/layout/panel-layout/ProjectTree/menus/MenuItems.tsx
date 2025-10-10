@@ -281,7 +281,9 @@ export function MenuItems({
                 </MenuItem>
             ) : null}
 
-            {item.record?.path && item.record?.type === 'folder' ? (
+            {item.record?.path &&
+            item.record?.type === 'folder' &&
+            !(item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
                 <MenuItem
                     asChild
                     onClick={(e) => {
@@ -318,7 +320,9 @@ export function MenuItems({
                 >
                     <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                 </MenuItem>
-            ) : item.record?.path && item.record?.type === 'folder' ? (
+            ) : item.record?.path &&
+              item.record?.type === 'folder' &&
+              !(item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
                 <MenuItem
                     asChild
                     onClick={(e) => {
