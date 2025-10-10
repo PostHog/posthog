@@ -1,4 +1,4 @@
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
 from posthog.models.person import Person
@@ -13,9 +13,9 @@ class DummyToolkit(TaxonomyAgentToolkit):
         return self._get_default_tools()
 
 
-class TestEntities(NonAtomicBaseTest):
+class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
-
+    
     def setUp(self):
         super().setUp()
         for i, group_type in enumerate(["organization", "project"]):

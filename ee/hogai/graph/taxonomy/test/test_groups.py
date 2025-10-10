@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.property_definition import PropertyDefinition
@@ -14,9 +14,9 @@ class DummyToolkit(TaxonomyAgentToolkit):
         return self._get_default_tools()
 
 
-class TestGroups(NonAtomicBaseTest):
+class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
-
+    
     def setUp(self):
         super().setUp()
         for i, group_type in enumerate(["organization", "project", "no_properties"]):

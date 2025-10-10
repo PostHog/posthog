@@ -208,7 +208,7 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrls(StrEnum):
+class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -408,6 +408,11 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: Optional[YAxisScaleType] = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
+
+
+class AttributionMode(StrEnum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -987,6 +992,13 @@ class EmptyPropertyFilter(BaseModel):
     )
 
 
+class EndpointLastExecutionTimesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    names: list[str]
+
+
 class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
@@ -1060,6 +1072,7 @@ class OrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    REVENUE = "revenue"
 
 
 class OrderDirection(StrEnum):
@@ -1081,6 +1094,20 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
+
+
+class RevenueEntity(StrEnum):
+    PERSON = "person"
+    GROUP_0 = "group_0"
+    GROUP_1 = "group_1"
+    GROUP_2 = "group_2"
+    GROUP_3 = "group_3"
+    GROUP_4 = "group_4"
+
+
+class RevenuePeriod(StrEnum):
+    ALL_TIME = "all_time"
+    LAST_30_DAYS = "last_30_days"
 
 
 class Status4(StrEnum):
@@ -1260,6 +1287,7 @@ class ExternalDataSourceType(StrEnum):
     DO_IT = "DoIt"
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
+    TIK_TOK_ADS = "TikTokAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1662,6 +1690,8 @@ class IntegrationKind(StrEnum):
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
+    DATABRICKS = "databricks"
+    TIKTOK_ADS = "tiktok-ads"
 
 
 class IntervalType(StrEnum):
@@ -1889,13 +1919,6 @@ class MultipleBreakdownType(StrEnum):
     SESSION = "session"
     HOGQL = "hogql"
     REVENUE_ANALYTICS = "revenue_analytics"
-
-
-class NamedQueryLastExecutionTimesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    names: list[str]
 
 
 class NodeKind(StrEnum):
@@ -8166,6 +8189,33 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    filters_override: Optional[DashboardFilter] = None
+    query_override: Optional[dict[str, Any]] = None
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
+    variables_values: Optional[dict[str, Any]] = None
+
+
 class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8271,6 +8321,7 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
+    revenue: Optional[float] = None
     status: Status
 
 
@@ -8304,7 +8355,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             ]
         ]
     ] = None
-    orderBy: Optional[OrderBy] = None
+    orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
     removedFilterIndexes: Optional[list[int]] = None
     searchQuery: Optional[str] = None
@@ -9063,6 +9114,8 @@ class MarketingAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attribution_mode: Optional[AttributionMode] = None
+    attribution_window_days: Optional[float] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
@@ -9125,33 +9178,6 @@ class MultipleBreakdownOptions(BaseModel):
         extra="forbid",
     )
     values: list[BreakdownItem]
-
-
-class NamedQueryRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: Optional[str] = Field(
-        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
-    )
-    filters_override: Optional[DashboardFilter] = None
-    query_override: Optional[dict[str, Any]] = None
-    refresh: Optional[RefreshType] = Field(
-        default=RefreshType.BLOCKING,
-        description=(
-            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
-            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
-            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
-            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
-            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
-            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
-            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
-            " completes immediately as it never calculates Background calculation can be tracked using the"
-            " `query_status` response field."
-        ),
-    )
-    variables_override: Optional[dict[str, dict[str, Any]]] = None
-    variables_values: Optional[dict[str, Any]] = None
 
 
 class PathsQueryResponse(BaseModel):
@@ -12702,9 +12728,11 @@ class ErrorTrackingQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: Optional[OrderBy] = None
+    orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
     response: Optional[ErrorTrackingQueryResponse] = None
+    revenueEntity: Optional[RevenueEntity] = None
+    revenuePeriod: Optional[RevenuePeriod] = None
     searchQuery: Optional[str] = None
     status: Optional[Status2] = None
     tags: Optional[QueryLogTags] = None
@@ -13597,6 +13625,7 @@ class ExperimentTrendsQuery(BaseModel):
     count_query: TrendsQuery
     experiment_id: Optional[int] = None
     exposure_query: Optional[TrendsQuery] = None
+    fingerprint: Optional[str] = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -13936,6 +13965,7 @@ class ExperimentFunnelsQuery(BaseModel):
         extra="forbid",
     )
     experiment_id: Optional[int] = None
+    fingerprint: Optional[str] = None
     funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -14000,18 +14030,6 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
-class NamedQueryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-    name: Optional[str] = None
-    query: Optional[
-        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
-    ] = None
-
-
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14049,6 +14067,18 @@ class DatabaseSchemaQuery(BaseModel):
     response: Optional[DatabaseSchemaQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EndpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+    ] = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):

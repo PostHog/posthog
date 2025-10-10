@@ -1520,14 +1520,14 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
-export interface NamedQueryRequest {
+export interface EndpointRequest {
     name?: string
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
-export interface NamedQueryRunRequest {
+export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
@@ -1550,7 +1550,7 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
-export interface NamedQueryLastExecutionTimesRequest {
+export interface EndpointLastExecutionTimesRequest {
     names: string[]
 }
 
@@ -2171,8 +2171,10 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
     orderDirection?: 'ASC' | 'DESC'
+    revenuePeriod?: 'all_time' | 'last_30_days'
+    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2261,6 +2263,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
+    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
@@ -2535,6 +2538,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
+    fingerprint?: string
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2546,6 +2550,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+    fingerprint?: string
 }
 
 export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
@@ -3882,9 +3887,16 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     schema_map: SchemaMap
 }
 
+export enum AttributionMode {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
+    attribution_window_days?: number
+    attribution_mode?: AttributionMode
 }
 
 export enum MarketingAnalyticsBaseColumns {
@@ -4018,6 +4030,7 @@ export const externalDataSources = [
     'DoIt',
     'LinkedinAds',
     'RedditAds',
+    'TikTokAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
