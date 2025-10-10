@@ -77,7 +77,7 @@ export function convertToHogFunctionInvocationGlobals(
             event: event.event!,
             elements_chain: event.elements_chain,
             distinct_id: event.distinct_id,
-            properties,
+            properties: { ...properties, token: undefined }, // Remove token to prevent sending to third-party services
             timestamp: eventTimestamp,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
@@ -131,7 +131,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
             event: data.event.event,
             elements_chain: '', // Not applicable but left here for compatibility
             distinct_id: data.event.distinct_id,
-            properties: properties,
+            properties: { ...properties, token: undefined }, // Remove token to prevent sending it to third-party services
             timestamp: data.event.timestamp,
             url: data.event.url ?? '',
         },

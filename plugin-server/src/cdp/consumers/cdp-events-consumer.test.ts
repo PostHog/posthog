@@ -397,6 +397,47 @@ describe.each([
                     },
                 ])
             })
+
+            it('should remove token from event properties', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                const eventWithToken =
+                    processor instanceof CdpInternalEventsConsumer
+                        ? createInternalEvent(team.id, {
+                              event: {
+                                  uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                                  event: '$pageview',
+                                  distinct_id: 'distinct_id_1',
+                                  timestamp: new Date().toISOString(),
+                                  properties: {
+                                      $current_url: 'https://posthog.com',
+                                      $lib_version: '1.0.0',
+                                      token: 'phc_test_token_should_be_removed',
+                                  },
+                              },
+                          })
+                        : createIncomingEvent(team.id, {
+                              properties: JSON.stringify({
+                                  $current_url: 'https://posthog.com',
+                                  $lib_version: '1.0.0',
+                                  token: 'phc_test_token_should_be_removed',
+                              }),
+                          })
+
+                const kafkaMessage = createKafkaMessage(eventWithToken)
+                const invocationGlobals = await processor._parseKafkaBatch([kafkaMessage])
+
+                expect(invocationGlobals[0].event.properties).toEqual({
+                    $current_url: 'https://posthog.com',
+                    $lib_version: '1.0.0',
+                    token: undefined,
+                })
+                expect(invocationGlobals[0].event.properties.token).toBeUndefined()
+            })
         })
     })
 })
