@@ -74,8 +74,7 @@ function Category({
                     })()}
                 </div>
                 <div className="flex flex-col gap-2">
-                    {(category === 'recents' || (newTabSceneData && category === 'persons')) &&
-                    typedItems.length === 0 ? (
+                    {(category === 'recents' || newTabSceneData) && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance px-2">
                             {isSearching ? 'Searching...' : 'No results found'}
@@ -190,12 +189,8 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
         categories,
         selectedCategory,
         isSearching,
-        specialSearchMode,
-        personSearchPagination,
-        personSearchResults,
         newTabSceneDataIncludePersons,
     } = useValues(newTabSceneLogic({ tabId }))
-    const newTabLogic = newTabSceneLogic({ tabId })
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
     // For newTabSceneData, use the new grouped items with section ordering
@@ -229,27 +224,20 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
         : Object.entries(groupedFilteredItems)
 
     if (!newTabSceneData && selectedCategory !== 'all') {
-        const categoryToShow = specialSearchMode === 'persons' ? 'persons' : selectedCategory
-        const items = groupedFilteredItems[categoryToShow] || []
+        const items = groupedFilteredItems[selectedCategory] || []
         const typedItems = items as NewTabTreeDataItem[]
 
         return (
-            <div className="col-span-4 mb-8" key={categoryToShow}>
+            <div className="col-span-4 mb-8" key={selectedCategory}>
                 <div className="mb-4">
                     <div className="flex items-baseline gap-2">
                         <h3 className="mb-0 text-lg font-medium text-secondary">
-                            {getCategoryDisplayName(categoryToShow)}
+                            {getCategoryDisplayName(selectedCategory)}
                         </h3>
-                        {newTabSceneData && categoryToShow === 'persons' && personSearchResults.length > 0 && (
-                            <span className="text-xs text-tertiary">
-                                Showing first {personSearchResults.length} entries
-                            </span>
-                        )}
-                        {(categoryToShow === 'recents' || (newTabSceneData && categoryToShow === 'persons')) &&
-                            isSearching && <Spinner size="small" />}
+                        {selectedCategory === 'recents' && isSearching && <Spinner size="small" />}
                     </div>
                     {(() => {
-                        const categoryInfo = categories.find((c) => c.key === categoryToShow)
+                        const categoryInfo = categories.find((c) => c.key === selectedCategory)
                         return (
                             categoryInfo?.description && (
                                 <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">{categoryInfo.description}</p>
@@ -258,8 +246,7 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                     })()}
                 </div>
                 <div className="flex flex-col gap-2">
-                    {(categoryToShow === 'recents' || (newTabSceneData && categoryToShow === 'persons')) &&
-                    typedItems.length === 0 ? (
+                    {selectedCategory === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
                             {isSearching ? 'Searching...' : 'No results found'}
@@ -335,23 +322,6 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                                 </DropdownMenu>
                             </ButtonGroupPrimitive>
                         ))
-                    )}
-                    {newTabSceneData && categoryToShow === 'persons' && personSearchPagination.hasMore && (
-                        <ListBox.Item asChild>
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    const searchTerm = search.startsWith('/persons ')
-                                        ? search.replace('/persons ', '')
-                                        : search
-                                    newTabLogic.actions.loadMorePersonSearchResults({
-                                        searchTerm,
-                                    })
-                                }}
-                                className="w-full mt-2"
-                            >
-                                Go to persons page
-                            </ButtonPrimitive>
-                        </ListBox.Item>
                     )}
                 </div>
             </div>

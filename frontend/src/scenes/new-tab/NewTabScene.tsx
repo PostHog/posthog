@@ -12,6 +12,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { cn } from 'lib/utils/css-classes'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -62,6 +63,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         selectedCategory,
         specialSearchMode,
         newTabSceneDataIncludePersons,
+        isSearching,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
@@ -136,7 +138,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         }}
                                     >
                                         {category.label}
-                                        {newTabSceneData && category.key === 'persons' ? '*' : null}
                                     </TabsPrimitiveTrigger>
                                 ))}
                                 {source === 'homepage' ? (
@@ -179,7 +180,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 styledScrollbars
             >
                 <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8">
-                    {filteredItemsGrid.length === 0 ? (
+                    {filteredItemsGrid.length === 0 && !isSearching ? (
                         <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
                             <div className="flex flex-col gap-1">
                                 <p className="text-tertiary mb-2">
@@ -204,12 +205,14 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </div>
                             </div>
                         </div>
-                    ) : newTabSceneData ? (
-                        <div className="flex flex-col gap-4">
-                            <Results tabId={tabId || ''} />
-                        </div>
                     ) : (
-                        <div className="grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true">
+                        <div
+                            className={cn({
+                                'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true':
+                                    !newTabSceneData,
+                                'flex flex-col gap-4': newTabSceneData,
+                            })}
+                        >
                             <Results tabId={tabId || ''} />
                         </div>
                     )}
