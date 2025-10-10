@@ -128,27 +128,29 @@ jobs:
               uses: flox/install-flox-action@v2
 
             - name: Install dependencies for master using Flox
-              run: |
-                  flox activate -- bash -c "
-                      echo 'Flox environment activated on master with Python $(python --version), UV $(uv --version)'
+              uses: flox/activate-action@v1
+              with:
+                  command: |
+                      echo "Flox environment activated on master with Python $(python --version), UV $(uv --version)"
                       # Flox runs 'uv sync' automatically, but we need --frozen --dev for CI
                       uv sync --frozen --dev
-                  "
 
             - name: Wait for services to be available
-              run: |
-                  flox activate -- bash -c "
+              uses: flox/activate-action@v1
+              with:
+                  command: |
                       bin/check_postgres_up
                       bin/check_kafka_clickhouse_up
-                  "
 
             - name: Run migrations up to master
-              run: |
-                  # Run Django migrations first (excluding managed=False models)
-                  flox activate -- python manage.py migrate
-                  # Then run persons migrations using sqlx; comment out until we've merged
-                  # flox activate -- bash -c "DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog_persons' sqlx database create"
-                  # flox activate -- bash -c "DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog_persons' sqlx migrate run --source rust/persons_migrations/"
+              uses: flox/activate-action@v1
+              with:
+                  command: |
+                      # Run Django migrations first (excluding managed=False models)
+                      python manage.py migrate
+                      # Then run persons migrations using sqlx; comment out until we've merged
+                      # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" sqlx database create
+                      # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" sqlx migrate run --source rust/persons_migrations/
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -169,115 +171,119 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  # Read the changed files from the output
-                  CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
+              uses: flox/activate-action@v1
+              with:
+                  command: |
+                      # Read the changed files from the output
+                      CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
 
-                  # If no migration files changed, exit
-                  if [ -z "$CHANGED_FILES" ]; then
-                    echo "No migration files changed"
-                    exit 0
-                  fi
-
-                  # Initialize comment body for SQL changes
-                  COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
-
-                  # Process each changed migration file (excluding Rust migrations)
-                  for file in $CHANGED_FILES; do
-                    # Skip Rust migrations as they're handled separately by sqlx
-                    if [[ $file =~ rust/persons_migrations ]]; then
-                      continue
-                    fi
-                    if [[ $file =~ migrations/([0-9]+)_ ]]; then
-                      migration_number="${BASH_REMATCH[1]}"
-                      # Get app name by looking at the directory structure
-                      # For new structure products/user_interviews/backend/migrations, we want user_interviews
-                      # For old structure products/user_interviews/migrations, we want user_interviews
-                      if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then
-                        app_name="${BASH_REMATCH[1]}"
-                      else
-                        app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                      # If no migration files changed, exit
+                      if [ -z "$CHANGED_FILES" ]; then
+                        echo "No migration files changed"
+                        exit 0
                       fi
-                        echo "Checking migration $migration_number for app $app_name"
 
-                      # Get SQL output using Flox environment
-                      SQL_OUTPUT=$(flox activate -- python manage.py sqlmigrate $app_name $migration_number)
+                      # Initialize comment body for SQL changes
+                      COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
-                      # Add to comment body
-                      COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
-                    fi
-                  done
+                      # Process each changed migration file (excluding Rust migrations)
+                      for file in $CHANGED_FILES; do
+                        # Skip Rust migrations as they're handled separately by sqlx
+                        if [[ $file =~ rust/persons_migrations ]]; then
+                          continue
+                        fi
+                        if [[ $file =~ migrations/([0-9]+)_ ]]; then
+                          migration_number="${BASH_REMATCH[1]}"
+                          # Get app name by looking at the directory structure
+                          # For new structure products/user_interviews/backend/migrations, we want user_interviews
+                          # For old structure products/user_interviews/migrations, we want user_interviews
+                          if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then
+                            app_name="${BASH_REMATCH[1]}"
+                          else
+                            app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                          fi
+                            echo "Checking migration $migration_number for app $app_name"
 
-                  # Delete previous comments from this workflow
-                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+                          # Get SQL output using Flox environment
+                          SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
 
-                  echo "Output from listing comments: $COMMENTS"
-                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
-                    echo "Deleting comment $comment_id"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                  done
+                          # Add to comment body
+                          COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                        fi
+                      done
 
-                  # Convert \n into actual newlines
-                  COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
-                  COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+                      # Delete previous comments from this workflow
+                      COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                  # Post SQL comment to PR
-                  echo "Posting SQL comment to PR"
-                  echo "$COMMENT_BODY_JSON"
-                  curl -X POST \
-                    -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                    -d "$COMMENT_BODY_JSON"
+                      echo "Output from listing comments: $COMMENTS"
+                      echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
+                        echo "Deleting comment $comment_id"
+                        curl -X DELETE \
+                          -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                      done
+
+                      # Convert \n into actual newlines
+                      COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
+                      COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+
+                      # Post SQL comment to PR
+                      echo "Posting SQL comment to PR"
+                      echo "$COMMENT_BODY_JSON"
+                      curl -X POST \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                        -d "$COMMENT_BODY_JSON"
 
             - name: Run migration risk analysis and post comment
               if: github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  # Get risk analysis for all unapplied migrations (including third-party)
-                  set +e  # Don't exit immediately on error
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
-                  EXIT_CODE=$?
-                  set -e  # Re-enable exit on error
+              uses: flox/activate-action@v1
+              with:
+                  command: |
+                      # Get risk analysis for all unapplied migrations (including third-party)
+                      set +e  # Don't exit immediately on error
+                      RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
+                      EXIT_CODE=$?
+                      set -e  # Re-enable exit on error
 
-                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Get existing comments
-                    COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+                      if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                        # Get existing comments
+                        COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                    # Delete previous risk analysis comments
-                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                      echo "Deleting risk analysis comment $comment_id"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                    done
+                        # Delete previous risk analysis comments
+                        echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                          echo "Deleting risk analysis comment $comment_id"
+                          curl -X DELETE \
+                            -H "Authorization: token $GITHUB_TOKEN" \
+                            -H "Accept: application/vnd.github.v3+json" \
+                            "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                        done
 
-                    # Post risk analysis comment (output already contains markdown formatting with legend)
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
-                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
-                    RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
+                        # Post risk analysis comment (output already contains markdown formatting with legend)
+                        RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
+                        RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
+                        RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
 
-                    echo "Posting risk analysis comment to PR"
-                    curl -X POST \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                      -d "$RISK_COMMENT_JSON"
-                  fi
+                        echo "Posting risk analysis comment to PR"
+                        curl -X POST \
+                          -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                          -d "$RISK_COMMENT_JSON"
+                      fi
 
-                  # Fail the job if there were blocked migrations
-                  if [ $EXIT_CODE -ne 0 ]; then
-                    exit $EXIT_CODE
-                  fi
+                      # Fail the job if there were blocked migrations
+                      if [ $EXIT_CODE -ne 0 ]; then
+                        exit $EXIT_CODE
+                      fi
 
             - name: Run migrations for this PR
               uses: flox/activate-action@v1
@@ -825,12 +831,12 @@ jobs:
               uses: flox/install-flox-action@v2
 
             - name: Activate Flox environment and install dependencies
-              run: |
-                  flox activate -- bash -c "
-                      echo 'Flox environment activated with Python $(python --version), UV $(uv --version)'
+              uses: flox/activate-action@v1
+              with:
+                  command: |
+                      echo "Flox environment activated with Python $(python --version), UV $(uv --version)"
                       # Flox runs 'uv sync' automatically, but we need --frozen --dev for CI
                       uv sync --frozen --dev
-                  "
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
