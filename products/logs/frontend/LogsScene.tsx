@@ -73,7 +73,7 @@ export function LogsScene(): JSX.Element {
         .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
     return (
-        <SceneContent>
+        <SceneContent className="overflow-hidden h-screen">
             <SceneTitleSection
                 name="Logs"
                 resourceType={{
@@ -88,12 +88,13 @@ export function LogsScene(): JSX.Element {
             </div>
             <SceneDivider />
             <DisplayOptions />
-            <div className="flex-1">
+            <div className="flex-1 overflow-y-auto border rounded bg-white">
                 <LemonTable
                     hideScrollbar
                     dataSource={logs}
                     loading={logsLoading}
                     size="small"
+                    embedded
                     columns={[
                         {
                             title: 'Timestamp',
