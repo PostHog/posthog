@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0028_alter_conversation_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "0877_migrate_error_tracking_models"),
+        ("posthog", "0878_migrate_error_tracking_models"),
     ]
 
     database_operations = [
