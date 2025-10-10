@@ -53,6 +53,9 @@ function Category({
                             </Label>
                         ) : (
                             <>
+                                <h3 className="mb-0 text-lg font-medium text-secondary">
+                                    {getCategoryDisplayName(category)}
+                                </h3>
                                 {newTabSceneData && category === 'persons' && personSearchResults.length > 0 && (
                                     <span className="text-xs text-tertiary">
                                         Showing first {personSearchResults.length} entries
