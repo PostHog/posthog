@@ -104,6 +104,20 @@ class DatabricksIntegrationNotFoundError(Exception):
     pass
 
 
+class DatabricksCatalogNotFoundError(Exception):
+    """Error raised when the Databricks catalog is not found."""
+
+    def __init__(self, catalog: str):
+        super().__init__(f"Catalog '{catalog}' not found")
+
+
+class DatabricksSchemaNotFoundError(Exception):
+    """Error raised when the Databricks schema is not found."""
+
+    def __init__(self, schema: str):
+        super().__init__(f"Schema '{schema}' not found")
+
+
 @dataclasses.dataclass(kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
@@ -397,10 +411,20 @@ class DatabricksClient:
             return results
 
     async def use_catalog(self, catalog: str):
-        await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
+        try:
+            await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
+        except ServerOperationError as err:
+            if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
+                raise DatabricksCatalogNotFoundError(catalog)
+            raise
 
     async def use_schema(self, schema: str):
-        await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+        try:
+            await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+        except ServerOperationError as err:
+            if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
+                raise DatabricksSchemaNotFoundError(schema)
+            raise
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -480,7 +504,8 @@ class DatabricksClient:
         """Get the query to copy data from a Databricks volume into a Databricks table.
 
         We use the following COPY_OPTIONS:
-        - force=true to ensure we always load in data from the source file
+        - force=true to ensure we always load in data from the files in the volume even if they have already been loaded
+            previously
         - mergeSchema: whether to merge the schema of the source table with the schema of the target table
 
         Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
