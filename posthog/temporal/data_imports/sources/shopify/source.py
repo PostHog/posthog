@@ -32,8 +32,8 @@ You can find your store ID in your store's URL which typically looks like https:
 
 The simplest setup for permissions is to only allow **read** permissions for the resources you are interested in syncing with your warehouse.
 """,
-            iconPath="/static/services/stripe.png",
-            docsUrl="https://posthog.com/docs/cdp/sources/shopify",
+            iconPath="/static/services/shopify.png",
+            docsUrl="",
             fields=cast(
                 list[FieldType],
                 [
