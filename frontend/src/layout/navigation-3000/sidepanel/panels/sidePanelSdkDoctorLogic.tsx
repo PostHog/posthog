@@ -31,6 +31,26 @@ import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 // Re-export types for external consumption (required by Kea type generator)
 export type { SdkType, SdkVersionInfo, SdkHealthStatus } from './sdk_doctor/types'
 
+/**
+ * SDK Doctor - PostHog SDK Health Monitoring
+ *
+ * Detects installed SDKs and their versions across a team's events.
+ * Provides smart version outdatedness detection and feature flag timing analysis.
+ *
+ * Architecture:
+ * - Backend detection: Team SDK detections cached server-side (24h Redis)
+ * - Version checking: Per-SDK GitHub API queries cached server-side (24h Redis)
+ * - Smart semver: Contextual thresholds (7-day grace, 3+ minors, 5+ patches)
+ * - Feature flags: Contextual timing detection (0ms/350ms/500ms thresholds)
+ *
+ * Module structure:
+ * - types.ts: Shared type definitions
+ * - utils.ts: Device context and event volume utilities
+ * - sdkDetectionProcessing.ts: Backend detection processing
+ * - versionChecking.ts: Async version checking helpers
+ * - featureFlagDetection.ts: Feature flag timing analysis
+ */
+
 // Debug mode detection following PostHog's standard pattern
 const IS_DEBUG_MODE = (() => {
     const appContext = getAppContext()
@@ -56,7 +76,19 @@ const IS_DEBUG_MODE = (() => {
 const loggedSdkTypes = new Set<SdkType>()
 const loggedVersionChecks = new Set<string>()
 
-// Fetch individual SDK data from backend API (with server-side caching)
+/**
+ * Fetches SDK version data from the backend API.
+ *
+ * This function queries the server-side cached GitHub API data for a specific SDK.
+ * The backend maintains a 24-hour Redis cache to avoid rate limiting and improve performance.
+ *
+ * @param sdkType - The SDK type to fetch data for (e.g., 'web', 'python', 'node')
+ * @returns Object containing:
+ *   - latestVersion: The most recent version string
+ *   - versions: Array of all version strings in descending order
+ *   - releaseDates: Optional map of version -> ISO date for time-based detection
+ * @returns null if the backend request fails or the SDK is not supported
+ */
 const fetchSdkData = async (
     sdkType: SdkType
 ): Promise<{ latestVersion: string; versions: string[]; releaseDates?: Record<string, string> } | null> => {
@@ -180,12 +212,14 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             } | null,
             {
                 loadTeamSdkDetections: async ({ forceRefresh }) => {
-                    console.log('[SDK Doctor] loadTeamSdkDetections called - fetching from backend', { forceRefresh })
+                    if (IS_DEBUG_MODE) {
+                        console.info('[SDK Doctor] Loading team SDK detections from backend', { forceRefresh })
+                    }
                     try {
                         const url = forceRefresh ? 'api/detected-sdks/?force_refresh=true' : 'api/detected-sdks/'
                         const response = await api.get(url)
-                        console.log('[SDK Doctor] Team SDK detections response:', response)
                         if (IS_DEBUG_MODE) {
+                            console.info('[SDK Doctor] Team SDK detections response:', response)
                             console.info(
                                 `[SDK Doctor] Loaded ${response.detections?.length || 0} SDK detections from backend (cached: ${response.cached}, forceRefresh: ${forceRefresh})`
                             )
@@ -247,8 +281,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     return newMap
                 },
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
-                    // console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
-
                     // Start with existing state to preserve Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDK data from teamSdkDetections
                     // We'll only process non-Web/Python/Node/React Native/Flutter/iOS/Android/Go/PHP/Ruby/Elixir/.NET SDKs from events (these come from backend)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = { ...state }
@@ -602,7 +634,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
     listeners(({ actions, values }) => ({
         loadTeamSdkDetectionsSuccess: async () => {
-            console.log('[SDK Doctor] Team SDK detections loaded, triggering version checks')
+            if (IS_DEBUG_MODE) {
+                console.info('[SDK Doctor] Team SDK detections loaded, triggering version checks')
+            }
             // Trigger async version checking for Web SDK
             actions.loadLatestSdkVersions()
         },
@@ -674,7 +708,24 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     }),
 ])
 
-// NEW: Async version comparison function with on-demand SDK data fetching
+/**
+ * Async version checking with on-demand SDK data fetching.
+ *
+ * This function fetches SDK version data from the backend and delegates to
+ * the synchronous checkVersionAgainstLatest for the actual comparison logic.
+ * It's used for time-based detection SDKs that require GitHub release dates.
+ *
+ * @param type - SDK type to check
+ * @param version - Current version string to evaluate
+ * @returns Promise resolving to version status object with:
+ *   - isOutdated: Whether the version should be flagged
+ *   - releasesAhead: Number of releases between current and latest
+ *   - latestVersion: The most recent version available
+ *   - releaseDate: ISO date when current version was released
+ *   - daysSinceRelease: Age of current version in days
+ *   - isAgeOutdated: Whether version is outdated by age alone (for "Old" badge)
+ *   - error: Error message if fetch fails
+ */
 async function checkVersionAgainstLatestAsync(
     type: SdkType,
     version: string
@@ -724,7 +775,37 @@ async function checkVersionAgainstLatestAsync(
     }
 }
 
-// Enhanced version comparison function using semver utilities
+/**
+ * Smart semver detection with age-based thresholds.
+ *
+ * This is the core version comparison logic that determines if an SDK version is outdated.
+ * It applies contextual rules based on semantic versioning and release age to avoid false positives.
+ *
+ * Detection thresholds:
+ * - **Grace period**: Versions <7 days old are NEVER flagged (even if major version behind)
+ * - **Major**: Always flag if major version behind (1.x → 2.x) OR >1 year old
+ * - **Minor**: Flag if 3+ minors behind OR >6 months old
+ * - **Patch**: Flag if 5+ patches behind OR >3 months old
+ *
+ * The grace period prevents nagging teams about brand-new releases they haven't had time to upgrade to.
+ * The age-based thresholds catch abandoned projects using very old versions.
+ *
+ * @param type - SDK type to check (e.g., 'web', 'python', 'node')
+ * @param version - Current version string to evaluate
+ * @param latestVersionsData - Version data from GitHub API including:
+ *   - latestVersion: Most recent version string
+ *   - versions: All versions in descending order
+ *   - releaseDates: Map of version -> ISO date for time-based checks
+ * @returns Object containing:
+ *   - isOutdated: Whether version should be flagged (uses smart semver logic)
+ *   - releasesAhead: Number of releases between current and latest
+ *   - latestVersion: The most recent version available
+ *   - releaseDate: ISO date when current version was released
+ *   - daysSinceRelease: Age of current version in days
+ *   - isAgeOutdated: Whether version is outdated by age alone (for "Old" badge)
+ *   - deviceContext: Device platform category (mobile/desktop/mixed)
+ *   - error: Error message if version parsing fails
+ */
 function checkVersionAgainstLatest(
     type: SdkType,
     version: string,

@@ -31,25 +31,6 @@ export const SDK_KEY_FORMATS: Record<SdkType, (version: string) => string> = {
 }
 
 /**
- * SDK display names for logging
- */
-const SDK_DISPLAY_NAMES: Record<SdkType, string> = {
-    web: 'Web',
-    python: 'Python',
-    node: 'Node.js',
-    'react-native': 'React Native',
-    flutter: 'Flutter',
-    ios: 'iOS',
-    android: 'Android',
-    go: 'Go',
-    php: 'PHP',
-    ruby: 'Ruby',
-    elixir: 'Elixir',
-    dotnet: '.NET',
-    other: 'Other',
-}
-
-/**
  * Process SDK detections for a specific SDK type from backend data.
  * Converts backend detection format to frontend SdkVersionInfo format.
  */
