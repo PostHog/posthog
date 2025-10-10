@@ -4,10 +4,8 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-// import { isNotNil } from 'lib/utils' // Unused after bulk fetching removal
 import { getAppContext } from 'lib/utils/getAppContext'
 import { diffVersions, parseVersion } from 'lib/utils/semver'
-// Removed tryParseVersion (unused after bulk fetching removal)
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EventType, EventsListQueryParams } from '~/types'
@@ -56,21 +54,6 @@ const IS_DEBUG_MODE = (() => {
     const appContext = getAppContext()
     return appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
 })()
-
-// Client-side caching removed - now handled server-side with Redis
-
-// DISABLED: Bulk GitHub API functions (causing 403 errors) - kept for future per-SDK implementation
-/*
-
-// Fetch Python SDK release dates from GitHub Releases API for time-based detection
-
-// Fetch React Native SDK release dates from GitHub Releases API for time-based detection
-
-// Fetch Flutter SDK release dates from GitHub Releases API for time-based detection
-
-*/
-
-// Fetch Node.js SDK release dates - REMOVED: Now handled by server API with proper caching and rate limiting
 
 // Track which SDK types we've already logged to reduce verbosity
 const loggedSdkTypes = new Set<SdkType>()
@@ -270,7 +253,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // Process all SDK detections using shared helper
                     const newMap = {
                         ...state,
-                        ...processAllSdkDetections(teamSdkDetections.detections, IS_DEBUG_MODE),
+                        ...processAllSdkDetections(teamSdkDetections.detections),
                     }
 
                     if (IS_DEBUG_MODE) {
@@ -323,7 +306,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                                 // If it's a test event (distinct_id starts with 'test-'), allow it
                                 if (hasTestDistinctId) {
-                                    console.info('[SDK Doctor] Allowing test Python event:', event.distinct_id)
+                                    if (IS_DEBUG_MODE) {
+                                        console.info('[SDK Doctor] Allowing test Python event:', event.distinct_id)
+                                    }
                                     return true
                                 }
 
@@ -351,7 +336,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     if (isDemoMode()) {
                         const filtered = limitedEvents.length - customerEvents.length
-                        if (filtered > 0) {
+                        if (filtered > 0 && IS_DEBUG_MODE) {
                             console.info(
                                 `[SDK Doctor] Dev mode: Filtered out ${filtered} internal events (${limitedEvents.length} -> ${customerEvents.length})`
                             )
@@ -359,9 +344,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                         // CRITICAL FIX: If all events were filtered out in dev mode, preserve Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDKs from backend
                         if (customerEvents.length === 0 && limitedEvents.length > 0) {
-                            console.info(
-                                '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDKs from backend'
-                            )
+                            if (IS_DEBUG_MODE) {
+                                console.info(
+                                    '[SDK Doctor] Dev mode: All events filtered - preserving Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDKs from backend'
+                                )
+                            }
                             // Keep existing state which contains Web, Python, Node.js, React Native, Flutter, iOS, Android, Go, PHP, Ruby, Elixir, and .NET SDK data from teamSdkDetections
                             return state
                         }
@@ -647,7 +634,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         loadLatestSdkVersionsSuccess: async () => {
             // Skip async processing if SDK map is empty (all events were filtered in dev mode)
             if (Object.keys(values.sdkVersionsMap).length === 0) {
-                if (isDemoMode()) {
+                if (isDemoMode() && IS_DEBUG_MODE) {
                     console.info('[SDK Doctor] Dev mode: SDK map is empty after filtering, skipping async processing')
                 }
                 return
@@ -689,7 +676,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             checkVersionAgainstLatestAsync,
                             determineDeviceContext,
                             categorizeEventVolume,
-                            sdkName
+                            sdkName,
+                            IS_DEBUG_MODE
                         )
                     }
                 }
@@ -758,10 +746,6 @@ async function checkVersionAgainstLatestAsync(
             SdkType,
             { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
         >
-
-        // Debug: Verify releaseDates are preserved
-        if (type === 'go' && IS_DEBUG_MODE) {
-        }
 
         return checkVersionAgainstLatest(type, version, latestVersionsData)
     } catch (error) {
@@ -870,19 +854,10 @@ function checkVersionAgainstLatest(
             }
         }
 
-        // Basic release count logic first (will be enhanced with time-based logic below)
-
-        if (IS_DEBUG_MODE) {
-        }
-
         // Age-based analysis
         const deviceContext = determineDeviceContext(type)
         const releaseDates = latestVersionsData[type]?.releaseDates
         const releaseDate = releaseDates?.[version]
-
-        // Debug logging for Go SDK
-        if (type === 'go') {
-        }
 
         let daysSinceRelease: number | undefined
         let isAgeOutdated = false

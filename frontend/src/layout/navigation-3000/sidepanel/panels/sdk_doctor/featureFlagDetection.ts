@@ -117,23 +117,27 @@ export function detectFeatureFlagMisconfiguration(
             (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         )
 
-        console.info(
-            `[SDK Doctor Debug] Session events:`,
-            sortedEvents.map((e) => ({
-                event: e.event,
-                timestamp: e.timestamp,
-                flag: e.properties?.$feature_flag,
-                bootstrapped: e.properties?.$feature_flag_bootstrapped,
-            }))
-        )
+        if (isDebugMode) {
+            console.info(
+                `[SDK Doctor Debug] Session events:`,
+                sortedEvents.map((e) => ({
+                    event: e.event,
+                    timestamp: e.timestamp,
+                    flag: e.properties?.$feature_flag,
+                    bootstrapped: e.properties?.$feature_flag_bootstrapped,
+                }))
+            )
+        }
 
         // Find the first event of any type as baseline (SDK initialization baseline)
         const firstEvent = sortedEvents[0]
         const firstEventTime = new Date(firstEvent.timestamp).getTime()
 
-        console.info(
-            `[SDK Doctor Debug] First event: ${firstEvent.event} at ${firstEvent.timestamp} (${firstEventTime})`
-        )
+        if (isDebugMode) {
+            console.info(
+                `[SDK Doctor Debug] First event: ${firstEvent.event} at ${firstEvent.timestamp} (${firstEventTime})`
+            )
+        }
 
         // Get flag events in this session
         const flagEvents = sortedEvents.filter((event) => event.event === '$feature_flag_called')
@@ -160,23 +164,29 @@ export function detectFeatureFlagMisconfiguration(
             threshold = 500 // Default/unmitigated: catches race conditions
         }
 
-        console.info(
-            `[SDK Doctor Debug] Session analysis - Bootstrap: ${hasBootstrap}, ProperInit: ${hasProperInitPattern}, Threshold: ${threshold}ms`
-        )
+        if (isDebugMode) {
+            console.info(
+                `[SDK Doctor Debug] Session analysis - Bootstrap: ${hasBootstrap}, ProperInit: ${hasProperInitPattern}, Threshold: ${threshold}ms`
+            )
+        }
 
         // Check each flag event for timing issues
         flagEvents.forEach((flagEvent) => {
             const flagTime = new Date(flagEvent.timestamp).getTime()
             const timeDiff = flagTime - firstEventTime
 
-            console.info(`[SDK Doctor Debug]   - Bootstrapped: ${flagEvent.properties?.$feature_flag_bootstrapped}`)
+            if (isDebugMode) {
+                console.info(`[SDK Doctor Debug]   - Bootstrapped: ${flagEvent.properties?.$feature_flag_bootstrapped}`)
+            }
 
             // Enhanced timing logic: flagTime < firstEventTime OR (timeDiff >= 0 AND timeDiff < threshold)
             const isProblematic = flagTime < firstEventTime || (timeDiff >= 0 && timeDiff < threshold)
 
-            console.info(
-                `[SDK Doctor Debug]   - Is problematic: ${isProblematic} (${timeDiff}ms < ${threshold}ms threshold)`
-            )
+            if (isDebugMode) {
+                console.info(
+                    `[SDK Doctor Debug]   - Is problematic: ${isProblematic} (${timeDiff}ms < ${threshold}ms threshold)`
+                )
+            }
 
             if (isProblematic) {
                 const flagName = flagEvent.properties?.$feature_flag
@@ -197,9 +207,11 @@ export function detectFeatureFlagMisconfiguration(
                         exampleEventTimestamp = flagEvent.timestamp
                     }
 
-                    console.warn(
-                        `[SDK Doctor] Flag timing issue detected: ${flagName} called ${timeDiff}ms after init (threshold: ${threshold}ms, bootstrap: ${hasBootstrap})`
-                    )
+                    if (isDebugMode) {
+                        console.warn(
+                            `[SDK Doctor] Flag timing issue detected: ${flagName} called ${timeDiff}ms after init (threshold: ${threshold}ms, bootstrap: ${hasBootstrap})`
+                        )
+                    }
                 }
             }
         })

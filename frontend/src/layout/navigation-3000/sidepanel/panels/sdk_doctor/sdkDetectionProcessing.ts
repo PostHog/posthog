@@ -37,13 +37,9 @@ export const SDK_KEY_FORMATS: Record<SdkType, (version: string) => string> = {
 export function processSdkDetections(
     detections: TeamSdkDetection[],
     sdkType: SdkType,
-    getKey: (version: string) => string,
-    debugMode = false
+    getKey: (version: string) => string
 ): Record<string, SdkVersionInfo> {
     const filtered = detections.filter((d) => d.type === sdkType)
-
-    if (debugMode && filtered.length > 0) {
-    }
 
     const result: Record<string, SdkVersionInfo> = {}
 
@@ -66,15 +62,12 @@ export function processSdkDetections(
  * Process all SDK detections from backend data.
  * Returns a complete map of all detected SDK versions.
  */
-export function processAllSdkDetections(
-    detections: TeamSdkDetection[],
-    debugMode = false
-): Record<string, SdkVersionInfo> {
+export function processAllSdkDetections(detections: TeamSdkDetection[]): Record<string, SdkVersionInfo> {
     const result: Record<string, SdkVersionInfo> = {}
 
     // Process each SDK type
     for (const [sdkType, getKey] of Object.entries(SDK_KEY_FORMATS)) {
-        const sdkDetections = processSdkDetections(detections, sdkType as SdkType, getKey, debugMode)
+        const sdkDetections = processSdkDetections(detections, sdkType as SdkType, getKey)
         Object.assign(result, sdkDetections)
     }
 

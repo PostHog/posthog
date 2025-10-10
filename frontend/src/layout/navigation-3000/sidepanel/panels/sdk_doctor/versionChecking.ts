@@ -20,6 +20,7 @@ import type { SdkType, SdkVersionInfo } from './types'
  * @param determineDeviceContext - Function to determine device context
  * @param categorizeEventVolume - Function to categorize event volume
  * @param sdkName - Human-readable SDK name for logging (e.g., "Go", ".NET", "PHP")
+ * @param isDebugMode - Whether debug logging is enabled
  * @returns Updated SdkVersionInfo with version check results
  */
 export async function updateSdkVersionInfo(
@@ -39,9 +40,12 @@ export async function updateSdkVersionInfo(
     }>,
     determineDeviceContext: (type: SdkType) => 'mobile' | 'desktop' | 'mixed',
     categorizeEventVolume: (count: number) => 'low' | 'medium' | 'high',
-    sdkName: string
+    sdkName: string,
+    isDebugMode: boolean
 ): Promise<SdkVersionInfo> {
-    console.info(`[SDK Doctor] ${sdkName} SDK async check for version ${info.version}`)
+    if (isDebugMode) {
+        console.info(`[SDK Doctor] ${sdkName} SDK async check for version ${info.version}`)
+    }
 
     try {
         const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
