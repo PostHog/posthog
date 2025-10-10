@@ -14,8 +14,6 @@ class DummyToolkit(TaxonomyAgentToolkit):
 
 
 class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-    
     def setUp(self):
         super().setUp()
         for i, group_type in enumerate(["organization", "project"]):
