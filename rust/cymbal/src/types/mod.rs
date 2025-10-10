@@ -422,11 +422,7 @@ impl Stacktrace {
             }
         }
 
-        if resolved_frames.iter().any(|f| {
-            f.source
-                .as_ref()
-                .is_some_and(|s| s.contains("node_modules/posthog-js/src"))
-        }) {
+        if resolved_frames.iter().any(|f| f.suspicious) {
             metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
         }
 
