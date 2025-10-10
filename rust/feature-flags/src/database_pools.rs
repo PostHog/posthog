@@ -110,13 +110,7 @@ impl DatabasePools {
         // Log whether pools are actually separate or aliased
         let pools_are_separate = config.is_persons_db_routing_enabled();
         if pools_are_separate {
-            info!(
-                persons_read_url = &config.get_persons_read_database_url()
-                    [..20.min(config.get_persons_read_database_url().len())],
-                persons_write_url = &config.get_persons_write_database_url()
-                    [..20.min(config.get_persons_write_database_url().len())],
-                "Using separate persons database pools"
-            );
+            info!("Using separate persons database pools");
         } else {
             info!("Persons pools are aliased to non-persons pools (persons DB routing disabled)");
         }
