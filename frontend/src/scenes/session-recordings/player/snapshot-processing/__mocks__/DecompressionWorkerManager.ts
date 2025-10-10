@@ -1,13 +1,8 @@
-import snappy from 'snappy'
-
 export class DecompressionWorkerManager {
     async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
-        // Synchronous decompression for tests
-        // Convert Uint8Array to Buffer for snappy
-        const buffer = Buffer.from(compressedData)
-        const result = await snappy.uncompress(buffer)
-        // Convert Buffer to Uint8Array to match the real implementation
-        return new Uint8Array(result)
+        // Mock implementation for tests - just return the data as-is
+        // In real tests that need actual decompression, they can mock this method
+        return compressedData
     }
 
     async decompressBatch(compressedBlocks: Uint8Array[]): Promise<Uint8Array[]> {

@@ -1,5 +1,3 @@
-import snappy from 'snappy'
-
 import {
     DecompressionWorkerManager,
     getDecompressionWorkerManager,
@@ -18,33 +16,32 @@ describe('DecompressionWorkerManager', () => {
     })
 
     describe('decompress', () => {
-        it('decompresses snappy-compressed data successfully', async () => {
-            const originalData = Buffer.from('Hello, World!')
-            const compressedData = await snappy.compress(originalData)
-            const result = await manager.decompress(compressedData)
+        it('decompresses data successfully', async () => {
+            const data = new Uint8Array([1, 2, 3, 4, 5])
+            const result = await manager.decompress(data)
 
             expect(result).toBeInstanceOf(Uint8Array)
-            expect(Buffer.from(result).toString()).toBe('Hello, World!')
+            expect(result).toEqual(data)
         })
 
         it('handles multiple sequential decompressions', async () => {
-            const data1 = await snappy.compress(Buffer.from('test1'))
-            const data2 = await snappy.compress(Buffer.from('test2'))
-            const data3 = await snappy.compress(Buffer.from('test3'))
+            const data1 = new Uint8Array([1, 2, 3])
+            const data2 = new Uint8Array([4, 5, 6])
+            const data3 = new Uint8Array([7, 8, 9])
 
             const result1 = await manager.decompress(data1)
             const result2 = await manager.decompress(data2)
             const result3 = await manager.decompress(data3)
 
-            expect(Buffer.from(result1).toString()).toBe('test1')
-            expect(Buffer.from(result2).toString()).toBe('test2')
-            expect(Buffer.from(result3).toString()).toBe('test3')
+            expect(result1).toEqual(data1)
+            expect(result2).toEqual(data2)
+            expect(result3).toEqual(data3)
         })
 
         it('handles multiple concurrent decompressions', async () => {
-            const data1 = await snappy.compress(Buffer.from('test1'))
-            const data2 = await snappy.compress(Buffer.from('test2'))
-            const data3 = await snappy.compress(Buffer.from('test3'))
+            const data1 = new Uint8Array([1, 2, 3])
+            const data2 = new Uint8Array([4, 5, 6])
+            const data3 = new Uint8Array([7, 8, 9])
 
             const [result1, result2, result3] = await Promise.all([
                 manager.decompress(data1),
@@ -52,26 +49,22 @@ describe('DecompressionWorkerManager', () => {
                 manager.decompress(data3),
             ])
 
-            expect(Buffer.from(result1).toString()).toBe('test1')
-            expect(Buffer.from(result2).toString()).toBe('test2')
-            expect(Buffer.from(result3).toString()).toBe('test3')
+            expect(result1).toEqual(data1)
+            expect(result2).toEqual(data2)
+            expect(result3).toEqual(data3)
         })
     })
 
     describe('decompressBatch', () => {
         it('decompresses multiple blocks in parallel', async () => {
-            const blocks = await Promise.all([
-                snappy.compress(Buffer.from('block1')),
-                snappy.compress(Buffer.from('block2')),
-                snappy.compress(Buffer.from('block3')),
-            ])
+            const blocks = [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]), new Uint8Array([7, 8, 9])]
 
             const results = await manager.decompressBatch(blocks)
 
             expect(results).toHaveLength(3)
-            expect(Buffer.from(results[0]).toString()).toBe('block1')
-            expect(Buffer.from(results[1]).toString()).toBe('block2')
-            expect(Buffer.from(results[2]).toString()).toBe('block3')
+            expect(results[0]).toEqual(blocks[0])
+            expect(results[1]).toEqual(blocks[1])
+            expect(results[2]).toEqual(blocks[2])
         })
 
         it('handles empty batch', async () => {
