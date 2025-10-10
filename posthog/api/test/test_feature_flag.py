@@ -5062,6 +5062,34 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_multivariate"
         assert response["results"][0]["status"] == "STALE"
 
+    def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
+        # Create a stale multivariate flag
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="stale_multivariate",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 100, "properties": [], "variant": "test"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                        "release_percentage": 100,
+                    },
+                },
+            )
+
+        # Test filtering by stale status
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
+        response = filtered_flags_list.json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "stale_multivariate"
+        assert response["results"][0]["status"] == "STALE"
+
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="server_flag", evaluation_runtime="server")

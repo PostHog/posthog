@@ -1046,6 +1046,17 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the roll_out percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                )
                             )
                             """
                         ]
