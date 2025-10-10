@@ -1,5 +1,3 @@
-import './SchemaManagement.scss'
-
 import { useActions, useValues } from 'kea'
 
 import { IconApps, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
