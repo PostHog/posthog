@@ -145,14 +145,14 @@ class RedshiftClient(PostgreSQLClient):
         finally:
             self.connection.cursor_factory = current_factory
 
-    async def amerge_mutable_tables(
+    async def amerge_tables(
         self,
         final_table_name: str,
-        final_table_fields: Fields,
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
         update_key: Fields,
+        final_table_fields: Fields,
         update_when_matched: Fields = (),
         stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
     ) -> None:
@@ -702,8 +702,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
 
                 finally:
                     if requires_merge:
-                        await redshift_client.amerge_mutable_tables(
+                        await redshift_client.amerge_tables(
                             final_table_name=redshift_table,
+                            final_table_fields=table_fields,
                             stage_table_name=redshift_stage_table,
                             schema=inputs.table.schema_name,
                             merge_key=merge_key,
@@ -1012,8 +1013,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 )
 
                 if merge_settings.requires_merge is True:
-                    await redshift_client.amerge_mutable_tables(
+                    await redshift_client.amerge_tables(
                         final_table_name=redshift_table,
+                        final_table_fields=table_fields,
                         stage_table_name=redshift_stage_table,
                         schema=inputs.table.schema_name,
                         merge_key=merge_settings.merge_key,
@@ -1186,6 +1188,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
         )
 
         merge_settings = _get_merge_settings(model=model, copy=True)
+        assert isinstance(merge_settings, RequiredMergeSettings)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -1263,7 +1266,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     authorization=inputs.copy.authorization,
                 )
 
-                await redshift_client.amerge_mutable_tables(
+                await redshift_client.amerge_tables(
                     final_table_name=redshift_table,
                     final_table_fields=table_fields,
                     stage_table_name=redshift_stage_table,
