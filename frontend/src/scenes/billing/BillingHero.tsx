@@ -4,7 +4,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { BillingPlan, BillingProductV2Type, StartupProgramLabel } from '~/types'
@@ -161,7 +160,7 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
     const { scrollToProduct } = useActions(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen } = useActions(billingProductLogic({ product }))
-    const showUpgradeToManagedAccount = useFeatureFlag(FEATURE_FLAGS.SHOW_UPGRADE_TO_MANAGED_ACCOUNT)
+    const showUpgradeToManagedAccount = useFeatureFlag('SHOW_UPGRADE_TO_MANAGED_ACCOUNT')
 
     if (!billingPlan) {
         return null
