@@ -25,12 +25,10 @@ import {
 
 function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
     return (
-        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0 bg-white">
-            <div className="flex-1">
-                <Link to={urls.eventDefinition(event.id)} className="font-semibold">
-                    {event.name}
-                </Link>
-            </div>
+        <div className="py-3 px-4 border-b last:border-b-0 bg-white">
+            <Link to={urls.eventDefinition(event.id)} className="font-semibold">
+                {event.name}
+            </Link>
         </div>
     )
 }

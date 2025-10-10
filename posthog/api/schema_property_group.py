@@ -66,7 +66,8 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
 
     def get_events(self, obj):
         event_schemas = obj.event_schemas.select_related("event_definition").all()
-        return EventDefinitionBasicSerializer([es.event_definition for es in event_schemas], many=True).data
+        event_definitions = sorted([es.event_definition for es in event_schemas], key=lambda e: e.name.lower())
+        return EventDefinitionBasicSerializer(event_definitions, many=True).data
 
     def create(self, validated_data):
         properties_data = validated_data.pop("properties", [])
@@ -169,5 +170,5 @@ class SchemaPropertyGroupViewSet(
         return (
             queryset.filter(team_id=self.team_id)
             .prefetch_related("properties", "event_schemas__event_definition")
-            .order_by("-created_at")
+            .order_by("name")
         )
