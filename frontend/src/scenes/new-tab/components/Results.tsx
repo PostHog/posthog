@@ -40,8 +40,9 @@ function Category({
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const { filteredItemsGrid, search, categories, isSearching, personSearchPagination, personSearchResults } =
-        useValues(newTabSceneLogic({ tabId }))
+    const { filteredItemsGrid, search, categories, isSearching, personSearchResults } = useValues(
+        newTabSceneLogic({ tabId })
+    )
 
     return (
         <>
@@ -161,17 +162,10 @@ function Category({
                             </ButtonGroupPrimitive>
                         ))
                     )}
-                    {newTabSceneData && category === 'persons' && personSearchPagination.hasMore && (
+                    {newTabSceneData && category === 'persons' && (
                         <ListBox.Item asChild>
                             <Link
-                                to={(() => {
-                                    const searchTerm = search.startsWith('/persons ')
-                                        ? search.replace('/persons ', '')
-                                        : search
-                                    return searchTerm
-                                        ? `${urls.persons()}?q=${encodeURIComponent(searchTerm)}`
-                                        : urls.persons()
-                                })()}
+                                to={urls.persons()}
                                 buttonProps={{
                                     className: 'w-full mt-2',
                                 }}
