@@ -455,6 +455,15 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 )
             )
 
+        if self.query.personId:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
+
         if self.query.searchQuery:
             # TODO: Refine this so it only searches the frames inside $exception_list
             # TODO: We'd eventually need a more efficient searching strategy

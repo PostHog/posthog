@@ -2187,6 +2187,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     withLastEvent?: boolean
     limit?: integer
     offset?: integer
+    personId?: string
 }
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
@@ -3887,9 +3888,16 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     schema_map: SchemaMap
 }
 
+export enum AttributionMode {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
+    attribution_window_days?: number
+    attribution_mode?: AttributionMode
 }
 
 export enum MarketingAnalyticsBaseColumns {

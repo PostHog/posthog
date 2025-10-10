@@ -415,12 +415,13 @@ export function FeatureFlagReleaseConditions({
                                     )}
                                 />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
-                                {affectedUsers[index] !== undefined ? (
+                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
-                                            computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(
-                                                2
-                                            ) * 1
+                                            computeBlastRadiusPercentage(
+                                                group.rollout_percentage,
+                                                group.sort_key
+                                            ).toPrecision(2) * 1
                                             // Multiplying by 1 removes trailing zeros after the decimal
                                             // point added by toPrecision
                                         }% `}
@@ -429,7 +430,7 @@ export function FeatureFlagReleaseConditions({
                                     <Spinner className="mr-1" />
                                 )}{' '}
                                 {(() => {
-                                    const affectedUserCount = affectedUsers[index]
+                                    const affectedUserCount = group.sort_key ? affectedUsers[group.sort_key] : undefined
                                     if (
                                         affectedUserCount !== undefined &&
                                         affectedUserCount >= 0 &&
