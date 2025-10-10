@@ -94,7 +94,7 @@ def DUPLICATE_EVENTS_WRITABLE_TABLE_SQL():
 def KAFKA_DUPLICATE_EVENTS_TABLE_SQL():
     return KAFKA_DUPLICATE_EVENTS_TABLE_BASE_SQL.format(
         table_name=KAFKA_DUPLICATE_EVENTS_TABLE,
-        engine=kafka_engine(topic="ingestion_events_duplicate_events", group="clickhouse_duplicate_events"),
+        engine=kafka_engine(topic="clickhouse_ingestion_events_duplicates", group="clickhouse_duplicate_events"),
     )
 
 
