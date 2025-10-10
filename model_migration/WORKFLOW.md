@@ -131,7 +131,19 @@ git commit -m "feat(migration-scripts): [describe script improvements]"
 
 ```bash
 git checkout chore/models-migrations-<product>
-git merge chore/models-migrations-<product>-fresh -X theirs
+git merge chore/models-migrations-<product>-fresh
+# Review merge carefully - do NOT blindly accept all changes
+# The script may have bugs that accidentally removed code
+# Manually resolve conflicts, preferring fresh for migration changes
+
+# CRITICAL: Validate no code was accidentally removed by the script
+git diff HEAD~1 HEAD --stat | sort -k2 -n -r | head -20
+# Look for files with large negative line counts (unexpected deletions)
+# Investigate any files with >50 lines deleted
+
+# Check specific critical files that often have issues:
+git diff HEAD~1 HEAD -- posthog/tasks/email.py posthog/conftest.py
+# Make sure no functions were accidentally removed
 
 # CRITICAL: Amend the merge commit to remove model_migration/ folder
 # (soft reset may have included it in merge)
@@ -223,6 +235,52 @@ git rm <unwanted_file>
 git commit --amend --no-edit
 ```
 
+### LibCST Script Bugs
+
+**Symptom**: Functions or code blocks completely missing after migration, CI failures with import errors
+
+**Cause**: LibCST can accidentally remove code when transforming imports, especially:
+
+- Multi-line imports
+- Code added to master after baseline branch was created
+- Complex import patterns
+- Files with multiple imports from the same module
+
+**Example**: During error_tracking migration:
+
+- `send_discussions_mentioned` function was removed from `posthog/tasks/email.py` (48 lines)
+- `DISCUSSIONS_MENTIONED` enum value and related code deleted
+- `pytest_sessionstart` fixture removed from `posthog/conftest.py`
+
+**Prevention**:
+
+1. Carefully review ALL modified files after script runs during pause
+2. Check for large deletions: `git diff --stat`
+3. Compare line counts before/after: `wc -l file.py`
+4. Test critical imports manually:
+
+    ```bash
+    python -c "from posthog.tasks.email import send_discussions_mentioned"
+    python -c "from posthog.conftest import pytest_sessionstart"
+    ```
+
+5. Run tests locally before pushing
+
+**Fix**: Restore affected files from master and manually apply import changes:
+
+```bash
+# Restore the file from master
+git checkout origin/master -- posthog/tasks/email.py
+
+# Then manually update ONLY the import line
+# OLD:
+from posthog.models.error_tracking import ErrorTrackingIssueAssignment
+# NEW:
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
+```
+
+**Why this happens**: The LibCST script uses regex and AST transformations that can have edge cases. Always validate its output manually.
+
 ## If Things Go Wrong
 
 ### Reset PR Branch and Start Over
@@ -278,9 +336,29 @@ The key insight: Step 3 merge **corrects** the potentially messy step 1 merge by
 
 ### Step 3 Conflicts (fresh → stale)
 
-- **Always prefer the fresh branch version** when in doubt
-- Use `-X theirs` strategy for auto-resolution
-- Or manually checkout fresh version for migrated files
+**IMPORTANT**: Do NOT use `-X theirs` blindly - the fresh branch may have script bugs!
+
+- **Carefully review each conflict** before resolving
+- For migration-related files (models, migrations, app configs):
+  - Generally prefer the fresh branch version
+  - But validate no code was accidentally deleted
+- For unrelated files:
+  - Keep master changes if they don't conflict with migration
+- **Always validate** after merge:
+
+    ```bash
+    # Check for unexpected deletions
+    git diff HEAD~1 HEAD --stat
+    # Review critical files manually
+    git diff HEAD~1 HEAD -- posthog/tasks/email.py posthog/conftest.py
+    ```
+
+- If in doubt, manually checkout fresh version and inspect:
+
+    ```bash
+    git checkout --theirs path/to/file.py
+    git diff HEAD -- path/to/file.py  # Review what changed
+    ```
 
 ## Alternative Workflows (Not Recommended Currently)
 
