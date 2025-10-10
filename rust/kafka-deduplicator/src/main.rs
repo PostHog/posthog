@@ -169,7 +169,10 @@ async fn main() -> Result<()> {
 
         if config.otel_log_level == tracing::Level::DEBUG {
             // local dev: pretty-print output to console
-            base.with_ansi(true)
+            base.with_span_events(
+                    FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+                )
+                .with_ansi(true)
                 .with_filter(EnvFilter::from_default_env())
                 .boxed()
         } else {
