@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from django.db.models import Case, F, Q, QuerySet, Value, When
+from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 from django.dispatch import receiver
 
@@ -22,6 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
@@ -760,11 +761,6 @@ class EnterpriseExperimentsViewSet(
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
         """
-        from django.db.models import Prefetch
-
-        from posthog.api.feature_flag import FeatureFlagSerializer
-        from posthog.models import Survey
-
         # validate limit and offset
         try:
             limit = min(int(request.query_params.get("limit", 20)), 100)
