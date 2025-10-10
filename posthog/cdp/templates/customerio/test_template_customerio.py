@@ -125,18 +125,6 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         assert "token" not in attributes
         assert attributes["url"] == "https://example.com"
 
-        # Test with person properties (identify action)
-        self.run_function(
-            inputs=create_inputs(include_all_properties=True, action="identify"),
-            globals={
-                "person": {"properties": {"email": "example@posthog.com", "token": "secret_token"}},
-            },
-        )
-
-        attributes = self.get_mock_fetch_calls()[0][1]["body"]["attributes"]
-        assert "token" not in attributes
-        assert attributes["email"] == "example@posthog.com"
-
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
             ("$identify", "identify"),

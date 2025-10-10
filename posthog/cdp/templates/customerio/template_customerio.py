@@ -46,13 +46,17 @@ if (action == 'automatic') {
 
 let attributes := {}
 if (inputs.include_all_properties) {
-    for (let key, value in (action == 'identify' ? person.properties : event.properties)) {
-        if (key != 'token') {
-            attributes[key] := value
+    if (action == 'identify') {
+        attributes := person.properties
+    } else {
+        for (let key, value in event.properties) {
+            if (key != 'token') {
+                attributes[key] := value
+            }
         }
-    }
-    if (action != 'identify' and not empty(event.elements_chain)) {
-        attributes['$elements_chain'] := event.elements_chain
+        if (not empty(event.elements_chain)) {
+            attributes['$elements_chain'] := event.elements_chain
+        }
     }
 }
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))

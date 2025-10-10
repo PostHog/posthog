@@ -89,22 +89,6 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
 
-    def test_token_excluded_when_include_all_properties(self):
-        # Test that token is excluded from person properties
-        self.run_function(
-            inputs=self._inputs(include_all_properties=True),
-            globals={
-                "person": {
-                    "id": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                    "properties": {"company": "PostHog", "token": "secret_token"},
-                },
-            },
-        )
-
-        body = self.get_mock_fetch_calls()[0][1]["body"]
-        assert "token" not in body
-        assert body["company"] == "PostHog"
-
 
 class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
     template = template_loops_send_event

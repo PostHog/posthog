@@ -203,24 +203,6 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
             self.run_function(inputs=self.create_inputs())
         assert e.value.message == "Found multiple contacts with the same email address. Skipping..."
 
-    def test_token_excluded_when_include_all_properties(self):
-        # Test that token is excluded from person properties
-        self.mock_fetch_response = lambda url, options: {  # type: ignore
-            "status": 200,
-            "body": {"total_count": 1, "data": [{"id": "123"}]},
-        }
-
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=True),
-            globals={
-                "person": {"properties": {"plan": "pay-as-you-go", "token": "secret_token"}},
-            },
-        )
-
-        body = self.get_mock_fetch_calls()[1][1]["body"]
-        assert "token" not in body
-        assert body["plan"] == "pay-as-you-go"
-
 
 class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
     template = template_intercom_event

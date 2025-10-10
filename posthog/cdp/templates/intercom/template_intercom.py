@@ -50,7 +50,7 @@ let payload := {
 
 if (inputs.include_all_properties) {
     for (let key, value in person.properties) {
-        if (not empty(value) and not key like '$%' and key != 'token') {
+        if (not empty(value) and not key like '$%') {
             payload[key] := value
         }
     }
