@@ -403,6 +403,21 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            const nodeAttributes = Object.fromEntries(
+                Object.entries(attributes as Record<string, any>).map(([name, config]) => {
+                    return [
+                        name,
+                        {
+                            ...config,
+                            parseHTML: (element: HTMLElement) => {
+                                const attribute = element.getAttribute(name)
+                                return attribute ? JSON.parse(atob(attribute)) : null
+                            },
+                        },
+                    ]
+                })
+            )
+
             return {
                 height: {},
                 title: {},
@@ -411,7 +426,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 },
                 __init: { default: null },
                 children: {},
-                ...attributes,
+                ...nodeAttributes,
             }
         },
 

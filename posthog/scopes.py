@@ -31,7 +31,6 @@ APIScopeObject = Literal[
     "insight",
     "integration",
     "link",
-    "named_query",
     "notebook",
     "organization",
     "organization_member",
