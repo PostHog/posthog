@@ -1,5 +1,7 @@
+import asyncio
 import inspect
-from collections.abc import Callable, Coroutine
+import functools
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
@@ -70,3 +72,43 @@ def get_scheduled_start_time():
             f"of type '{type(scheduled_start_time_attr[0])}'."
         )
         raise TypeError(msg)
+
+
+_Result = TypeVar("_Result")
+_P = ParamSpec("_P")
+
+
+def make_retryable_with_exponential_backoff(
+    func: Callable[_P, Awaitable[_Result]],
+    timeout: float | int | None = None,
+    max_attempts: int = 5,
+    initial_retry_delay: float | int = 2,
+    max_retry_delay: float | int = 32,
+    exponential_backoff_coefficient: int = 2,
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+    is_exception_retryable: Callable[[Exception], bool] = lambda _: True,
+) -> Callable[_P, Coroutine[Any, Any, _Result]]:
+    """Retry the provided async `func` until `max_attempts` is reached."""
+
+    @functools.wraps(func)
+    async def inner(*args: _P.args, **kwargs: _P.kwargs) -> _Result:
+        attempt = 0
+
+        while True:
+            try:
+                result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+
+            except retryable_exceptions as err:
+                attempt += 1
+
+                if is_exception_retryable(err) is False or attempt >= max_attempts:
+                    raise
+
+                await asyncio.sleep(
+                    min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                )
+
+            else:
+                return result
+
+    return inner

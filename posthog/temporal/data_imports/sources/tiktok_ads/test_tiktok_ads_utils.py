@@ -7,12 +7,10 @@ import pytest
 from unittest.mock import Mock
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError
 
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
     TikTokAdsPaginator,
-    exponential_backoff_retry,
     flatten_tiktok_report_record,
     flatten_tiktok_reports,
     generate_date_chunks,
@@ -386,115 +384,6 @@ class TestTikTokAdsPaginator:
 
             assert "non-retryable" in str(value_exc_info.value)
             assert str(api_code) in str(value_exc_info.value)
-
-
-class TestExponentialBackoffRetry:
-    """Test suite for exponential backoff retry mechanism."""
-
-    def test_exponential_backoff_success_on_first_attempt(self):
-        """Test that successful functions are not retried."""
-        call_count = 0
-
-        def successful_function():
-            nonlocal call_count
-            call_count += 1
-            return "success"
-
-        decorated_func = exponential_backoff_retry(successful_function, max_retries=3, base_delay=0.1)
-        result = decorated_func()
-
-        assert result == "success"
-        assert call_count == 1
-
-    def test_exponential_backoff_retry_on_tiktok_api_error(self):
-        """Test retry behavior with TikTokAdsAPIError."""
-        call_count = 0
-
-        def failing_function():
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:
-                raise TikTokAdsAPIError("QPS limit reached", api_code=40100)
-            return "success_after_retries"
-
-        decorated_func = exponential_backoff_retry(failing_function, max_retries=2, base_delay=0.1, multiplier=2.0)
-        result = decorated_func()
-
-        assert result == "success_after_retries"
-        assert call_count == 3  # Initial + 2 retries
-
-    def test_exponential_backoff_max_retries_exceeded(self):
-        """Test that function fails after max retries."""
-        call_count = 0
-
-        def always_failing_function():
-            nonlocal call_count
-            call_count += 1
-            raise TikTokAdsAPIError("Persistent error", api_code=40100)
-
-        decorated_func = exponential_backoff_retry(always_failing_function, max_retries=2, base_delay=0.1)
-
-        with pytest.raises(TikTokAdsAPIError, match="Persistent error"):
-            decorated_func()
-
-        assert call_count == 3  # Initial + 2 retries
-
-    def test_exponential_backoff_non_retryable_exception(self):
-        """Test that non-retryable exceptions are not retried."""
-        call_count = 0
-
-        def non_retryable_error_function():
-            nonlocal call_count
-            call_count += 1
-            raise ValueError("Client error - should not retry")
-
-        decorated_func = exponential_backoff_retry(non_retryable_error_function, max_retries=3, base_delay=0.1)
-
-        with pytest.raises(ValueError, match="Client error - should not retry"):
-            decorated_func()
-
-        assert call_count == 1  # No retries
-
-    def test_exponential_backoff_http_error_retryable(self):
-        """Test retry behavior with retryable HTTP errors."""
-
-        call_count = 0
-
-        def http_error_function():
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 1:
-                mock_response = Mock()
-                mock_response.status_code = 429
-                error = HTTPError("Too Many Requests", response=mock_response)
-                raise error
-            return "success_after_http_retry"
-
-        decorated_func = exponential_backoff_retry(http_error_function, max_retries=2, base_delay=0.1)
-        result = decorated_func()
-
-        assert result == "success_after_http_retry"
-        assert call_count == 2  # Initial + 1 retry
-
-    def test_exponential_backoff_http_error_non_retryable(self):
-        """Test that non-retryable HTTP errors are not retried."""
-
-        call_count = 0
-
-        def non_retryable_http_error():
-            nonlocal call_count
-            call_count += 1
-            mock_response = Mock()
-            mock_response.status_code = 404
-            error = HTTPError("Not Found", response=mock_response)
-            raise error
-
-        decorated_func = exponential_backoff_retry(non_retryable_http_error, max_retries=3, base_delay=0.1)
-
-        with pytest.raises(HTTPError, match="Not Found"):
-            decorated_func()
-
-        assert call_count == 1  # No retries for 404
 
 
 class TestTikTokAdsAPIError:

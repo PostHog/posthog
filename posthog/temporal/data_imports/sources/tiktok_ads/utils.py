@@ -1,5 +1,4 @@
 import copy
-import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -29,140 +28,30 @@ class TikTokAdsAPIError(Exception):
         self.response = response
 
 
-# https://business-api.tiktok.com/portal/docs?id=1740029171730433 For QPM limit, you need to wait 5 minutes before you can
-# make API requests again. For QPD limit, you need to wait until the next day (UTC+0 time) to make API requests again.
-# Note that the QPD limit resets at 00:00:00 UTC+0 time every day.
-def exponential_backoff_retry(
-    func,
-    max_retries: int = 5,
-    base_delay: float = 301.0,  # tiktok has 5 minutes circuit breaker when too many requests are made and QPM/QPD limits are exceeded
-    multiplier: float = 1.68,
-    exceptions: tuple = (TikTokAdsAPIError,),
-):
+def is_tiktok_exception_retryable(exception: Exception) -> bool:
     """
-    Decorator for exponential backoff retry with custom parameters.
+    Determine if a TikTok API exception should be retried.
 
-    Args:
-        func: Function to retry
-        max_retries: Maximum number of retry attempts
-        base_delay: Initial delay in seconds
-        multiplier: Exponential multiplier
-        exceptions: Tuple of exceptions that should trigger a retry
+    TikTok has specific rate limits and error codes that should trigger retries:
+    - QPM limit: need to wait 5 minutes before making API requests again
+    - QPD limit: need to wait until the next day (UTC+0 time) to make API requests again
+    - Note that the QPD limit resets at 00:00:00 UTC+0 time every day
+
+    https://business-api.tiktok.com/portal/docs?id=1740029171730433
     """
+    if isinstance(exception, TikTokAdsAPIError):
+        return True
 
-    def wrapper(*args, **kwargs):
-        last_exception = None
+    if isinstance(exception, HTTPError) and hasattr(exception, "response") and exception.response is not None:
+        status_code = exception.response.status_code
+        # Retry on rate limiting and server errors
+        return status_code in [429, 500, 502, 503, 504]
 
-        for attempt in range(max_retries + 1):  # +1 for initial attempt
-            try:
-                return func(*args, **kwargs)
-            except exceptions as e:
-                last_exception = e
+    if isinstance(exception, Timeout | RequestException):
+        # Network errors are retryable
+        return True
 
-                if attempt == max_retries:
-                    logger.exception(
-                        "tiktok_ads_max_retries_exceeded",
-                        function=func.__name__,
-                        attempt=attempt + 1,
-                        max_retries=max_retries,
-                        error=str(e),
-                    )
-                    raise
-
-                # Calculate delay: base_delay * multiplier^attempt
-                delay = base_delay * (multiplier**attempt)
-
-                logger.warning(
-                    "tiktok_ads_retry_attempt",
-                    function=func.__name__,
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    delay_seconds=delay,
-                    error=str(e),
-                )
-
-                time.sleep(delay)
-            except HTTPError as e:
-                # Handle HTTP errors - retry on rate limiting and server errors
-                if hasattr(e, "response") and e.response is not None:
-                    status_code = e.response.status_code
-                    if status_code in [429, 500, 502, 503, 504]:
-                        # Convert to retryable error and continue with retry logic
-                        last_exception = TikTokAdsAPIError(f"HTTP {status_code} error: {str(e)}", response=e.response)
-
-                        if attempt == max_retries:
-                            logger.exception(
-                                "tiktok_ads_max_retries_exceeded",
-                                function=func.__name__,
-                                attempt=attempt + 1,
-                                max_retries=max_retries,
-                                error=str(last_exception),
-                                http_status=status_code,
-                            )
-                            raise last_exception
-
-                        delay = base_delay * (multiplier**attempt)
-
-                        logger.warning(
-                            "tiktok_ads_http_retry_attempt",
-                            function=func.__name__,
-                            attempt=attempt + 1,
-                            max_retries=max_retries,
-                            delay_seconds=delay,
-                            http_status=status_code,
-                            error=str(e),
-                        )
-
-                        time.sleep(delay)
-                        continue
-
-                # Non-retryable HTTP error, re-raise immediately
-                logger.exception(
-                    "tiktok_ads_non_retryable_http_error",
-                    function=func.__name__,
-                    error=str(e),
-                    http_status=getattr(e.response, "status_code", None) if hasattr(e, "response") else None,
-                )
-                raise
-            except (Timeout, RequestException) as e:
-                # Network errors are retryable
-                last_exception = TikTokAdsAPIError(f"Network error: {str(e)}")
-
-                if attempt == max_retries:
-                    logger.exception(
-                        "tiktok_ads_max_retries_exceeded",
-                        function=func.__name__,
-                        attempt=attempt + 1,
-                        max_retries=max_retries,
-                        error=str(last_exception),
-                        error_type="network",
-                    )
-                    raise last_exception
-
-                delay = base_delay * (multiplier**attempt)
-
-                logger.warning(
-                    "tiktok_ads_network_retry_attempt",
-                    function=func.__name__,
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    delay_seconds=delay,
-                    error=str(e),
-                )
-
-                time.sleep(delay)
-            except Exception as e:
-                # Non-retryable exception, re-raise immediately
-                logger.exception(
-                    "tiktok_ads_non_retryable_error", function=func.__name__, error=str(e), error_type=type(e).__name__
-                )
-                raise
-
-        # This should never be reached, but just in case
-        if last_exception:
-            raise last_exception
-
-    return wrapper
+    return False
 
 
 def flatten_tiktok_report_record(record: dict[str, Any]) -> dict[str, Any]:

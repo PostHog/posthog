@@ -7,9 +7,6 @@ from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 MAX_TIKTOK_DAYS_TO_QUERY = 30
 BASE_URL = "https://business-api.tiktok.com/open_api/v1.3"
-TIKTOK_SLEEP_SECONDS = (
-    1  # sleep between date intervals chunks requests to avoid rate limiting, tiktok has a 20 QPS limit
-)
 MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS = 365
 
 TIKTOK_REPORT_METRICS = '["cpm", "ctr", "spend", "clicks", "conversion", "impressions", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_conversion_rate", "real_time_cost_per_conversion", "currency"]'

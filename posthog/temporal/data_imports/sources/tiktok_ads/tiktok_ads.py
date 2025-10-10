@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
+from posthog.temporal.common.utils import asyncify, make_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
@@ -9,14 +10,15 @@ from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     TIKTOK_ADS_CONFIG,
 )
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
+    TikTokAdsAPIError,
     TikTokAdsAuth,
     TikTokAdsPaginator,
     create_date_chunked_resources,
-    exponential_backoff_retry,
     flatten_tiktok_report_record,
     flatten_tiktok_reports,
     get_incremental_date_range,
     is_report_endpoint,
+    is_tiktok_exception_retryable,
 )
 
 
@@ -123,10 +125,26 @@ def tiktok_ads_source(
                     resource_endpoint["paginator"] = TikTokAdsPaginator()
 
     # Apply retry logic to the entire resource creation process
-    @exponential_backoff_retry
-    def get_dlt_resources_with_retry():
+    @asyncify
+    def async_get_dlt_resources():
         """Get DLT resources with retry logic - creates fresh generators on each attempt."""
         return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+
+    # Apply TikTok-specific retry settings
+    retryable_get_resources = make_retryable_with_exponential_backoff(
+        async_get_dlt_resources,
+        max_attempts=5,
+        initial_retry_delay=301.0,  # TikTok's 5-minute circuit breaker
+        max_retry_delay=301.0 * (1.68**5),  # Max delay after 5 retries
+        exponential_backoff_coefficient=1.68,
+        retryable_exceptions=(TikTokAdsAPIError, Exception),
+        is_exception_retryable=is_tiktok_exception_retryable,
+    )
+
+    def get_dlt_resources_with_retry():
+        import asyncio
+
+        return asyncio.run(retryable_get_resources())
 
     dlt_resources = get_dlt_resources_with_retry()
 
