@@ -7,13 +7,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { disposables } from '../../../frontend/src/kea-disposables'
 import { demoTasks } from './demoData'
 import type { tasksLogicType } from './tasksLogicType'
 import { Task, TaskTrackerTab, TaskUpsertProps, TaskWorkflow, WorkflowStage } from './types'
 
 export const tasksLogic = kea<tasksLogicType>([
-    disposables(),
     path(['products', 'tasks', 'frontend', 'tasksLogic']),
     connect(() => ({
         values: [router, ['location']],

@@ -61,6 +61,67 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
     }
 }
 
+/**
+ * Kea plugin that provides automatic resource cleanup via disposables.
+ *
+ * ## Usage
+ *
+ * The disposables system is similar to React's useEffect cleanup pattern - you provide
+ * a setup function that returns a cleanup function. The cleanup runs automatically when
+ * the logic unmounts.
+ *
+ * ```typescript
+ * listeners(({ actions, cache }) => ({
+ *     someAction: () => {
+ *         // Add a disposable - like useEffect(() => { ... return cleanup }, [])
+ *         cache.disposables.add(() => {
+ *             // Setup code runs immediately
+ *             const intervalId = setInterval(() => {
+ *                 actions.pollData()
+ *             }, 5000)
+ *
+ *             // Return cleanup function (like useEffect cleanup)
+ *             return () => clearInterval(intervalId)
+ *         }, 'pollingInterval') // Optional key for replacing/disposing specific disposables
+ *     }
+ * }))
+ * ```
+ *
+ * ## Key Features
+ *
+ * - **Automatic cleanup**: Cleanup functions run when the logic unmounts
+ * - **Named disposables**: Use keys to replace or dispose specific resources
+ * - **Safe execution**: Errors in cleanup are caught and logged
+ * - **Similar to useEffect**: Setup returns cleanup, just like React hooks
+ *
+ * ## Common Use Cases
+ *
+ * - Event listeners (window.addEventListener)
+ * - Timers (setTimeout, setInterval)
+ * - Subscriptions (WebSocket, EventSource)
+ * - External library cleanup
+ *
+ * @example Replace a disposable
+ * ```typescript
+ * // Each call with the same key replaces the previous one
+ * cache.disposables.add(() => {
+ *     const id = setTimeout(() => action(), 1000)
+ *     return () => clearTimeout(id)
+ * }, 'myTimer')
+ *
+ * // Later, this replaces the previous timer
+ * cache.disposables.add(() => {
+ *     const id = setTimeout(() => action(), 2000)
+ *     return () => clearTimeout(id)
+ * }, 'myTimer')
+ * ```
+ *
+ * @example Manually dispose
+ * ```typescript
+ * // Stop polling without unmounting
+ * cache.disposables.dispose('pollingInterval')
+ * ```
+ */
 export const disposablesPlugin: KeaPlugin = {
     name: 'disposables',
     events: {
