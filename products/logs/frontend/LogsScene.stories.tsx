@@ -165,8 +165,6 @@ const getLogs = async (
 }> => {
     const severityLevels = body.query?.severityLevels ?? ['info', 'warn', 'error']
 
-    // TODO: Add filtering
-
     const startDate = dateStringToDayJs(body.query?.dateRange?.date_from ?? null) ?? dayjs().subtract(30, 'minutes')
     const endDate = dateStringToDayJs(body.query?.dateRange?.date_to ?? null) ?? dayjs()
 
