@@ -72,6 +72,7 @@ export function MarketingAnalyticsOverview(props: {
             dashboardLinkFromKey={() => null}
             filterEmptyItems={filterEmptyMetrics}
             showBetaTags={() => false}
+            compact={true}
         />
     )
 }
@@ -90,6 +91,13 @@ const labelFromKey = (key: string): string => {
 }
 
 const filterEmptyMetrics = (item: OverviewItem): boolean => {
-    // Filter out metrics that have no data and no comparison data
-    return !(item.value == null && item.previous == null)
+    // Always show cost per metrics, even if they're null (they'll display as "-")
+    if (item.key.toLowerCase().startsWith('cost per')) {
+        return true
+    }
+
+    // Filter out other metrics that have no data and no comparison data
+    const shouldShow = !(item.value == null && item.previous == null)
+
+    return shouldShow
 }

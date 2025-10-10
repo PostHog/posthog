@@ -41,7 +41,7 @@ jobs:
               if: steps.check-changes.outputs.changes == 'true'
               uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5
               with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   commit-message: 'Update bot IPs from GoodBots repository'
                   title: '🤖 Update bot IPs from GoodBots repository'
                   body: |

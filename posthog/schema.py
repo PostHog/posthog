@@ -2000,6 +2000,7 @@ class NodeKind(StrEnum):
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
+    USAGE_METRICS_QUERY = "UsageMetricsQuery"
 
 
 class PageURL(BaseModel):
@@ -2830,6 +2831,16 @@ class TrendsFormulaNode(BaseModel):
     )
     custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
     formula: str
+
+
+class UsageMetricDisplay(StrEnum):
+    NUMBER = "number"
+    SPARKLINE = "sparkline"
+
+
+class UsageMetricFormat(StrEnum):
+    NUMERIC = "numeric"
+    CURRENCY = "currency"
 
 
 class UserBasicType(BaseModel):
@@ -5246,6 +5257,42 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
+class UsageMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: UsageMetricDisplay
+    format: UsageMetricFormat
+    id: str
+    interval: int
+    name: str
+    value: float
+
+
+class UsageMetricsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[UsageMetric]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7090,6 +7137,40 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[dict[str, Any]]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedUsageMetricsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[UsageMetric]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -10751,6 +10832,30 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
+class QueryResponseAlternative73(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[UsageMetric]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11236,6 +11341,28 @@ class TracesQuery(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class UsageMetricsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_key: Optional[str] = Field(
+        default=None, description="Group key. Required with group_type_index for group queries."
+    )
+    group_type_index: Optional[int] = Field(
+        default=None, description="Group type index. Required with group_key for group queries."
+    )
+    kind: Literal["UsageMetricsQuery"] = "UsageMetricsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    person_id: Optional[str] = Field(
+        default=None, description="Person ID to fetch metrics for. Mutually exclusive with group parameters."
+    )
+    response: Optional[UsageMetricsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12905,6 +13032,7 @@ class ErrorTrackingQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
+    personId: Optional[str] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     revenueEntity: Optional[RevenueEntity] = None
     revenuePeriod: Optional[RevenuePeriod] = None
@@ -14000,6 +14128,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative69,
             QueryResponseAlternative70,
             QueryResponseAlternative72,
+            QueryResponseAlternative73,
         ]
     ]
 ):
@@ -14070,6 +14199,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative69,
         QueryResponseAlternative70,
         QueryResponseAlternative72,
+        QueryResponseAlternative73,
     ]
 
 
@@ -14721,6 +14851,7 @@ class HogQLAutocomplete(BaseModel):
             TracesQuery,
             TraceQuery,
             VectorSearchQuery,
+            UsageMetricsQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -14788,6 +14919,7 @@ class HogQLMetadata(BaseModel):
             TracesQuery,
             TraceQuery,
             VectorSearchQuery,
+            UsageMetricsQuery,
         ]
     ] = Field(
         default=None,
@@ -14890,6 +15022,7 @@ class MaxInsightContext(BaseModel):
         TracesQuery,
         TraceQuery,
         VectorSearchQuery,
+        UsageMetricsQuery,
     ] = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
     variablesOverride: Optional[dict[str, HogQLVariable]] = None
@@ -14980,6 +15113,7 @@ class QueryRequest(BaseModel):
         TracesQuery,
         TraceQuery,
         VectorSearchQuery,
+        UsageMetricsQuery,
     ] = Field(
         ...,
         description=(
@@ -15069,6 +15203,7 @@ class QuerySchemaRoot(
             TracesQuery,
             TraceQuery,
             VectorSearchQuery,
+            UsageMetricsQuery,
         ]
     ]
 ):
@@ -15132,6 +15267,7 @@ class QuerySchemaRoot(
         TracesQuery,
         TraceQuery,
         VectorSearchQuery,
+        UsageMetricsQuery,
     ] = Field(..., discriminator="kind")
 
 
@@ -15199,6 +15335,7 @@ class QueryUpgradeRequest(BaseModel):
         TracesQuery,
         TraceQuery,
         VectorSearchQuery,
+        UsageMetricsQuery,
     ] = Field(..., discriminator="kind")
 
 
@@ -15266,6 +15403,7 @@ class QueryUpgradeResponse(BaseModel):
         TracesQuery,
         TraceQuery,
         VectorSearchQuery,
+        UsageMetricsQuery,
     ] = Field(..., discriminator="kind")
 
 

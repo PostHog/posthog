@@ -54,6 +54,7 @@ from posthog.schema import (
     TraceQuery,
     TracesQuery,
     TrendsQuery,
+    UsageMetricsQuery,
     VectorSearchQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -177,6 +178,7 @@ RunnableQueryNode = Union[
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
+    UsageMetricsQuery,
 ]
 
 
@@ -716,6 +718,17 @@ def get_query_runner(
         )
 
         return MarketingAnalyticsAggregatedQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "UsageMetricsQuery":
+        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+
+        return UsageMetricsQueryRunner(
             query=query,
             team=team,
             timings=timings,

@@ -14,10 +14,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { WebAnalyticsItemKind } from '~/queries/schema/schema-general'
 
-const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
+const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
+const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
 
-// Keep min-w-[10rem] in sync with OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS
-const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
+// Default classes for non-compact mode
+const OVERVIEW_ITEM_CELL_CLASSES_DEFAULT = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
+
+// Compact classes for marketing analytics
+const OVERVIEW_ITEM_CELL_CLASSES_COMPACT = `flex-1 border p-1 bg-surface-primary rounded min-w-[6rem] h-24 flex flex-col items-center text-center justify-between`
 
 export interface OverviewItem {
     key: string
@@ -44,6 +48,7 @@ interface OverviewGridProps {
     dashboardLinkFromKey: (key: string) => string | null
     filterEmptyItems?: (item: OverviewItem) => boolean
     showBetaTags?: (key: string) => boolean
+    compact?: boolean
 }
 
 export function OverviewGrid({
@@ -57,17 +62,23 @@ export function OverviewGrid({
     dashboardLinkFromKey,
     filterEmptyItems = () => true,
     showBetaTags = () => false,
+    compact = false,
 }: OverviewGridProps): JSX.Element {
     const filteredItems = items.filter(filterEmptyItems)
 
     return (
         <>
             <EvenlyDistributedRows
-                className="flex justify-center items-center flex-wrap w-full gap-2"
-                minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
+                className={`flex justify-center items-center flex-wrap w-full ${compact ? 'gap-1' : 'gap-2'}`}
+                minWidthRems={
+                    compact
+                        ? OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT + 1
+                        : OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT + 2
+                }
+                maxItemsPerRow={compact ? 10 : undefined}
             >
                 {loading
-                    ? range(numSkeletons).map((i) => <OverviewItemCellSkeleton key={i} />)
+                    ? range(numSkeletons).map((i) => <OverviewItemCellSkeleton key={i} compact={compact} />)
                     : filteredItems.map((item) => (
                           <OverviewItemCell
                               key={item.key}
@@ -77,6 +88,7 @@ export function OverviewGrid({
                               settingsLinkFromKey={settingsLinkFromKey}
                               dashboardLinkFromKey={dashboardLinkFromKey}
                               showBetaTag={showBetaTags(item.key)}
+                              compact={compact}
                           />
                       ))}
             </EvenlyDistributedRows>
@@ -91,12 +103,27 @@ export function OverviewGrid({
     )
 }
 
-const OverviewItemCellSkeleton = (): JSX.Element => {
+const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Element => {
+    const cellClasses = compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT
     return (
-        <div className={OVERVIEW_ITEM_CELL_CLASSES}>
-            <LemonSkeleton className="h-2 w-10" />
-            <LemonSkeleton className="h-6 w-20" />
-            <LemonSkeleton className="h-2 w-10" />
+        <div className={cellClasses}>
+            <div className="flex flex-row w-full">
+                <div className="flex flex-row items-start justify-start flex-1">
+                    {/* Empty space for potential beta tag */}
+                </div>
+                <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
+                    <LemonSkeleton className={`w-16 ${compact ? 'h-2.5' : 'h-3'}`} />
+                </div>
+                <div className="flex flex-1 flex-row justify-end items-start">
+                    {/* Empty space for potential action buttons */}
+                </div>
+            </div>
+            <div className="w-full flex-1 flex items-center justify-center">
+                <LemonSkeleton className="h-6 w-20" />
+            </div>
+            <div className="flex items-center justify-center">
+                <LemonSkeleton className="h-4 w-12" />
+            </div>
         </div>
     )
 }
@@ -108,6 +135,7 @@ interface OverviewItemCellProps {
     settingsLinkFromKey: (key: string) => string | null
     dashboardLinkFromKey: (key: string) => string | null
     showBetaTag: boolean
+    compact: boolean
 }
 
 const OverviewItemCell = ({
@@ -117,6 +145,7 @@ const OverviewItemCell = ({
     settingsLinkFromKey,
     dashboardLinkFromKey,
     showBetaTag,
+    compact,
 }: OverviewItemCellProps): JSX.Element => {
     const { baseCurrency } = useValues(teamLogic)
 
@@ -140,20 +169,24 @@ const OverviewItemCell = ({
     const docsUrl = settingsLinkFromKey(item.key)
     const dashboardUrl = dashboardLinkFromKey(item.key)
 
-    // If current === previous, say "increased by 0%"
+    // Handle tooltip logic with special cases for zero values and small changes
     const tooltip =
         isNotNil(item.value) &&
         isNotNil(item.previous) &&
         isNotNil(item.changeFromPreviousPct) &&
         Math.abs(item.changeFromPreviousPct) < 999999
-            ? `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
-                  Math.abs(item.changeFromPreviousPct),
-                  { precise: true }
-              )}, to ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} from ${formatItem(
-                  item.previous,
-                  item.kind,
-                  { precise: true, currency: baseCurrency }
-              )}`
+            ? item.value === 0 && item.previous === 0
+                ? `${label}: No change (0 in both periods)`
+                : Math.abs(item.changeFromPreviousPct) < 1
+                  ? `${label}: No impactful change, less than 1%`
+                  : `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
+                        Math.abs(item.changeFromPreviousPct),
+                        { precise: true }
+                    )}, to ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} from ${formatItem(
+                        item.previous,
+                        item.kind,
+                        { precise: true, currency: baseCurrency }
+                    )}`
             : isNotNil(item.value) && isNotNil(item.previous) && Math.abs(item.changeFromPreviousPct || 0) >= 999999
               ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} (was 0 in previous period)`
               : isNotNil(item.value)
@@ -163,7 +196,7 @@ const OverviewItemCell = ({
     return (
         <Tooltip title={tooltip}>
             <div
-                className={clsx(OVERVIEW_ITEM_CELL_CLASSES, {
+                className={clsx(compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT, {
                     'border border-dotted border-success': usedPreAggregatedTables,
                 })}
             >
@@ -172,7 +205,9 @@ const OverviewItemCell = ({
                         {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
                         {showBetaTag && <LemonTag type="warning">BETA</LemonTag>}
                     </div>
-                    <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
+                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
+                        {label}&nbsp;
+                    </div>
                     <div className="flex flex-1 flex-row justify-end items-start">
                         {dashboardUrl && (
                             <Tooltip title={`Access dedicated ${item.key} dashboard`}>
@@ -187,7 +222,9 @@ const OverviewItemCell = ({
                     </div>
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
-                    <div className="text-2xl">{formatItem(item.value, item.kind, { currency: baseCurrency })}</div>
+                    <div className={compact ? 'text-lg' : 'text-2xl'}>
+                        {formatItem(item.value, item.kind, { currency: baseCurrency })}
+                    </div>
                 </div>
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props

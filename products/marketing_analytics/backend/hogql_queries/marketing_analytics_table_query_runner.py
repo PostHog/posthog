@@ -17,6 +17,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+
 from .constants import (
     BASE_COLUMN_MAPPING,
     DEFAULT_LIMIT,
