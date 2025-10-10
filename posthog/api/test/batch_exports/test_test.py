@@ -17,7 +17,10 @@ from posthog.models import BatchExportDestination, Integration
 
 from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
 from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryProjectTestStep
-from products.batch_exports.backend.api.destination_tests.databricks import DatabricksEstablishConnectionTestStep
+from products.batch_exports.backend.api.destination_tests.databricks import (
+    DatabricksDestinationTest,
+    DatabricksEstablishConnectionTestStep,
+)
 from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
 
 pytestmark = [
@@ -448,16 +451,29 @@ def test_can_run_databricks_test_step_for_new_destination(
 
     client.force_login(user)
 
-    with unittest.mock.patch(
-        "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
-    ) as run_step_mocked:
-        fake_test_step = DatabricksEstablishConnectionTestStep()
-        fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
-        run_step_mocked.return_value = fake_test_step
+    with unittest.mock.patch("posthog.batch_exports.http.get_destination_test") as mock_get_destination_test:
+        test_step = DatabricksEstablishConnectionTestStep()
+        test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
+        mock_databricks_destination_test = unittest.mock.Mock(spec=DatabricksDestinationTest)
+        mock_databricks_destination_test.run_step.return_value = test_step
+        mock_get_destination_test.return_value = mock_databricks_destination_test
+
         response = client.post(
             f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
             {**{"step": 0}, **batch_export_data},
             content_type="application/json",
+        )
+
+        mock_databricks_destination_test.configure.assert_called_once_with(
+            **{
+                "http_path": "my-http-path",
+                "catalog": "my-catalog",
+                "schema": "my-schema",
+                "table_name": "my-table-name",
+                "server_hostname": "my-server-hostname",
+                "client_id": "my-client-id",
+                "client_secret": "my-client-secret",
+            }
         )
 
     assert response.status_code == status.HTTP_200_OK, response.json()
