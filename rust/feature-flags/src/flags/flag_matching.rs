@@ -5,6 +5,7 @@ use crate::api::types::{
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::config::CONFIG;
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
@@ -19,8 +20,9 @@ use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER, FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_WRITER_POOL_UTILIZATION_GAUGE, PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
@@ -29,15 +31,51 @@ use crate::utils::graph_utils::{
     log_dependency_graph_operation_error, DependencyGraph,
 };
 use anyhow::Result;
-use common_metrics::{inc, timing_guard};
+use common_metrics::{gauge, inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, instrument, warn};
+use std::time::Duration;
+use tokio::time::timeout;
+use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
+
+/// Specific error types for hash key override operations to improve observability
+#[derive(Debug)]
+pub enum HashKeyOverrideError {
+    /// Circuit breaker triggered due to high writer pool utilization
+    CircuitBreakerTriggered { utilization: f32, threshold: f32 },
+    /// Timeout checking if override should be written
+    CheckTimeout { timeout_ms: u64 },
+    /// Timeout writing override to database
+    WriteTimeout { timeout_ms: u64 },
+    /// Timeout reading existing overrides
+    ReadTimeout { timeout_ms: u64 },
+    /// Database error during check operation
+    DatabaseCheckError(String),
+    /// Database error during write operation
+    DatabaseWriteError(String),
+    /// Database error during read operation
+    DatabaseReadError(String),
+}
+
+impl HashKeyOverrideError {
+    /// Get a metric-friendly label for this error type
+    pub fn metric_label(&self) -> &str {
+        match self {
+            Self::CircuitBreakerTriggered { .. } => "circuit_breaker",
+            Self::CheckTimeout { .. } => "check_timeout",
+            Self::WriteTimeout { .. } => "write_timeout",
+            Self::ReadTimeout { .. } => "read_timeout",
+            Self::DatabaseCheckError(_) => "database_check_error",
+            Self::DatabaseWriteError(_) => "database_write_error",
+            Self::DatabaseReadError(_) => "database_read_error",
+        }
+    }
+}
 
 /// Parameters for feature flag evaluation with various override options
 #[derive(Debug, Default)]
@@ -297,55 +335,149 @@ impl FeatureFlagMatcher {
         &self,
         hash_key: String,
         target_distinct_ids: Vec<String>,
-    ) -> (Option<HashMap<String, String>>, bool) {
-        let should_write = match should_write_hash_key_override(
-            &self.router,
-            self.team_id,
-            self.distinct_id.clone(),
-            self.project_id,
-            hash_key.clone(),
+    ) -> Result<Option<HashMap<String, String>>, HashKeyOverrideError> {
+        // Step 1: Circuit breaker check
+        if *CONFIG.hash_key_circuit_breaker_enabled {
+            match self.router.get_persons_writer().get_pool_stats() {
+                Some(stats) if stats.size > 0 => {
+                    // Safe calculation with bounds checking
+                    let active = stats.size.saturating_sub(stats.num_idle as u32);
+                    let utilization = active as f32 / stats.size as f32;
+
+                    // Report the utilization metric
+                    gauge(
+                        FLAG_WRITER_POOL_UTILIZATION_GAUGE,
+                        &[("team_id".to_string(), self.team_id.to_string())],
+                        utilization as f64,
+                    );
+
+                    if utilization > CONFIG.writer_pool_circuit_breaker_threshold {
+                        warn!(
+                            team_id = %self.team_id,
+                            utilization = %utilization,
+                            threshold = %CONFIG.writer_pool_circuit_breaker_threshold,
+                            "Writer pool saturated, circuit breaker triggered for hash key operations"
+                        );
+
+                        inc(
+                            FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER,
+                            &[
+                                ("team_id".to_string(), self.team_id.to_string()),
+                                ("reason".to_string(), "writer_pool_saturated".to_string()),
+                            ],
+                            1,
+                        );
+
+                        return Err(HashKeyOverrideError::CircuitBreakerTriggered {
+                            utilization,
+                            threshold: CONFIG.writer_pool_circuit_breaker_threshold,
+                        });
+                    }
+                }
+                Some(stats) => {
+                    // Pool size is 0, which shouldn't happen
+                    warn!(
+                        team_id = %self.team_id,
+                        pool_size = %stats.size,
+                        "Writer pool has invalid size, skipping circuit breaker check"
+                    );
+                }
+                None => {
+                    // Pool stats unavailable - log but continue
+                    // This could be a configuration issue or unsupported pool type
+                    debug!(
+                        team_id = %self.team_id,
+                        "Writer pool stats unavailable, circuit breaker check skipped"
+                    );
+                }
+            }
+        }
+
+        // Step 2: Check if we should write (with timeout)
+        let check_timeout = Duration::from_millis(CONFIG.hash_key_check_timeout_ms);
+        let should_write = match timeout(
+            check_timeout,
+            should_write_hash_key_override(
+                &self.router,
+                self.team_id,
+                self.distinct_id.clone(),
+                self.project_id,
+                hash_key.clone(),
+            ),
         )
         .await
         {
-            Ok(should_write) => should_write,
-            Err(e) => {
+            Ok(Ok(should_write)) => should_write,
+            Ok(Err(e)) => {
                 error!(
                     "Failed to check if hash key override should be written for team {} project {} distinct_id {}: {:?}",
                     self.team_id, self.project_id, self.distinct_id, e
                 );
-                let reason = parse_exception_for_prometheus_label(&e);
+                return Err(HashKeyOverrideError::DatabaseCheckError(e.to_string()));
+            }
+            Err(_) => {
+                warn!(
+                    team_id = %self.team_id,
+                    timeout_ms = %CONFIG.hash_key_check_timeout_ms,
+                    "Timeout checking if hash key override should be written"
+                );
                 inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
+                    FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER,
+                    &[
+                        ("team_id".to_string(), self.team_id.to_string()),
+                        ("operation".to_string(), "check_should_write".to_string()),
+                    ],
                     1,
                 );
-                return (None, true);
+                return Err(HashKeyOverrideError::CheckTimeout {
+                    timeout_ms: CONFIG.hash_key_check_timeout_ms,
+                });
             }
         };
 
         let mut writing_hash_key_override = false;
 
+        // Step 3: Write if needed (with timeout)
         if should_write {
-            if let Err(e) = set_feature_flag_hash_key_overrides(
-                // NB: this is the only method that writes to the database
-                &self.router,
-                self.team_id,
-                target_distinct_ids.clone(),
-                self.project_id,
-                hash_key.clone(),
+            let write_timeout = Duration::from_millis(CONFIG.hash_key_write_timeout_ms);
+            match timeout(
+                write_timeout,
+                set_feature_flag_hash_key_overrides(
+                    &self.router,
+                    self.team_id,
+                    target_distinct_ids.clone(),
+                    self.project_id,
+                    hash_key.clone(),
+                ),
             )
             .await
             {
-                error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
-                let reason = parse_exception_for_prometheus_label(&e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
-                return (None, true);
+                Ok(Ok(_)) => {
+                    writing_hash_key_override = true;
+                }
+                Ok(Err(e)) => {
+                    error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
+                    return Err(HashKeyOverrideError::DatabaseWriteError(e.to_string()));
+                }
+                Err(_) => {
+                    warn!(
+                        team_id = %self.team_id,
+                        timeout_ms = %CONFIG.hash_key_write_timeout_ms,
+                        "Timeout writing hash key override"
+                    );
+                    inc(
+                        FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER,
+                        &[
+                            ("team_id".to_string(), self.team_id.to_string()),
+                            ("operation".to_string(), "write_override".to_string()),
+                        ],
+                        1,
+                    );
+                    return Err(HashKeyOverrideError::WriteTimeout {
+                        timeout_ms: CONFIG.hash_key_write_timeout_ms,
+                    });
+                }
             }
-            writing_hash_key_override = true;
         }
 
         inc(
@@ -366,23 +498,40 @@ impl FeatureFlagMatcher {
             self.router.get_persons_reader().clone()
         };
 
-        match get_feature_flag_hash_key_overrides(
-            database_for_reading,
-            self.team_id,
-            target_distinct_ids,
+        // Step 4: Read overrides (with timeout)
+        let read_timeout = Duration::from_millis(CONFIG.hash_key_read_timeout_ms);
+        match timeout(
+            read_timeout,
+            get_feature_flag_hash_key_overrides(
+                database_for_reading,
+                self.team_id,
+                target_distinct_ids,
+            ),
         )
         .await
         {
-            Ok(overrides) => (Some(overrides), false),
-            Err(e) => {
+            Ok(Ok(overrides)) => Ok(Some(overrides)),
+            Ok(Err(e)) => {
                 error!("Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
-                let reason = parse_exception_for_prometheus_label(&e);
+                Err(HashKeyOverrideError::DatabaseReadError(e.to_string()))
+            }
+            Err(_) => {
+                warn!(
+                    team_id = %self.team_id,
+                    timeout_ms = %CONFIG.hash_key_read_timeout_ms,
+                    "Timeout reading hash key overrides"
+                );
                 inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
+                    FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER,
+                    &[
+                        ("team_id".to_string(), self.team_id.to_string()),
+                        ("operation".to_string(), "read_overrides".to_string()),
+                    ],
                     1,
                 );
-                (None, true)
+                Err(HashKeyOverrideError::ReadTimeout {
+                    timeout_ms: CONFIG.hash_key_read_timeout_ms,
+                })
             }
         }
     }
@@ -1482,8 +1631,56 @@ impl FeatureFlagMatcher {
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                        self.process_hash_key_override(hash_key, target_distinct_ids)
+                        match self
+                            .process_hash_key_override(hash_key, target_distinct_ids)
                             .await
+                        {
+                            Ok(overrides) => (overrides, false),
+                            Err(e) => {
+                                // Log specific error type for better observability
+                                match &e {
+                                    HashKeyOverrideError::CircuitBreakerTriggered {
+                                        utilization,
+                                        threshold,
+                                    } => {
+                                        debug!(
+                                            "Circuit breaker triggered: utilization={}, threshold={}",
+                                            utilization, threshold
+                                        );
+                                    }
+                                    HashKeyOverrideError::CheckTimeout { timeout_ms } => {
+                                        debug!("Check timeout after {}ms", timeout_ms);
+                                    }
+                                    HashKeyOverrideError::WriteTimeout { timeout_ms } => {
+                                        debug!("Write timeout after {}ms", timeout_ms);
+                                    }
+                                    HashKeyOverrideError::ReadTimeout { timeout_ms } => {
+                                        debug!("Read timeout after {}ms", timeout_ms);
+                                    }
+                                    HashKeyOverrideError::DatabaseCheckError(err) => {
+                                        debug!("Database check error: {}", err);
+                                    }
+                                    HashKeyOverrideError::DatabaseWriteError(err) => {
+                                        debug!("Database write error: {}", err);
+                                    }
+                                    HashKeyOverrideError::DatabaseReadError(err) => {
+                                        debug!("Database read error: {}", err);
+                                    }
+                                }
+
+                                // Increment specific metric for this error type
+                                inc(
+                                    FLAG_EVALUATION_ERROR_COUNTER,
+                                    &[
+                                        ("team_id".to_string(), self.team_id.to_string()),
+                                        ("reason".to_string(), e.metric_label().to_string()),
+                                    ],
+                                    1,
+                                );
+
+                                (None, true)
+                            }
+                        }
                     }
                     // If no hash key override is provided, we need to look up existing overrides.
                     // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
@@ -1491,18 +1688,39 @@ impl FeatureFlagMatcher {
                     // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
                     // In addition, this behavior is consistent with /decide.
                     None => {
-                        match get_feature_flag_hash_key_overrides(
-                            self.router.get_persons_reader().clone(),
-                            self.team_id,
-                            vec![self.distinct_id.clone()],
+                        // Apply timeout to read operation as well
+                        let read_timeout = Duration::from_millis(CONFIG.hash_key_read_timeout_ms);
+                        match timeout(
+                            read_timeout,
+                            get_feature_flag_hash_key_overrides(
+                                self.router.get_persons_reader().clone(),
+                                self.team_id,
+                                vec![self.distinct_id.clone()],
+                            ),
                         )
                         .await
                         {
-                            Ok(overrides) => (Some(overrides), false),
-                            Err(e) => {
+                            Ok(Ok(overrides)) => (Some(overrides), false),
+                            Ok(Err(e)) => {
                                 error!(
                                     "Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}",
                                     self.team_id, self.project_id, self.distinct_id, e
+                                );
+                                (None, true)
+                            }
+                            Err(_) => {
+                                warn!(
+                                    team_id = %self.team_id,
+                                    timeout_ms = %CONFIG.hash_key_read_timeout_ms,
+                                    "Timeout reading hash key overrides"
+                                );
+                                inc(
+                                    FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER,
+                                    &[
+                                        ("team_id".to_string(), self.team_id.to_string()),
+                                        ("operation".to_string(), "read_overrides".to_string()),
+                                    ],
+                                    1,
                                 );
                                 (None, true)
                             }

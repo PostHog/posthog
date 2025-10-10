@@ -6,6 +6,7 @@ use std::num::ParseIntError;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use tracing::Level;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,8 +145,19 @@ pub struct Config {
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
     // - Decrease for faster failure detection (minimum 1s)
+    // NOTE: This is kept for backward compatibility but prefer using separate reader/writer timeouts
     #[envconfig(default = "3")]
     pub acquire_timeout_secs: u64,
+
+    // Separate acquire timeouts for reader and writer pools
+    // Reader pools can wait longer since reads are critical path
+    #[envconfig(from = "READER_ACQUIRE_TIMEOUT_SECS")]
+    pub reader_acquire_timeout_secs: Option<u64>,
+
+    // Writer pools should fail fast to avoid blocking when writer DB is overloaded
+    // This prevents threads from waiting too long during hash key override operations
+    #[envconfig(from = "WRITER_ACQUIRE_TIMEOUT_SECS")]
+    pub writer_acquire_timeout_secs: Option<u64>,
 
     // Close connections that have been idle for this many seconds
     // - Set to 0 to disable (connections never close due to idle)
@@ -252,6 +264,28 @@ pub struct Config {
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
 
+    // Hash key override operation timeouts and circuit breaker settings
+    // - Timeout for checking if hash key override should be written (milliseconds)
+    #[envconfig(default = "100")]
+    pub hash_key_check_timeout_ms: u64,
+
+    // - Timeout for writing hash key overrides to writer DB (milliseconds)
+    #[envconfig(default = "500")]
+    pub hash_key_write_timeout_ms: u64,
+
+    // - Timeout for reading hash key overrides (milliseconds)
+    #[envconfig(default = "500")]
+    pub hash_key_read_timeout_ms: u64,
+
+    // - Writer pool utilization threshold to trigger circuit breaker (0.0-1.0)
+    // When writer pool utilization exceeds this, skip hash key override operations
+    #[envconfig(default = "0.8")]
+    pub writer_pool_circuit_breaker_threshold: f32,
+
+    // - Enable circuit breaker for hash key override writes
+    #[envconfig(default = "true")]
+    pub hash_key_circuit_breaker_enabled: FlexBool,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -267,6 +301,52 @@ pub struct Config {
 }
 
 impl Config {
+    /// Validates the configuration values are within acceptable ranges
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate timeouts are reasonable (not 0, not too high)
+        if self.hash_key_check_timeout_ms == 0 {
+            return Err("hash_key_check_timeout_ms must be greater than 0".to_string());
+        }
+        if self.hash_key_write_timeout_ms == 0 {
+            return Err("hash_key_write_timeout_ms must be greater than 0".to_string());
+        }
+        if self.hash_key_read_timeout_ms == 0 {
+            return Err("hash_key_read_timeout_ms must be greater than 0".to_string());
+        }
+
+        // Warn if timeouts seem unreasonably high
+        if self.hash_key_check_timeout_ms > 5000 {
+            tracing::warn!(
+                "hash_key_check_timeout_ms is very high ({}ms), this may cause slow responses",
+                self.hash_key_check_timeout_ms
+            );
+        }
+        if self.hash_key_write_timeout_ms > 10000 {
+            tracing::warn!(
+                "hash_key_write_timeout_ms is very high ({}ms), this may cause slow responses",
+                self.hash_key_write_timeout_ms
+            );
+        }
+        if self.hash_key_read_timeout_ms > 10000 {
+            tracing::warn!(
+                "hash_key_read_timeout_ms is very high ({}ms), this may cause slow responses",
+                self.hash_key_read_timeout_ms
+            );
+        }
+
+        // Validate circuit breaker threshold is valid
+        if self.writer_pool_circuit_breaker_threshold < 0.0
+            || self.writer_pool_circuit_breaker_threshold > 1.0
+        {
+            return Err(format!(
+                "writer_pool_circuit_breaker_threshold must be between 0.0 and 1.0, got {}",
+                self.writer_pool_circuit_breaker_threshold
+            ));
+        }
+
+        Ok(())
+    }
+
     pub fn default_test_config() -> Self {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
@@ -283,6 +363,8 @@ impl Config {
             max_concurrency: 1000,
             max_pg_connections: 10,
             acquire_timeout_secs: 3,
+            reader_acquire_timeout_secs: None, // Will use acquire_timeout_secs
+            writer_acquire_timeout_secs: Some(1), // 1 second for writers
             idle_timeout_secs: 300,
             max_lifetime_secs: 1800,
             test_before_acquire: FlexBool(true),
@@ -296,6 +378,11 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
+            hash_key_check_timeout_ms: 100,
+            hash_key_write_timeout_ms: 500,
+            hash_key_read_timeout_ms: 500,
+            writer_pool_circuit_breaker_threshold: 0.8,
+            hash_key_circuit_breaker_enabled: FlexBool(true),
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
@@ -314,6 +401,20 @@ impl Config {
             otel_service_name: "posthog-feature-flags".to_string(),
             otel_log_level: Level::ERROR,
         }
+    }
+
+    /// Get the effective acquire timeout for reader pools
+    /// Uses reader_acquire_timeout_secs if set, otherwise falls back to acquire_timeout_secs
+    pub fn get_reader_acquire_timeout_secs(&self) -> u64 {
+        self.reader_acquire_timeout_secs
+            .unwrap_or(self.acquire_timeout_secs)
+    }
+
+    /// Get the effective acquire timeout for writer pools
+    /// Uses writer_acquire_timeout_secs if set, otherwise falls back to acquire_timeout_secs
+    /// Default is 1 second to fail fast when writer DB is overloaded
+    pub fn get_writer_acquire_timeout_secs(&self) -> u64 {
+        self.writer_acquire_timeout_secs.unwrap_or(1) // Default to 1 second for writers if not explicitly set
     }
 
     pub fn get_maxmind_db_path(&self) -> PathBuf {
@@ -395,6 +496,21 @@ impl Config {
 }
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
+
+/// Global configuration instance loaded from environment variables.
+/// This is initialized once at startup and can be accessed throughout the application.
+/// For tests, use DEFAULT_TEST_CONFIG instead.
+pub static CONFIG: Lazy<Arc<Config>> = Lazy::new(|| {
+    let config = Config::init_from_env()
+        .unwrap_or_else(|e| panic!("Failed to load configuration from environment: {e}"));
+
+    // Validate configuration
+    if let Err(e) = config.validate() {
+        panic!("Invalid configuration: {e}");
+    }
+
+    Arc::new(config)
+});
 
 #[cfg(test)]
 mod tests {

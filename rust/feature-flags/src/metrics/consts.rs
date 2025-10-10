@@ -4,6 +4,11 @@ pub const FLAG_CACHE_HIT_COUNTER: &str = "flags_flag_cache_hit_total";
 pub const FLAG_CACHE_ERRORS_COUNTER: &str = "flags_flag_cache_errors_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
+pub const FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER: &str =
+    "flags_hash_key_circuit_breaker_triggered_total";
+pub const FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER: &str =
+    "flags_hash_key_operation_timeouts_total";
+pub const FLAG_WRITER_POOL_UTILIZATION_GAUGE: &str = "flags_writer_pool_utilization";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";

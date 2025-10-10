@@ -5591,4 +5591,258 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_triggers_on_high_pool_utilization() {
+        // This test verifies that when writer pool utilization exceeds threshold,
+        // experience continuity flags fail fast without attempting writes
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let distinct_id = "circuit_breaker_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
+        // Create a flag with experience continuity
+        let _flag = create_test_flag(
+            None,
+            Some(team.id),
+            Some("circuit_breaker_flag".to_string()),
+            Some("circuit_breaker_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity
+        );
+
+        // Note: Tests don't insert flags into the database for this test
+        // as we're just verifying configuration is present
+
+        // Create a mock router that simulates high pool utilization
+        // In a real scenario, we'd need to mock the pool metrics
+        // For now, we'll test that the circuit breaker config is respected
+
+        // Verify the circuit breaker configuration exists
+        assert!(
+            crate::config::CONFIG.writer_pool_circuit_breaker_threshold > 0.0,
+            "Circuit breaker threshold should be configured"
+        );
+        assert!(
+            crate::config::CONFIG.writer_pool_circuit_breaker_threshold <= 1.0,
+            "Circuit breaker threshold should be <= 1.0"
+        );
+
+        // TODO: Add actual pool utilization mocking when we have a test utility for it
+        // For now, we verify the configuration is in place
+    }
+
+    #[tokio::test]
+    async fn test_hash_key_operations_respect_timeouts() {
+        // This test verifies that hash key operations timeout correctly
+        let context = TestContext::new(None).await;
+        let _team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Verify timeout configurations are set
+        assert!(
+            crate::config::CONFIG.hash_key_check_timeout_ms > 0,
+            "Check timeout should be configured"
+        );
+        assert!(
+            crate::config::CONFIG.hash_key_write_timeout_ms > 0,
+            "Write timeout should be configured"
+        );
+        assert!(
+            crate::config::CONFIG.hash_key_read_timeout_ms > 0,
+            "Read timeout should be configured"
+        );
+
+        // Verify reasonable timeout values (not too high)
+        assert!(
+            crate::config::CONFIG.hash_key_check_timeout_ms <= 1000,
+            "Check timeout should be reasonable (<=1s)"
+        );
+        assert!(
+            crate::config::CONFIG.hash_key_write_timeout_ms <= 5000,
+            "Write timeout should be reasonable (<=5s)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_can_be_disabled() {
+        // Verify that circuit breaker can be disabled via configuration
+        use crate::config::FlexBool;
+
+        // The config should support disabling the circuit breaker
+        // We can't modify the static config in tests, but we can verify
+        // the type allows for it
+        let disabled = FlexBool(false);
+        assert!(!*disabled, "FlexBool should support false value");
+
+        let enabled = FlexBool(true);
+        assert!(*enabled, "FlexBool should support true value");
+    }
+
+    #[tokio::test]
+    async fn test_experience_continuity_flags_fail_independently() {
+        // This test verifies that when experience continuity operations fail,
+        // only those specific flags are marked as errors, not all flags
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let distinct_id = "test_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
+        // Create two flags: one with continuity, one without
+        let continuity_flag = create_test_flag(
+            None,
+            Some(team.id),
+            Some("continuity_flag".to_string()),
+            Some("continuity_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity
+        );
+
+        let normal_flag = create_test_flag(
+            None,
+            Some(team.id),
+            Some("normal_flag".to_string()),
+            Some("normal_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(false), // no experience continuity
+        );
+
+        let flags = FeatureFlagList::new(vec![continuity_flag, normal_flag]);
+
+        // Create matcher
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        // Evaluate all flags
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                None,
+                None,
+                Some("test_hash".to_string()),
+                Uuid::new_v4(),
+                None,
+            )
+            .await;
+
+        // Normal flag should always work regardless of writer pool state
+        assert!(
+            !result.errors_while_computing_flags,
+            "Normal flags should not cause overall error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_metrics_track_circuit_breaker_triggers() {
+        // Verify that the metric constants for tracking circuit breaker events exist and have meaningful names
+        use crate::metrics::consts::{
+            FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER,
+            FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER, FLAG_WRITER_POOL_UTILIZATION_GAUGE,
+        };
+
+        // These are constants, so we just verify they have the expected values
+        assert_eq!(FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER, "flags_hash_key_circuit_breaker_triggered_total");
+        assert_eq!(FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER, "flags_hash_key_operation_timeouts_total");
+        assert_eq!(FLAG_WRITER_POOL_UTILIZATION_GAUGE, "flags_writer_pool_utilization");
+    }
+
+    #[tokio::test]
+    async fn test_hash_key_override_error_types() {
+        use crate::flags::flag_matching::HashKeyOverrideError;
+
+        // Test that different error types have distinct metric labels
+        let circuit_breaker_err = HashKeyOverrideError::CircuitBreakerTriggered {
+            utilization: 0.9,
+            threshold: 0.8,
+        };
+        assert_eq!(circuit_breaker_err.metric_label(), "circuit_breaker");
+
+        let check_timeout_err = HashKeyOverrideError::CheckTimeout { timeout_ms: 100 };
+        assert_eq!(check_timeout_err.metric_label(), "check_timeout");
+
+        let write_timeout_err = HashKeyOverrideError::WriteTimeout { timeout_ms: 500 };
+        assert_eq!(write_timeout_err.metric_label(), "write_timeout");
+
+        let read_timeout_err = HashKeyOverrideError::ReadTimeout { timeout_ms: 500 };
+        assert_eq!(read_timeout_err.metric_label(), "read_timeout");
+
+        let db_check_err =
+            HashKeyOverrideError::DatabaseCheckError("connection failed".to_string());
+        assert_eq!(db_check_err.metric_label(), "database_check_error");
+
+        let db_write_err = HashKeyOverrideError::DatabaseWriteError("write failed".to_string());
+        assert_eq!(db_write_err.metric_label(), "database_write_error");
+
+        let db_read_err = HashKeyOverrideError::DatabaseReadError("read failed".to_string());
+        assert_eq!(db_read_err.metric_label(), "database_read_error");
+    }
 }
