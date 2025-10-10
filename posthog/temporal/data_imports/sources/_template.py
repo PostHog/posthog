@@ -49,16 +49,16 @@ from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemplateSource(BaseSource[Config]):  # rename this class in step 3 and replace `Config` in step X
+class TemplateSource(BaseSource[Config]):  # rename this class and replace `Config` with the generated config
     @property
     def source_type(self) -> ExternalDataSourceType:
-        return ExternalDataSourceType.SOURCE_TYPE  # replace this in step 4
+        return ExternalDataSourceType.SOURCE_TYPE  # replace this enum value
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SOURCE_TYPE,  # replace this in step 6
-            iconPath="/static/services/template.png",  # update this in step X
+            name=SchemaExternalDataSourceType.SOURCE_TYPE,  # replace this enum value
+            iconPath="/static/services/template.png",  # update this icon path
             label="Template",  # only needed if the readable name is complex
             caption=None,  # only needed if you wanna inline docs
             docsUrl=None,  # link to the docs in the website, full path including https://
@@ -67,16 +67,18 @@ class TemplateSource(BaseSource[Config]):  # rename this class in step 3 and rep
 
     def validate_credentials(
         self, config: Config, team_id: int
-    ) -> tuple[bool, str | None]:  # replace `Config` with your config class
+    ) -> tuple[bool, str | None]:  # replace `Config` with the generated class
         return (
             True,
             None,
-        )  # implement logic to validate the credentials of your source, e.g. check the validity of API keys. Return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
+        )  # implement logic to validate the credentials of your source, e.g. check the validity of API keys. return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
 
     def get_schemas(
         self, config: Config, team_id: int, with_counts: bool = False
-    ) -> list[SourceSchema]:  # replace `Config` in step X
+    ) -> list[SourceSchema]:  # replace `Config` with the generated class
         return []  # implement your source logic
 
-    def source_for_pipeline(self, config: Config, inputs: SourceInputs) -> SourceResponse:  # replace `Config` in step X
+    def source_for_pipeline(
+        self, config: Config, inputs: SourceInputs
+    ) -> SourceResponse:  # replace `Config` with the generated class
         raise NotImplementedError()  # implement your source logic
