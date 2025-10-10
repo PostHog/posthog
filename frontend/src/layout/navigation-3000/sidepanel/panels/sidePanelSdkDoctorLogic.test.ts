@@ -230,7 +230,6 @@ describe('sidePanelSdkDoctorLogic', () => {
                 sdkVersions: expect.arrayContaining([
                     expect.objectContaining({
                         type: 'web',
-                        eventVolume: 'high',
                         count: 55,
                     }),
                 ]),
@@ -246,7 +245,6 @@ describe('sidePanelSdkDoctorLogic', () => {
                 sdkVersions: expect.arrayContaining([
                     expect.objectContaining({
                         type: 'web',
-                        eventVolume: 'low',
                         count: 3,
                     }),
                 ]),

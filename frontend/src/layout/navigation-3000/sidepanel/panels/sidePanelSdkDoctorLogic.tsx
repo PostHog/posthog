@@ -17,12 +17,7 @@ import {
 } from './sdk_doctor/featureFlagDetection'
 import { processAllSdkDetections } from './sdk_doctor/sdkDetectionProcessing'
 import type { SdkHealthStatus, SdkType, SdkVersionInfo } from './sdk_doctor/types'
-import {
-    DEVICE_CONTEXT_CONFIG,
-    calculateVersionAge,
-    categorizeEventVolume,
-    determineDeviceContext,
-} from './sdk_doctor/utils'
+import { DEVICE_CONTEXT_CONFIG, calculateVersionAge, determineDeviceContext } from './sdk_doctor/utils'
 import { updateSdkVersionInfo } from './sdk_doctor/versionChecking'
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 
@@ -532,7 +527,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             daysSinceRelease,
                             isAgeOutdated,
                             deviceContext,
-                            eventVolume: categorizeEventVolume(info.count),
                             lastSeenTimestamp: new Date().toISOString(), // Current processing time
                             error,
                         }
@@ -675,7 +669,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             info,
                             checkVersionAgainstLatestAsync,
                             determineDeviceContext,
-                            categorizeEventVolume,
                             sdkName,
                             IS_DEBUG_MODE
                         )

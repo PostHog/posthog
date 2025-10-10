@@ -45,7 +45,6 @@ export type SdkVersionInfo = {
 
     // Device context
     deviceContext?: 'mobile' | 'desktop' | 'mixed' // Based on detected usage patterns
-    eventVolume?: 'low' | 'medium' | 'high' // Based on event count
     lastSeenTimestamp?: string // ISO timestamp of most recent event
 
     // Error handling
@@ -56,16 +55,11 @@ export type SdkVersionInfo = {
  * Configuration for device context detection and age-based thresholds
  *
  * Defines which SDKs are considered mobile vs desktop, and thresholds
- * for event volume classification and version age warnings.
+ * for version age warnings.
  */
 export type DeviceContextConfig = {
     mobileSDKs: SdkType[] // ['ios', 'android', 'flutter', 'react-native']
     desktopSDKs: SdkType[] // ['web', 'node', 'python', 'php', 'ruby', 'go', 'dotnet', 'elixir']
-    volumeThresholds: {
-        low: number // < 10 events
-        medium: number // 10-50 events
-        high: number // > 50 events
-    }
     ageThresholds: {
         warnAfterWeeks: number // 8 weeks
         criticalAfterWeeks: number // 16 weeks

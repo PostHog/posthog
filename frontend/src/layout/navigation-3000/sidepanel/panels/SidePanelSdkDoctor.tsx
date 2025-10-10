@@ -320,15 +320,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 Close enough
                             </LemonTag>
                         )}
-
-                        {/* NEW: Volume indicator for context */}
-                        {record.eventVolume === 'high' && (
-                            <Tooltip title="High activity SDK">
-                                <LemonTag type="highlight" className="shrink-0 text-xs">
-                                    Active
-                                </LemonTag>
-                            </Tooltip>
-                        )}
                     </div>
                 )
             },

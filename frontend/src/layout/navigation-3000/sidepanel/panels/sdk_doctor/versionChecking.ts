@@ -12,13 +12,11 @@ import type { SdkType, SdkVersionInfo } from './types'
  * - Extracting all result fields
  * - Determining device context with proper type casting
  * - Error handling with graceful degradation
- * - Categorizing event volume
  * - Setting last seen timestamp
  *
  * @param info - Current SDK version info
  * @param checkVersionAgainstLatestAsync - Async function to check version (passed in to avoid circular imports)
  * @param determineDeviceContext - Function to determine device context
- * @param categorizeEventVolume - Function to categorize event volume
  * @param sdkName - Human-readable SDK name for logging (e.g., "Go", ".NET", "PHP")
  * @param isDebugMode - Whether debug logging is enabled
  * @returns Updated SdkVersionInfo with version check results
@@ -39,7 +37,6 @@ export async function updateSdkVersionInfo(
         error?: string
     }>,
     determineDeviceContext: (type: SdkType) => 'mobile' | 'desktop' | 'mixed',
-    categorizeEventVolume: (count: number) => 'low' | 'medium' | 'high',
     sdkName: string,
     isDebugMode: boolean
 ): Promise<SdkVersionInfo> {
@@ -62,7 +59,6 @@ export async function updateSdkVersionInfo(
                 daysSinceRelease: undefined,
                 isAgeOutdated: false,
                 deviceContext: determineDeviceContext(info.type),
-                eventVolume: categorizeEventVolume(info.count),
                 lastSeenTimestamp: new Date().toISOString(),
                 error: versionCheckResult.error,
             }
@@ -89,7 +85,6 @@ export async function updateSdkVersionInfo(
             daysSinceRelease,
             isAgeOutdated,
             deviceContext,
-            eventVolume: categorizeEventVolume(info.count),
             lastSeenTimestamp: new Date().toISOString(),
             error,
         }
@@ -107,7 +102,6 @@ export async function updateSdkVersionInfo(
             daysSinceRelease: undefined,
             isAgeOutdated: false,
             deviceContext: determineDeviceContext(info.type),
-            eventVolume: categorizeEventVolume(info.count),
             lastSeenTimestamp: new Date().toISOString(),
             error: error instanceof Error ? error.message : 'Unknown error occurred',
         }
