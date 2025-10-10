@@ -1,38 +1,5 @@
 import { unzipSync, strFromU8 } from 'fflate'
 
-/**
- * Maps file extensions to their corresponding language identifiers for code blocks
- */
-function getLanguageFromExtension(extension: string): string {
-    const languageMap: Record<string, string> = {
-        ts: 'typescript',
-        tsx: 'typescript',
-        js: 'javascript',
-        jsx: 'javascript',
-        json: 'json',
-        md: 'markdown',
-        css: 'css',
-        scss: 'scss',
-        html: 'html',
-        yml: 'yaml',
-        yaml: 'yaml',
-        toml: 'toml',
-        xml: 'xml',
-        sh: 'bash',
-        bash: 'bash',
-        sql: 'sql',
-        py: 'python',
-        go: 'go',
-        rs: 'rust',
-        java: 'java',
-        c: 'c',
-        cpp: 'cpp',
-        h: 'c',
-        hpp: 'cpp',
-    }
-    return languageMap[extension.toLowerCase()] || extension
-}
-
 export interface ConvertRepoOptions {
     /** The URL to the ZIP archive of the repository */
     zipUrl: string
@@ -115,10 +82,9 @@ export async function convertRepoToMarkdown(options: ConvertRepoOptions): Promis
 
             const content = strFromU8(fileData)
             const extension = filePath.split('.').pop() || ''
-            const language = getLanguageFromExtension(extension)
 
             markdown += `## ${cleanPath}\n\n`
-            markdown += `\`\`\`${language}\n`
+            markdown += `\`\`\`${extension}\n`
             markdown += content
             markdown += '\n```\n\n'
         } catch (e) {
