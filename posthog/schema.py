@@ -1268,6 +1268,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    SHOPIFY = "Shopify"
 
 
 class ExternalQueryErrorCode(StrEnum):
