@@ -26,14 +26,14 @@ from posthog.warehouse.s3 import get_size_of_folder
 LOGGER = get_logger(__name__)
 
 
-async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int) -> float:
+async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int, queryable_folder: str) -> float:
     bind_contextvars(team_id=team_id)
     logger = LOGGER.bind()
 
     await logger.adebug("Calculating table size in S3")
 
     folder_name = saved_query.folder_path
-    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}__query"
+    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{queryable_folder}"
 
     total_mib = get_size_of_folder(s3_folder)
 
@@ -105,7 +105,7 @@ async def create_table_from_saved_query(
 
                 logger.debug(f"Existing size in MiB = {existing_size:.2f}")
 
-                table_size = await calculate_table_size(saved_query, team_id)
+                table_size = await calculate_table_size(saved_query, team_id, queryable_folder)
 
                 await logger.adebug(f"Total size in MiB = {table_size:.2f}")
 

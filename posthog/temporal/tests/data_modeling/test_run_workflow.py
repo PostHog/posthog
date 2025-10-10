@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import asyncio
 import datetime as dt
@@ -340,6 +341,9 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
+    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+\/.+")
+
+    assert any(query_folder_pattern.match(obj["Key"]) for obj in s3_objects["Contents"])
     assert any(f"{saved_query.normalized_name}__query" in obj["Key"] for obj in s3_objects["Contents"])
     assert table.num_rows == len(expected_events)
     assert table.num_columns == 3
@@ -451,6 +455,9 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
+    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+\/.+")
+
+    assert any(query_folder_pattern.match(obj["Key"]) for obj in s3_objects["Contents"])
     assert any(f"{saved_query.normalized_name}__query" in obj["Key"] for obj in s3_objects["Contents"])
     assert table.num_rows == len(expected_events)
     assert table.num_columns == 3

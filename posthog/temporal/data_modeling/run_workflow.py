@@ -572,7 +572,13 @@ async def materialize_model(
     file_uris = delta_table.file_uris()
 
     await logger.adebug("Copying query files in S3")
-    folder_path = prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
+    folder_path = prepare_s3_files_for_querying(
+        folder_path=saved_query.folder_path,
+        table_name=saved_query.normalized_name,
+        file_uris=file_uris,
+        preserve_table_name_casing=True,
+        use_timestamped_folders=True,
+    )
 
     saved_query.is_materialized = True
     await database_sync_to_async(saved_query.save)()
