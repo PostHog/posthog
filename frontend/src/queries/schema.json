@@ -25945,12 +25945,10 @@
             "additionalProperties": false,
             "properties": {
                 "display": {
-                    "enum": ["number", "sparkline"],
-                    "type": "string"
+                    "$ref": "#/definitions/UsageMetricDisplay"
                 },
                 "format": {
-                    "enum": ["numeric", "currency"],
-                    "type": "string"
+                    "$ref": "#/definitions/UsageMetricFormat"
                 },
                 "id": {
                     "type": "string"
@@ -25967,6 +25965,14 @@
             },
             "required": ["id", "name", "value", "format", "display", "interval"],
             "type": "object"
+        },
+        "UsageMetricDisplay": {
+            "enum": ["number", "sparkline"],
+            "type": "string"
+        },
+        "UsageMetricFormat": {
+            "enum": ["numeric", "currency"],
+            "type": "string"
         },
         "UsageMetricsQuery": {
             "additionalProperties": false,

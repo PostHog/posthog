@@ -2823,12 +2823,12 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class Display2(StrEnum):
+class UsageMetricDisplay(StrEnum):
     NUMBER = "number"
     SPARKLINE = "sparkline"
 
 
-class Format(StrEnum):
+class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
 
@@ -5251,8 +5251,8 @@ class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    display: Display2
-    format: Format
+    display: UsageMetricDisplay
+    format: UsageMetricFormat
     id: str
     interval: int
     name: str

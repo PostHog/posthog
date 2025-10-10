@@ -4075,12 +4075,16 @@ export interface PlaywrightWorkspaceSetupResult {
     personal_api_key: string
 }
 
+export type UsageMetricFormat = 'numeric' | 'currency'
+
+export type UsageMetricDisplay = 'number' | 'sparkline'
+
 export interface UsageMetric {
     id: string
     name: string
     value: number
-    format: 'numeric' | 'currency'
-    display: 'number' | 'sparkline'
+    format: UsageMetricFormat
+    display: UsageMetricDisplay
     interval: integer
 }
 
