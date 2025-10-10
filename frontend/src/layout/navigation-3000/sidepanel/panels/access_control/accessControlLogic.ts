@@ -27,7 +27,6 @@ import {
 
 import type { accessControlLogicType } from './accessControlLogicType'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
-import { ACCESS_LEVEL_ORDER } from './utils'
 
 export type AccessControlLogicProps = {
     resource: APIScopeObject
@@ -217,7 +216,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             (availableLevelsWithNone, minimumAccessLevel): LemonSelectOption<string>[] => {
                 const options = availableLevelsWithNone.map((level) => {
                     const isDisabled = minimumAccessLevel
-                        ? ACCESS_LEVEL_ORDER[level] < ACCESS_LEVEL_ORDER[minimumAccessLevel]
+                        ? availableLevelsWithNone.indexOf(level) < availableLevelsWithNone.indexOf(minimumAccessLevel)
                         : false
                     return {
                         value: level,

@@ -20,7 +20,7 @@ from .marketing_analytics_config import MarketingAnalyticsConfig
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.config = MarketingAnalyticsConfig()
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
         self.date_range = QueryDateRange(
             date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             team=self.team,

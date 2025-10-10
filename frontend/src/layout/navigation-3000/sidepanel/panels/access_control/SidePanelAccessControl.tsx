@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { resourceTypeToString } from 'lib/components/AccessControlAction'
+import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 
 import { AccessControlResourceType } from '~/types'
 
