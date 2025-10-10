@@ -1,7 +1,7 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from rest_framework import status
 
@@ -23,6 +23,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         """Test successfully creating an evaluation run"""
         # Mock Temporal client
         mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
         mock_connect.return_value = mock_client
 
         target_event_id = str(uuid.uuid4())
@@ -48,7 +49,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
 
         assert call_args[0][0] == "run-evaluation"  # workflow name
-        assert call_args[1]["task_queue"] == "max-ai-task-queue"
+        assert call_args[1]["task_queue"] == "general-purpose-task-queue"
 
     def test_create_evaluation_run_invalid_evaluation(self):
         """Test creating evaluation run with non-existent evaluation"""
