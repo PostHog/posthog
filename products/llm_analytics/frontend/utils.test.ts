@@ -1,7 +1,15 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages, parseOpenAIToolCalls } from './utils'
+import {
+    formatLLMEventTitle,
+    getSessionID,
+    hasSessionID,
+    looksLikeXml,
+    normalizeMessage,
+    normalizeMessages,
+    parseOpenAIToolCalls,
+} from './utils'
 
 describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -736,6 +744,108 @@ describe('LLM Analytics utils', () => {
                     },
                 },
             ])
+        })
+    })
+
+    describe('session recording helpers', () => {
+        const basePerson: LLMTrace['person'] = {
+            uuid: 'person-1',
+            created_at: '2024-01-01T00:00:00Z',
+            properties: {},
+            distinct_id: 'person-1',
+        }
+
+        const makeEvent = (event: Partial<LLMTraceEvent> & { id: string; event: string }): LLMTraceEvent => ({
+            id: event.id,
+            event: event.event,
+            properties: event.properties ?? {},
+            createdAt: event.createdAt ?? '2024-01-01T00:00:00Z',
+        })
+
+        const makeTrace = (events: LLMTraceEvent[]): LLMTrace => ({
+            id: 'trace-1',
+            createdAt: '2024-01-01T00:00:00Z',
+            person: basePerson,
+            events,
+        })
+
+        it('uses the $ai_trace session id when available', () => {
+            const trace = makeTrace([
+                makeEvent({
+                    id: 'event-1',
+                    event: '$ai_trace',
+                    properties: { $session_id: 'trace-session-id' },
+                }),
+                makeEvent({
+                    id: 'event-2',
+                    event: '$ai_generation',
+                }),
+            ])
+
+            expect(getSessionID(trace)).toBe('trace-session-id')
+            expect(hasSessionID(trace)).toBe(true)
+        })
+
+        it('uses a shared child session id when the trace event lacks one', () => {
+            const trace = makeTrace([
+                makeEvent({
+                    id: 'event-1',
+                    event: '$ai_trace',
+                }),
+                makeEvent({
+                    id: 'event-2',
+                    event: '$ai_generation',
+                    properties: { $session_id: 'child-session-id' },
+                }),
+                makeEvent({
+                    id: 'event-3',
+                    event: '$ai_span',
+                    properties: { $session_id: 'child-session-id' },
+                }),
+            ])
+
+            expect(getSessionID(trace)).toBe('child-session-id')
+            expect(hasSessionID(trace)).toBe(true)
+        })
+
+        it('returns null when children have differing session ids', () => {
+            const trace = makeTrace([
+                makeEvent({ id: 'event-1', event: '$ai_trace' }),
+                makeEvent({
+                    id: 'event-2',
+                    event: '$ai_generation',
+                    properties: { $session_id: 'session-a' },
+                }),
+                makeEvent({
+                    id: 'event-3',
+                    event: '$ai_span',
+                    properties: { $session_id: 'session-b' },
+                }),
+            ])
+
+            expect(getSessionID(trace)).toBeNull()
+            expect(hasSessionID(trace)).toBe(false)
+        })
+
+        it('returns null when no events have a session id', () => {
+            const trace = makeTrace([
+                makeEvent({ id: 'event-1', event: '$ai_trace' }),
+                makeEvent({ id: 'event-2', event: '$ai_generation' }),
+            ])
+
+            expect(getSessionID(trace)).toBeNull()
+            expect(hasSessionID(trace)).toBe(false)
+        })
+
+        it('returns the session id for individual events unchanged', () => {
+            const event = makeEvent({
+                id: 'event-1',
+                event: '$ai_generation',
+                properties: { $session_id: 'event-session-id' },
+            })
+
+            expect(getSessionID(event)).toBe('event-session-id')
+            expect(hasSessionID(event)).toBe(true)
         })
     })
 })

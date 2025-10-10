@@ -82,9 +82,10 @@ export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTrac
 
 export function hasSessionID(event: LLMTrace | LLMTraceEvent): boolean {
     if (isLLMTraceEvent(event)) {
-        return 'properties' in event && typeof event.properties.$session_id === 'string'
+        return typeof event.properties.$session_id === 'string'
     }
-    return '$session_id' in event
+
+    return getTraceSessionId(event) !== null
 }
 
 export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
@@ -92,7 +93,28 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
         return event.properties.$session_id || null
     }
 
-    return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
+    return getTraceSessionId(event)
+}
+
+function getTraceSessionId(trace: LLMTrace): string | null {
+    const traceEventSessionId = trace.events.find((event) => event.event === '$ai_trace')?.properties.$session_id
+
+    if (typeof traceEventSessionId === 'string' && traceEventSessionId.length > 0) {
+        return traceEventSessionId
+    }
+
+    const childSessionIds = trace.events
+        .filter((event) => event.event !== '$ai_trace')
+        .map((event) => event.properties.$session_id)
+        .filter((sessionId): sessionId is string => typeof sessionId === 'string' && sessionId.length > 0)
+
+    if (childSessionIds.length === 0) {
+        return null
+    }
+
+    const uniqueSessionIds = new Set(childSessionIds)
+
+    return uniqueSessionIds.size === 1 ? childSessionIds[0] : null
 }
 
 export function getEventType(event: LLMTrace | LLMTraceEvent): string {
