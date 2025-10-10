@@ -25,7 +25,7 @@ def prepare_s3_files_for_querying(
     """Copies files from a given S3 folder to a new S3 folder that is used for querying.
     This is done to ensure that the files are in a consistent state before querying.
 
-    Returns the folder that can be used for querying. Note: this isn't the whole S3 path, just the last directory, e.g. table__query/**.parquet
+    Returns the folder that can be used for querying. Note: this isn't the whole S3 path, just the last directory, e.g. table__query
     """
 
     s3 = get_s3_client()
