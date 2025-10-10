@@ -31,6 +31,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    delete_all_from_s3_prefix,
     has_valid_credentials,
 )
 
@@ -42,6 +43,16 @@ pytestmark = [
         reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
     ),
 ]
+
+
+@pytest.fixture(autouse=True)
+async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
+    """Clean-up S3 bucket used in Redshift copy activity."""
+    yield
+
+    assert s3_client is not None
+
+    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
 
 
 async def _run_activity(

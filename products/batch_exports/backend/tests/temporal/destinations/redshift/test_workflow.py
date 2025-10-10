@@ -27,6 +27,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    delete_all_from_s3_prefix,
 )
 from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
 
@@ -41,6 +42,25 @@ pytestmark = [
 @pytest.fixture
 def table_name(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
+
+
+@pytest.fixture
+def mode(request) -> str:
+    try:
+        return request.param
+    except AttributeError:
+        return "INSERT"
+
+
+@pytest.fixture(autouse=True)
+async def clean_up_s3_bucket(s3_client, mode, bucket_name, key_prefix):
+    """Clean-up S3 bucket used in Redshift copy activity."""
+    yield
+
+    if s3_client is None or bucket_name is None or mode != "COPY":
+        return
+
+    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
 
 
 @pytest.fixture
@@ -69,7 +89,7 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("mode", ["COPY", "INSERT"])
+@pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
 async def test_redshift_export_workflow(
     clickhouse_client,
