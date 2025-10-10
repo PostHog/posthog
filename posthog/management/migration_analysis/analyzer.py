@@ -54,9 +54,11 @@ class RiskAnalyzer:
     }
 
     def analyze_migration(self, migration, path: str) -> MigrationRisk:
-        # Collect newly created models for this migration
+        # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
         self.newly_created_models = {
-            op.name for op in migration.operations if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
+            op.name.lower()
+            for op in migration.operations
+            if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
         }
 
         operation_risks = []
@@ -88,6 +90,13 @@ class RiskAnalyzer:
         # Check PostHog policies
         policy_violations = self.check_policies(migration)
 
+        # Build info messages
+        info_messages = []
+        if self.newly_created_models:
+            info_messages.append(
+                "ℹ️  Skipped operations on newly created tables (empty tables don't cause lock contention)."
+            )
+
         return MigrationRisk(
             path=path,
             app=migration.app_label,
@@ -95,6 +104,7 @@ class RiskAnalyzer:
             operations=operation_risks,
             combination_risks=combination_risks,
             policy_violations=policy_violations,
+            info_messages=info_messages,
         )
 
     def _is_safe_on_new_table(self, op, risk: OperationRisk) -> bool:
@@ -102,6 +112,8 @@ class RiskAnalyzer:
         if risk.type not in ["AddIndex", "AddConstraint"]:
             return False
         model_name = risk.details.get("model") or getattr(op, "model_name", None)
+        if model_name:
+            model_name = model_name.lower()
         return model_name in self.newly_created_models
 
     def analyze_operation(self, op) -> OperationRisk:
@@ -113,7 +125,18 @@ class RiskAnalyzer:
         if analyzer:
             return analyzer.analyze(op)
 
-        # Fallback for unknown operation types
+        # Fallback for unscored operation types
+        # Check if it's a known Django operation
+        is_django_operation = op.__class__.__module__.startswith("django.db.migrations.operations")
+
+        if is_django_operation:
+            return OperationRisk(
+                type=op_type,
+                score=2,
+                reason=f"Unscored Django operation: {op_type} (needs manual review)",
+                details={},
+            )
+
         return OperationRisk(
             type=op_type,
             score=2,

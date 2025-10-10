@@ -1,11 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use common_types::{Person, PersonMode};
+use common_types::{format::format_ch_datetime, Person, PersonMode};
 
 use crate::{
     app_context::AppContext,
     error::{PipelineFailure, PipelineResult},
-    pipeline::format_ch_timestamp,
     WithIndices,
 };
 
@@ -102,7 +101,7 @@ pub async fn add_person_properties(
             continue;
         };
 
-        event.person_created_at = Some(format_ch_timestamp(person.created_at));
+        event.person_created_at = Some(format_ch_datetime(person.created_at));
         event.person_id = Some(person.uuid.to_string());
         event.person_properties =
             Some(serde_json::to_string(&person.properties).map_err(|e| (i, e.into()))?);

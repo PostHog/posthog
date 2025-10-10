@@ -3,10 +3,8 @@ use std::{future::ready, sync::Arc};
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
-use common_types::EmbeddingRequest;
-use embedding_worker::{
-    app_context::AppContext, config::Config, handle_batch, metric_consts::FINGERPRINTS_RECEIVED,
-};
+use common_types::embedding::EmbeddingRequest;
+use embedding_worker::{app_context::AppContext, config::Config, handle_batch};
 
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -106,7 +104,6 @@ async fn main() {
                     continue;
                 }
             };
-            metrics::counter!(FINGERPRINTS_RECEIVED).increment(1);
         }
 
         let embeddings = match handle_batch(to_process, &offsets, context.clone()).await {
