@@ -127,6 +127,61 @@ git add model_migration/
 git commit -m "feat(migration-scripts): [describe script improvements]"
 ```
 
+### Step 2.5: Move API Files (Manual Step)
+
+After the migration script completes, manually move product API files from `posthog/api/` to the product's backend:
+
+```bash
+# Check if product has API files in posthog/api/
+ls posthog/api/<product>.py posthog/api/test/test_<product>.py 2>/dev/null
+
+# If they exist, create API structure
+mkdir -p products/<product>/backend/api/test
+touch products/<product>/backend/api/__init__.py
+
+# Move files
+git mv posthog/api/<product>.py products/<product>/backend/api/<product>.py
+git mv posthog/api/test/test_<product>.py products/<product>/backend/api/test/test_<product>.py
+
+# Update imports in the moved API file
+# Models should already use new paths from script
+# Update any other internal imports
+
+# Find and update files that import from posthog.api.<product>
+rg "from posthog.api.<product> import" --type py
+# Update each file to import from products.<product>.backend.api.<product>
+
+# Optional: Add backward-compatible re-exports if needed
+# In products/<product>/backend/api/__init__.py:
+# from .product import *  # Re-export everything
+
+# Test the changes
+pytest products/<product>/backend/api/test/
+```
+
+**Why manual?**
+
+- API files are complex (ViewSets, serializers, routing)
+- Import patterns vary (some use `from posthog.api.X import`, others use relative imports)
+- LibCST script already has edge cases with imports
+- Only 2-3 files typically, easy to do by hand
+- Can verify each change incrementally
+
+**Example products**:
+
+- ✅ llm_analytics: Already has `products/llm_analytics/backend/api/`
+- ✅ messaging: Already has `products/messaging/backend/api/`
+- ✅ data_warehouse: Already has `products/data_warehouse/backend/api/`
+- ❌ error_tracking: Still has `posthog/api/error_tracking.py` (needs manual move)
+- ❌ surveys: Still has `posthog/api/survey.py` (future work)
+
+**Commit this separately**:
+
+```bash
+git add products/<product>/backend/api/
+git commit -m "chore(<product>): move API files to products backend"
+```
+
 ### Step 3: Merge Fresh Work Back into Review Branch
 
 ```bash
