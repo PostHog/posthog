@@ -422,15 +422,15 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
-class LLMProxyBurstRateThrottle(UserRateThrottle):
-    scope = "llm_proxy_burst"
+class LLMGatewayBurstRateThrottle(UserRateThrottle):
+    scope = "llm_gateway_burst"
     rate = "30/minute"
 
 
-class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+class LLMGatewaySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "llm_proxy_sustained"
+    scope = "llm_gateway_sustained"
     rate = "500/hour"
 
 
