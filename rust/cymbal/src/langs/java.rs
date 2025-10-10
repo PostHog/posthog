@@ -26,12 +26,12 @@ impl RawJavaFrame {
         // files they're in are sufficiently similar we can consider
         // them to be the same frame
         let mut hasher = Sha512::new();
-        hasher.update(self.filename.as_bytes());
+        if let Some(filename) = &self.filename {
+            hasher.update(filename.as_bytes());
+        }
         hasher.update(self.function.as_bytes());
         hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
-        self.module
-            .as_ref()
-            .inspect(|m| hasher.update(m.as_bytes()));
+        hasher.update(self.module.as_bytes());
         format!("{:x}", hasher.finalize())
     }
 }
@@ -43,7 +43,7 @@ impl From<&RawJavaFrame> for Frame {
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
-            source: Some(raw.filename.clone()),
+            source: raw.filename.clone(),
             in_app: raw.meta.in_app,
             resolved_name: Some(raw.function.clone()),
             lang: "java".to_string(),
