@@ -18,7 +18,6 @@ import {
     ExternalDataSource,
 } from '~/types'
 
-import { disposables } from '../../kea-disposables'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
@@ -27,7 +26,6 @@ const REFRESH_INTERVAL = 10000
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
-    disposables(),
     connect(() => ({
         values: [
             databaseTableListLogic,

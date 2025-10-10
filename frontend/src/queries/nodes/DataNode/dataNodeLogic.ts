@@ -71,7 +71,6 @@ import {
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
-import { disposables } from '../../../kea-disposables'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
@@ -152,7 +151,6 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
-    disposables(),
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
     connect((props: DataNodeLogicProps) => ({

@@ -12,7 +12,6 @@ import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from 'scenes
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
-import { disposables } from '../../../../kea-disposables'
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
@@ -25,7 +24,6 @@ export interface DataWarehouseSourceSettingsLogicProps {
 const REFRESH_INTERVAL = 5000
 
 export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsLogicType>([
-    disposables(),
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),

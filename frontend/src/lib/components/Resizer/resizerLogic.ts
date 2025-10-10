@@ -1,7 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { disposables } from '../../../kea-disposables'
 import type { resizerLogicType } from './resizerLogicType'
 
 export type ResizerEvent = {
@@ -25,7 +24,6 @@ export const resizerLogic = kea<resizerLogicType>([
     key((props) => props.logicKey),
     path((key) => ['components', 'resizer', 'resizerLogic', key]),
 
-    disposables(),
     actions({
         beginResize: (startXOrY: number) => ({ startXOrY }),
         endResize: true,

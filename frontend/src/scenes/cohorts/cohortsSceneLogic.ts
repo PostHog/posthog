@@ -15,7 +15,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
-import { disposables } from '~/kea-disposables'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { processCohort } from '~/models/cohortsModel'
@@ -43,7 +42,6 @@ const COHORTS_PER_PAGE = 100
 
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
-    disposables(),
     tabAwareScene(),
     connect(() => ({
         actions: [exportsLogic, ['startExport']],

@@ -12,7 +12,6 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 
-import { disposables } from '../../../../../kea-disposables'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
@@ -37,7 +36,6 @@ export interface ChangelogFlagPayload {
 
 export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>([
     path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
-    disposables(),
     connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],

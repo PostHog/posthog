@@ -12,7 +12,6 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
-import { disposables } from '../../kea-disposables'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
@@ -38,7 +37,6 @@ const getMaxZIndex = (element: Element): number => {
 export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
 
-    disposables(),
     connect(() => ({
         values: [actionsTabLogic, ['actionForm'], currentPageLogic, ['href']],
         actions: [actionsTabLogic, ['selectAction', 'newAction']],

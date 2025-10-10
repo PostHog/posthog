@@ -5,7 +5,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { disposables } from '../../kea-disposables'
 import type { themeLogicType } from './themeLogicType'
 import { Theme, themes } from './themes'
 
@@ -16,7 +15,6 @@ export const themeLogic = kea<themeLogicType>([
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
     })),
 
-    disposables(),
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),

@@ -12,14 +12,12 @@ import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSour
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
-import { disposables } from '../../../kea-disposables'
 import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 const REFRESH_INTERVAL = 10000
 
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
-    disposables(),
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
     connect(() => ({
         values: [

@@ -18,7 +18,6 @@ import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { disposables } from '../../kea-disposables'
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
@@ -30,7 +29,6 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 }
 
 export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
-    disposables(),
     path(['toolbar', 'elements', 'heatmapToolbarMenuLogic']),
     connect(() => ({
         values: [

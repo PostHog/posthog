@@ -12,7 +12,6 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
 
-import { disposables } from '../../kea-disposables'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
@@ -43,7 +42,6 @@ export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
 
-    disposables(),
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
         actions: [

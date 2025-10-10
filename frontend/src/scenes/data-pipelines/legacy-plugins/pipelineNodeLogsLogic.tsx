@@ -8,7 +8,6 @@ import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { disposables } from '~/kea-disposables'
 import api from '~/lib/api'
 import { LogEntry, LogEntryLevel, LogEntryRequestParams } from '~/types'
 
@@ -65,7 +64,6 @@ export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     props({} as PipelineNodeLogsLogicProps),
     key(({ id }) => id),
-    disposables(),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect(() => ({
         values: [teamLogic(), ['currentTeamId']],

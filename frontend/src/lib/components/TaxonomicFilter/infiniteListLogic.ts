@@ -21,7 +21,6 @@ import { isEmail, isURL } from 'lib/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
 
-import { disposables } from '../../../kea-disposables'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
@@ -77,7 +76,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
 
-    disposables(),
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),

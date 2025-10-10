@@ -37,7 +37,6 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { disposables } from '~/kea-disposables'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
 
@@ -111,7 +110,7 @@ export const sceneLogic = kea<sceneLogicType>([
         }
     ),
     path(['scenes', 'sceneLogic']),
-    disposables(),
+
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
         actions: [

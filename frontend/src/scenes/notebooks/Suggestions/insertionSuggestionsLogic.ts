@@ -2,7 +2,6 @@ import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
-import { disposables } from '../../../kea-disposables'
 import { InsertionSuggestion } from './InsertionSuggestion'
 import SlashCommands from './SlashCommands'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
@@ -10,7 +9,6 @@ import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicT
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
 
-    disposables(),
     actions({
         setEditor: (editor: RichContentEditorType | null) => ({ editor }),
         setPreviousNode: (node: RichContentNode | null) => ({ node }),

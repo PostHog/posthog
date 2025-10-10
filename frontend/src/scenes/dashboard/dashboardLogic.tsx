@@ -38,7 +38,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { disposables } from '~/kea-disposables'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -140,7 +139,6 @@ export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layou
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
-    disposables(),
     connect(() => ({
         values: [
             teamLogic,

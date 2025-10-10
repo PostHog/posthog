@@ -7,14 +7,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { disposables } from '../../../kea-disposables'
 import { NotebookNodeResource } from '../types'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
 
-    disposables(),
     connect(() => ({
         values: [sidePanelStateLogic, ['sidePanelOpen', 'selectedTab'], featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],

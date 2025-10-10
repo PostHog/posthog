@@ -9,7 +9,6 @@ import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { disposables } from '~/kea-disposables'
 import { Breadcrumb, LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
@@ -24,7 +23,6 @@ export interface LiveEventsTableProps {
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     tabAwareScene(),
-    disposables(),
     props({} as LiveEventsTableProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],

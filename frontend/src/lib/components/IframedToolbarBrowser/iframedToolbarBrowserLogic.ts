@@ -18,7 +18,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ToolbarUserIntent } from '~/types'
 
-import { disposables } from '../../../kea-disposables'
 import type { iframedToolbarBrowserLogicType } from './iframedToolbarBrowserLogicType'
 
 export type IframedToolbarBrowserLogicProps = {
@@ -44,7 +43,6 @@ export const UserIntentVerb: {
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
-    disposables(),
     path(['lib', 'components', 'iframedToolbarBrowser', 'iframedToolbarBrowserLogic']),
     props({
         automaticallyAuthorizeBrowserUrl: false,

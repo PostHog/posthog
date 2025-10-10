@@ -4,7 +4,6 @@ import { RefObject } from 'react'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { disposables } from '../../../../kea-disposables'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 
@@ -40,8 +39,6 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     })),
-
-    disposables(),
 
     actions({
         updatePath: (path: string) => ({ path }),

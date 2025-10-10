@@ -13,7 +13,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
-import { disposables } from '../../../kea-disposables'
 import { commandBarLogic } from './commandBarLogic'
 import { Tab, TabGroup, clickhouseTabs } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
@@ -70,8 +69,6 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
-
-    disposables(),
 
     connect(() => ({
         values: [

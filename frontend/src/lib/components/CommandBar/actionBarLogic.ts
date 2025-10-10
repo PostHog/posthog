@@ -3,7 +3,6 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { disposables } from '../../../kea-disposables'
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
 import type { actionBarLogicType } from './actionBarLogicType'
 import { commandBarLogic } from './commandBarLogic'
@@ -11,8 +10,6 @@ import { BarStatus } from './types'
 
 export const actionBarLogic = kea<actionBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),
-
-    disposables(),
 
     connect(() => ({
         actions: [

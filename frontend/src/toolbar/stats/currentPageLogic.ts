@@ -1,6 +1,5 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 
-import { disposables } from '../../kea-disposables'
 import type { currentPageLogicType } from './currentPageLogicType'
 
 const replaceWithWildcard = (part: string): string => {
@@ -47,7 +46,6 @@ export function withoutPostHogInit(href: string): string {
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
 
-    disposables(),
     actions(() => ({
         setHref: (href: string) => ({ href }),
         setWildcardHref: (href: string) => ({ href }),

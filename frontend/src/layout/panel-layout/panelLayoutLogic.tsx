@@ -4,8 +4,6 @@ import { router } from 'kea-router'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
-import { disposables } from '~/kea-disposables'
-
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
@@ -24,7 +22,6 @@ export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
-    disposables(),
     connect(() => ({
         values: [navigation3000Logic, ['mobileLayout'], router, ['location']],
     })),

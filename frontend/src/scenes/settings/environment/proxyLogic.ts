@@ -8,7 +8,6 @@ import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { disposables } from '../../../kea-disposables'
 import type { proxyLogicType } from './proxyLogicType'
 
 export type ProxyRecord = {
@@ -35,7 +34,6 @@ export function domainFor(proxyRecord: ProxyRecord | undefined): string {
 }
 
 export const proxyLogic = kea<proxyLogicType>([
-    disposables(),
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect(() => ({
         values: [organizationLogic, ['currentOrganization']],

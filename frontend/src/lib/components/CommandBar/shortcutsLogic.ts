@@ -1,13 +1,10 @@
 import { afterMount, connect, kea, path } from 'kea'
 
-import { disposables } from '../../../kea-disposables'
 import { commandBarLogic } from './commandBarLogic'
 import type { shortcutsLogicType } from './shortcutsLogicType'
 
 export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['lib', 'components', 'CommandBar', 'shortcutsLogic']),
-
-    disposables(),
 
     connect(() => ({
         actions: [commandBarLogic, ['hideCommandBar']],

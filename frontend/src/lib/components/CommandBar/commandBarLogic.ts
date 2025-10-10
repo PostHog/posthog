@@ -4,14 +4,11 @@ import { subscriptions } from 'kea-subscriptions'
 import { shouldIgnoreInput } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { disposables } from '../../../kea-disposables'
 import type { commandBarLogicType } from './commandBarLogicType'
 import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
-
-    disposables(),
 
     connect(() => ({
         actions: [eventUsageLogic, ['reportCommandBarStatusChanged']],

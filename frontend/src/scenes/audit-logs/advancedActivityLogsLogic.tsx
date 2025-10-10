@@ -10,7 +10,6 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs, objectClean } from 'lib/utils'
 
-import { disposables } from '~/kea-disposables'
 import { ActivityScope } from '~/types'
 
 import { userLogic } from '../userLogic'
@@ -84,7 +83,6 @@ const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_f
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
-    disposables(),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     })),

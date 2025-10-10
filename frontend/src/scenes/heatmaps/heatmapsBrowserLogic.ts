@@ -23,7 +23,6 @@ import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recording
 
 import { hogql } from '~/queries/utils'
 
-import { disposables } from '../../kea-disposables'
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 
 export type HeatmapsBrowserLogicProps = {
@@ -59,7 +58,6 @@ const normalizeUrlPath = (urlObj: URL): string => {
 }
 
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
-    disposables(),
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
