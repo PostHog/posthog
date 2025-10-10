@@ -176,11 +176,6 @@ impl CheckpointWorker {
         mode: CheckpointMode,
         store: &DeduplicationStore,
     ) -> Result<Vec<String>> {
-        let checkpoint_attempt_path = self
-            .target
-            .local_attempt_path()
-            .context("In create_local_partition_checkpoint")?;
-
         let start_time = Instant::now();
         let local_path_tag = self.target.local_path_tag();
         let local_attempt_path = self
@@ -195,9 +190,7 @@ impl CheckpointWorker {
                     .record(checkpoint_duration.as_secs_f64());
 
                 metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM).record(sst_files.len() as f64);
-                if let Ok(checkpoint_size) =
-                    Self::get_directory_size(&checkpoint_attempt_path).await
-                {
+                if let Ok(checkpoint_size) = Self::get_directory_size(&local_attempt_path).await {
                     metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
                 }
 

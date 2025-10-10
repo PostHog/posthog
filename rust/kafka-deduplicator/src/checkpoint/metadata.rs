@@ -105,7 +105,7 @@ impl CheckpointMetadata {
             let local_checkpointed_sst_file_path = local_attempt_path.join(&cleansed_file_path);
             let file_size = tokio::fs::metadata(&local_checkpointed_sst_file_path)
                 .await
-                .context("Failed file size check on {sst_file} in add_file")?
+                .with_context(|| format!("Failed file size check on {sst_file} at local path {local_checkpointed_sst_file_path:?}"))?
                 .len() as u64;
 
             // TODO: perform checksum on the sst_file contents and add to CheckpointFile

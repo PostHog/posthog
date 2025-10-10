@@ -22,7 +22,7 @@ pub const CHECKPOINT_METADATA_SUBDIR: &str = "metadata";
 pub const CHECKPOINT_REMOTE_PATH_NAMESPACE: &str = "checkpoints";
 
 /// Encapsulates local/remote coordinates for a single checkpoint attempt
-/// for a given source topic and partition, and convience methods for
+/// for a given source topic and partition, and convenience methods for
 /// constructing various local and remote paths for checkpoint import/export.
 ///
 /// For convenience, the timestamp is optional depending on the kind of paths
@@ -170,7 +170,7 @@ impl CheckpointTarget {
     /// Construct the remote base path for all metadata files related to this topic and partition.
     /// Path elements include namespace, topic, partition, and metadata label
     pub fn remote_metadata_path(&self) -> String {
-        format!("{}/{}", self.remote_base_path(), CHECKPOINT_METADATA_SUBDIR,)
+        format!("{}/{}", self.remote_base_path(), CHECKPOINT_METADATA_SUBDIR)
     }
 
     /// Construct the full remote path to the metadata file associated with this checkpoint attempt.

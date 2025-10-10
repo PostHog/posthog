@@ -46,7 +46,7 @@ impl CheckpointImporter {
                 .await?;
 
             let mut metadata = CheckpointMetadata::from_payload(&payload)
-                .context("In CheckpointImporter::list_checkpoint_metadata")?;
+                .context("In CheckpointImporter::fetch_checkpoint_metadata")?;
             metadata.target.with_local_base_dir(local_base_dir);
 
             metadata_objects.push(metadata);
@@ -62,11 +62,11 @@ impl CheckpointImporter {
         let remote_attempt_path = metadata
             .target
             .remote_attempt_path()
-            .context("In CheckpointImporter::download_checkpoint")?;
+            .context("In CheckpointImporter::fetch_checkpoint")?;
         let local_attempt_path = metadata
             .target
             .local_attempt_path()
-            .context("In CheckpointImporter::download_checkpoint")?;
+            .context("In CheckpointImporter::fetch_checkpoint")?;
 
         self.downloader
             .download_checkpoint(&remote_attempt_path, &local_attempt_path)

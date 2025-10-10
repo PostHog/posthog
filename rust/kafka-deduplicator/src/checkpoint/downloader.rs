@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::path::Path;
 
-/// Trait for uploading checkpoints to remote storage
+/// Trait for downloading checkpoint data files from remote storage
 #[async_trait]
 pub trait CheckpointDownloader: Send + Sync + std::fmt::Debug {
     /// Download all files associated with a particular checkpoint attempt
