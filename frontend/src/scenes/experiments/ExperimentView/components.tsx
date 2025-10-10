@@ -21,6 +21,7 @@ import {
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
@@ -402,6 +403,7 @@ export function PageHeaderCustom(): JSX.Element {
         legacyPrimaryMetricsResults,
         hasMinimumExposureForResults,
         experimentLoading,
+        featureFlags,
     } = useValues(experimentLogic)
     const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard, updateExperiment } =
         useActions(experimentLogic)
@@ -419,6 +421,9 @@ export function PageHeaderCustom(): JSX.Element {
         !isSingleVariantShipped &&
         hasMinimumExposureForResults &&
         (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
+
+    const shouldShowStopButton =
+        !isExperimentDraft && isExperimentRunning && featureFlags[FEATURE_FLAGS.EXPERIMENTS_HIDE_STOP_BUTTON] === 'test'
 
     return (
         <>
@@ -458,7 +463,7 @@ export function PageHeaderCustom(): JSX.Element {
                         )}
                         {experiment && isExperimentRunning && (
                             <div className="flex flex-row gap-2">
-                                {!experiment.end_date && (
+                                {!experiment.end_date && shouldShowStopButton && (
                                     <LemonButton
                                         type="secondary"
                                         data-attr="stop-experiment"
