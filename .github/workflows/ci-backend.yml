@@ -746,7 +746,7 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v4
-              if: !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98'
+              if: ${{ !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
