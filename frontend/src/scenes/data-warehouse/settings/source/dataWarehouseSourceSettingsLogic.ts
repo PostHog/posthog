@@ -313,13 +313,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         actions.loadJobs()
     }),
 
-    beforeUnmount(({ cache }) => {
-        // Clean up refresh timeouts to prevent memory leaks and continued API calls
-        if (cache.sourceRefreshTimeout) {
-            clearTimeout(cache.sourceRefreshTimeout)
-        }
-        if (cache.jobsRefreshTimeout) {
-            clearTimeout(cache.jobsRefreshTimeout)
-        }
+    beforeUnmount(() => {
+        // Disposables handle cleanup automatically
     }),
 ])

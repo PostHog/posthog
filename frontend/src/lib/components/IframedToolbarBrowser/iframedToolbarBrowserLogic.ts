@@ -349,15 +349,8 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.startTrackingLoading()
         }
     }),
-    beforeUnmount(({ actions, props, cache }) => {
+    beforeUnmount(({ actions, props }) => {
         props.clearBrowserUrlOnUnmount && actions.setBrowserUrl('')
-
-        // Clean up loading timeouts to prevent memory leaks and ghost banner messages
-        if (cache.errorTimeout) {
-            clearTimeout(cache.errorTimeout)
-        }
-        if (cache.warnTimeout) {
-            clearTimeout(cache.warnTimeout)
-        }
+        // Note: Loading timeouts are automatically cleaned up by the disposables plugin
     }),
 ])

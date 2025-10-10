@@ -496,13 +496,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
     })),
 
-    beforeUnmount(({ cache }) => {
-        // Clean up any pending error timeout to prevent memory leaks
-        if (cache.errorTimeout) {
-            clearTimeout(cache.errorTimeout)
-        }
-        if (cache.warnTimeout) {
-            clearTimeout(cache.warnTimeout)
-        }
+    beforeUnmount(() => {
+        // Disposables handle cleanup automatically
     }),
 ])
