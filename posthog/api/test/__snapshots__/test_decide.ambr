@@ -621,6 +621,8 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.22
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."attribution_window_days",
+         "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."sources_map",
          "posthog_teammarketinganalyticsconfig"."conversion_goals"
   FROM "posthog_teammarketinganalyticsconfig"
@@ -3227,6 +3229,8 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.22
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."attribution_window_days",
+         "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."sources_map",
          "posthog_teammarketinganalyticsconfig"."conversion_goals"
   FROM "posthog_teammarketinganalyticsconfig"

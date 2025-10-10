@@ -4815,11 +4815,14 @@ export type SchemaIncrementalFieldsResponse = {
     full_refresh_available: boolean
 }
 
+// numeric is snowflake specific and objectid is mongodb specific
+export type IncrementalFieldType = 'integer' | 'numeric' | 'datetime' | 'date' | 'timestamp' | 'objectid'
+
 export interface IncrementalField {
-    label: string
-    type: string
-    field: string
-    field_type: string
+    label: string // the field name shown in the UI
+    type: IncrementalFieldType // the field type shown in the UI
+    field: string // the actual database field name
+    field_type: IncrementalFieldType // the actual database field type
 }
 
 export interface ExternalDataSourceSyncSchema {
@@ -5265,6 +5268,13 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string | ReactNode
     subrows: ProductPricingTierSubrows
+}
+
+export type BillingInvoiceItemRow = {
+    description: string
+    dateRange?: string
+    amount: string
+    isBold?: boolean
 }
 
 export type AvailableOnboardingProducts = Record<

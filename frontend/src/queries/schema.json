@@ -2173,6 +2173,10 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "AttributionMode": {
+            "enum": ["first_touch", "last_touch"],
+            "type": "string"
+        },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
             "properties": {
@@ -10551,6 +10555,9 @@
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
+                "personId": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
@@ -15921,6 +15928,12 @@
         "MarketingAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "attribution_mode": {
+                    "$ref": "#/definitions/AttributionMode"
+                },
+                "attribution_window_days": {
+                    "type": "number"
+                },
                 "conversion_goals": {
                     "items": {
                         "$ref": "#/definitions/ConversionGoalFilter"

@@ -410,6 +410,11 @@ class AssistantTrendsFilter(BaseModel):
     )
 
 
+class AttributionMode(StrEnum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
+
+
 class AutocompleteCompletionItemKind(StrEnum):
     METHOD = "Method"
     FUNCTION = "Function"
@@ -9109,6 +9114,8 @@ class MarketingAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attribution_mode: Optional[AttributionMode] = None
+    attribution_window_days: Optional[float] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
@@ -12723,6 +12730,7 @@ class ErrorTrackingQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
+    personId: Optional[str] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     revenueEntity: Optional[RevenueEntity] = None
     revenuePeriod: Optional[RevenuePeriod] = None
