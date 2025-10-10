@@ -396,6 +396,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 revenueProperty=self.REVENUE_PROPERTY,
             )
         ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
 
         _create_event(
             event=self.PURCHASE_EVENT_NAME,

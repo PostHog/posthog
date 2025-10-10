@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0875_activitylog_idx_alog_team_scope_created"),
+        ("posthog", "0877_delete_named_query_from_state"),
     ]
 
     operations = [
