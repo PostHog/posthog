@@ -18,7 +18,6 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { hogqlQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -31,7 +30,7 @@ import {
     PersonsTabType,
 } from '~/types'
 
-import { asDisplay } from './person-utils'
+import { asDisplay, getHogqlQueryStringForPersonId } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
@@ -164,11 +163,7 @@ export const personsLogic = kea<personsLogicType>([
                     return person
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await hogqlQuery(
-                        hogql`select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id FROM raw_person_distinct_ids as pdi2 WHERE pdi2.person_id = {id} GROUP BY pdi2.distinct_id HAVING ifNull(equals(argMax(pdi2.is_deleted, pdi2.version), 0), 0)) as pdi2 ON pdi2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at`,
-                        { id: uuid },
-                        'blocking'
-                    )
+                    const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
                     const row = response?.results?.[0]
                     if (row) {
                         const person: PersonType = {
