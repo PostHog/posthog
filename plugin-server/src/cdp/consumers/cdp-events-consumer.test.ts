@@ -434,9 +434,8 @@ describe.each([
                 expect(invocationGlobals[0].event.properties).toEqual({
                     $current_url: 'https://posthog.com',
                     $lib_version: '1.0.0',
-                    token: undefined,
                 })
-                expect(invocationGlobals[0].event.properties.token).toBeUndefined()
+                expect(invocationGlobals[0].event.properties).not.toHaveProperty('token')
             })
         })
     })
