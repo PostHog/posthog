@@ -169,7 +169,7 @@ export function DistributionTable(): JSX.Element {
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
                 if (!result || !result.insight) {
-                    return <span className="font-semibold">{item.key}</span>
+                    return <VariantTag experimentId={experimentId} variantKey={item.key} />
                 }
                 return <VariantTag experimentId={experimentId} variantKey={item.key} />
             },
