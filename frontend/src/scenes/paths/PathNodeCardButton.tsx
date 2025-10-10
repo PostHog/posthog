@@ -58,7 +58,7 @@ export function PathNodeCardButton({
         <div className="flex justify-between items-center w-full">
             <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
-                <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
+                <span className="text-xs break-words">{displayName}</span>
                 {isTruncated && <span className="text-xxs text-muted ml-1 italic">(hover for full URL)</span>}
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}
