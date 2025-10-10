@@ -11,7 +11,7 @@ import { errorTrackingQuery } from 'products/error_tracking/frontend/queries'
 import { IssuesFilters } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesFilters'
 import {
     ListOptions,
-    getQueryContext,
+    useIssueQueryContext,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesList'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -23,6 +23,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
     const { personId } = attributes
     const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic({ key: personId }))
     const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic({ key: personId }))
+    const context = useIssueQueryContext()
     const query = errorTrackingQuery({
         orderBy,
         status,
@@ -38,7 +39,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
     const insightProps: InsightLogicProps = {
         dashboardItemId: `new-NotebookNodeIssues-${personId}`,
     }
-    const context = getQueryContext(insightProps)
 
     if (!expanded) {
         return null
@@ -46,7 +46,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <Query query={query} context={context} />
+            <Query query={{ ...query, embedded: true }} context={context} />
         </BindLogic>
     )
 }
@@ -58,9 +58,9 @@ export const Settings = ({
     return (
         <BindLogic logic={issueFiltersLogic} props={{ key: personId }}>
             <BindLogic logic={issueQueryOptionsLogic} props={{ key: personId }}>
-                <div className="space-y-2 mb-2">
-                    <ListOptions />
+                <div className="p-2 space-y-2 mb-2">
                     <IssuesFilters />
+                    <ListOptions />
                 </div>
             </BindLogic>
         </BindLogic>
