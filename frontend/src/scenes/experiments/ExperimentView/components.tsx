@@ -19,13 +19,13 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { userHasAccess } from 'lib/components/AccessControlAction'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'

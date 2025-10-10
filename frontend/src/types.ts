@@ -306,6 +306,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Survey = 'survey',
     Experiment = 'experiment',
 }
 
@@ -343,6 +344,8 @@ export interface UserType extends UserBaseType {
         plugin_disabled: boolean
         project_weekly_digest_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
+        error_tracking_issue_assigned: boolean
+        discussions_mentioned: boolean
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -405,6 +408,8 @@ export interface NotificationSettings {
     plugin_disabled: boolean
     project_weekly_digest_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
+    error_tracking_issue_assigned: boolean
+    discussions_mentioned: boolean
 }
 
 export interface PluginAccess {
@@ -3177,7 +3182,7 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
-export interface Survey {
+export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
     name: string
@@ -4683,6 +4688,8 @@ export type CommentType = {
     deleted?: boolean
 }
 
+export type CommentCreationParams = { mentions?: number[]; slug?: string }
+
 export interface DataWarehouseCredential {
     access_key: string
     access_secret: string
@@ -5257,6 +5264,13 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string | ReactNode
     subrows: ProductPricingTierSubrows
+}
+
+export type BillingInvoiceItemRow = {
+    description: string
+    dateRange?: string
+    amount: string
+    isBold?: boolean
 }
 
 export type AvailableOnboardingProducts = Record<
