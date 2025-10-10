@@ -105,7 +105,6 @@ class Migration(migrations.Migration):
                 ),
                 ("is_required", models.BooleanField(default=False)),
                 ("description", models.TextField(blank=True)),
-                ("order", models.PositiveIntegerField(default=0)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -119,12 +118,12 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "ordering": ["order", "name"],
+                "ordering": ["name"],
             },
         ),
         migrations.AddIndex(
             model_name="schemapropertygroupproperty",
-            index=models.Index(fields=["property_group", "order"], name="schema_pgp_group_order_idx"),
+            index=models.Index(fields=["property_group", "name"], name="schema_pgp_group_name_idx"),
         ),
         migrations.AddConstraint(
             model_name="schemapropertygroupproperty",

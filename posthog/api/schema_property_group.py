@@ -21,7 +21,6 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
             "property_type",
             "is_required",
             "description",
-            "order",
             "created_at",
             "updated_at",
         )

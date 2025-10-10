@@ -60,7 +60,6 @@ export interface SchemaPropertyGroupProperty {
     property_type: PropertyType
     is_required: boolean
     description: string
-    order: number
 }
 
 export interface EventDefinitionBasic {
@@ -205,7 +204,6 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                             property_type: 'String' as PropertyType,
                             is_required: false,
                             description: '',
-                            order: state.properties.length,
                         },
                     ],
                 }),

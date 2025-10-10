@@ -63,15 +63,14 @@ class SchemaPropertyGroupProperty(UUIDTModel):
     property_type = models.CharField(max_length=50, choices=PropertyType.choices)
     is_required = models.BooleanField(default=False)
     description = models.TextField(blank=True)
-    order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [
             models.Index(
-                fields=["property_group", "order"],
-                name="schema_pgp_group_order_idx",
+                fields=["property_group", "name"],
+                name="schema_pgp_group_name_idx",
             ),
         ]
         constraints = [
@@ -84,7 +83,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
                 check=models.Q(property_type__in=PropertyType.values),
             ),
         ]
-        ordering = ["order", "name"]
+        ordering = ["name"]
 
     def __str__(self) -> str:
         required_str = " (required)" if self.is_required else ""
