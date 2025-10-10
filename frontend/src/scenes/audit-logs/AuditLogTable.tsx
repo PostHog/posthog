@@ -99,7 +99,12 @@ export function AuditLogTable({ logItems, pagination }: AuditLogTableProps): JSX
                 onRowCollapse: (logItem, index) => toggleRowExpansion(logItem, index),
             }}
             onRow={(logItem, index) => ({
-                onClick: () => toggleRowExpansion(logItem, index),
+                onClick: (e) => {
+                    if ((e.target as HTMLElement).closest('.LemonTable__toggle')) {
+                        return
+                    }
+                    toggleRowExpansion(logItem, index)
+                },
                 style: { cursor: 'pointer' },
             })}
             pagination={pagination}

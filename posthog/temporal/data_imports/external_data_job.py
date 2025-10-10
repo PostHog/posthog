@@ -121,7 +121,11 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
     ],
     ExternalDataSourceType.MONGODB: ["The DNS query name does not exist"],
     ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
-    ExternalDataSourceType.GOOGLESHEETS: ["the header row in the worksheet contains duplicates", "can't be found"],
+    ExternalDataSourceType.GOOGLESHEETS: [
+        "the header row in the worksheet contains duplicates",
+        "can't be found",
+        "SpreadsheetNotFound",
+    ],
     ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
 }
 

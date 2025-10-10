@@ -111,25 +111,24 @@ export function Notebook({
                     {isTemplate && (
                         <LemonBanner
                             type="info"
-                            className="my-4"
                             action={{
                                 onClick: duplicateNotebook,
                                 children: 'Create copy',
                             }}
+                            className="mb-6"
                         >
                             <b>This is a template.</b> You can create a copy of it to edit and use as your own.
                         </LemonBanner>
                     )}
-
                     <NotebookHistoryWarning />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
-                            className="mb-3"
                             action={{
-                                children: 'Convert to Notebook',
+                                children: 'Convert to notebook',
                                 onClick: duplicateNotebook,
                             }}
+                            className="mb-6"
                         >
                             This is your scratchpad. It is only visible to you and is persisted only in this browser.
                             It's a great place to gather ideas before turning into a saved Notebook!

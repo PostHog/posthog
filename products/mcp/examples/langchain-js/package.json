@@ -1,0 +1,22 @@
+{
+    "name": "posthog-langchain-js-example",
+    "version": "1.0.0",
+    "description": "Example using PostHog tools with Langchain JS",
+    "type": "module",
+    "scripts": {
+        "dev": "tsx src/index.ts"
+    },
+    "dependencies": {
+        "@langchain/core": "^0.3.72",
+        "@langchain/openai": "^0.6.9",
+        "@posthog/agent-toolkit": "^0.2.1",
+        "dotenv": "^16.4.7",
+        "langchain": "^0.3.31",
+        "zod": "^3.24.4"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.34",
+        "tsx": "^4.20.3",
+        "typescript": "^5.8.3"
+    }
+}

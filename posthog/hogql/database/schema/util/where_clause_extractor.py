@@ -6,6 +6,10 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.database.schema.util.uuid import (
+    uuid_uint128_expr_to_timestamp_expr_v2,
+    uuid_uint128_expr_to_timestamp_expr_v3,
+)
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
@@ -329,6 +333,26 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
                         right=node.left,
                     )
                 )
+
+        if node.op == CompareOperationOp.Eq:
+            if is_left_constant and is_session_id_string_expr(node.right, self.context):
+                left_timestamp_expr = self.session_id_str_to_timestamp_expr(node.left)
+                if left_timestamp_expr is None:
+                    return None
+                return ast.CompareOperation(
+                    op=CompareOperationOp.Eq, left=left_timestamp_expr, right=self.timestamp_field
+                )
+            elif is_right_constant and is_session_id_string_expr(node.left, self.context):
+                right_timestamp_expr = self.session_id_str_to_timestamp_expr(node.right)
+                if right_timestamp_expr is None:
+                    return None
+                return ast.CompareOperation(
+                    op=CompareOperationOp.Eq, left=self.timestamp_field, right=right_timestamp_expr
+                )
+
+        return None
+
+    def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> Optional[ast.Expr]:
         return None
 
 
@@ -338,35 +362,20 @@ class SessionMinTimestampWhereClauseExtractorV1(SessionMinTimestampWhereClauseEx
 
 
 class SessionMinTimestampWhereClauseExtractorV2(SessionMinTimestampWhereClauseExtractor):
-    timestamp_field = ast.Call(
-        name="fromUnixTimestamp",
-        args=[
-            ast.Call(
-                name="intDiv",
-                args=[
-                    ast.Call(
-                        name="_toUInt64",
-                        args=[
-                            ast.Call(
-                                name="bitShiftRight",
-                                args=[ast.Field(chain=["raw_sessions", "session_id_v7"]), ast.Constant(value=80)],
-                            )
-                        ],
-                    ),
-                    ast.Constant(value=1000),
-                ],
-            )
-        ],
-    )
+    timestamp_field = uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=["raw_sessions", "session_id_v7"]))
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
 
 class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseExtractor):
-    timestamp_field = ast.Call(
-        name="UUIDv7ToDateTime",
-        args=[ast.Field(chain=["raw_sessions_v3", "session_id_v7"])],
-    )
+    timestamp_field = ast.Field(chain=["raw_sessions_v3", "session_timestamp"])
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
+
+    def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> Optional[ast.Expr]:
+        # this is a roundabout way of doing it, but we want to match the logic in the clickhouse table definition
+        timestamp_expr = uuid_uint128_expr_to_timestamp_expr_v3(
+            ast.Call(name="_toUInt128", args=[ast.Call(name="toUUID", args=[session_id_str_expr])])
+        )
+        return timestamp_expr
 
 
 def has_tombstone(expr: ast.Expr, tombstone_string: str) -> bool:
@@ -444,6 +453,39 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
 
     def visit_alias(self, node: ast.Alias) -> ast.Expr:
         return self.visit(node.expr)
+
+
+def is_session_id_string_expr(node: ast.Expr, context: HogQLContext) -> bool:
+    if isinstance(node, ast.Field):
+        from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
+        from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
+
+        if node.type and isinstance(node.type, ast.FieldType):
+            resolved_field = node.type.resolve_database_field(context)
+            table_type = node.type.resolve_table_type(context)
+            if isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+            if isinstance(table_type, ast.LazyJoinType):
+                table = table_type.lazy_join.join_table
+            else:
+                table = table_type.table
+            if resolved_field and isinstance(resolved_field, DatabaseField):
+                if (
+                    (isinstance(table, EventsTable) and resolved_field.name == "$session_id")
+                    or (isinstance(table, SessionsTableV3) and resolved_field.name in ("session_id"))
+                    or (isinstance(table, RawSessionReplayEventsTable) and resolved_field.name == "min_first_timestamp")
+                ):
+                    return True
+        # no type information, so just use the name of the field
+        if node.chain[-1] in [
+            "session_id",
+            "$session_id",
+        ]:
+            return True
+    if isinstance(node, ast.Alias):
+        return is_session_id_string_expr(node.expr, context)
+    return False
 
 
 def flatten_ands(exprs):

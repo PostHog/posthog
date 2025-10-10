@@ -19,6 +19,7 @@ APIScopeObject = Literal[
     "dataset",
     "early_access_feature",
     "error_tracking",
+    "evaluation",
     "event_definition",
     "experiment",
     "export",
@@ -53,6 +54,7 @@ APIScopeObject = Literal[
     "warehouse_table",
     "logs",  # logs product,
     "task",
+    "endpoint",
 ]
 
 APIScopeActions = Literal[

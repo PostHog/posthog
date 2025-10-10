@@ -62,8 +62,6 @@ export type LazyLoaderOptions<T> = {
     refreshJitterMs?: number
     /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
     bufferMs?: number
-    /** TTL for cache entries - evicted after this time regardless of use */
-    ttlMs?: number
     /** Maximum number of entries in the cache - LRU eviction when exceeded */
     maxSize?: number
 }
@@ -81,7 +79,6 @@ export class LazyLoader<T> {
     private refreshNullAgeMs: number
     private refreshBackgroundAgeMs?: number
     private refreshJitterMs: number
-    private ttlMs: number
     private maxSize: number
 
     private buffer:
@@ -102,7 +99,6 @@ export class LazyLoader<T> {
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
         this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
         this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
-        this.ttlMs = this.options.ttlMs ?? defaultConfig.LAZY_LOADER_TTL_MS
         this.maxSize = this.options.maxSize ?? defaultConfig.LAZY_LOADER_MAX_SIZE
 
         if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
@@ -153,9 +149,7 @@ export class LazyLoader<T> {
                     Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
             }
         }
-        if (defaultConfig.LAZY_LOADER_EVICTION_ENABLED) {
-            this.evictLRU()
-        }
+        this.evictLRU()
         this.updateCacheSizeMetric()
     }
 
@@ -168,10 +162,6 @@ export class LazyLoader<T> {
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
         return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
-            if (defaultConfig.LAZY_LOADER_EVICTION_ENABLED) {
-                this.evictExpiredEntries()
-            }
-
             const results: Record<string, T | null> = {}
             const keysToLoad = new Set<string>()
 
@@ -293,28 +283,6 @@ export class LazyLoader<T> {
         this.setValues(mappedResults)
 
         return mappedResults
-    }
-
-    private evictExpiredEntries(): void {
-        const now = Date.now()
-        const keysToEvict: string[] = []
-
-        for (const [key, lastUsedTime] of Object.entries(this.lastUsed)) {
-            if (lastUsedTime && now - lastUsedTime > this.ttlMs) {
-                keysToEvict.push(key)
-            }
-        }
-
-        for (const key of keysToEvict) {
-            delete this.cache[key]
-            delete this.lastUsed[key]
-            delete this.cacheUntil[key]
-            delete this.backgroundRefreshAfter[key]
-        }
-
-        if (keysToEvict.length > 0) {
-            this.updateCacheSizeMetric()
-        }
     }
 
     private evictLRU(): void {

@@ -86,15 +86,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
-                <div className="relative w-full flex flex-col">
+                {/* Have to increase z-index to overlay ToolsDisplay */}
+                <div className="relative w-full flex flex-col z-1">
                     {children}
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
-                            'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isThreadVisible && 'border-primary m-1'
+                            'hover:border-border-bold focus-within:border-border-bold',
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -140,10 +141,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
                     </div>
                     <div
-                        className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isThreadVisible,
-                            'bottom-[7px] right-2': !isThreadVisible,
-                        })}
+                        className={clsx(
+                            'absolute flex items-center',
+                            isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
+                        )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"

@@ -47,8 +47,8 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        # Initialize configuration
-        self.config = MarketingAnalyticsConfig()
+        # Initialize configuration with team-specific settings
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
 
     @cached_property
     def query_date_range(self):

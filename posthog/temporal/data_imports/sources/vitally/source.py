@@ -77,7 +77,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
             partition_mode="datetime",
             partition_format="month",
             partition_keys=["created_at"],
-            sort_mode="desc",
+            sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )
 
     @property

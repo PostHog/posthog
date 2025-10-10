@@ -110,7 +110,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_routing_disabled() {
-        let config = Config::default_test_config();
+        let config = Config {
+            persons_read_database_url: "".to_string(),
+            persons_write_database_url: "".to_string(),
+            ..Config::default_test_config()
+        };
 
         assert!(!config.is_persons_db_routing_enabled());
         assert_eq!(
@@ -125,20 +129,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_routing_enabled() {
-        let config = Config {
-            persons_read_database_url: "postgres://user:pass@persons-reader:5432/db".to_string(),
-            persons_write_database_url: "postgres://user:pass@persons-writer:5432/db".to_string(),
-            ..Config::default_test_config()
-        };
+        let config = Config::default_test_config();
 
         assert!(config.is_persons_db_routing_enabled());
         assert_eq!(
             config.get_persons_read_database_url(),
-            "postgres://user:pass@persons-reader:5432/db"
+            "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
         assert_eq!(
             config.get_persons_write_database_url(),
-            "postgres://user:pass@persons-writer:5432/db"
+            "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
     }
 }

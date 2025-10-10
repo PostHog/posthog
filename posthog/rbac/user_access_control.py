@@ -50,12 +50,14 @@ ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(Ac
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "action",
     "feature_flag",
     "dashboard",
     "insight",
     "notebook",
     "session_recording",
     "revenue_analytics",
+    "survey",
     "experiment",
 )
 
@@ -118,6 +120,13 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
     if resource in ["organization"]:
         return "member"
     return "editor"
+
+
+def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
+    if resource == "action":
+        return "viewer"
+    return "none"
 
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:

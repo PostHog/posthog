@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db.models import Count
+from django.dispatch import receiver
 
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
@@ -15,6 +16,10 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.signals import model_activity_signal
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -33,7 +38,9 @@ class ActionStepJSONSerializer(serializers.Serializer):
     url_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
 
 
-class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
+class ActionSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
+):
     steps = ActionStepJSONSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
@@ -62,6 +69,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "pinned_at",
             "creation_context",
             "_create_in_folder",
+            "user_access_level",
         ]
         read_only_fields = [
             "team_id",
@@ -137,6 +145,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -160,6 +169,32 @@ class ActionViewSet(
         # better pagination in the taxonomic filter and on the actions page
         actions = self.filter_queryset(self.get_queryset())
         actions_list: list[dict[Any, Any]] = self.serializer_class(
-            actions, many=True, context={"request": request}
+            actions, many=True, context={"request": request, "view": self}
         ).data  # type: ignore
         return Response({"results": actions_list})
+
+
+@receiver(model_activity_signal, sender=Action)
+def handle_action_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    # Detect soft delete/restore by checking the deleted field
+    if before_update and after_update:
+        if not before_update.deleted and after_update.deleted:
+            # Soft deleted
+            activity = "deleted"
+        elif before_update.deleted and not after_update.deleted:
+            # Restored from soft delete
+            activity = "updated"
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.created_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+        ),
+    )

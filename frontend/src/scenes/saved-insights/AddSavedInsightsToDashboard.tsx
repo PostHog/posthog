@@ -87,10 +87,17 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <div className="flex flex-col gap-1">
-                            <div className="inline-flex">
-                                <Link to={urls.insightView(insight.short_id)} target="_blank">
-                                    {name || <i>{summarizeInsight(insight.query)}</i>}
+                        <div className="flex flex-col gap-1 min-w-0">
+                            <div className="flex min-w-0">
+                                <Link
+                                    to={urls.insightView(insight.short_id)}
+                                    target="_blank"
+                                    title={name || summarizeInsight(insight.query)}
+                                    className="w-0 flex-1 min-w-0"
+                                >
+                                    <span className="block truncate">
+                                        {name || <i>{summarizeInsight(insight.query)}</i>}
+                                    </span>
                                 </Link>
                             </div>
                             <div className="text-xs text-tertiary">{insight.description}</div>

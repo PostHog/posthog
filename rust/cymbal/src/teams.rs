@@ -169,7 +169,12 @@ pub async fn do_team_lookups(
 
         let m_ctx = context.clone();
         let m_token = token.clone();
-        let fut = async move { m_ctx.team_manager.get_team(&m_ctx.pool, &m_token).await };
+        let fut = async move {
+            m_ctx
+                .team_manager
+                .get_team(&m_ctx.posthog_pool, &m_token)
+                .await
+        };
         let lookup = WithIndices {
             indices: vec![index],
             inner: tokio::spawn(fut),

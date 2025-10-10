@@ -21,7 +21,7 @@ import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -155,7 +155,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
         id: {},
     },
     pasteOptions: {
-        find: urls.featureFlag(INTEGER_REGEX_MATCH_GROUPS),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.featureFlag(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] as FeatureFlagLogicProps['id'] }
         },

@@ -8,5 +8,5 @@ from posthog.models.error_tracking.sql import (
 operations = [
     run_sql_with_exceptions(ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL()),
     run_sql_with_exceptions(KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL()),
-    run_sql_with_exceptions(ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL),
+    run_sql_with_exceptions(ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL()),
 ]

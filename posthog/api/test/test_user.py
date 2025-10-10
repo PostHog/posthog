@@ -1227,7 +1227,10 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "discussions_mentioned": False,
+                    "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
+                    "all_weekly_digest_disabled": True,
                 }
             },
         )
@@ -1238,9 +1241,10 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1249,9 +1253,10 @@ class TestUserAPI(APIBaseTest):
             self.user.partial_notification_settings,
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1314,6 +1319,7 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": True,  # Default value
+                "discussions_mentioned": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value

@@ -4,7 +4,7 @@ import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconGhost, IconSanta } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import {
@@ -31,6 +31,22 @@ function PlayPauseButton(): JSX.Element {
 
     const showPause = playingState === SessionPlayerState.PLAY
 
+    const getPlayIcon = (): JSX.Element => {
+        const localTime = new Date()
+
+        // If between October 28th and October 31st
+        if (localTime.getMonth() == 9 && localTime.getDate() >= 28) {
+            return <IconGhost className="text-3xl" />
+        }
+
+        // If between December 1st and December 28th
+        if (localTime.getMonth() == 11 && localTime.getDate() <= 28) {
+            return <IconSanta className="text-3xl" />
+        }
+
+        return <IconPlay className="text-3xl" />
+    }
+
     return (
         <LemonButton
             size="large"
@@ -48,7 +64,7 @@ function PlayPauseButton(): JSX.Element {
             ) : endReached ? (
                 <IconRewindPlay className="text-3xl" />
             ) : (
-                <IconPlay className="text-3xl" />
+                getPlayIcon()
             )}
         </LemonButton>
     )
@@ -139,7 +155,7 @@ export function PlayerController(): JSX.Element {
         <div
             className={cn(
                 'flex flex-col select-none',
-                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-750 ease-in-out' : '',
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-25 ease-in-out' : '',
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled

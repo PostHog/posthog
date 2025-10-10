@@ -21,7 +21,7 @@ import {
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
@@ -87,7 +87,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
@@ -95,7 +95,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['recordingPropertiesById'],
         ],
         actions: [
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
