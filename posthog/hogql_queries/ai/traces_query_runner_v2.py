@@ -24,6 +24,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -68,7 +69,7 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
         """Execute a separate query to get relevant trace IDs and their time range."""
-        with self.timings.measure("traces_query_trace_ids_execute"):
+        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.MAX_AI):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0
@@ -140,7 +141,7 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
         # Create a narrowed date range if we have timestamps
         narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
 
-        with self.timings.measure("traces_query_hogql_execute"):
+        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.MAX_AI):
             query_result = self.paginator.execute_hogql_query(
                 query=self._to_query_with_trace_ids(trace_ids),
                 placeholders={
@@ -207,24 +208,24 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
                     END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS input_tokens,
                 sumIf(toFloat(properties.$ai_output_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS output_tokens,
                 round(
                     sumIf(toFloat(properties.$ai_input_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS input_cost,
                 round(
                     sumIf(toFloat(properties.$ai_output_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS output_cost,
                 round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS total_cost,
                 arrayDistinct(
@@ -401,6 +402,15 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
         properties_filter = self._get_properties_filter()
         if properties_filter is not None:
             exprs.append(properties_filter)
+
+        if self.query.personId:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
 
         return ast.And(exprs=exprs)
 

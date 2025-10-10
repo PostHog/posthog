@@ -29,7 +29,7 @@ members = [
     "cyclotron-node",
     "cyclotron-janitor",
     "cymbal",
-    "et-embedding-worker",
+    "embedding-worker",
     "common/geoip",
     "common/hogvm",
     "log-capture",
