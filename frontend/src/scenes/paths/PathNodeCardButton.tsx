@@ -34,10 +34,11 @@ export function PathNodeCardButton({
 }: PathNodeCardButton): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-
     const nodeName = pageUrl(node)
     const isPath = nodeName.includes('/')
-
+    const displayName = pageUrl(node, isPath)
+    const fullName = pageUrl(node, false)
+    const isTruncated = displayName !== fullName && displayName.includes('...')
     const setAsPathStart = (): void => setFilter({ startPoint: nodeName })
     const setAsPathEnd = (): void => setFilter({ endPoint: nodeName })
     const excludePathItem = (): void => {
@@ -58,6 +59,7 @@ export function PathNodeCardButton({
             <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
+                {isTruncated && <span className="text-xxs text-muted ml-1 italic">(hover for full URL)</span>}
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}
             <PopoverReferenceContext.Provider value={null}>
