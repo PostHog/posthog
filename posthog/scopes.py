@@ -23,6 +23,8 @@ APIScopeObject = Literal[
     "event_definition",
     "experiment",
     "export",
+    "external_data_schema",
+    "external_data_source",
     "feature_flag",
     "file_system",
     "file_system_shortcut",

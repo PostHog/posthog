@@ -6,6 +6,9 @@ import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
+import { getAccessControlDisabledReason } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlUtils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
@@ -81,6 +84,14 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
+                            const isDataWarehouseSource = template.type === 'source'
+                            const dataWarehouseSourceAccessDisabledReason =
+                                isDataWarehouseSource &&
+                                getAccessControlDisabledReason(
+                                    AccessControlResourceType.ExternalDataSource,
+                                    AccessControlLevel.Editor
+                                )
+
                             if (template.status === 'coming_soon') {
                                 return (
                                     <LemonButton
@@ -94,17 +105,20 @@ export function HogFunctionTemplateList({
                                     </LemonButton>
                                 )
                             }
-                            return (
+
+                            const button = (
                                 <LemonButton
                                     type="primary"
                                     data-attr="new-destination"
                                     icon={<IconPlusSmall />}
                                     to={urlForTemplate(template) ?? undefined}
                                     fullWidth
+                                    disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create
                                 </LemonButton>
                             )
+                            return button
                         },
                     },
                 ]}

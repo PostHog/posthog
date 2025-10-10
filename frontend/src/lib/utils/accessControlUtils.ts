@@ -27,6 +27,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     }
+    if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse sources'
+    }
 
     return resource.replace(/_/g, ' ') + 's'
 }
@@ -55,6 +58,9 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
     if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
+    }
+    if (resourceType === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse source'
     }
 
     return resourceType.replace(/_/g, ' ')

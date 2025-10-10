@@ -308,6 +308,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Experiment = 'experiment',
+    ExternalDataSource = 'external_data_source',
 }
 
 interface UserBaseType {
@@ -4522,6 +4523,7 @@ export type APIScopeObject =
     | 'event_definition'
     | 'experiment'
     | 'export'
+    | 'external_data_source'
     | 'feature_flag'
     | 'group'
     | 'hog_function'
@@ -4660,6 +4662,7 @@ export enum ActivityScope {
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
     COMMENT = 'Comment',
     COHORT = 'Cohort',
+    DATA_WAREHOUSE_SOURCE = 'DataWarehouseSource',
     TEAM = 'Team',
     ORGANIZATION = 'Organization',
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
