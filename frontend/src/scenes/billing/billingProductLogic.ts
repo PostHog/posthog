@@ -336,9 +336,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return false
                 }
 
-                // Check if they are subscribed to another add-on that is not a legacy add-on
-                // This is because if they are on a legacy add-on, we want them to be able to move to a new add-on.
-                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed && !a.legacy_product)
+                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed)
             },
         ],
         customLimitUsd: [

@@ -2192,6 +2192,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     withLastEvent?: boolean
     limit?: integer
     offset?: integer
+    personId?: string
 }
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {

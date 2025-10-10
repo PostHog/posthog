@@ -176,8 +176,8 @@ class PersonQuery:
         Ignores prefiltering optimizations and is_deleted checks for simplicity.
         """
         (
+            person_filters_prefiltering_condition,
             _,
-            person_filters_finalization_condition,
             person_filters_params,
         ) = self._get_person_filter_clauses()
         (
@@ -186,8 +186,8 @@ class PersonQuery:
         ) = self._get_multiple_cohorts_clause()
         single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
         (
+            search_prefiltering_condition,
             _,
-            search_finalization_condition,
             search_params,
         ) = self._get_search_clauses()
         distinct_id_condition, distinct_id_params = self._get_distinct_id_clause()
@@ -201,7 +201,7 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             {multiple_cohorts_condition}
             {email_condition}
-            {person_filters_finalization_condition} {search_finalization_condition}
+            {person_filters_prefiltering_condition} {search_prefiltering_condition}
             {distinct_id_condition}
             """,
             {
