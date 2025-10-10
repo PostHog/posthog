@@ -1,19 +1,17 @@
-import re
-import uuid
-import typing
 import asyncio
-import functools
-import contextlib
 import collections.abc
+import contextlib
+import functools
+import re
+import typing
+import uuid
 
 import orjson
 import pyarrow as pa
-from structlog import get_logger
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
-
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from structlog import get_logger
 
 T = typing.TypeVar("T")
 LOGGER = get_logger()
@@ -242,8 +240,11 @@ FutureLike = (
 )
 
 
+_P = typing.ParamSpec("_P")
+
+
 def make_retryable_with_exponential_backoff(
-    func: typing.Callable[..., collections.abc.Awaitable[_Result]],
+    func: typing.Callable[_P, collections.abc.Awaitable[_Result]],
     timeout: float | int | None = None,
     max_attempts: int = 5,
     initial_retry_delay: float | int = 2,
@@ -251,11 +252,11 @@ def make_retryable_with_exponential_backoff(
     exponential_backoff_coefficient: int = 2,
     retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
     is_exception_retryable: typing.Callable[[Exception], bool] = lambda _: True,
-) -> typing.Callable[..., collections.abc.Awaitable[_Result]]:
+) -> typing.Callable[_P, collections.abc.Coroutine[typing.Any, typing.Any, _Result]]:
     """Retry the provided async `func` until `max_attempts` is reached."""
-    functools.wraps(func)
 
-    async def inner(*args, **kwargs):
+    @functools.wraps(func)
+    async def inner(*args: _P.args, **kwargs: _P.kwargs) -> _Result:
         attempt = 0
 
         while True:

@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
@@ -74,8 +73,13 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
 """
 )
 
-APP_METRICS_MV_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+
+def APP_METRICS_MV_TABLE_SQL(on_cluster: bool = True) -> str:
+    """
+    Create materialized view SQL for app_metrics.
+    This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime.
+    """
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv {ON_CLUSTER_CLAUSE(on_cluster)}
 TO {settings.CLICKHOUSE_DATABASE}.sharded_app_metrics
 AS SELECT
@@ -92,7 +96,6 @@ error_type,
 error_details
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
 """
-)
 
 
 TRUNCATE_APP_METRICS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS sharded_app_metrics"

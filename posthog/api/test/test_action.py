@@ -1,4 +1,5 @@
 from freezegun import freeze_time
+from posthog.models import Action, Tag, User
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -6,11 +7,8 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, patch
-
 from rest_framework import status
-
-from posthog.models import Action, Tag, User
+from unittest.mock import ANY, patch
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -63,6 +61,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "is_action": True,
             "bytecode_error": None,
             "tags": [],
+            "user_access_level": "manager",
         }
 
         # Assert analytics are sent

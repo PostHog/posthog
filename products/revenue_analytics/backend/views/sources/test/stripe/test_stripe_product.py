@@ -1,5 +1,4 @@
 from posthog.temporal.data_imports.sources.stripe.constants import PRODUCT_RESOURCE_NAME
-
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.product import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
@@ -14,23 +13,16 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
         """Test building product query when product schema exists."""
         # Setup with only product schema
         self.setup_stripe_external_data_source(schemas=[PRODUCT_RESOURCE_NAME])
-
-        queries = list(build(self.stripe_handle))
-
-        # Should build one query for the product schema
-        self.assertEqual(len(queries), 1)
-
-        product_query = queries[0]
         product_table = self.get_stripe_table_by_schema_name(PRODUCT_RESOURCE_NAME)
 
+        query = build(self.stripe_handle)
+
         # Test the query structure
-        self.assertQueryContainsFields(product_query.query, PRODUCT_SCHEMA)
-        self.assertBuiltQueryStructure(
-            product_query, str(product_table.id), f"stripe.{self.external_data_source.prefix}"
-        )
+        self.assertQueryContainsFields(query.query, PRODUCT_SCHEMA)
+        self.assertBuiltQueryStructure(query, str(product_table.id), f"stripe.{self.external_data_source.prefix}")
 
         # Print and snapshot the generated HogQL query
-        query_sql = product_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_product_schema(self):
@@ -38,22 +30,18 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
         # Setup without product schema
         self.setup_stripe_external_data_source(schemas=[])
 
-        queries = list(build(self.stripe_handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 1)
-        product_query = queries[0]
+        query = build(self.stripe_handle)
 
         # Test the query structure
-        self.assertQueryContainsFields(product_query.query, PRODUCT_SCHEMA)
+        self.assertQueryContainsFields(query.query, PRODUCT_SCHEMA)
         self.assertBuiltQueryStructure(
-            product_query,
+            query,
             f"stripe.{self.external_data_source.prefix}.no_source",
             f"stripe.{self.external_data_source.prefix}",
         )
 
         # Print and snapshot the generated HogQL query
-        query_sql = product_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_product_schema_but_no_table(self):
@@ -67,41 +55,33 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
         product_schema = self.get_stripe_schema_by_name(PRODUCT_RESOURCE_NAME)
         product_schema.table = None
 
-        queries = list(build(self.stripe_handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 1)
-        product_query = queries[0]
+        query = build(self.stripe_handle)
 
         # Test the query structure
-        self.assertQueryContainsFields(product_query.query, PRODUCT_SCHEMA)
+        self.assertQueryContainsFields(query.query, PRODUCT_SCHEMA)
         self.assertBuiltQueryStructure(
-            product_query,
+            query,
             f"stripe.{self.external_data_source.prefix}.no_table",
             f"stripe.{self.external_data_source.prefix}",
         )
 
         # Print and snapshot the generated HogQL query
-        query_sql = product_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_source(self):
         """Test that build returns none when source is None."""
         handle = self.create_stripe_handle_without_source()
 
-        queries = list(build(handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 0)
+        with self.assertRaises(ValueError):
+            build(handle)
 
     def test_product_query_contains_required_fields(self):
         """Test that the generated query contains all required product fields."""
         self.setup_stripe_external_data_source(schemas=[PRODUCT_RESOURCE_NAME])
 
-        queries = list(build(self.stripe_handle))
-        product_query = queries[0]
-
-        query_sql = product_query.query.to_hogql()
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
 
         # Check for specific fields in the query
         self.assertIn("id", query_sql)

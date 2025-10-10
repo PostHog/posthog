@@ -1,7 +1,6 @@
 from typing import cast
 
 from django.db import models
-
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin, UUIDTModel
@@ -51,7 +50,11 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
 
         # If it is a reply, the scope is the original comment
         item_id = cast(str, instance.source_comment_id) or instance.item_id
-        scope = "Comment" if instance.source_comment_id else instance.scope
+        # Map 'recording' to 'Replay' for activity log
+        # this is only necessary while we still have comments with scope 'recording'
+        # after we stop allowing 'recording' as a scope this can be removed
+        corrected_scope = "Replay" if instance.scope == "recording" else instance.scope
+        scope = "Comment" if instance.source_comment_id else corrected_scope
 
         log_activity(
             organization_id=None,

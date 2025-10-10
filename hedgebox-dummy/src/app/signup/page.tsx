@@ -2,8 +2,8 @@
 
 import Header from '@/components/Header'
 import { useAuth } from '@/lib/auth'
-import { useAuthRedirect } from '@/lib/hooks'
-import { posthog } from '@/lib/posthog'
+
+
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'

@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-import math
-import contextlib
 import collections
+import contextlib
+import math
 from collections.abc import Iterator
 from typing import Any, Optional
 
 import certifi
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from structlog.types import FilteringBoundLogger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
@@ -20,6 +16,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from structlog.types import FilteringBoundLogger
 
 
 def _process_nested_value(value: Any) -> Any:
@@ -127,6 +126,7 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
 
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
+        connection_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(**connection_kwargs)
 

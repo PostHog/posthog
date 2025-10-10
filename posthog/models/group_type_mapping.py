@@ -1,7 +1,6 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
-
 from posthog.models.utils import RootTeamMixin
 
 # Defined here for reuse between OS and EE
@@ -33,6 +32,8 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         indexes = [
             models.Index(
                 fields=("project", "group_type"),

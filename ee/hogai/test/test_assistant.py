@@ -2,15 +2,11 @@ from itertools import cycle
 from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
-from unittest.mock import AsyncMock, patch
-
-from django.test import override_settings
-
 from asgiref.sync import async_to_sync
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
+from django.test import override_settings
 from langchain_core import messages
 from langchain_core.messages import AIMessageChunk
 from langchain_core.prompts.chat import ChatPromptValue
@@ -18,8 +14,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
-from pydantic import BaseModel
-
+from posthog.models import Action
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
@@ -53,8 +48,9 @@ from posthog.schema import (
     TrendsQuery,
     VisualizationMessage,
 )
-
-from posthog.models import Action
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from pydantic import BaseModel
+from unittest.mock import AsyncMock, patch
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -159,7 +155,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant = Assistant.create(
             self.team,
             conversation or self.conversation,
-            new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
+            new_message=HumanMessage(content=message, ui_context=ui_context) if message is not None else None,
             user=self.user,
             is_new_conversation=is_new_conversation,
             initial_state=tool_call_partial_state,
@@ -1659,7 +1655,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
-            message=None,
+            message="Hello",
             mode=AssistantMode.ASSISTANT,
             contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
@@ -1680,7 +1676,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     visible=False,
                 ),
             ),
-            ("message", AssistantMessage(content="Everything is fine")),
         ]
         self.assertConversationEqual(output, expected_output)
 
@@ -1705,10 +1700,68 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ui_payload={"create_and_query_insight": query.model_dump()},
                 visible=False,
             ),
-            AssistantMessage(content="Everything is fine"),
         ]
         state = cast(AssistantState, state)
         self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)
+
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_continue_generation_without_new_message(self, root_mock):
+        """Test that the assistant can continue generation without a new message (askMax(null) scenario)"""
+        root_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Based on the previous analysis, I can provide insights.")]
+        )
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .compile()
+        )
+
+        # First, set up the conversation with existing messages and tool call result
+        config: RunnableConfig = {"configurable": {"thread_id": self.conversation.id}}
+        await graph.aupdate_state(
+            config,
+            {
+                "messages": [
+                    HumanMessage(content="Analyze trends"),
+                    AssistantMessage(
+                        content="Let me analyze",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="tool-1",
+                                name="create_and_query_insight",
+                                args={"query_description": "test"},
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(
+                        content="Tool execution complete",
+                        tool_call_id="tool-1",
+                    ),
+                ]
+            },
+        )
+
+        # Continue without a new user message (simulates askMax(null))
+        output, _ = await self._run_assistant_graph(
+            test_graph=graph,
+            conversation=self.conversation,
+            is_new_conversation=False,
+            message=None,  # This simulates askMax(null)
+            mode=AssistantMode.ASSISTANT,
+        )
+
+        # Verify the assistant continued generation with the expected message
+        assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertTrue(len(assistant_messages) > 0, "Expected at least one assistant message")
+        # The root node should have generated the continuation message we mocked
+        final_message = assistant_messages[-1]
+        self.assertEqual(
+            final_message.content,
+            "Based on the previous analysis, I can provide insights.",
+            "Expected the root node to generate continuation message",
+        )
 
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):

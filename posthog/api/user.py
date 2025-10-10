@@ -1,13 +1,16 @@
-import os
 import json
-import time
+import os
 import secrets
+import time
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
+import jwt
+import requests
+import structlog
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
@@ -16,24 +19,12 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
-
-import jwt
-import requests
-import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
-from prometheus_client import Counter
-from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
-from two_factor.forms import TOTPDeviceForm
-from two_factor.utils import default_device
-
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -52,7 +43,7 @@ from posthog.auth import (
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_updated, report_user_verified_email
+from posthog.event_usage import report_user_deleted_account, report_user_updated, report_user_verified_email
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
@@ -68,6 +59,13 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
+from prometheus_client import Counter
+from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework.exceptions import NotFound
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from two_factor.forms import TOTPDeviceForm
+from two_factor.utils import default_device
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -443,6 +441,10 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def perform_destroy(self, user: User) -> None:
+        report_user_deleted_account(user)
+        super().perform_destroy(user)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

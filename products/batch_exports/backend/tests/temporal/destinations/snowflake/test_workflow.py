@@ -10,21 +10,11 @@ from uuid import uuid4
 
 import pytest
 import unittest.mock
-
 from django.test import override_settings
-
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog import constants
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
@@ -39,6 +29,12 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
     FakeSnowflakeConnection,
 )
 from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -129,7 +125,6 @@ async def test_snowflake_export_workflow_exports_events(
     snowflake_batch_export,
     interval,
     table_name,
-    truncate_events,
     mock_snowflake_connection,
 ):
     """Test that the whole workflow not just the activity works.
@@ -190,9 +185,7 @@ async def test_snowflake_export_workflow_exports_events(
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-async def test_snowflake_export_workflow_without_events(
-    use_internal_stage, ateam, snowflake_batch_export, interval, truncate_events
-):
+async def test_snowflake_export_workflow_without_events(use_internal_stage, ateam, snowflake_batch_export, interval):
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     run = await _run_workflow(

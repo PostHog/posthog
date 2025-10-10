@@ -2,14 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-
+from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -21,17 +14,21 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsPropertyFilter,
 )
-
-from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
     RevenueAnalyticsOverviewQueryRunner,
 )
@@ -235,11 +232,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1631.9303277469")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1621.0866070701")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("543.9767759156")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("540.3622023567")
                 ),
             ],
         )
@@ -258,8 +255,8 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_with_property_filter(self):
-        # Product join, usually simple
+    def test_with_full_discount(self):
+        # Filtering by that product only because it includes the 0-charge in stripe_invoices.csv
         results = self._run_revenue_analytics_overview_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
@@ -273,10 +270,34 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("9.74731")),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
+                # There's a user for this one, but it's not paying anything, so consider it as non-paying
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
+                ),
+            ],
+        )
+
+    def test_with_property_filter(self):
+        # Product join, usually simple
+        results = self._run_revenue_analytics_overview_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="revenue_analytics_product.name",
+                    operator=PropertyOperator.EXACT,
+                    value=["Product D"],  # Equivalent to `prod_d` but we're querying by name
+                )
+            ]
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("386.90365")),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=1),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("9.74731")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("386.90365")
                 ),
             ],
         )
@@ -296,11 +317,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("75.5885777469")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("74.4921670701")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("37.7942888734")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("37.246083535")
                 ),
             ],
         )
@@ -311,7 +332,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 RevenueAnalyticsPropertyFilter(
                     key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
-                    value=["Product A", "Product C"],
+                    value=["Product A", "Product D"],
                 )
             ]
         ).results
@@ -320,11 +341,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("33.8068654006")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("409.8667947238")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("16.9034327003")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("204.9333973619")
                 ),
             ],
         )

@@ -1,6 +1,6 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-import uuid
 import contextvars
+import uuid
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
@@ -27,6 +27,7 @@ class Product(StrEnum):
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    EXPERIMENTS = "experiments"
 
 
 class Feature(StrEnum):
@@ -103,6 +104,8 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    exported_asset_id: Optional[int] = None
+    export_format: Optional[str] = None
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None

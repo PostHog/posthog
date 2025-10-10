@@ -1,31 +1,30 @@
-import uuid
 import functools
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
-import pytest
-from unittest import mock
-
-from django.conf import settings
-from django.test import override_settings
-
-import s3fs
-import psycopg
 import aioboto3
 import deltalake
-import pytest_asyncio
 import posthoganalytics
+import psycopg
+import pytest
+import pytest_asyncio
+import s3fs
 from asgiref.sync import sync_to_async
 from deltalake import DeltaTable
+from django.conf import settings
+from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
-from stripe import ListObject
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.models import DataWarehouseTable
+from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
@@ -34,15 +33,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import DataWarehouseTable
-from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -54,6 +44,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
@@ -70,6 +61,11 @@ from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, Extern
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
+from stripe import ListObject
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest import mock
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -118,6 +114,7 @@ def mock_stripe_client(
     stripe_subscription,
     stripe_credit_note,
     stripe_customer_balance_transaction,
+    stripe_customer_payment_method,
 ):
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
@@ -133,6 +130,7 @@ def mock_stripe_client(
         mock_subscription_list = mock.MagicMock()
         mock_credit_notes_list = mock.MagicMock()
         mock_customer_balance_transactions_list = mock.MagicMock()
+        mock_customer_payment_methods_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
@@ -149,6 +147,7 @@ def mock_stripe_client(
         mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
             "data"
         ]
+        mock_customer_payment_methods_list.auto_paging_iter.return_value = stripe_customer_payment_method["data"]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
@@ -164,6 +163,7 @@ def mock_stripe_client(
         instance.subscriptions.list.return_value = mock_subscription_list
         instance.credit_notes.list.return_value = mock_credit_notes_list
         instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
+        instance.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
 
         yield instance
 
@@ -512,6 +512,19 @@ async def test_stripe_customer_balance_transaction(team, stripe_customer_balance
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_customer_balance_transaction["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_customer_payment_method(team, stripe_customer_payment_method, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+        table_name="stripe_customerpaymentmethod",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer_payment_method["data"],
     )
 
 

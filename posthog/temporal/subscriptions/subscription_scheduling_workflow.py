@@ -1,21 +1,19 @@
+import asyncio
+import dataclasses
+import datetime as dt
 import json
 import typing
-import asyncio
-import datetime as dt
-import dataclasses
 from itertools import groupby
 
-from django.conf import settings
-
-import temporalio.common
 import temporalio.activity
+import temporalio.common
 import temporalio.workflow
-from structlog import get_logger
-
+from django.conf import settings
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from structlog import get_logger
 
 from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 
@@ -168,9 +166,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             task = temporalio.workflow.execute_activity(
                 deliver_subscription_report_activity,
                 DeliverSubscriptionReportActivityInputs(subscription_id=sub_id),
-                start_to_close_timeout=dt.timedelta(
-                    minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
-                ),
+                start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
@@ -196,7 +192,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             deliver_subscription_report_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5),
+            start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
                 maximum_interval=dt.timedelta(minutes=2),

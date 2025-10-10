@@ -1,29 +1,22 @@
-import os
+import base64
+import dataclasses
 import gzip
 import json
-import base64
 import logging
-import dataclasses
+import os
 from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
-
-from django.conf import settings
-from django.db import connection
-from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
-from posthoganalytics.client import Client as PostHogClient
-from psycopg import sql
-from retry import retry
-
-from posthog.schema import AIEventType
-
+from django.conf import settings
+from django.db import connection
+from django.db.models import Count, F, Q, Sum
 from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
@@ -44,11 +37,15 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.schema import AIEventType
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthoganalytics.client import Client as PostHogClient
+from psycopg import sql
+from retry import retry
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -574,6 +571,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-ios', 'ios_events',
                 {lib_expression} = 'posthog-go', 'go_events',
                 {lib_expression} = 'posthog-java', 'java_events',
+                {lib_expression} = 'posthog-server', 'java_events',
                 {lib_expression} = 'posthog-react-native', 'react_native_events',
                 {lib_expression} = 'posthog-ruby', 'ruby_events',
                 {lib_expression} = 'posthog-python', 'python_events',
@@ -1028,11 +1026,16 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # We are excluding "persistence.isDisabled is not a function" errors because of a bug in our own SDK
+    # Can be eventually removed once we're happy that the usage report for 3rd October 2025 does not need to be rerun
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE
+            event = '$exception' AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
+            timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -1656,6 +1659,7 @@ def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
     skip_capture_event: bool = False,
+    organization_ids: Optional[list[str]] = None,
 ) -> None:
     import posthoganalytics
 
@@ -1681,10 +1685,34 @@ def send_all_org_usage_reports(
 
     pha_client = get_ph_client(sync_mode=True)
 
+    if organization_ids:
+        logger.info(
+            "Sending usage reports for specific organizations",
+            org_count=len(organization_ids),
+            organization_ids=organization_ids,
+        )
+
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
     org_reports = _get_all_org_reports(period_start, period_end)
+
+    if organization_ids:
+        original_count = len(org_reports)
+        org_reports = {org_id: report for org_id, report in org_reports.items() if org_id in organization_ids}
+        filtered_count = len(org_reports)
+        missing_orgs = set(organization_ids) - set(org_reports.keys())
+        logger.info(
+            f"Filtered org reports from {original_count} to {filtered_count} organizations",
+            requested_org_count=len(organization_ids),
+            found_org_count=filtered_count,
+            missing_orgs=missing_orgs or None,
+        )
+
+    filtering_properties: dict[str, Any] = {"filtered": organization_ids is not None}
+    if organization_ids:
+        filtering_properties["requested_org_count"] = len(organization_ids)
+        filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
 
     query_time_duration = (datetime.now() - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")
@@ -1701,6 +1729,7 @@ def send_all_org_usage_reports(
         properties={
             "total_orgs": total_orgs,
             "region": get_instance_region(),
+            **filtering_properties,
         },
         groups={"instance": settings.SITE_URL},
     )
@@ -1752,6 +1781,7 @@ def send_all_org_usage_reports(
             "queue_time": queue_time_duration,
             "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
+            **filtering_properties,
         },
         groups={"instance": settings.SITE_URL},
     )

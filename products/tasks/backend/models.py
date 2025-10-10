@@ -4,13 +4,38 @@ from typing import Optional, cast
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.utils import timezone
-
+from django_deprecate_fields import deprecate_field
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-
 from products.tasks.backend.agents import get_agent_by_id
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
+
+
+class AgentDefinition(models.Model):
+    class AgentType(models.TextChoices):
+        CODE_GENERATION = "code_generation", "Code Generation Agent"
+        TRIAGE = "triage", "Triage Agent"
+        REVIEW = "review", "Review Agent"
+        TESTING = "testing", "Testing Agent"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, help_text="Human-readable name for this agent")
+    agent_type = models.CharField(max_length=50, choices=AgentType.choices)
+    description = models.TextField(blank=True, help_text="Description of what this agent does")
+    config = models.JSONField(default=dict, help_text="Agent-specific configuration")
+    is_active = models.BooleanField(default=True, help_text="Whether this agent is available for use")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_agent_definition"
+        unique_together = [("team", "name")]
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
 
 
 class TaskWorkflow(models.Model):
@@ -163,6 +188,16 @@ class WorkflowStage(models.Model):
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
 
+    agent = deprecate_field(
+        models.ForeignKey(
+            "tasks.AgentDefinition",
+            on_delete=models.SET_NULL,
+            null=True,
+            blank=True,
+            help_text="DEPRECATED: Agent responsible for processing tasks in this stage",
+        )
+    )
+
     agent_name = models.CharField(
         max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
     )
@@ -231,6 +266,8 @@ class Task(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
@@ -285,7 +322,9 @@ class Task(models.Model):
         return f"{self.title} (no workflow)"
 
     def save(self, *args, **kwargs):
-        """Override save to handle workflow consistency."""
+        if self.task_number is None:
+            self._assign_task_number()
+
         # Auto-assign default workflow if no workflow is set
         if not self.workflow:
             default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
@@ -304,6 +343,21 @@ class Task(models.Model):
 
         super().save(*args, **kwargs)
 
+    @staticmethod
+    def generate_team_prefix(team_name: str) -> str:
+        clean_name = "".join(c for c in team_name if c.isalnum())
+        uppercase_letters = [c for c in clean_name if c.isupper()]
+        if len(uppercase_letters) >= 3:
+            return "".join(uppercase_letters[:3])
+        return clean_name[:3].upper() if clean_name else "TSK"
+
+    @property
+    def slug(self) -> str:
+        if self.task_number is None:
+            return ""
+        prefix = self.generate_team_prefix(self.team.name)
+        return f"{prefix}-{self.task_number}"
+
     # TODO: Support only one repository, 1 Task = 1 PR probably makes the most sense for scoping
     @property
     def repository_list(self) -> list[dict]:
@@ -313,12 +367,13 @@ class Task(models.Model):
         """
         config = self.repository_config
         if config.get("organization") and config.get("repository"):
+            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
             return [
                 {
                     "org": config.get("organization"),
                     "repo": config.get("repository"),
                     "integration_id": self.github_integration_id,
-                    "full_name": f"{config.get('organization')}/{config.get('repository')}",
+                    "full_name": full_name,
                 }
             ]
         return []
@@ -374,6 +429,10 @@ class Task(models.Model):
             return workflow.stages.filter(is_archived=False).order_by("position").first()
 
         return current_stage.next_stage
+
+    def _assign_task_number(self) -> None:
+        max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
+        self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
 
 class TaskProgress(models.Model):

@@ -5,7 +5,6 @@ Module to centralize event reporting on the server-side.
 from typing import Optional
 
 import posthoganalytics
-
 from posthog.models import Organization, User
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
@@ -276,6 +275,17 @@ def report_organization_deleted(user: User, organization: Organization):
         properties=organization.get_analytics_metadata(),
         groups=groups(organization),
     )
+
+
+def report_user_deleted_account(user: User):
+    if not user.distinct_id:
+        return
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user account deleted",
+        properties=user.get_analytics_metadata(),
+    )
+    posthoganalytics.flush()
 
 
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):

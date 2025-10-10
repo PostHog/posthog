@@ -5,16 +5,13 @@ MaxTool for AI-powered survey creation.
 from typing import Any, Literal
 
 import django.utils.timezone
-
 from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-
-from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
-
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
+from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
@@ -183,12 +180,12 @@ class SurveyToolkit(TaxonomyAgentToolkit):
 
         return [lookup_feature_flag, final_answer]
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "lookup_feature_flag":
             result = self._lookup_feature_flag(tool_input.arguments.flag_key)
             return tool_name, result
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _lookup_feature_flag(self, flag_key: str) -> str:
         """Look up feature flag information by key."""

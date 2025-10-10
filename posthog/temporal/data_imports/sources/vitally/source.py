@@ -9,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
 )
-
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -77,7 +76,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
             partition_mode="datetime",
             partition_format="month",
             partition_keys=["created_at"],
-            sort_mode="desc",
+            sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )
 
     @property

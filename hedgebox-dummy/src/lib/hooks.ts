@@ -8,9 +8,7 @@ export const useAuthRedirect = (): void => {
     const router = useRouter()
 
     useEffect(() => {
-        console.log({ isLoading, user })
         if (!isLoading && !user) {
-            console.log('Redirecting to login')
             router.push('/login')
         }
     }, [isLoading, user, router])

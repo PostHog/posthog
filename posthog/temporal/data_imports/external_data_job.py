@@ -1,15 +1,11 @@
-import re
-import json
-import typing
-import datetime as dt
 import dataclasses
-
-from django.db import close_old_connections
+import datetime as dt
+import json
+import re
+import typing
 
 import posthoganalytics
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy
+from django.db import close_old_connections
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
@@ -46,6 +42,9 @@ from posthog.warehouse.external_data_source.jobs import update_external_job_stat
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
 from posthog.warehouse.types import ExternalDataSourceType
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, exceptions, workflow
+from temporalio.common import RetryPolicy
 
 LOGGER = get_logger(__name__)
 
@@ -121,7 +120,11 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
     ],
     ExternalDataSourceType.MONGODB: ["The DNS query name does not exist"],
     ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
-    ExternalDataSourceType.GOOGLESHEETS: ["the header row in the worksheet contains duplicates", "can't be found"],
+    ExternalDataSourceType.GOOGLESHEETS: [
+        "the header row in the worksheet contains duplicates",
+        "can't be found",
+        "SpreadsheetNotFound",
+    ],
     ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
 }
 

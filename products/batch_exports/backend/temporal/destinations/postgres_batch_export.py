@@ -1,22 +1,16 @@
-import re
-import csv
-import json
-import typing
 import asyncio
-import datetime as dt
-import contextlib
-import dataclasses
 import collections.abc
-
-from django.conf import settings
+import contextlib
+import csv
+import dataclasses
+import datetime as dt
+import json
+import re
+import typing
 
 import psycopg
 import pyarrow as pa
-from psycopg import sql
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
@@ -27,7 +21,6 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     OverBillingLimitError,
@@ -58,6 +51,10 @@ from products.batch_exports.backend.temporal.utils import (
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
+from psycopg import sql
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
@@ -774,7 +771,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
         # NOTE: PostgreSQL has a 63 byte limit on identifiers.
         # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
         # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
@@ -811,7 +808,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
                 ) as pg_table,
                 pg_client.managed_table(
                     inputs.schema,
-                    stagle_table_name,
+                    stage_table_name,
                     table_fields,
                     create=requires_merge,
                     delete=requires_merge,

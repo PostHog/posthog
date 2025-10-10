@@ -5,32 +5,12 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
+import structlog
 from django.conf import settings
 from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
-
-import structlog
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
-from prometheus_client import Counter
-from pydantic import (
-    BaseModel,
-    Field,
-    ValidationError as PydanticValidationError,
-    model_validator,
-)
-from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
-
-from posthog.schema import ActorsQuery, HogQLQuery
-
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.context import HogQLContext
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import get_funnel_actor_class
@@ -49,6 +29,8 @@ from posthog.constants import (
 )
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.context import HogQLContext
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import (
@@ -61,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
+from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -84,7 +67,21 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
+from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError as PydanticValidationError,
+    model_validator,
+)
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
@@ -190,6 +187,37 @@ class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
 
 class RemovePersonRequestSerializer(serializers.Serializer):
     person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
+
+
+class CohortCalculationHistorySerializer(serializers.ModelSerializer):
+    duration_seconds = serializers.ReadOnlyField()
+    is_completed = serializers.ReadOnlyField()
+    is_successful = serializers.ReadOnlyField()
+    total_query_ms = serializers.ReadOnlyField()
+    total_memory_mb = serializers.ReadOnlyField()
+    total_read_rows = serializers.ReadOnlyField()
+    total_written_rows = serializers.ReadOnlyField()
+    main_query = serializers.ReadOnlyField()
+
+    class Meta:
+        model = CohortCalculationHistory
+        fields = [
+            "id",
+            "filters",
+            "count",
+            "started_at",
+            "finished_at",
+            "queries",
+            "error",
+            "duration_seconds",
+            "is_completed",
+            "is_successful",
+            "total_query_ms",
+            "total_memory_mb",
+            "total_read_rows",
+            "total_written_rows",
+            "main_query",
+        ]
 
 
 class CSVConfig:
@@ -962,6 +990,30 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def calculation_history(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "100"))
+        offset = int(request.query_params.get("offset", "0"))
+
+        cohort: Cohort = self.get_object()
+
+        calculation_history = CohortCalculationHistory.objects.filter(cohort=cohort, team=self.team).order_by(
+            "-started_at"
+        )[offset : offset + limit]
+
+        total_count = CohortCalculationHistory.objects.filter(cohort=cohort, team=self.team).count()
+
+        serializer = CohortCalculationHistorySerializer(calculation_history, many=True)
+
+        return Response(
+            {
+                "results": serializer.data,
+                "count": total_count,
+                "next": None if offset + limit >= total_count else f"?limit={limit}&offset={offset + limit}",
+                "previous": None if offset == 0 else f"?limit={limit}&offset={max(0, offset - limit)}",
+            }
+        )
 
     def perform_create(self, serializer):
         serializer.save()

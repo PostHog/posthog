@@ -2,18 +2,15 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, _create_event
-from unittest.mock import patch
-
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.utils.timezone import now
-
-from dateutil.relativedelta import relativedelta
-
+from freezegun import freeze_time
 from posthog.api.test.test_team import create_team
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.test.base import BaseTest, _create_event
+from unittest.mock import patch
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -29,6 +26,7 @@ from ee.billing.quota_limiting import (
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
 )
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def zero_trust_scores():
@@ -59,6 +57,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
+        materialize("events", "$exception_values")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)

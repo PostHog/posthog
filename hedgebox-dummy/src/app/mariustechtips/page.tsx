@@ -5,7 +5,7 @@ import { posthog } from '@/lib/posthog'
 import Link from 'next/link'
 import { useEffect } from 'react'
 
-export default function MariusTechTipsPage() {
+export default function MariusTechTipsPage(): React.JSX.Element {
     useEffect(() => {
         if (typeof window !== 'undefined') {
             posthog.capture('$pageview', {
@@ -17,7 +17,7 @@ export default function MariusTechTipsPage() {
         }
     }, [])
 
-    const handleProductAdClick = (adNumber: number, url: string) => {
+    const handleProductAdClick = (adNumber: number, url: string): void => {
         posthog.capture('$autocapture', {
             $event_type: 'click',
             $external_click_url: url,
@@ -79,7 +79,7 @@ export default function MariusTechTipsPage() {
                                         strokeLinejoin="round"
                                         strokeWidth="2"
                                         d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                    ></path>
+                                     />
                                 </svg>
                                 <div>
                                     <h4 className="font-bold">Pro Tip from Marius:</h4>

@@ -2,7 +2,6 @@ from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
 from django.db import models
-
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
@@ -76,7 +75,7 @@ class SessionRecording(UUIDTModel):
         else:
             # Try to load from Clickhouse
             metadata = SessionReplayEvents().get_metadata(
-                team_id=self.team.pk,
+                team=self.team,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
             )

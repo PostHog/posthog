@@ -1,19 +1,12 @@
+import hashlib
 import re
 import time
-import hashlib
 from contextlib import suppress
 from functools import lru_cache
 from typing import Optional
 
 from django.conf import settings
 from django.urls import resolve
-
-from prometheus_client import Counter
-from rest_framework.request import Request
-from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
-from statshog.defaults.django import statsd
-from token_bucket import Limiter, MemoryStorage
-
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -23,6 +16,11 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from posthog.utils import patchable
+from prometheus_client import Counter
+from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
+from statshog.defaults.django import statsd
+from token_bucket import Limiter, MemoryStorage
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -75,7 +73,6 @@ def is_decide_rate_limit_enabled() -> bool:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     from django.conf import settings
-
     from posthog.utils import str_to_bool
 
     return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
@@ -422,15 +419,15 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
-class LLMProxyBurstRateThrottle(UserRateThrottle):
-    scope = "llm_proxy_burst"
+class LLMGatewayBurstRateThrottle(UserRateThrottle):
+    scope = "llm_gateway_burst"
     rate = "30/minute"
 
 
-class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+class LLMGatewaySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "llm_proxy_sustained"
+    scope = "llm_gateway_sustained"
     rate = "500/hour"
 
 

@@ -1,11 +1,8 @@
 import pytest
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
-
 from django.conf import settings
-
 from infi.clickhouse_orm import Database
-
 from posthog.clickhouse.client import sync_execute
+from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
 def create_clickhouse_tables():
@@ -73,6 +70,7 @@ def reset_clickhouse_tables():
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
+    from posthog.models.error_tracking.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from posthog.models.error_tracking.sql import (
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
@@ -99,10 +97,11 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
+        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -215,3 +214,15 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
 
     mocker.patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=False)
     mocker.patch("posthog.helpers.two_factor_session.is_sso_authentication_backend", return_value=False)
+
+
+def pytest_sessionstart():
+    """
+    A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
+    no longer managed by django
+    """
+    from django.apps import apps
+
+    unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
+    for m in unmanaged_models:
+        m._meta.managed = True

@@ -1,21 +1,20 @@
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional
-
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from typing import Literal, Optional
 
 from posthog.hogql import ast
-
 from posthog.models.team.team import Team
+from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsEventItem
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 @dataclass
 class SourceHandle:
-    type: str  # 'events', 'stripe', 'chargebee', ...
+    type: Literal["events", "stripe"]
     team: Team
     source: Optional[ExternalDataSource] = None
+    event: Optional[RevenueAnalyticsEventItem] = None
 
 
 @dataclass
@@ -28,10 +27,10 @@ class BuiltQuery:
     query: ast.Expr
 
 
-# A builder is a function that takes a SourceHandle and returns an iterable of BuiltQuery objects
+# A builder is a function that takes a SourceHandle and returns a single BuiltQuery object
 # This is the type of the builder functions in the sources/**/*.py files, transforming a source into a set of views.
 # You can find all builder functions in the sources/**/*.py files, and they are registered in the sources/registry.py file.
-Builder = dict[DatabaseSchemaManagedViewTableKind, Callable[[SourceHandle], Iterable[BuiltQuery]]]
+Builder = dict[DatabaseSchemaManagedViewTableKind, Callable[[SourceHandle], BuiltQuery]]
 
 
 def view_prefix_for_event(event: str) -> str:

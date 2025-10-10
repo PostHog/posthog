@@ -1,16 +1,10 @@
-import json
 import datetime as dt
+import json
 
 import pytest
-from unittest import mock
-
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.test.client import Client as HttpClient
-
-from asgiref.sync import async_to_sync
-from rest_framework import status
-from temporalio.client import ScheduleActionStartWorkflow
-
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export
@@ -19,6 +13,9 @@ from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport
 from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
+from rest_framework import status
+from temporalio.client import ScheduleActionStartWorkflow
+from unittest import mock
 
 pytestmark = [
     pytest.mark.django_db,
@@ -636,7 +633,7 @@ def databricks_integration(team, user):
     return Integration.objects.create(
         team=team,
         kind=Integration.IntegrationKind.DATABRICKS,
-        integration_id=str(team.pk),
+        integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
         created_by=user,
@@ -798,7 +795,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
     integration = Integration.objects.create(
         team=team,
         kind=Integration.IntegrationKind.DATABRICKS,
-        integration_id=str(team.pk),
+        integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id"},
         created_by=user,
@@ -889,7 +886,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     integration = Integration.objects.create(
         team=team,
         kind=Integration.IntegrationKind.SLACK,
-        integration_id=str(team.pk),
+        integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id"},
         created_by=user,

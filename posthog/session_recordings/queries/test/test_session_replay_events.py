@@ -1,12 +1,9 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from django.utils.timezone import now
-
 from dateutil.relativedelta import relativedelta
-
+from django.utils.timezone import now
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
@@ -66,7 +63,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_metadata(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="1", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="1", team=self.team)
         assert metadata == {
             "active_seconds": 25.0,
             "block_first_timestamps": [],
@@ -88,7 +85,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_get_metadata_with_block(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="2", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="2", team=self.team)
         assert metadata == {
             "active_seconds": 1.234,
             "start_time": self.base_time,
@@ -110,7 +107,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="3", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="3", team=self.team)
         assert metadata == {
             "active_seconds": 2.345,
             "start_time": self.base_time + relativedelta(seconds=1),
@@ -138,18 +135,18 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_get_nonexistent_metadata(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team_id=self.team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team=self.team)
         assert metadata is None
 
     def test_get_metadata_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization, name="Another Team")
-        metadata = SessionReplayEvents().get_metadata(session_id="1", team_id=another_team.id)
+        metadata = SessionReplayEvents().get_metadata(session_id="1", team=another_team)
         assert metadata is None
 
     def test_get_metadata_filters_by_date(self) -> None:
         metadata = SessionReplayEvents().get_metadata(
             session_id="1",
-            team_id=self.team.id,
+            team=self.team,
             recording_start_time=self.base_time + relativedelta(days=2),
         )
         assert metadata is None
@@ -157,7 +154,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def test_get_group_metadata(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
             session_ids=["1", "2"],
-            team_id=self.team.id,
+            team=self.team,
         )
         assert len(metadata_dict) == 2
         assert metadata_dict["1"] == {
@@ -202,7 +199,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
             session_ids=["1", "nonexistent", "3"],
-            team_id=self.team.id,
+            team=self.team,
         )
         assert len(metadata_dict) == 3
         assert metadata_dict["1"] is not None

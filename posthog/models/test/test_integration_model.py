@@ -1,15 +1,11 @@
-import time
 import socket
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
-
 from django.db import connection
-
+from freezegun import freeze_time
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     DatabricksIntegration,
@@ -20,6 +16,8 @@ from posthog.models.integration import (
     OauthIntegration,
     SlackIntegration,
 )
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 
 def get_db_field_value(field, model_id):
@@ -592,7 +590,7 @@ class TestDatabricksIntegrationModel(BaseTest):
             8, "nodename nor servname provided, or not known"
         )
         with pytest.raises(
-            DatabricksIntegrationError, match="Databricks integration is not valid: could not connect to 'invalid'"
+            DatabricksIntegrationError, match="Databricks integration error: could not connect to hostname 'invalid'"
         ):
             DatabricksIntegration.integration_from_config(
                 team_id=self.team.pk,

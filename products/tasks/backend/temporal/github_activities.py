@@ -2,18 +2,17 @@
 GitHub integration activities for issue tracker workflows.
 """
 
+import asyncio
 import os
 import shutil
-import asyncio
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 from .inputs import CreatePRInputs, TaskProcessingInputs
 
@@ -31,7 +30,6 @@ async def get_github_integration_for_task(task_id: str, team_id: int) -> tuple[A
         Exception if no integration or repository is found
     """
     from django.apps import apps
-
     from posthog.models.integration import GitHubIntegration, Integration
 
     Task = apps.get_model("tasks", "Task")
@@ -386,7 +384,6 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
             "repo_url": repo_url,
             "default_branch": default_branch,
             "branch_exists_remotely": branch_exists_remotely,
-            "access_token": integration.access_token,  # Include access token for subsequent operations
         }
 
     except Exception as e:
@@ -480,7 +477,32 @@ async def _run_git_command(command: list[str], cwd: Path | None = None, env: dic
         Dict with success, stdout, stderr, and error fields
     """
     try:
-        logger.info(f"Running command: {' '.join(command)} in {cwd or 'current directory'}")
+        # Redact sensitive data from logged command (tokens in URLs and headers)
+        def _sanitize(parts: list[str]) -> str:
+            redacted_parts: list[str] = []
+            for part in parts:
+                # Sanitize Authorization header if present
+                if "Authorization:" in part:
+                    prefix = part.split("Authorization:")[0]
+                    redacted_parts.append(f"{prefix}Authorization: ***REDACTED***")
+                    continue
+
+                # Sanitize x-access-token in URLs: https://x-access-token:<TOKEN>@github.com/...
+                if "x-access-token:" in part:
+                    idx = part.find("x-access-token:")
+                    at_idx = part.find("@", idx)
+                    if at_idx != -1:
+                        redacted_parts.append(part[:idx] + "x-access-token:***REDACTED***" + part[at_idx:])
+                        continue
+                    else:
+                        # Fallback: remove everything after the marker
+                        redacted_parts.append(part.replace("x-access-token:", "x-access-token:***REDACTED***"))
+                        continue
+
+                redacted_parts.append(part)
+            return " ".join(redacted_parts)
+
+        logger.info(f"Running command: {_sanitize(command)} in {cwd or 'current directory'}")
 
         # Merge provided env with current environment
         process_env = dict(os.environ) if env else None
@@ -743,7 +765,6 @@ async def get_github_integration_token(team_id: int, task_id: str) -> str:
     """Get GitHub access token from PostHog's GitHub integration."""
     try:
         from django.apps import apps
-
         from posthog.models.integration import GitHubIntegration, Integration
 
         Task = apps.get_model("tasks", "Task")

@@ -1,22 +1,17 @@
+import asyncio
+import collections.abc
+import contextlib
+import dataclasses
+import datetime as dt
 import io
 import json
 import typing
-import asyncio
-import datetime as dt
-import contextlib
-import dataclasses
-import collections.abc
-
-from django.conf import settings
 
 import pyarrow as pa
+from django.conf import settings
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
@@ -28,7 +23,6 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     OverBillingLimitError,
@@ -49,6 +43,11 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    JSONLStreamTransformer,
+    ParquetStreamTransformer,
+    TransformerProtocol,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -61,9 +60,13 @@ from products.batch_exports.backend.temporal.spmc import (
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
@@ -1108,14 +1111,20 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         file_format="Parquet" if can_perform_merge else "JSONLines",
                     )
 
+                    if can_perform_merge:
+                        transformer: TransformerProtocol = ParquetStreamTransformer(
+                            schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=()),
+                            compression="zstd",
+                        )
+                    else:
+                        transformer = JSONLStreamTransformer()
+
                     result = await run_consumer_from_stage(
                         queue=queue,
                         consumer=consumer,
                         producer_task=producer_task,
+                        transformer=transformer,
                         schema=record_batch_schema,
-                        file_format="Parquet" if can_perform_merge else "JSONLines",
-                        compression="zstd" if can_perform_merge else None,
-                        include_inserted_at=False,
                         max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
                         json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )

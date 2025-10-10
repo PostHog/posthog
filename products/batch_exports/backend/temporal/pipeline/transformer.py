@@ -1,24 +1,22 @@
-import io
-import gzip
-import json
-import typing
 import asyncio
-import contextlib
 import collections
 import collections.abc
-import multiprocessing as mp
 import concurrent.futures
-
-from django.conf import settings
+import contextlib
+import gzip
+import io
+import json
+import multiprocessing as mp
+import typing
 
 import brotli
 import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
-
+from django.conf import settings
 from posthog.temporal.common.logger import get_write_only_logger
-
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
+from psycopg import sql
 
 logger = get_write_only_logger()
 
@@ -30,7 +28,7 @@ class Chunk(typing.NamedTuple):
     is_eof: bool
 
 
-class _TransformerProtocol(typing.Protocol):
+class TransformerProtocol(typing.Protocol):
     """Transformer protocol iterating record batches into chunks of bytes."""
 
     async def iter(
@@ -44,22 +42,17 @@ class _TransformerProtocol(typing.Protocol):
         raise NotImplementedError
 
 
-def get_stream_transformer(
-    format: str, compression: str | None = None, schema: pa.Schema | None = None, include_inserted_at: bool = False
-) -> _TransformerProtocol:
-    match format.lower():
-        case "jsonlines" if compression != "brotli":
-            return JSONLStreamTransformer(compression=compression, include_inserted_at=include_inserted_at)
-        case "jsonlines" if compression == "brotli":
-            return JSONLBrotliStreamTransformer(include_inserted_at=include_inserted_at)
-        case "parquet":
-            if schema is None:
-                raise ValueError("Schema is required for Parquet")
-            return ParquetStreamTransformer(
-                compression=compression, schema=schema, include_inserted_at=include_inserted_at
-            )
-        case _:
-            raise ValueError(f"Unsupported format: {format}")
+def get_json_stream_transformer(
+    include_inserted_at: bool = False,
+    compression: str | None = None,
+    max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+) -> TransformerProtocol:
+    if compression == "brotli":
+        return JSONLBrotliStreamTransformer(include_inserted_at=include_inserted_at, max_workers=max_workers)
+
+    return JSONLStreamTransformer(
+        compression=compression, include_inserted_at=include_inserted_at, max_workers=max_workers
+    )
 
 
 class JSONLStreamTransformer:
@@ -443,3 +436,128 @@ class ParquetStreamTransformer:
         self._parquet_buffer.truncate(0)
 
         return data
+
+
+class RedshiftQueryStreamTransformer:
+    """A transformer to convert record batches into a Redshift INSERT INTO query."""
+
+    def __init__(
+        self,
+        schema: pa.Schema,
+        redshift_table: str,
+        redshift_schema: str | None,
+        table_columns: collections.abc.Sequence[str],
+        known_json_columns: collections.abc.Sequence[str],
+        use_super: bool,
+        redshift_client,
+    ):
+        self.schema = schema
+        self.redshift_table = redshift_table
+        self.redshift_schema = redshift_schema
+        self.table_columns = list(table_columns)
+        self.known_json_columns = known_json_columns
+        self.use_super = use_super
+        self.redshift_client = redshift_client
+
+        placeholders: list[sql.Composable] = []
+        for column in table_columns:
+            if column in known_json_columns and use_super is True:
+                placeholders.append(sql.SQL("JSON_PARSE({placeholder})").format(placeholder=sql.Placeholder(column)))
+            else:
+                placeholders.append(sql.Placeholder(column))
+
+        self.template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
+
+    async def iter(
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        """Iterate over record batches transforming them into chunks."""
+        current_file_size = 0
+
+        query_start = await self.get_encoded_query_start()
+        is_query_start = True
+
+        async for record_batch in record_batches:
+            for record in record_batch.select(self.table_columns).to_pylist():
+                for json_column in self.known_json_columns:
+                    if record.get(json_column, None) is None:
+                        continue
+
+                    record[json_column] = json.dumps(
+                        remove_escaped_whitespace_recursive(record[json_column]), ensure_ascii=False
+                    )
+
+                chunk = await self.mogrify_record(record)
+
+                if is_query_start:
+                    yield Chunk(query_start, False)
+                    is_query_start = False
+
+                else:
+                    yield Chunk(b",", False)
+
+                yield Chunk(chunk, False)
+
+                if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                    yield Chunk(b"", True)
+                    current_file_size = 0
+                    is_query_start = True
+
+                else:
+                    current_file_size += len(chunk)
+
+        yield Chunk(b"", True)
+
+    async def mogrify_record(self, record: dict[str, typing.Any]) -> bytes:
+        """Produce encoded bytes from a record."""
+        async with self.redshift_client.async_client_cursor() as cursor:
+            return cursor.mogrify(self.template, record).encode("utf-8").replace(b" E'", b" '")
+
+    async def get_encoded_query_start(self) -> bytes:
+        """Encode and format the start of an INSERT INTO query."""
+        if self.redshift_schema:
+            table_identifier = sql.Identifier(self.redshift_schema, self.redshift_table)
+        else:
+            table_identifier = sql.Identifier(self.redshift_table)
+
+        pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
+            table=table_identifier,
+            fields=sql.SQL(", ").join(map(sql.Identifier, self.table_columns)),
+        )
+
+        async with self.redshift_client.async_client_cursor() as cursor:
+            return pre_query.as_string(cursor).encode("utf-8")
+
+
+def remove_escaped_whitespace_recursive(value):
+    """Remove all escaped whitespace characters from given value.
+
+    PostgreSQL supports constant escaped strings by appending an E' to each string that
+    contains whitespace in them (amongst other characters). See:
+    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
+
+    However, Redshift does not support this syntax. So, to avoid any escaping by
+    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
+    translation table WHITESPACE_TRANSLATE.
+
+    This function is recursive just to be extremely careful and catch any whitespace that
+    may be sneaked in a dictionary key or sequence.
+    """
+    match value:
+        case str(s):
+            return " ".join(s.replace("\b", " ").split())
+
+        case bytes(b):
+            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
+
+        case [*sequence]:
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)
+
+        case set(elements):
+            return {remove_escaped_whitespace_recursive(element) for element in elements}
+
+        case {**mapping}:
+            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
+
+        case value:
+            return value

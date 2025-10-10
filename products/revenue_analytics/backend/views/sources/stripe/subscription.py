@@ -1,23 +1,20 @@
-from collections.abc import Iterable
 from typing import cast
 
 from posthog.hogql import ast
-
 from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
-
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import extract_json_string
 
 
-def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
+def build(handle: SourceHandle) -> BuiltQuery:
     source = handle.source
     if source is None:
-        return
+        raise ValueError("Source is required")
 
     prefix = view_prefix_for_source(source)
 
@@ -26,17 +23,15 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     schemas = source.schemas.all()
     subscription_schema = next((schema for schema in schemas if schema.name == STRIPE_SUBSCRIPTION_RESOURCE_NAME), None)
     if subscription_schema is None:
-        yield BuiltQuery(
+        return BuiltQuery(
             key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
-        return
 
     subscription_schema = cast(ExternalDataSchema, subscription_schema)
     if subscription_schema.table is None:
-        yield BuiltQuery(
+        return BuiltQuery(
             key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
-        return
 
     table = cast(DataWarehouseTable, subscription_schema.table)
 
@@ -55,4 +50,4 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
         select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),
     )
 
-    yield BuiltQuery(key=str(table.id), prefix=prefix, query=query)
+    return BuiltQuery(key=str(table.id), prefix=prefix, query=query)

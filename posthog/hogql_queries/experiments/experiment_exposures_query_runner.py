@@ -2,25 +2,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import (
-    CachedExperimentExposureQueryResponse,
-    DateRange,
-    ExperimentExposureQuery,
-    ExperimentExposureQueryResponse,
-    ExperimentExposureTimeSeries,
-    IntervalType,
-)
-
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     build_common_exposure_conditions,
@@ -31,6 +19,15 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.schema import (
+    CachedExperimentExposureQueryResponse,
+    DateRange,
+    ExperimentExposureQuery,
+    ExperimentExposureQueryResponse,
+    ExperimentExposureTimeSeries,
+    IntervalType,
+)
+from rest_framework.exceptions import ValidationError
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 
@@ -97,13 +94,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Get the exposure event and feature flag variant property
         if not self.feature_flag_key:
             raise ValidationError("feature_flag key is required")
-        event, feature_flag_variant_property = get_exposure_event_and_property(
+        _, feature_flag_variant_property = get_exposure_event_and_property(
             self.feature_flag_key, self.exposure_criteria
         )
 
         # Build common exposure conditions using shared logic
         exposure_conditions = build_common_exposure_conditions(
-            event=event,
             feature_flag_variant_property=feature_flag_variant_property,
             variants=self.variants,
             date_range_query=self.date_range_query,
@@ -155,6 +151,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 experiment_id=self.query.experiment_id,
                 experiment_name=self.query.experiment_name,
                 experiment_feature_flag_key=self.feature_flag_key,
+                product=Product.EXPERIMENTS,
             )
 
             # Set limit to avoid being cut-off by the default 100 rows limit

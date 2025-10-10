@@ -1,22 +1,29 @@
+import base64
+import hashlib
 import hmac
 import json
-import time
-import base64
 import socket
-import hashlib
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlencode
 
-from django.conf import settings
-from django.db import models
-
 import jwt
 import requests
 import structlog
+from django.conf import settings
+from django.db import models
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.instance_setting import get_instance_settings
+from posthog.models.user import User
+from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.sync import database_sync_to_async
+from products.messaging.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework import status
@@ -25,16 +32,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-
-from posthog.cache_utils import cache_for
-from posthog.exceptions_capture import capture_exception
-from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.instance_setting import get_instance_settings
-from posthog.models.user import User
-from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.sync import database_sync_to_async
-
-from products.messaging.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -115,6 +112,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -1166,15 +1165,19 @@ class EmailIntegration:
 
         if verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
-            other_integrations = Integration.objects.filter(
+            all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,
                 kind="email",
                 config__domain=domain,
                 config__provider=provider,
             )
-            for integration in other_integrations:
+            for integration in all_integrations_for_domain:
                 integration.config["verified"] = True
                 integration.save()
+
+            reload_integrations_on_workers(
+                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            )
 
         return verification_result
 
@@ -1857,9 +1860,9 @@ class DatabricksIntegration:
             sock.close()
         except OSError:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
         except Exception:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )

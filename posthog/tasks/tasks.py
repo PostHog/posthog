@@ -2,28 +2,25 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import posthoganalytics
+import requests
+from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-
-import requests
-import posthoganalytics
-from celery import shared_task
-from prometheus_client import Gauge
-from redis import Redis
-from structlog import get_logger
-
-from posthog.hogql.constants import LimitContext
-
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Gauge
+from redis import Redis
+from structlog import get_logger
 
 logger = get_logger(__name__)
 
@@ -67,6 +64,7 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
+    query_tags: dict,
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
@@ -75,6 +73,10 @@ def process_query_task(
     Once complete save results to redis
     """
     from posthog.clickhouse.client import execute_process_query
+
+    existing_query_tags = get_query_tags()
+    all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
+    tag_queries(**all_query_tags)
 
     if is_query_service:
         tag_queries(chargeable=1)
@@ -199,10 +201,9 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 @shared_task(ignore_result=True)
 def ingestion_lag() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
+    from statshog.defaults.django import statsd
 
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
@@ -313,9 +314,8 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 @shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
+    from statshog.defaults.django import statsd
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
         row_count_gauge = Gauge(
@@ -380,9 +380,8 @@ def clickhouse_errors_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_part_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
+    from statshog.defaults.django import statsd
 
     QUERY = """
         SELECT table, count(1) freq
@@ -411,9 +410,8 @@ def clickhouse_part_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_mutation_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
+    from statshog.defaults.django import statsd
 
     QUERY = """
         SELECT
@@ -838,9 +836,8 @@ def background_delete_model_task(
     """
     import logging
 
-    from django.apps import apps
-
     import structlog
+    from django.apps import apps
 
     logger = structlog.get_logger(__name__)
     logger.setLevel(logging.INFO)
@@ -938,7 +935,6 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
     from uuid import UUID
 
     from django.db.models import Count
-
     from posthog.api.advanced_activity_logs.constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
     from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery
     from posthog.api.advanced_activity_logs.fields_cache import delete_cached_fields

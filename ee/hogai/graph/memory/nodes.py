@@ -2,7 +2,6 @@ from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
-
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -13,8 +12,9 @@ from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
-from pydantic import BaseModel, Field, ValidationError
-
+from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import (
     AssistantForm,
     AssistantFormOption,
@@ -26,11 +26,8 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
-
-from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.utils import human_list
+from pydantic import BaseModel, Field, ValidationError
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import AssistantContextMixin
@@ -203,7 +200,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         else:
             prompt += ChatPromptTemplate.from_messages(
                 [("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT)], template_format="mustache"
-            ).partial(bundle_ids=",".join(retrieved_prop.sample_values))
+            ).partial(bundle_ids=", ".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
@@ -232,7 +229,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             },
             user=self._user,
             team=self._team,
-        ).bind_tools([{"type": "web_search_preview"}])  # We should use web_search once LangChain supports it
+        ).bind_tools([{"type": "web_search"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):

@@ -1,16 +1,13 @@
 from datetime import datetime
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-
-from posthog.schema import BaseMathType, ConversionGoalFilter1, ConversionGoalFilter2, DateRange, NodeKind
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
-
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Action
+from posthog.schema import BaseMathType, ConversionGoalFilter1, ConversionGoalFilter2, DateRange, NodeKind
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator
@@ -20,7 +17,7 @@ from .marketing_analytics_config import MarketingAnalyticsConfig
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.config = MarketingAnalyticsConfig()
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
         self.date_range = QueryDateRange(
             date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             team=self.team,

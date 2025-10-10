@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from typing import Any
 from urllib.parse import urlencode
 
@@ -8,12 +8,6 @@ from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
-
-from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -22,6 +16,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ClickUpIntegration,
     DatabricksIntegration,
+    DatabricksIntegrationError,
     EmailIntegration,
     GitHubIntegration,
     GoogleAdsIntegration,
@@ -33,6 +28,10 @@ from posthog.models.integration import (
     SlackIntegration,
     TwilioIntegration,
 )
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -126,13 +125,16 @@ class IntegrationSerializer(serializers.ModelSerializer):
             if not all(isinstance(value, str) for value in [server_hostname, client_id, client_secret]):
                 raise ValidationError("Server hostname, client ID, and client secret must be strings")
 
-            instance = DatabricksIntegration.integration_from_config(
-                team_id=team_id,
-                server_hostname=server_hostname,
-                client_id=client_id,
-                client_secret=client_secret,
-                created_by=request.user,
-            )
+            try:
+                instance = DatabricksIntegration.integration_from_config(
+                    team_id=team_id,
+                    server_hostname=server_hostname,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    created_by=request.user,
+                )
+            except DatabricksIntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:

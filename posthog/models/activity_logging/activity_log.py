@@ -1,8 +1,9 @@
-import json
 import dataclasses
+import json
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
+import structlog
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
@@ -11,9 +12,6 @@ from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
-
-import structlog
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
@@ -141,6 +139,24 @@ class ActivityLog(UUIDTModel):
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
                 condition=models.Q(detail__isnull=False),
+            ),
+            # User-specific filtered queries
+            models.Index(
+                fields=["team_id", "activity", "scope", "user"],
+                name="idx_alog_team_act_scope_usr",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+            # Advanced activity logs: team-scoped queries with ordering
+            models.Index(
+                fields=["team_id", "scope", "-created_at"],
+                name="idx_alog_team_scope_created",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+            # Advanced activity logs: team queries with activity filter
+            models.Index(
+                fields=["team_id", "scope", "activity", "-created_at"],
+                name="idx_alog_team_scp_act_crtd",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
             ),
         ]
 
@@ -415,7 +431,16 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "Action": [
         "bytecode",
         "bytecode_error",
-        "steps_json",
+        "is_calculating",
+        "last_calculated_at",
+        "embedding_last_synced_at",
+        "embedding_version",
+        "last_summarized_at",
+        "action_steps",
+        "events",
+        "plugin_configs",
+        "tagged_items",
+        "survey",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -735,7 +760,7 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
 
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.api.activity_log import ActivityLogSerializer
+    from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
     from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 

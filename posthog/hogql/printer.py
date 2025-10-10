@@ -6,14 +6,12 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.schema import (
-    HogQLQueryModifiers,
-    InCohortVia,
-    MaterializationMode,
-    PersonsOnEventsMode,
-    PropertyGroupsMode,
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
 )
-
+from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import _T_AST, AST
@@ -51,13 +49,6 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
-
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.surveys.util import (
@@ -67,6 +58,13 @@ from posthog.models.surveys.util import (
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    MaterializationMode,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 from posthog.settings import CLICKHOUSE_DATABASE
 
 CHANNEL_DEFINITION_DICT = f"{CLICKHOUSE_DATABASE}.channel_definition_dict"
@@ -825,9 +823,10 @@ class _Printer(Visitor[str]):
         ):
             not_nullable = True
         hack_sessions_timestamp = (
-            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
+            "raw_sessions_v3.session_timestamp",
         )
-        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
+        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
             not_nullable = True
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id to allow bloom filter index usage

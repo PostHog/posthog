@@ -6,12 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
-
-from rest_framework import serializers
-
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from rest_framework import serializers
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
@@ -50,12 +48,14 @@ ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(Ac
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "action",
     "feature_flag",
     "dashboard",
     "insight",
     "notebook",
     "session_recording",
     "revenue_analytics",
+    "survey",
     "experiment",
 )
 
@@ -118,6 +118,13 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
     if resource in ["organization"]:
         return "member"
     return "editor"
+
+
+def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
+    if resource == "action":
+        return "viewer"
+    return "none"
 
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:

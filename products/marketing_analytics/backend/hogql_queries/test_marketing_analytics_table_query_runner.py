@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import Mock, patch
-
+from posthog.hogql import ast
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -9,16 +8,13 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
 )
-
-from posthog.hogql import ast
-
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from unittest.mock import Mock, patch
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -160,31 +156,29 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             assert query.select_from is not None
 
     def test_calculate_basic(self):
-        with patch.object(MarketingAnalyticsTableQueryRunner, "to_query") as mock_to_query:
-            mock_to_query.return_value = ast.SelectQuery(
-                select=[ast.Alias(alias="Campaign", expr=ast.Field(chain=["campaign"]))],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["test_table"])),
+        with patch("posthog.hogql.query.execute_hogql_query") as mock_execute:
+            # Mock response with typical marketing analytics columns
+            mock_execute.return_value = Mock(
+                results=[["test_campaign", "test_source", 100.0, 50, 1000, 0.1, 0.05, 5.0]],
+                types=[],
+                hogql="SELECT Campaign, Source, Cost, Clicks, Impressions, CPC, CTR, Reported Conversion",
+                timings=[],
             )
 
-            with patch("posthog.hogql.query.execute_hogql_query") as mock_execute:
-                mock_execute.return_value = Mock(
-                    results=[["test_campaign"]], types=[], hogql="SELECT campaign", timings=[]
-                )
+            runner = self._create_query_runner()
+            result = runner.calculate()
 
-                runner = self._create_query_runner()
-                result = runner.calculate()
-
-                assert isinstance(result, MarketingAnalyticsTableQueryResponse)
-                # Results are now transformed to WebAnalyticsItemBase objects
-                assert len(result.results) == 1
-                assert len(result.results[0]) == 1
-                # Check the transformed item structure (should be WebAnalyticsItemBase)
-                transformed_item = result.results[0][0]
-                assert transformed_item.key == "Campaign"
-                assert transformed_item.value == "test_campaign"
-                assert transformed_item.previous is None
-                assert transformed_item.kind == "unit"
-                assert transformed_item.isIncreaseBad is False
-                assert result.hasMore is False
-                assert result.limit == DEFAULT_LIMIT
-                assert result.offset == 0
+            assert isinstance(result, MarketingAnalyticsTableQueryResponse)
+            # Results are now transformed to MarketingAnalyticsItem objects
+            assert len(result.results) == 1
+            assert len(result.results[0]) == 8  # 8 columns in the mock response
+            # Check the transformed item structure (should be MarketingAnalyticsItem)
+            transformed_item = result.results[0][0]
+            assert transformed_item.key == "Campaign"
+            assert transformed_item.value == "test_campaign"
+            assert transformed_item.previous is None
+            assert transformed_item.kind == "unit"
+            assert transformed_item.isIncreaseBad is False
+            assert result.hasMore is False
+            assert result.limit == DEFAULT_LIMIT
+            assert result.offset == 0

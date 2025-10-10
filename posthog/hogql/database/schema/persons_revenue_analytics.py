@@ -76,86 +76,83 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
         # Otherwise, we need to join with the persons table by checking whether it exists
         person_id_chain: list[str | int] | None = None
         if customer_view.is_event_view():
-            person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
+            person_id_chain = [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]
         else:
             persons_lazy_join = customer_view.fields.get("persons")
             if persons_lazy_join is not None and isinstance(persons_lazy_join, ast.LazyJoin):
                 person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "persons", "id"]
 
         if person_id_chain is not None:
-            queries.append(
-                ast.SelectQuery(
-                    select=[
-                        # `team_id` is required to make HogQL happy and edge-case free
-                        # by avoiding the need to add an exception when querying this table
-                        #
-                        # This table is always safe to query "without a `team_id` filter"
-                        # because it's simply aggregating data from revenue warehouse views,
-                        # and those views are, on their own, safe to query "without a `team_id` filter"
-                        # since they're getting data from either the data warehouse (safe) or the events table (safe)
-                        ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
-                        ast.Alias(
-                            alias="person_id", expr=ast.Call(name="toUUID", args=[ast.Field(chain=person_id_chain)])
-                        ),
-                        ast.Alias(
-                            alias="revenue",
-                            expr=ast.Call(
-                                name="sum",
-                                args=[
-                                    ast.Field(
-                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
-                                    )
-                                ],
-                            ),
-                        ),
-                        ast.Alias(
-                            alias="revenue_last_30_days",
-                            expr=ast.Call(
-                                name="sumIf",
-                                args=[
-                                    ast.Field(
-                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.GtEq,
-                                        left=ast.Field(
-                                            chain=[
-                                                RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                                                "timestamp",
-                                            ]
-                                        ),
-                                        # For POE, we *should* be able to use the events.timestamp field
-                                        # but that's not possible given Clickhouse's limitations on what you can do in a subquery
-                                        # We should figure out a way to do this in the future
-                                        # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_poe else "today() - INTERVAL {interval} DAY",
-                                        right=parse_expr("today() - INTERVAL 30 DAY"),
-                                    ),
-                                ],
-                            ),
-                        ),
-                    ],
-                    select_from=ast.JoinExpr(
-                        alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
-                        table=ast.Field(chain=[customer_view.name]),
-                        next_join=ast.JoinExpr(
-                            alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                            table=ast.Field(chain=[revenue_item_view.name]),
-                            join_type="LEFT JOIN",
-                            constraint=ast.JoinConstraint(
-                                constraint_type="ON",
-                                expr=ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
-                                    right=ast.Field(
-                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]
-                                    ),
-                                ),
-                            ),
+            query = ast.SelectQuery(
+                select=[
+                    # `team_id` is required to make HogQL happy and edge-case free
+                    # by avoiding the need to add an exception when querying this table
+                    #
+                    # This table is always safe to query "without a `team_id` filter"
+                    # because it's simply aggregating data from revenue warehouse views,
+                    # and those views are, on their own, safe to query "without a `team_id` filter"
+                    # since they're getting data from either the data warehouse (safe) or the events table (safe)
+                    ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
+                    ast.Alias(alias="person_id", expr=ast.Call(name="toUUID", args=[ast.Field(chain=person_id_chain)])),
+                    ast.Alias(
+                        alias="revenue",
+                        expr=ast.Call(
+                            name="sum",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
+                            ],
                         ),
                     ),
-                    group_by=[ast.Field(chain=["person_id"])],
-                )
+                    ast.Alias(
+                        alias="revenue_last_30_days",
+                        expr=ast.Call(
+                            name="sumIf",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.GtEq,
+                                    left=ast.Field(
+                                        chain=[
+                                            RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                                            "timestamp",
+                                        ]
+                                    ),
+                                    # For POE, we *should* be able to use the events.timestamp field
+                                    # but that's not possible given Clickhouse's limitations on what you can do in a subquery
+                                    # We should figure out a way to do this in the future
+                                    # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_poe else "today() - INTERVAL {interval} DAY",
+                                    right=parse_expr("today() - INTERVAL 30 DAY"),
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+                select_from=ast.JoinExpr(
+                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    table=ast.Field(chain=[revenue_item_view.name]),
+                ),
+                group_by=[ast.Field(chain=["person_id"])],
             )
+
+            # If it's a data warehouse view, we need to join with the customer view to get the person_id from it
+            if not customer_view.is_event_view():
+                query.select_from.next_join = ast.JoinExpr(  # type: ignore
+                    alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+                    table=ast.Field(chain=[customer_view.name]),
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        constraint_type="ON",
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(
+                                chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]
+                            ),
+                            right=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                        ),
+                    ),
+                )
+
+            queries.append(query)
 
     if not queries:
         return ast.SelectQuery.empty(columns=columns)

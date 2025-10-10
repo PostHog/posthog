@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
+import structlog
 from django.conf import settings
 from django.db import connection, models, transaction
 from django.db.models import Q, QuerySet
@@ -10,9 +11,6 @@ from django.db.models.expressions import F
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
-
-import structlog
-
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
@@ -708,6 +706,8 @@ class CohortPeople(models.Model):
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
 
 

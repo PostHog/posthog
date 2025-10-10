@@ -2,6 +2,11 @@ from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 
+from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
     HogQLQueryResponse,
@@ -10,14 +15,6 @@ from posthog.schema import (
     RevenueAnalyticsMRRQueryResponse,
     RevenueAnalyticsMRRQueryResultItem,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsRevenueItemView,
@@ -48,7 +45,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subqueries:
             return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])
 

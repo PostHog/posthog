@@ -1,9 +1,12 @@
 import datetime as dt
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError
-
+from posthog.constants import PAGEVIEW_EVENT
+from posthog.demo.matrix.matrix import Cluster, Matrix
+from posthog.demo.matrix.randomization import Industry
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -41,11 +44,6 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.constants import PAGEVIEW_EVENT
-from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.demo.matrix.randomization import Industry
-from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
-
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
     COMPANY_CLUSTERS_PROPORTION,
@@ -62,6 +60,10 @@ from .taxonomy import (
     URL_HOME,
     URL_SIGNUP,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 
 @dataclass
@@ -118,9 +120,10 @@ class HedgeboxMatrix(Matrix):
         self.new_signup_page_experiment_end = self.now - dt.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
-    def set_project_up(self, team, user):
+    def set_project_up(self, team: "Team", user: "User"):
         super().set_project_up(team, user)
         team.autocapture_web_vitals_opt_in = True
+        team.session_recording_opt_in = True  # Also see: the hedgebox-dummy/ app
 
         # Actions
         interacted_with_file_action = Action.objects.create(

@@ -1,6 +1,7 @@
 import json
 from typing import TYPE_CHECKING, Optional, cast
 
+import structlog
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.cache import cache
 from django.db import DatabaseError, models, transaction
@@ -8,9 +9,6 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
-
-import structlog
-
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -491,6 +489,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     hash_key = models.CharField(max_length=400)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "person", "feature_flag_key"],
@@ -522,7 +522,6 @@ def set_feature_flags_for_team_in_cache(
 ) -> list[FeatureFlag]:
     from django.contrib.postgres.aggregates import ArrayAgg
     from django.db.models import Q
-
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:

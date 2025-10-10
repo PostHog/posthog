@@ -23,7 +23,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }): React.JSX.Element {
     const [user, setUser] = useState<User | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
@@ -36,14 +36,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setUser(userData)
                 // Re-identify user on page load
                 posthog.identify(userData.id, userData)
-            } catch (error) {
+            } catch {
                 localStorage.removeItem('hedgebox_user')
             }
         }
         setIsLoading(false)
     }, [])
 
-    const login = async (email: string, password: string): Promise<boolean> => {
+    const login = async (email: string /* password is intentionally unused in demo */): Promise<boolean> => {
         setIsLoading(true)
 
         try {
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             posthog.identify(userWithAvatar.id, userWithAvatar)
 
             return true
-        } catch (error) {
+        } catch {
             return false
         } finally {
             setIsLoading(false)
@@ -111,14 +111,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             posthog.identify(userData.id, userData)
 
             return true
-        } catch (error) {
+        } catch {
             return false
         } finally {
             setIsLoading(false)
         }
     }
 
-    const logout = () => {
+    const logout = (): void => {
         setUser(null)
         localStorage.removeItem('hedgebox_user')
         posthog.capture('logged_out')
@@ -128,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return <AuthContext.Provider value={{ user, login, signup, logout, isLoading }}>{children}</AuthContext.Provider>
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextType {
     const context = useContext(AuthContext)
     if (context === undefined) {
         throw new Error('useAuth must be used within an AuthProvider')

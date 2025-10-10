@@ -3,9 +3,8 @@ from functools import partial
 from uuid import UUID
 
 import pytest
-
 from clickhouse_driver import Client
-
+from freezegun import freeze_time
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -518,12 +517,11 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
+@freeze_time("2025-09-15")
 def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
-    from unittest.mock import patch
-
     from dagster import build_op_context
-
     from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
+    from unittest.mock import patch
 
     now = datetime.now()
     old_timestamp = now - timedelta(days=400)

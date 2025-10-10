@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import CustomChannelRule
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -25,7 +23,6 @@ from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATI
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-
 from posthog.models.property_definition import PropertyType
 from posthog.models.raw_sessions.sql_v3 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3,
@@ -33,6 +30,7 @@ from posthog.models.raw_sessions.sql_v3 import (
     SESSION_V3_LOWER_TIER_AD_IDS,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import CustomChannelRule
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -41,6 +39,9 @@ if TYPE_CHECKING:
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "session_id_v7": UUIDDatabaseField(name="session_id_v7", nullable=False),
+    "session_timestamp": DatabaseField(
+        name="session_timestamp", nullable=False
+    ),  # not a DateTimeDatabaseField to avoid wrapping with toTimeZone
     "distinct_id": DatabaseField(name="distinct_id", nullable=False),
     "person_id": DatabaseField(name="person_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
@@ -89,6 +90,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
+    "session_timestamp": DateTimeDatabaseField(name="session_timestamp", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "person_id": UUIDDatabaseField(name="person_id"),
     # timestamp
@@ -184,7 +186,26 @@ def select_from_sessions_table_v3(
     aggregate_fields: dict[str, ast.Expr] = {
         "session_id": ast.Call(
             name="toString",
-            args=[ast.Field(chain=[table_name, "session_id_v7"])],
+            args=[
+                ast.Call(
+                    name="reinterpretAsUUID",
+                    args=[
+                        ast.Call(
+                            name="bitOr",
+                            args=[
+                                ast.Call(
+                                    name="bitShiftLeft",
+                                    args=[ast.Field(chain=[table_name, "session_id_v7"]), ast.Constant(value=64)],
+                                ),
+                                ast.Call(
+                                    name="bitShiftRight",
+                                    args=[ast.Field(chain=[table_name, "session_id_v7"]), ast.Constant(value=64)],
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            ],
         ),  # try not to use this, prefer to use session_id_v7
         "distinct_id": arg_max_merge_field("distinct_id"),
         "person_id": arg_max_merge_field("person_id"),
@@ -338,7 +359,7 @@ def select_from_sessions_table_v3(
     aggregate_fields["$exit_pathname"] = aggregate_fields["$end_pathname"]
 
     select_fields: list[ast.Expr] = []
-    group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id_v7"])]
+    group_by_fields: list[ast.Expr] = []
 
     for name, chain in requested_fields.items():
         if name in aggregate_fields:
@@ -394,25 +415,8 @@ def session_id_to_session_id_v7_as_uuid_expr(session_id: ast.Expr) -> ast.Expr:
     return ast.Call(name="toUUID", args=[session_id])
 
 
-def uuid_to_uint128_expr(uuid: ast.Expr) -> ast.Expr:
-    return ast.Call(
-        name="reinterpretAsUUID",
-        args=[
-            ast.Call(
-                name="bitOr",
-                args=[
-                    ast.Call(
-                        name="bitShiftLeft",
-                        args=[uuid, ast.Constant(value=64)],
-                    ),
-                    ast.Call(
-                        name="bitShiftRight",
-                        args=[uuid, ast.Constant(value=64)],
-                    ),
-                ],
-            )
-        ],
-    )
+def session_id_to_uint128_as_uuid_expr(session_id: ast.Expr) -> ast.Expr:
+    return ast.Call(name="_toUInt128", args=[(session_id_to_session_id_v7_as_uuid_expr(session_id))])
 
 
 def join_events_table_to_sessions_table_v3(
@@ -429,7 +433,7 @@ def join_events_table_to_sessions_table_v3(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=uuid_to_uint128_expr(ast.Field(chain=[join_to_add.from_table, "$session_id_uuid"])),
+            left=ast.Field(chain=[join_to_add.from_table, "$session_id_uuid"]),
             right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",
@@ -453,6 +457,7 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
         "$num_uniq_urls",
         "$page_screen_autocapture_count_up_to",
         "$entry_channel_type_properties",
+        "session_timestamp",  # really people should be using $start_timestamp for most queries
         # aliases for people upgrading from v1 to v2/v3
         "$exit_current_url",
         "$exit_pathname",

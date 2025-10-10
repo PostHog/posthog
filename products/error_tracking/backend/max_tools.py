@@ -1,15 +1,13 @@
-import re
 import json
+import re
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
-
-from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
-
 from posthog.models import Team, User
+from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
@@ -118,8 +116,8 @@ class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        return super().handle_tools(tool_name, tool_input)
+    async def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         return [final_answer]

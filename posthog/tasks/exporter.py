@@ -1,18 +1,16 @@
 from time import perf_counter
 from typing import Optional
 
-from django.db import transaction
-
-import structlog
 import posthoganalytics
+import structlog
 from celery import current_task, shared_task
-from prometheus_client import Counter, Histogram
-
+from django.db import transaction
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter, Histogram
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +82,17 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
         if current_task and current_task.request and current_task.request.id
         else None,
     }
+
+    logger.info(
+        "export_asset.starting",
+        exported_asset_id=exported_asset.id,
+        team_id=team.id,
+    )
+
+    from posthog.clickhouse.query_tagging import tag_queries
+
+    tag_queries(exported_asset_id=exported_asset.id, export_format=exported_asset.export_format)
+
     posthoganalytics.capture(
         distinct_id=distinct_id,
         event="export started",
@@ -99,6 +108,11 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
             image_exporter.export_image(exported_asset)
             EXPORT_QUEUED_COUNTER.labels(type="image").inc()
 
+        logger.info(
+            "export_asset.succeeded",
+            exported_asset_id=exported_asset.id,
+            team_id=team.id,
+        )
         posthoganalytics.capture(
             distinct_id=distinct_id,
             event="export succeeded",
@@ -111,6 +125,13 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
     except Exception as e:
         is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
 
+        logger.exception(
+            "export_asset.error",
+            exported_asset_id=exported_asset.id,
+            error=str(e),
+            might_retry=is_retriable,
+            team_id=team.id,
+        )
         posthoganalytics.capture(
             distinct_id=distinct_id,
             event="export failed",

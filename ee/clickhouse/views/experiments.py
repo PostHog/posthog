@@ -7,14 +7,6 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, F, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 from django.dispatch import receiver
-
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.schema import ExperimentEventExposureConfig
-
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -30,6 +22,11 @@ from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -200,8 +197,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             raise ValidationError("filterTestAccounts must be a boolean")
 
         if "exposure_config" in exposure_criteria:
+            exposure_config = exposure_criteria["exposure_config"]
             try:
-                ExperimentEventExposureConfig.model_validate(exposure_criteria["exposure_config"])
+                if exposure_config.get("kind") == "ActionsNode":
+                    ActionsNode.model_validate(exposure_config)
+                else:
+                    ExperimentEventExposureConfig.model_validate(exposure_config)
                 return exposure_criteria
             except Exception:
                 raise ValidationError("Invalid exposure criteria")

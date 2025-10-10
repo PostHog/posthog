@@ -1,10 +1,9 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-from unittest import mock
-
 from parameterized import parameterized
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 from rest_framework import status
+from unittest import mock
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
@@ -65,10 +64,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
     def test_updates_content_and_increments_version(self) -> None:
         existing = self.client.post(
             f"/api/projects/{self.team.id}/comments",
-            {
-                "content": "This is a comment",
-                "scope": "Notebook",
-            },
+            {"content": "This is a comment", "scope": "Notebook"},
         )
 
         response = self.client.patch(

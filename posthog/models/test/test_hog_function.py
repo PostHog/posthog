@@ -1,16 +1,13 @@
 import json
 
-from posthog.test.base import QueryMatchingTest
-
 from django.test import TestCase
-
 from inline_snapshot import snapshot
-
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.base import QueryMatchingTest
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -203,8 +200,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 ],
             }
         ]
-        # 1 update action, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related actions, 1 bulk update hog functions, 5 filesystem
-        with self.assertNumQueries(10):
+        # 1 update action, 2 activity logging, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related actions, 1 bulk update hog functions, 5 filesystem
+        with self.assertNumQueries(12):
             self.action.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

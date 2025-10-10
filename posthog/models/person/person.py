@@ -2,7 +2,6 @@ from typing import Any, Optional
 
 from django.db import connections, models, transaction
 from django.db.models import F, Q
-
 from posthog.models.utils import UUIDT
 
 from ..team import Team
@@ -54,6 +53,10 @@ class Person(models.Model):
 
     objects = PersonManager()
 
+    class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
+
     @property
     def distinct_ids(self) -> list[str]:
         if hasattr(self, "distinct_ids_cache"):
@@ -102,11 +105,16 @@ class Person(models.Model):
                         uuid=uuidFromDistinctId(self.team_id, distinct_id),
                         team_id=self.team_id,
                         defaults={
-                            "version": original_person_version + 1,
+                            # Set version higher than delete events (which use version + 100).
+                            # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
+                            # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+                            "version": original_person_version + 101,
                         },
                     )
                     pdi.person_id = str(person.id)
-                    pdi.version = (pdi.version or 0) + 1
+                    # Set distinct_id version higher than delete events (which use pdi.version + 100).
+                    # This ensures the split distinct_id overrides any deleted distinct_id.
+                    pdi.version = (pdi.version or 0) + 101
                     pdi.save(update_fields=["version", "person_id"])
 
                 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -133,6 +141,8 @@ class PersonDistinctId(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
 
@@ -144,6 +154,8 @@ class PersonlessDistinctId(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
         ]
@@ -157,6 +169,8 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
         ]
@@ -185,6 +199,8 @@ class PersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "old_person_id"],
@@ -206,6 +222,10 @@ class PendingPersonOverride(models.Model):
     override_person_id = models.UUIDField()
     oldest_event = models.DateTimeField()
 
+    class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
+
 
 class FlatPersonOverride(models.Model):
     # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
@@ -218,6 +238,8 @@ class FlatPersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         indexes = [
             models.Index(fields=["team_id", "override_person_id"]),
         ]

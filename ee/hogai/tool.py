@@ -1,18 +1,15 @@
+import importlib
 import json
 import pkgutil
-import importlib
 from typing import Any, Literal
 
+import products
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
-
-from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
-
 from posthog.models import Team, User
-
-import products
+from posthog.schema import AssistantContextualTool, AssistantNavigateUrl
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
@@ -32,7 +29,8 @@ class create_and_query_insight(BaseModel):
             "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
             "If an existing insight has been used as a starting point, include that insight's filters and query in the description. "
             "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
-            "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
+            "If the users seems to ask for a list of entities, rather than a count, state this explicitly. "
+            "Explicitly include the time range, time grain, metric/aggregation, events/steps, and breakdown/filters provided by the user; if any are missing, choose sensible defaults and state them."
         )
     )
 
@@ -40,10 +38,16 @@ class create_and_query_insight(BaseModel):
 class search_insights(BaseModel):
     """
     Search through existing insights to find matches based on the user's query.
-    Use this tool when users ask to find, search for, or look up existing insights.
-    IMPORTANT: NEVER CALL THIS TOOL IF THE USER ASKS TO CREATE A DASHBOARD.
-    Only use this tool when users ask to find, search for, or look up insights.
-    If the user asks to create a dashboard, use the `create_dashboard` tool instead.
+
+    WHEN TO USE THIS TOOL:
+    - The user explicitly asks to find/search/look up existing insights
+    - The request is ambiguous or exploratory and likely to be satisfied by reusing a saved insight
+
+    WHEN NOT TO USE THIS TOOL:
+    - The user gives a specific, actionable analysis request (metric/aggregation, events, filters, and/or a time range)
+    - The user asks to create a dashboard (use `create_dashboard` instead)
+
+    If the request has enough information to generate an insight, use `create_and_query_insight` directly.
     """
 
     search_query: str = Field(
@@ -267,7 +271,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
 
 class NavigateToolArgs(BaseModel):
-    page_key: AssistantNavigateUrls = Field(
+    page_key: AssistantNavigateUrl = Field(
         description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
     )
 
@@ -281,14 +285,15 @@ class NavigateTool(MaxTool):
     )
     root_system_prompt_template: str = (
         "You're currently on the {current_page} page. "
-        "You can navigate to one of the available pages using the 'navigate' tool. "
-        "Some of these pages have tools that you can use to get more information or perform actions. "
+        "You can navigate around the PostHog app using the 'navigate' tool.\n\n"
+        "Some of the pages in the app have helpful descriptions. Some have tools that you can use only there. See the following list:\n"
+        "{scene_descriptions}\n"
         "After navigating to a new page, you'll have access to that page's specific tools."
     )
     thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
 
-    def _run_impl(self, page_key: AssistantNavigateUrls) -> tuple[str, Any]:
+    def _run_impl(self, page_key: AssistantNavigateUrl) -> tuple[str, Any]:
         # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
         # but it's useful for the LLM to still have the page_key in chat history
         return f"Navigated to **{page_key}**.", {"page_key": page_key}

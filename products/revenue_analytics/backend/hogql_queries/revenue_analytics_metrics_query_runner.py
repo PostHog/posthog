@@ -1,19 +1,16 @@
 from decimal import Decimal
 from typing import Optional
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema import (
     CachedRevenueAnalyticsMetricsQueryResponse,
     HogQLQueryResponse,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMetricsQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
-
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsRevenueItemView,
@@ -39,8 +36,8 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subscription_subqueries = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
-        revenue_item_subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        subscription_subqueries = list(self.revenue_subqueries(RevenueAnalyticsSubscriptionView))
+        revenue_item_subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subscription_subqueries:
             return ast.SelectQuery.empty(
                 columns=[

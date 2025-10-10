@@ -1,7 +1,7 @@
+import asyncio
+import json
 import os
 import re
-import json
-import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -9,15 +9,14 @@ from json import JSONDecodeError
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
+import posthoganalytics
+import requests
+import structlog
+from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
-
-import requests
-import structlog
-import posthoganalytics
-from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from openai.types.chat import (
@@ -27,19 +26,6 @@ from openai.types.chat import (
     ChatCompletionUserMessageParam,
 )
 from opentelemetry import trace
-from prometheus_client import Counter, Histogram
-from pydantic import BaseModel, ValidationError
-from rest_framework import exceptions, request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, Throttled
-from rest_framework.mixins import UpdateModelMixin
-from rest_framework.renderers import JSONRenderer
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.utils.encoders import JSONEncoder
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
-
-from posthog.schema import PropertyFilterType, PropertyOperator, QueryTiming, RecordingPropertyFilter, RecordingsQuery
-
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -57,6 +43,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
+from posthog.schema import PropertyFilterType, PropertyOperator, QueryTiming, RecordingPropertyFilter, RecordingsQuery
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -69,6 +56,16 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from prometheus_client import Counter, Histogram
+from pydantic import BaseModel, ValidationError
+from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, Throttled
+from rest_framework.mixins import UpdateModelMixin
+from rest_framework.renderers import JSONRenderer
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
@@ -962,6 +959,9 @@ class SessionRecordingViewSet(
 
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
+
+        trace.get_current_span().set_attribute("team_id", self.team_id)
+        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")

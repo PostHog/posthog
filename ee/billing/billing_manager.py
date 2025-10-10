@@ -2,21 +2,19 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
 
-from django.conf import settings
-from django.db.models import F
-from django.utils import timezone
-
 import jwt
 import requests
 import structlog
-from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated
-
+from django.conf import settings
+from django.db.models import F
+from django.utils import timezone
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
+from requests import JSONDecodeError
+from rest_framework.exceptions import NotAuthenticated
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
@@ -459,6 +457,18 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        return res.json()
+
+    def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+        self.update_available_product_features(organization)
 
         return res.json()
 

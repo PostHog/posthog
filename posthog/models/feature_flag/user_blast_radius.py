@@ -1,7 +1,6 @@
 from typing import Optional
 
-from rest_framework.exceptions import ValidationError
-
+import posthoganalytics
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.cohort import Cohort
@@ -9,6 +8,7 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+from rest_framework.exceptions import ValidationError
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):
@@ -87,23 +87,38 @@ def get_user_blast_radius(
             finally:
                 cohort_filters = []
 
-        person_query, person_query_params = PersonQuery(
-            filter, team.id, cohort=target_cohort, cohort_filters=cohort_filters
-        ).get_query()
+        if posthoganalytics.feature_enabled(
+            "blast-radius-uniq-count",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        ):
+            person_query, person_query_params = PersonQuery(
+                filter, team.id, cohort=target_cohort, cohort_filters=cohort_filters
+            ).get_uniq_count()
 
-        total_count = sync_execute(
-            f"""
-            SELECT count(1) FROM (
-                {person_query}
-            )
-        """,
-            person_query_params,
-        )[0][0]
+            total_count = sync_execute(
+                person_query,
+                person_query_params,
+            )[0][0]
+        else:
+            person_query, person_query_params = PersonQuery(
+                filter, team.id, cohort=target_cohort, cohort_filters=cohort_filters
+            ).get_query()
+
+            total_count = sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {person_query}
+                )
+            """,
+                person_query_params,
+            )[0][0]
 
     else:
         total_count = team.persons_seen_so_far
 
-    blast_radius = total_count
     total_users = team.persons_seen_so_far
+    blast_radius = min(total_count, total_users)
 
     return blast_radius, total_users

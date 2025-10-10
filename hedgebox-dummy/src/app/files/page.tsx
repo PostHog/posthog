@@ -1,5 +1,8 @@
 'use client'
 
+import Link from 'next/link'
+import { useState } from 'react'
+
 import Header from '@/components/Header'
 import { useAuth } from '@/lib/auth'
 import { sampleFiles } from '@/lib/data'
@@ -7,12 +10,10 @@ import { useAuthRedirect } from '@/lib/hooks'
 import { posthog } from '@/lib/posthog'
 import { formatFileSize, getFileIcon } from '@/lib/utils'
 import { HedgeboxFile } from '@/types'
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
 
-export default function FilesPage() {
+export default function FilesPage(): React.JSX.Element {
     const { user } = useAuth()
-    const router = useRouter()
+    
     const [files, setFiles] = useState<HedgeboxFile[]>(sampleFiles)
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -20,9 +21,9 @@ export default function FilesPage() {
 
     useAuthRedirect()
 
-    if (!user) return null
+    if (!user) {return null}
 
-    const handleFileUpload = async () => {
+    const handleFileUpload = async (): Promise<void> => {
         setIsUploading(true)
         const fileSize = Math.floor(Math.random() * 5000000)
 
@@ -46,16 +47,16 @@ export default function FilesPage() {
         setIsUploading(false)
     }
 
-    const trackFileAction = (action: string, file: HedgeboxFile) => {
+    const trackFileAction = (action: string, file: HedgeboxFile): void => {
         posthog.capture(`${action}_file`, {
             file_type: file.type,
             file_size_b: file.size,
         })
     }
 
-    const handleFileDelete = (fileId: string) => {
+    const handleFileDelete = (fileId: string): void => {
         const file = files.find((f) => f.id === fileId)
-        if (!file) return
+        if (!file) {return}
 
         trackFileAction('deleted', file)
         setFiles((prev) => prev.filter((f) => f.id !== fileId))
@@ -66,9 +67,9 @@ export default function FilesPage() {
         })
     }
 
-    const handleFileShare = (fileId: string) => {
+    const handleFileShare = (fileId: string): void => {
         const file = files.find((f) => f.id === fileId)
-        if (!file) return
+        if (!file) {return}
 
         trackFileAction('shared', file)
         setFiles((prev) =>
@@ -76,11 +77,11 @@ export default function FilesPage() {
         )
     }
 
-    const handleFileDownload = (file: HedgeboxFile) => {
+    const handleFileDownload = (file: HedgeboxFile): void => {
         trackFileAction('downloaded', file)
     }
 
-    const toggleFileSelection = (fileId: string) => {
+    const toggleFileSelection = (fileId: string): void => {
         setSelectedFiles((prev) => {
             const newSet = new Set(prev)
             if (newSet.has(fileId)) {
@@ -96,9 +97,9 @@ export default function FilesPage() {
     const maxStorage = 1000000000 // 1GB
     const storagePercentage = (usedStorage / maxStorage) * 100
 
-    const getStorageProgressClass = () => {
-        if (storagePercentage > 90) return 'progress-error'
-        if (storagePercentage > 70) return 'progress-warning'
+    const getStorageProgressClass = (): string => {
+        if (storagePercentage > 90) {return 'progress-error'}
+        if (storagePercentage > 70) {return 'progress-warning'}
         return 'progress-primary'
     }
 
@@ -157,8 +158,22 @@ export default function FilesPage() {
                         {selectedFiles.size > 0 && (
                             <div className="flex items-center space-x-2">
                                 <span className="text-sm text-base-content/70">{selectedFiles.size} selected</span>
-                                <button className="btn btn-error btn-sm">🗑️ Delete</button>
-                                <button className="btn btn-secondary btn-sm">📤 Share</button>
+                                <button
+                                    className="btn btn-error btn-sm"
+                                    onClick={() => {
+                                        selectedFiles.forEach((fileId) => handleFileDelete(fileId))
+                                    }}
+                                >
+                                    🗑️ Delete
+                                </button>
+                                <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => {
+                                        selectedFiles.forEach((fileId) => handleFileShare(fileId))
+                                    }}
+                                >
+                                    📤 Share
+                                </button>
                             </div>
                         )}
                     </div>
@@ -194,7 +209,7 @@ export default function FilesPage() {
                 ) : viewMode === 'grid' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
                         {files.map((file) => (
-                            <a
+                            <Link
                                 key={file.id}
                                 href={`/files/${file.id}`}
                                 className={`card bg-base-100 shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer group ${
@@ -228,7 +243,7 @@ export default function FilesPage() {
                                                     className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-lg w-40"
                                                 >
                                                     <li>
-                                                        <a href={`/files/${file.id}`}>👁 View</a>
+                                                        <Link href={`/files/${file.id}`}>👁 View</Link>
                                                     </li>
                                                     <li>
                                                         <button
@@ -278,7 +293,7 @@ export default function FilesPage() {
                                         )}
                                     </div>
                                 </div>
-                            </a>
+                            </Link>
                         ))}
                     </div>
                 ) : (
@@ -318,7 +333,7 @@ export default function FilesPage() {
                                             />
                                         </td>
                                         <td>
-                                            <a
+                                            <Link
                                                 href={`/files/${file.id}`}
                                                 className="flex items-center space-x-3 cursor-pointer"
                                             >
@@ -327,7 +342,7 @@ export default function FilesPage() {
                                                     <div className="font-bold hover:text-primary">{file.name}</div>
                                                     <div className="text-sm text-base-content/70">{file.type}</div>
                                                 </div>
-                                            </a>
+                                            </Link>
                                         </td>
                                         <td>{formatFileSize(file.size)}</td>
                                         <td>{new Date(file.uploadedAt).toLocaleDateString()}</td>
@@ -340,13 +355,13 @@ export default function FilesPage() {
                                         </td>
                                         <td>
                                             <div className="flex space-x-2">
-                                                <a
+                                                <Link
                                                     href={`/files/${file.id}`}
                                                     className="btn btn-ghost btn-xs"
                                                     title="View file"
                                                 >
                                                     👁️
-                                                </a>
+                                                </Link>
                                                 <button
                                                     onClick={() => handleFileDownload(file)}
                                                     className="btn btn-ghost btn-xs"

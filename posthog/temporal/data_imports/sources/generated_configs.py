@@ -214,6 +214,12 @@ class TemporalIOSourceConfig(config.Config):
 
 
 @config.config
+class TikTokAdsSourceConfig(config.Config):
+    advertiser_id: str
+    tiktok_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -252,6 +258,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+        ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

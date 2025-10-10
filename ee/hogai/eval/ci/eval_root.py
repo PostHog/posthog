@@ -1,9 +1,7 @@
 import json
 
 import pytest
-
 from braintrust import EvalCase
-
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -501,6 +499,43 @@ async def eval_root(call_root, pytestconfig):
                         "query_description": "Count unique users who have the $device_type property set to mobile",
                     },
                     id="call_insight_default_props_2",
+                ),
+            ),
+            # Ensure we try and navigate to the relevant page when asked about specific topics
+            EvalCase(
+                input="What's my MRR?",
+                expected=AssistantToolCall(
+                    name="navigate",
+                    args={"page_key": "revenueAnalytics"},
+                    id="call_navigate_1",
+                ),
+            ),
+            EvalCase(
+                input="Can you help me create a survey to collect NPS ratings?",
+                expected=AssistantToolCall(
+                    name="navigate",
+                    args={"page_key": "surveys"},
+                    id="call_navigate_1",
+                ),
+            ),
+            EvalCase(
+                input="Give me the signup to purchase conversion rate for the dates between 8 Jul and 9 Sep",
+                expected=AssistantToolCall(
+                    name="create_and_query_insight",
+                    args={
+                        "query_description": "Calculate the signup to purchase conversion rate for dates between July 8 and September 9",
+                    },
+                    id="call_specific_conversion_rate",
+                ),
+            ),
+            EvalCase(
+                input="Show me daily active users for the past month",
+                expected=AssistantToolCall(
+                    name="create_and_query_insight",
+                    args={
+                        "query_description": "Daily active users for the past month",
+                    },
+                    id="call_dau_past_month",
                 ),
             ),
         ],

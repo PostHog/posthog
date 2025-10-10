@@ -1,28 +1,16 @@
-import typing
 import builtins
-import datetime as dt
-import dataclasses
 import collections.abc
+import dataclasses
+import datetime as dt
+import typing
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
+import posthoganalytics
+import structlog
 from django.db import transaction
 from django.dispatch import receiver
 from django.utils.timezone import now
-
-import structlog
-import posthoganalytics
-from rest_framework import filters, mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import CursorPagination
-
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
-
-from posthog.hogql import ast, errors
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -44,15 +32,22 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
+from posthog.hogql import ast, errors
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
-
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.pagination import CursorPagination
 
 logger = structlog.get_logger(__name__)
 
@@ -574,6 +569,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **batch_export.destination.config,
                     **destination_data.get("config", {}),
                 }
+                integration = destination_data.get("integration", batch_export.destination.integration)
+                batch_export.destination.integration = integration
 
             if hogql_query := validated_data.pop("hogql_query", None):
                 batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)

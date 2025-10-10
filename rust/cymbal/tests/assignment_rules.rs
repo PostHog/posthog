@@ -70,6 +70,7 @@ fn test_issue() -> Issue {
         status: IssueStatus::Active,
         name: None,
         description: None,
+        created_at: Utc::now(),
     }
 }
 

@@ -2,8 +2,8 @@
 
 import os
 import re
-import sys
 import select
+import sys
 from typing import Optional
 
 from django.core.management import call_command
@@ -187,7 +187,7 @@ class Command(BaseCommand):
             migrations = []
 
         if not migrations:
-            migrations = ["posthog/migrations/0770_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
+            migrations = ["posthog/migrations/0771_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
 
         if len(migrations) > 1:
             print(

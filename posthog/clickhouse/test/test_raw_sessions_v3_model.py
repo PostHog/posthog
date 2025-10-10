@@ -1,10 +1,15 @@
 import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 from posthog.models.utils import uuid7
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 distinct_id_counter = 0
 session_id_counter = 0
@@ -22,7 +27,10 @@ def create_session_id():
     return str(uuid7(random=session_id_counter))
 
 
+@snapshot_clickhouse_queries
 class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
+    snapshot_replace_all_numbers = True
+
     def select_by_session_id(self, session_id):
         flush_persons_and_events()
         return query_with_columns(
@@ -31,7 +39,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 *
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND
                 team_id = %(team_id)s
                 """,
             {
@@ -58,7 +66,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 team_id
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s))  AND
                 team_id = %(team_id)s
                 """,
             {
@@ -252,7 +260,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
@@ -283,7 +291,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3_mv
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,

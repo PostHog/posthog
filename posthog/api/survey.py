@@ -5,6 +5,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
+import nh3
+import orjson
+import posthoganalytics
+import structlog
+from axes.decorators import axes_dispatch
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
@@ -12,19 +17,8 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
-
-import nh3
-import orjson
-import structlog
-import posthoganalytics
-from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from posthoganalytics import capture_exception
-from rest_framework import exceptions, filters, request, serializers, status, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -52,7 +46,13 @@ from posthog.models.surveys.util import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
+from posthoganalytics import capture_exception
+from rest_framework import exceptions, filters, request, serializers, status, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
@@ -108,7 +108,7 @@ SurveyStats = TypedDict(
 )
 
 
-class SurveySerializer(serializers.ModelSerializer):
+class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -170,6 +170,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -804,7 +805,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
-class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
     filter_backends = [filters.SearchFilter]

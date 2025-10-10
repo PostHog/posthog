@@ -1,17 +1,11 @@
-import re
 import json
+import re
 from datetime import timedelta
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import MagicMock, call, patch
-
-from django.utils.timezone import now
-
 from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, PersonalAPIKey, SessionRecording
 from posthog.models.personal_api_key import hash_key_value
@@ -19,6 +13,9 @@ from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test import setup_stream_from
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from rest_framework import status
+from unittest.mock import MagicMock, call, patch
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -218,7 +215,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             "allow": ("Allow", "GET, HEAD, OPTIONS"),
             "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
             "content-length": ("Content-Length", "15"),
-            "vary": ("Vary", "Origin"),
+            "vary": ("Vary", "origin"),
             "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
             "referrer-policy": ("Referrer-Policy", "same-origin"),
             "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),

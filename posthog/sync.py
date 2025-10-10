@@ -5,9 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from time import time
 from typing import Any, Optional, ParamSpec, TypeVar, Union, overload
 
-from django.db import close_old_connections
-
 from asgiref.sync import SyncToAsync
+from django.db import close_old_connections
 from prometheus_client import Histogram
 from structlog import get_logger
 
@@ -41,7 +40,7 @@ class DatabaseSyncToAsync(SyncToAsync):
                 execution_time = time() - start_time
                 fun_name = getattr(self.func, "__name__", "unknown")
                 DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=fun_name).observe(execution_time)
-                logger.info(f"database_sync_to_async {fun_name} took {execution_time} seconds")
+                logger.debug(f"database_sync_to_async {fun_name} took {execution_time} seconds")
 
     def thread_handler(self, loop, *args, **kwargs):
         close_old_connections()

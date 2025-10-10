@@ -2,26 +2,10 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
-from unittest import mock
-from unittest.mock import MagicMock, patch
-
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
-
 from parameterized import parameterized
-from rest_framework import status
-
-from posthog.schema import PersonsOnEventsMode, PropertyOperator
-
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Action, FeatureFlag, Person, User
@@ -30,12 +14,24 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
+from posthog.schema import PersonsOnEventsMode, PropertyOperator
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
     get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
 )
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
+from rest_framework import status
+from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -3145,6 +3141,7 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
+
         response_b = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
             data={"name": "cohort A", "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
@@ -3154,6 +3151,101 @@ email@example.org,
         self.assertEqual(patch_cohort_changed.call_count, 2)
         self.assertEqual(patch_calculate.call_count, 2)
         self.assertEqual(calls, [patch_cohort_changed, patch_calculate, patch_cohort_changed, patch_calculate])
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cohort_dependencies_calculated(
+        self,
+        patch_calculate_cohort_delay,
+        patch_calculate_cohort_si,
+        patch_chain,
+        patch_capture,
+        patch_on_commit,
+    ) -> None:
+        mock_chain_instance = MagicMock()
+        patch_chain.return_value = mock_chain_instance
+
+        # Count total calculation calls (both delay and chain)
+        def get_total_calculation_calls():
+            return patch_calculate_cohort_delay.call_count + patch_chain.call_count
+
+        # Cohort A
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(get_total_calculation_calls(), 1)
+
+        # Cohort B that depends on Cohort A
+        response_b = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort B",
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_a.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(get_total_calculation_calls(), 2)
+
+        # Cohort C that depends on Cohort B
+        response_c = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort C",
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_b.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
+            },
+        )
+        self.assertEqual(get_total_calculation_calls(), 3)
+
+        # Update Cohort A, should trigger dependency recalculation of B, then C
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={
+                "name": "Cohort A, reloaded",
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$some_prop",
+                                "type": "person",
+                                "operator": "is_set",
+                            }
+                        ]
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(get_total_calculation_calls(), 4)
+
+        # Verify that all 3 cohorts (A, B, C) were included in the dependency chain to be recalculated
+        si_calls = patch_calculate_cohort_si.call_args_list
+        chain_cohort_ids = [call[0][0] for call in si_calls[-3:]]  # Last 3 si() calls for the chain
+        expected_cohort_ids = {response_a.json()["id"], response_b.json()["id"], response_c.json()["id"]}
+        self.assertEqual(set(chain_cohort_ids), expected_cohort_ids)
 
 
 class TestCalculateCohortCommand(APIBaseTest):
