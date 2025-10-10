@@ -94,7 +94,8 @@ export const maxLogic = kea<maxLogicType>([
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
         setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
-        setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
+        incrActiveStreamingThreads: true,
+        decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
         /**
          * Save the logic ID for a conversation ID in a cache.
@@ -115,7 +116,8 @@ export const maxLogic = kea<maxLogicType>([
         activeStreamingThreads: [
             0,
             {
-                setActiveStreamingThreads: (state, { inc }) => Math.max(state + inc, 0),
+                incrActiveStreamingThreads: (state) => state + 1,
+                decrActiveStreamingThreads: (state) => Math.max(state - 1, 0),
             },
         ],
 

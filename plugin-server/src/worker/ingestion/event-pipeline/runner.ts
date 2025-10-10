@@ -166,56 +166,62 @@ export class EventPipelineRunner {
     async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
+        const forceDisablePersonProcessing = this.headers?.force_disable_person_processing === true
         let processPerson = true // The default.
 
-        // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
-        if (event.properties && '$process_person_profile' in event.properties) {
-            const propValue = event.properties.$process_person_profile
-            if (propValue === true) {
-                // This is the default, and `true` is one of the two valid values.
-            } else if (propValue === false) {
-                // Only a boolean `false` disables person processing.
-                processPerson = false
+        // Check if force_disable_person_processing header is set to true
+        if (forceDisablePersonProcessing) {
+            processPerson = false
+        } else {
+            // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
+            if (event.properties && '$process_person_profile' in event.properties) {
+                const propValue = event.properties.$process_person_profile
+                if (propValue === true) {
+                    // This is the default, and `true` is one of the two valid values.
+                } else if (propValue === false) {
+                    // Only a boolean `false` disables person processing.
+                    processPerson = false
 
-                if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
+                    if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
+                        kafkaAcks.push(
+                            captureIngestionWarning(
+                                this.hub.db.kafkaProducer,
+                                event.team_id,
+                                'invalid_event_when_process_person_profile_is_false',
+                                {
+                                    eventUuid: event.uuid,
+                                    event: event.event,
+                                    distinctId: event.distinct_id,
+                                },
+                                { alwaysSend: true }
+                            )
+                        )
+
+                        return drop('Invalid event for provided flags', kafkaAcks)
+                    }
+
+                    // If person processing is disabled, go ahead and remove person related keys before
+                    // any plugins have a chance to see them.
+                    event = normalizeProcessPerson(event, processPerson)
+                } else {
+                    // Anything other than `true` or `false` is invalid, and the default (true) will be
+                    // used.
                     kafkaAcks.push(
                         captureIngestionWarning(
                             this.hub.db.kafkaProducer,
                             event.team_id,
-                            'invalid_event_when_process_person_profile_is_false',
+                            'invalid_process_person_profile',
                             {
                                 eventUuid: event.uuid,
                                 event: event.event,
                                 distinctId: event.distinct_id,
+                                $process_person_profile: propValue,
+                                message: 'Only a boolean value is valid for the $process_person_profile property',
                             },
-                            { alwaysSend: true }
+                            { alwaysSend: false }
                         )
                     )
-
-                    return drop('Invalid event for provided flags', kafkaAcks)
                 }
-
-                // If person processing is disabled, go ahead and remove person related keys before
-                // any plugins have a chance to see them.
-                event = normalizeProcessPerson(event, processPerson)
-            } else {
-                // Anything other than `true` or `false` is invalid, and the default (true) will be
-                // used.
-                kafkaAcks.push(
-                    captureIngestionWarning(
-                        this.hub.db.kafkaProducer,
-                        event.team_id,
-                        'invalid_process_person_profile',
-                        {
-                            eventUuid: event.uuid,
-                            event: event.event,
-                            distinctId: event.distinct_id,
-                            $process_person_profile: propValue,
-                            message: 'Only a boolean value is valid for the $process_person_profile property',
-                        },
-                        { alwaysSend: false }
-                    )
-                )
             }
         }
 
@@ -294,7 +300,15 @@ export class EventPipelineRunner {
             typeof processPersonsStep
         >(
             processPersonsStep,
-            [this, normalizedEvent, team, timestamp, processPerson, this.personsStoreForBatch],
+            [
+                this,
+                normalizedEvent,
+                team,
+                timestamp,
+                processPerson,
+                this.personsStoreForBatch,
+                forceDisablePersonProcessing,
+            ],
             event.team_id,
             true,
             kafkaAcks
