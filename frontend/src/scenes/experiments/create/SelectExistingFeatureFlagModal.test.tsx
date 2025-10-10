@@ -76,7 +76,7 @@ describe('SelectExistingFeatureFlagModal', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/@current/feature_flags/': () => [
+                '/api/projects/@current/experiments/eligible_feature_flags/': () => [
                     200,
                     {
                         results: mockFeatureFlags,
