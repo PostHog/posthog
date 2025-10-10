@@ -30,7 +30,10 @@ import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_track
 import { useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
-import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import {
+    ERROR_TRACKING_SCENE_LOGIC_KEY,
+    errorTrackingSceneLogic,
+} from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
@@ -95,8 +98,8 @@ const defaultColumns: Record<string, QueryContextColumn> = {
     volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
 }
 
-export const useIssueQueryContext = (): QueryContext => {
-    const { orderBy } = useValues(issueQueryOptionsLogic)
+export const useIssueQueryContext = (logicKey: string): QueryContext => {
+    const { orderBy } = useValues(issueQueryOptionsLogic({ logicKey }))
 
     const columns = useMemo(() => {
         const columns = { ...defaultColumns }
@@ -125,7 +128,7 @@ export function IssuesList(): JSX.Element {
     const { orderBy } = useValues(issueQueryOptionsLogic)
     const { query } = useValues(errorTrackingSceneLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const context = useIssueQueryContext()
+    const context = useIssueQueryContext(ERROR_TRACKING_SCENE_LOGIC_KEY)
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
