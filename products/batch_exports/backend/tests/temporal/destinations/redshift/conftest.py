@@ -121,6 +121,7 @@ def key_prefix(ateam) -> str:
 async def s3_client(aws_credentials, bucket_name):
     """Manage an S3 client to interact with an S3 bucket."""
     if not aws_credentials or not bucket_name:
+        yield None
         return
 
     async with aioboto3.Session().client("s3") as s3_client:
