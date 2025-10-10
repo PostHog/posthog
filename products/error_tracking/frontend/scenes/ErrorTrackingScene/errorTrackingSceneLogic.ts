@@ -1,8 +1,9 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -59,8 +60,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterGroup,
                 searchQuery,
                 orderDirection
-            ): DataTableNode =>
-                errorTrackingQuery({
+            ): DataTableNode => {
+                const columns =
+                    orderBy === 'revenue'
+                        ? ['error', 'volume', 'occurrences', 'sessions', 'users', 'revenue']
+                        : ['error', 'volume', 'occurrences', 'sessions', 'users']
+
+                return errorTrackingQuery({
                     orderBy,
                     status,
                     dateRange,
@@ -69,9 +75,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
-                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
+                    columns,
                     orderDirection,
-                }),
+                })
+            },
         ],
         breadcrumbs: [
             () => [],
@@ -82,6 +89,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     iconType: 'error_tracking',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+            }),
         ],
     }),
 

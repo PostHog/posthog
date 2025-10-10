@@ -6,6 +6,7 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio import common
 from temporalio.client import (
     Client,
     Schedule,
@@ -17,7 +18,12 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import BILLING_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
+from posthog.constants import (
+    BILLING_TASK_QUEUE,
+    GENERAL_PURPOSE_TASK_QUEUE,
+    MAX_AI_TASK_QUEUE,
+    SESSION_REPLAY_TASK_QUEUE,
+)
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
@@ -161,7 +167,10 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             "enforce-max-replay-retention",
             EnforceMaxReplayRetentionInput(dry_run=False),
             id="enforce-max-replay-retention-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         ),
         spec=ScheduleSpec(
             calendars=[

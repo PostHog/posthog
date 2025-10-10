@@ -22,6 +22,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -64,7 +65,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         )
 
     def _calculate(self):
-        with self.timings.measure("traces_query_hogql_execute"):
+        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.MAX_AI):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0
@@ -133,24 +134,24 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS input_tokens,
                 sumIf(toFloat(properties.$ai_output_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS output_tokens,
                 round(
                     sumIf(toFloat(properties.$ai_input_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS input_cost,
                 round(
                     sumIf(toFloat(properties.$ai_output_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS output_cost,
                 round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS total_cost,
                 arrayDistinct(
