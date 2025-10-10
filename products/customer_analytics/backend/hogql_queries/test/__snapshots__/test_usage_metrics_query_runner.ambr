@@ -62,7 +62,12 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_handles_failed_metric_gracefully
   '''
-  SELECT NULL AS _
+  SELECT NULL AS id,
+         NULL AS name,
+         NULL AS format,
+         NULL AS display,
+         NULL AS interval,
+         NULL AS value
   WHERE 0
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -107,7 +112,12 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_no_metrics
   '''
-  SELECT NULL AS _
+  SELECT NULL AS id,
+         NULL AS name,
+         NULL AS format,
+         NULL AS display,
+         NULL AS interval,
+         NULL AS value
   WHERE 0
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

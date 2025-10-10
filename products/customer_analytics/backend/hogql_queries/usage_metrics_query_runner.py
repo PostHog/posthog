@@ -71,7 +71,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         metric_queries: list[ast.SelectQuery] = [query for query in metric_queries_raw if query is not None]
 
         if not metric_queries:
-            return ast.SelectQuery.empty()
+            return ast.SelectQuery.empty(columns=["id", "name", "format", "display", "interval", "value"])
 
         return ast.SelectSetQuery.create_from_queries(queries=metric_queries, set_operator="UNION ALL")
 
