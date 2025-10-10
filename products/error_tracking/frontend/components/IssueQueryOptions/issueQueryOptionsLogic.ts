@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, path, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Params } from 'scenes/sceneTypes'
@@ -24,12 +24,13 @@ const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
 export interface IssueQueryOptionsLogicProps {
-    key?: string
+    logicKey: string
 }
 
 export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueQueryOptions', 'issueQueryOptionsLogic']),
-    key(({ key }: IssueQueryOptionsLogicProps) => key || 'defaultKey'),
+    props({} as IssueQueryOptionsLogicProps),
+    key(({ logicKey }) => logicKey),
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),

@@ -18,11 +18,16 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
+const getLogicKey = (nodeId: string): string => {
+    return `NotebookNodeIssues:${nodeId}`
+}
+
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttributes>): JSX.Element | null => {
+    const logicKey = getLogicKey(attributes.nodeId)
     const { expanded } = useValues(notebookNodeLogic)
     const { personId } = attributes
-    const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic({ key: personId }))
-    const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic({ key: personId }))
+    const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic({ logicKey }))
+    const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic({ logicKey }))
     const context = useIssueQueryContext()
     const query = errorTrackingQuery({
         orderBy,
@@ -54,10 +59,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
 export const Settings = ({
     attributes,
 }: NotebookNodeAttributeProperties<NotebookNodeIssuesAttributes>): JSX.Element => {
-    const { personId } = attributes
+    const logicKey = getLogicKey(attributes.nodeId)
+
     return (
-        <BindLogic logic={issueFiltersLogic} props={{ key: personId }}>
-            <BindLogic logic={issueQueryOptionsLogic} props={{ key: personId }}>
+        <BindLogic logic={issueFiltersLogic} props={{ logicKey }}>
+            <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey }}>
                 <div className="p-2 space-y-2 mb-2">
                     <IssuesFilters />
                     <ListOptions />
