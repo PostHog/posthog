@@ -9,10 +9,10 @@ use crate::{
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawJavaFrame {
-    pub filename: String,    // The relative path of the file the context line is in
-    pub function: String,    // The name of the function the exception came from
-    pub lineno: Option<u32>, // The line number of the context line
-    pub module: Option<String>, // The java-import style module name the function is in
+    pub filename: Option<String>, // The relative path of the file the context line is in
+    pub function: String,         // The name of the function the exception came from
+    pub lineno: Option<u32>,      // The line number of the context line
+    pub module: String,           // The java-import style module name the function is in
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
