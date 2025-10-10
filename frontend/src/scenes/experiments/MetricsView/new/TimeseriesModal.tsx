@@ -1,13 +1,15 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { VariantTag } from '../../ExperimentView/components'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
+import { MetricTitle } from '../shared/MetricTitle'
 import { ExperimentVariantResult } from '../shared/utils'
 import { VariantTimeseriesChart } from './VariantTimeseriesChart'
 
@@ -30,16 +32,27 @@ export function TimeseriesModal({
     const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading } = useValues(logic)
 
     const processedChartData = chartData(variantResult.key)
-    const variantName =
-        experiment.parameters?.feature_flag_variants?.find((v) => v.key === variantResult.key)?.name ||
-        variantResult.key
 
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
             width={1000}
-            title={`${variantName} Performance over time - ${metric.name || 'Untitled metric'}`}
+            title={
+                <div className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center">
+                        <span>Time series</span>
+                    </div>
+                    <LemonDivider vertical className="h-4 self-stretch" />
+                    <div className="flex items-center">
+                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
+                    </div>
+                    <LemonDivider vertical className="h-4 self-stretch" />
+                    <div className="flex items-center">
+                        <MetricTitle metric={metric} />
+                    </div>
+                </div>
+            }
             footer={
                 <LemonButton type="secondary" onClick={onClose}>
                     Close
@@ -62,7 +75,7 @@ export function TimeseriesModal({
                             <VariantTimeseriesChart chartData={processedChartData} />
                         ) : (
                             <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-                                No timeseries data available for {variantName}
+                                No timeseries data available for this variant
                             </div>
                         )}
                     </div>
