@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointTarget, CheckpointWorker,
@@ -13,12 +13,13 @@ use crate::checkpoint::{
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
     CHECKPOINT_CLEANER_DELETE_ATTEMPTS, CHECKPOINT_CLEANER_DIRS_FOUND,
-    CHECKPOINT_STORE_NOT_FOUND_COUNTER,
+    CHECKPOINT_CLEANER_METADATA_DELETE_ATTEMPTS, CHECKPOINT_STORE_NOT_FOUND_COUNTER,
 };
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -471,11 +472,12 @@ impl CheckpointManager {
             .context("Checkpoint cleaner: failed loading local checkpoint directories")?;
 
         // first eliminate all dirs that are older than max retention period
-        let remaining_dirs = Self::remove_stale_checkpoint_dirs(config, candidate_dirs).await?;
+        let remaining_dirs =
+            Self::remove_checkpoints_past_retention_limit(config, candidate_dirs).await?;
 
         // next, group remaining checkpoints dirs by parent /topic/partition
         // and eliminate the oldest N past the configured retention count
-        Self::remove_checkpoint_dirs_past_partition_retention(config, remaining_dirs).await
+        Self::remove_checkpoints_past_partition_limit(config, remaining_dirs).await
     }
 
     async fn find_checkpoint_dirs(current_dir: &Path) -> Result<Vec<PathBuf>> {
@@ -509,7 +511,7 @@ impl CheckpointManager {
         Ok(checkpoint_dirs)
     }
 
-    async fn remove_checkpoint_dirs_past_partition_retention(
+    async fn remove_checkpoints_past_partition_limit(
         config: &CheckpointConfig,
         remaining_dirs: Vec<PathBuf>,
     ) -> Result<()> {
@@ -527,29 +529,16 @@ impl CheckpointManager {
         // iterate on each group, sort by timestamp dir, and eliminate the oldest N
         for checkpoint_dirs in paths_by_parent.values_mut() {
             if checkpoint_dirs.len() > config.max_local_checkpoints {
-                // sort by timestamp dir
+                // sort by sortable 0-padded microsecond timestamp dir elem so oldest is first
                 checkpoint_dirs.sort_by(|a, b| a.file_name().unwrap().cmp(b.file_name().unwrap()));
 
                 // eliminate the oldest N snapshots from each /topic/partition group
                 let checkpoints_to_remove = checkpoint_dirs.len() - config.max_local_checkpoints;
                 for checkpoint_dir in checkpoint_dirs.iter().take(checkpoints_to_remove) {
-                    let checkpoint_path = checkpoint_dir.to_string_lossy().to_string();
-
-                    if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
-                        let tags = [("result", "error"), ("scan_type", "partition_limit")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        warn!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: failed to remove checkpoint past partition retention limit: {}", e
-                        );
-                    } else {
-                        let tags = [("result", "success"), ("scan_type", "partition_limit")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        info!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: removed checkpoint past partition retention limit"
-                        );
-                    }
+                    let target = CheckpointTarget::from_local_attempt_path(checkpoint_dir)
+                        .with_context(|| format!("remove_checkpoints_past_partition_limit: failed to parse checkpoint path: {}",
+                            checkpoint_dir.to_string_lossy()))?;
+                    Self::remove_checkpoint_and_metadata(&target, "partition_limit").await?;
                 }
             }
         }
@@ -557,69 +546,125 @@ impl CheckpointManager {
         Ok(())
     }
 
-    async fn remove_stale_checkpoint_dirs(
+    // given a list of candidate checkpoint attempt directories of the form:
+    // <base_dir>/<topic_elem>/<partition_elemr>/<timestamp_elem> we determine
+    // if the attempt timestamp is older than the configured global retention
+    // time, and remove the directory and it's parent metadata file if so
+    async fn remove_checkpoints_past_retention_limit(
         config: &CheckpointConfig,
         candidate_dirs: Vec<PathBuf>,
     ) -> Result<Vec<PathBuf>> {
-        let threshold_time = SystemTime::now()
-            - Duration::from_secs(config.max_checkpoint_retention_hours as u64 * 3600);
-        let mut remaining_dirs = Vec::new();
+        let threshold_time = Utc::now()
+            - chrono::Duration::seconds(config.max_checkpoint_retention_hours as i64 * 3600);
+        let mut remaining_dirs = vec![];
 
         for candidate_dir in candidate_dirs.into_iter() {
-            let checkpoint_path = candidate_dir.to_string_lossy().to_string();
-            let checkpoint_child_dir = candidate_dir
-                .file_name()
-                .context("Checkpoint cleaner: failed to get checkpoint dir name")?
-                .to_string_lossy()
-                .to_string();
+            let target =
+                CheckpointTarget::from_local_attempt_path(&candidate_dir).with_context(|| {
+                    format!(
+                        "remove_stale_checkpoints: failed to parse checkpoint path: {}",
+                        candidate_dir.to_string_lossy()
+                    )
+                })?;
+
+            let checkpoint_attempt_timestamp = target.attempt_timestamp.unwrap();
 
             // the directory name should be a 0-padded UNIX epoch timestamp
             // in microseconds indicating when the checkpoint was attempted
-            match Self::parse_checkpoint_timestamp(&checkpoint_child_dir) {
-                Ok(checkpoint_dir_created_at) => {
-                    if checkpoint_dir_created_at > threshold_time {
-                        remaining_dirs.push(candidate_dir);
-                    } else if let Err(e) = tokio::fs::remove_dir_all(&candidate_dir).await {
-                        let tags = [("result", "error"), ("scan_type", "retention_time")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        warn!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: failed to remove stale checkpoint: {}", e
-                        );
-                        remaining_dirs.push(candidate_dir);
-                    } else {
-                        let tags = [("result", "success"), ("scan_type", "retention_time")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        info!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: removed stale checkpoint"
-                        );
-                    }
-                }
-
-                Err(e) => {
-                    let tags = [("result", "error"), ("scan_type", "invalid_timestamp")];
-                    metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                    warn!(
-                        checkpoint_path = checkpoint_path,
-                        "Checkpoint cleaner: failed to parse checkpoint dir name as timestamp: {}",
-                        e
-                    );
-                    remaining_dirs.push(candidate_dir);
-                }
+            if checkpoint_attempt_timestamp > threshold_time {
+                remaining_dirs.push(candidate_dir);
+            } else {
+                Self::remove_checkpoint_and_metadata(&target, "retention_limit").await?;
             }
         }
 
         Ok(remaining_dirs)
     }
 
-    fn parse_checkpoint_timestamp(dir_name: &str) -> Result<SystemTime> {
-        let microseconds = dir_name
-            .parse::<u128>()
-            .context("failed to parse directory name as microsecond timestamp")?;
+    // Given a local filepath of the form <base_dir>/<topic_elem>/<partition_elem>/<timestamp_elem>
+    // we delete the directory and all files/subdirs below it, then attempt to delete the corresponding
+    // metadata file if present under the path:
+    // <base_dir>/<topic_elem>/<partition_elem>/metadata/metadata-<timestamp_elem>.json
+    async fn remove_checkpoint_and_metadata(
+        target: &CheckpointTarget,
+        scan_type: &'static str,
+    ) -> Result<()> {
+        let checkpoint_path_tag = target.local_path_tag();
+        let local_checkpoint_path = target.local_attempt_path()
+            .with_context(|| format!("remove_checkpoint_and_metadata ({scan_type}): failed to resolve local checkpoint path"))?;
 
-        let duration = Duration::from_micros(microseconds as u64);
-        Ok(UNIX_EPOCH + duration)
+        match tokio::fs::remove_dir_all(local_checkpoint_path).await {
+            Ok(_) => {
+                let tags = [("result", "success"), ("scan_type", scan_type)];
+                metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
+                info!(
+                    checkpoint_path = checkpoint_path_tag,
+                    scan_type = scan_type,
+                    "Checkpoint cleaner: deleted checkpoint files"
+                );
+            }
+            Err(e) => {
+                let tags = [("result", "error"), ("scan_type", scan_type)];
+                metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
+                warn!(
+                    checkpoint_path = checkpoint_path_tag,
+                    scan_type = scan_type,
+                    error = e.to_string(),
+                    "Checkpoint cleaner: failed to delete checkpoint files"
+                );
+                return Err(anyhow::anyhow!(
+                    "remove_checkpoint_and_metadata ({}): failed to delete {}: {}",
+                    scan_type,
+                    checkpoint_path_tag,
+                    e
+                ));
+            }
+        }
+
+        let metadata_path = target.local_metadata_file()
+            .with_context(|| format!("remove_checkpoint_and_metadata ({scan_type}): failed to resolve local metadata path from {checkpoint_path_tag}"))?;
+        let metadata_path_tag = metadata_path.to_string_lossy().to_string();
+
+        if !metadata_path.exists() {
+            let tags = [("result", "missing"), ("scan_type", scan_type)];
+            metrics::counter!(CHECKPOINT_CLEANER_METADATA_DELETE_ATTEMPTS, &tags).increment(1);
+            info!(
+                checkpoint_path = metadata_path_tag,
+                scan_type = scan_type,
+                "Checkpoint cleaner: metadata file not found, skipping deletion"
+            );
+            return Ok(());
+        }
+
+        match tokio::fs::remove_file(metadata_path).await {
+            Ok(_) => {
+                let tags = [("result", "success"), ("scan_type", scan_type)];
+                metrics::counter!(CHECKPOINT_CLEANER_METADATA_DELETE_ATTEMPTS, &tags).increment(1);
+                info!(
+                    checkpoint_path = metadata_path_tag,
+                    scan_type = scan_type,
+                    "Checkpoint cleaner: deleted metadata file"
+                );
+            }
+            Err(e) => {
+                let tags = [("result", "error"), ("scan_type", scan_type)];
+                metrics::counter!(CHECKPOINT_CLEANER_METADATA_DELETE_ATTEMPTS, &tags).increment(1);
+                warn!(
+                    checkpoint_path = metadata_path_tag,
+                    scan_type = scan_type,
+                    error = e.to_string(),
+                    "Checkpoint cleaner: failed to delete metadata file",
+                );
+                return Err(anyhow::anyhow!(
+                    "remove_checkpoint_and_metadata ({}): failed to delete {}: {}",
+                    scan_type,
+                    metadata_path_tag,
+                    e
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1254,13 +1299,13 @@ mod tests {
             .collect::<HashSet<_>>();
         let scan_ts_values = expected_ts_dirs
             .iter()
-            .map(|p| CheckpointManager::parse_checkpoint_timestamp(p).unwrap())
+            .map(|p| CheckpointTarget::timestamp_from_dirname(p).unwrap())
             .collect::<Vec<_>>();
 
         // convert SystemTime timestamps back to directory names as CheckpointTarget does
         let got_ts_dirs = scan_ts_values
             .iter()
-            .map(|p| CheckpointTarget::format_timestamp_dir((*p).into()))
+            .map(|p| CheckpointTarget::format_timestamp_dir(*p))
             .collect::<HashSet<_>>();
 
         // verify the converted and regenerated directory names are
