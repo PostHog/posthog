@@ -765,6 +765,7 @@ class EnterpriseExperimentsViewSet(
         from posthog.api.feature_flag import FeatureFlagSerializer
         from posthog.models import Survey
 
+        # validate limit and offset
         try:
             limit = min(int(request.query_params.get("limit", 20)), 100)
             offset = max(int(request.query_params.get("offset", 0)), 0)
@@ -838,10 +839,6 @@ class EnterpriseExperimentsViewSet(
                 to_attr="available_cohorts",
             ),
         ).select_related("created_by", "last_modified_by")
-
-        # Pagination
-        limit = int(request.query_params.get("limit", 20))
-        offset = int(request.query_params.get("offset", 0))
 
         total_count = queryset.count()
         results = queryset[offset : offset + limit]
