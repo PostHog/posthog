@@ -72,7 +72,7 @@ async def get_s3_client():
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
         # slower batch exports.
-        config=AioConfig(connector_args={"keepalive_timeout": 3600}),
+        config=AioConfig(connect_timeout=60, read_timeout=300, connector_args={"keepalive_timeout": 300}),
     ) as s3_client:
         yield s3_client
 
