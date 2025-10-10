@@ -50,7 +50,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-    def _calculate(self, group_key=None, group_type_index=None, person_id=None, properties=None):
+    def _calculate(self, group_key=None, group_type_index=None, person_id=None):
         return (
             UsageMetricsQueryRunner(
                 team=self.team,
