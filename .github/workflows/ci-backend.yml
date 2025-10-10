@@ -49,6 +49,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            tasks_temporal: ${{ steps.filter.outputs.tasks_temporal }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -96,6 +97,10 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                        - 'rust/persons_migrations/*.sql'
+                        - 'rust/bin/migrate-persons'
+                      tasks_temporal:
+                        - 'products/tasks/backend/temporal/**/*'
 
     check-migrations:
         needs: [changes]
@@ -138,7 +143,12 @@ jobs:
                   "
 
             - name: Run migrations up to master
-              run: flox activate -- python manage.py migrate
+              run: |
+                  # Run Django migrations first (excluding managed=False models)
+                  flox activate -- python manage.py migrate
+                  # Then run persons migrations using sqlx; comment out until we've merged
+                  # flox activate -- bash -c "DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog_persons' sqlx database create"
+                  # flox activate -- bash -c "DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog_persons' sqlx migrate run --source rust/persons_migrations/"
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -155,7 +165,7 @@ jobs:
                       # Flox runs 'uv sync' automatically, but we need --frozen --dev for CI
                       uv sync --frozen --dev
 
-            - name: Check migrations and post comment
+            - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -169,11 +179,15 @@ jobs:
                     exit 0
                   fi
 
-                  # Initialize comment body
+                  # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
-                  # Process each changed migration file
+                  # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
+                    # Skip Rust migrations as they're handled separately by sqlx
+                    if [[ $file =~ rust/persons_migrations ]]; then
+                      continue
+                    fi
                     if [[ $file =~ migrations/([0-9]+)_ ]]; then
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
@@ -212,8 +226,8 @@ jobs:
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
 
-                  # Post new comment to PR
-                  echo "Posting comment to PR"
+                  # Post SQL comment to PR
+                  echo "Posting SQL comment to PR"
                   echo "$COMMENT_BODY_JSON"
                   curl -X POST \
                     -H "Authorization: token $GITHUB_TOKEN" \
@@ -221,15 +235,64 @@ jobs:
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                     -d "$COMMENT_BODY_JSON"
 
+            - name: Run migration risk analysis and post comment
+              if: github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Get risk analysis for all unapplied migrations (including third-party)
+                  set +e  # Don't exit immediately on error
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
+                  EXIT_CODE=$?
+                  set -e  # Re-enable exit on error
+
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                    # Get existing comments
+                    COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                    # Delete previous risk analysis comments
+                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                      echo "Deleting risk analysis comment $comment_id"
+                      curl -X DELETE \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                    done
+
+                    # Post risk analysis comment (output already contains markdown formatting with legend)
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
+                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
+                    RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
+
+                    echo "Posting risk analysis comment to PR"
+                    curl -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                      -d "$RISK_COMMENT_JSON"
+                  fi
+
+                  # Fail the job if there were blocked migrations
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    exit $EXIT_CODE
+                  fi
+
             - name: Run migrations for this PR
               uses: flox/activate-action@v1
               with:
-                  command: python manage.py migrate
+                  command: |
+                      # Run Django migrations first (excluding managed=False models)
+                      python manage.py migrate
+                      # Then run persons migrations using sqlx
+                      # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" sqlx migrate run --source rust/persons_migrations/
 
             - name: Check migrations
               uses: flox/activate-action@v1
               with:
                   command: |
+                      # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" sqlx migrate info --source rust/persons_migrations/
                       python manage.py makemigrations --check --dry-run
                       git fetch origin master
                       # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
@@ -238,7 +301,8 @@ jobs:
                       # added (A) in posthog/migrations/. We also want to ignore
                       # initial migrations (0001_*) as these are guaranteed to be
                       # run on initial setup where there is no data.
-                      echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | xargs -r python manage.py test_migrations_are_safe
+                      # Check migration safety using old SQL-based checker (still uses stdin from git diff)
+                      echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | xargs -r python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               uses: flox/activate-action@v1
@@ -249,11 +313,12 @@ jobs:
 
     django:
         needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
         # increase for tmate testing
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: depot-ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -430,18 +495,7 @@ jobs:
                       group: 10
 
         steps:
-            # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
-            # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
-            # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
-
-            - name: Skip backend tests
-              if: ${{ needs.changes.outputs.backend == 'false' }}
-              run: |
-                  echo "Skipping backend tests - no backend changes detected"
-                  exit 0
-
             - uses: actions/checkout@v4
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -450,7 +504,6 @@ jobs:
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               run: |
                   echo "Checking that products/* only contain backend/, frontend/, or shared/ as Python code roots..."
                   BAD_FILES=$(find products -maxdepth 2 -type f -name "*.py" ! -path "*/backend/*" ! -name "__init__.py" ! -name "conftest.py" -o -maxdepth 2 -type d -name "migrations" ! -path "*/backend/*")
@@ -466,7 +519,6 @@ jobs:
 
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Stop/Start stack with Docker Compose
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
@@ -504,12 +556,10 @@ jobs:
                   ) &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Determine if hogql-parser has changed compared to master
-              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               id: hogql-parser-diff
               run: |
@@ -522,7 +572,6 @@ jobs:
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
-              if: ${{ needs.changes.outputs.backend == 'true' }}
 
             - name: Install Flox
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -669,11 +718,12 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  RUNLOOP_API_KEY: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.RUNLOOP_API_KEY || '' }}
               uses: flox/activate-action@v1
               with:
                   command: |
                       set +e
-                      pytest posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
+                      pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --splitting-algorithm=duration_based_chunks \
@@ -749,7 +799,7 @@ jobs:
               run: |
                   # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" != "success" ]]; then
+                  if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Django test matrix failed."
                     exit 1
                   fi

@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { LemonButton } from '../LemonButton'
 import { LemonTab, LemonTabs as LemonTabsComponent } from './LemonTabs'
 
 type Story = StoryObj<typeof LemonTabsComponent>
@@ -55,3 +56,12 @@ Default.args = {}
 
 export const Small: Story = Template.bind({})
 Small.args = { size: 'small' }
+
+export const RightSlot: Story = Template.bind({})
+RightSlot.args = {
+    rightSlot: (
+        <LemonButton type="secondary" size="small">
+            Right slot
+        </LemonButton>
+    ),
+}

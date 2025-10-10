@@ -25,7 +25,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 
 
-def team_enterprise_api_test_factory():  # type: ignore
+def team_enterprise_api_test_factory():
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
 
@@ -410,7 +410,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
-                    "project_id": self.team.project.id,  # type: ignore
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,
@@ -430,7 +430,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
-                    "project_id": self.team.project.id,  # type: ignore
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,

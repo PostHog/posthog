@@ -4,6 +4,7 @@ from posthog.models.person.sql import (
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
     KAFKA_PERSONS_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE_MV_SQL,
+    PERSONS_TABLE,
     PERSONS_TABLE_MV_SQL,
 )
 
@@ -27,8 +28,8 @@ from posthog.models.person.sql import (
 operations = [
     run_sql_with_exceptions(KAFKA_PERSONS_TABLE_SQL()),
     run_sql_with_exceptions(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL()),
-    run_sql_with_exceptions(PERSONS_TABLE_MV_SQL),
-    run_sql_with_exceptions(PERSONS_DISTINCT_ID_TABLE_MV_SQL),
+    run_sql_with_exceptions(PERSONS_TABLE_MV_SQL(target_table=PERSONS_TABLE)),
+    run_sql_with_exceptions(PERSONS_DISTINCT_ID_TABLE_MV_SQL()),
     run_sql_with_exceptions(WRITABLE_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(DISTRIBUTED_EVENTS_TABLE_SQL()),
 ]
