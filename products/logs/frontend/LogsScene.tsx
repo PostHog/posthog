@@ -14,6 +14,9 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
@@ -70,54 +73,58 @@ export function LogsScene(): JSX.Element {
         .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
     return (
-        <div className="flex flex-col gap-y-2 h-screen">
+        <SceneContent>
+            <SceneTitleSection
+                name="Logs"
+                resourceType={{
+                    type: 'logs',
+                }}
+            />
+            <SceneDivider />
             <Filters />
-            <>
-                <div className={sparklineLoading ? 'sparkline-loading' : ''}>
-                    <Sparkline labels={labels} data={timeseries} className="w-full" />
-                    {sparklineLoading && <div className="sparkline-loading-overlay" />}
-                </div>
-                <DisplayOptions />
-                <div className="flex-1">
-                    <LemonTable
-                        hideScrollbar
-                        dataSource={logs}
-                        loading={logsLoading}
-                        size="small"
-                        columns={[
-                            {
-                                title: 'Timestamp',
-                                key: 'timestamp',
-                                dataIndex: 'timestamp',
-                                width: 0,
-                                render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
-                            },
-                            {
-                                title: 'Level',
-                                key: 'severity_text',
-                                dataIndex: 'severity_text',
-                                width: 0,
-                                render: (_, record) => <LogTag level={record.severity_text} />,
-                            },
-                            {
-                                title: 'Message',
-                                key: 'body',
-                                dataIndex: 'body',
-                                render: (body) => (
-                                    <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>
-                                        {colors.unstyle(body)}
-                                    </div>
-                                ),
-                            },
-                        ]}
-                        expandable={{
-                            noIndent: true,
-                            expandedRowRender: (log) => <ExpandedLog log={log} />,
-                        }}
-                    />
-                </div>
-            </>
-        </div>
+            <div className={sparklineLoading ? 'sparkline-loading' : ''}>
+                <Sparkline labels={labels} data={timeseries} className="w-full" />
+                {sparklineLoading && <div className="sparkline-loading-overlay" />}
+            </div>
+            <SceneDivider />
+            <DisplayOptions />
+            <div className="flex-1">
+                <LemonTable
+                    hideScrollbar
+                    dataSource={logs}
+                    loading={logsLoading}
+                    size="small"
+                    columns={[
+                        {
+                            title: 'Timestamp',
+                            key: 'timestamp',
+                            dataIndex: 'timestamp',
+                            width: 0,
+                            render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
+                        },
+                        {
+                            title: 'Level',
+                            key: 'severity_text',
+                            dataIndex: 'severity_text',
+                            width: 0,
+                            render: (_, record) => <LogTag level={record.severity_text} />,
+                        },
+                        {
+                            title: 'Message',
+                            key: 'body',
+                            dataIndex: 'body',
+                            render: (body) => (
+                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
+                            ),
+                        },
+                    ]}
+                    expandable={{
+                        noIndent: true,
+                        expandedRowRender: (log) => <ExpandedLog log={log} />,
+                    }}
+                />
+            </div>
+        </SceneContent>
     )
 }
 
