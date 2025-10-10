@@ -157,7 +157,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
               id: setup-uv
