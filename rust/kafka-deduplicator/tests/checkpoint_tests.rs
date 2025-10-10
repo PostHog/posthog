@@ -216,7 +216,7 @@ impl CheckpointUploader for MockUploader {
         }
 
         info!(
-            "Mock uploading checkpoint directory: {:?} with prefix {}",
+            "Mock uploading checkpoint metadata file: {:?} to remote location {}",
             local_metadata_file, s3_metadata_key
         );
         self.upload_file(local_metadata_file, s3_metadata_key)
