@@ -1,6 +1,5 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { rest } from 'msw'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
@@ -158,15 +157,12 @@ const generateLogs = (): LogMessage[] => {
 const ALL_LOGS_GENERATED = generateLogs()
 
 const getLogs = async (
-    req: Parameters<Parameters<(typeof rest)['get']>[1]>[0]
+    body: any
 ): Promise<{
     startTime: dayjs.Dayjs
     endTime: dayjs.Dayjs
     logs: LogMessage[]
 }> => {
-    const body = await req.json()
-    const limit = body.query?.limit ?? 100
-    const offset = body.query?.offset ?? 0
     const severityLevels = body.query?.severityLevels ?? ['info', 'warn', 'error']
 
     // TODO: Add filtering
@@ -182,7 +178,7 @@ const getLogs = async (
             return false
         }
         return severityLevels.includes(log.severity_text.toLowerCase())
-    }).slice(offset, offset + limit)
+    })
 
     return {
         startTime: startDate,
@@ -194,42 +190,88 @@ const getLogs = async (
 const queryMock: MockSignature = async (req, res, ctx) => {
     await delayIfNotTestRunner()
 
-    const { logs } = await getLogs(req)
+    const body = await req.json()
+    const { logs } = await getLogs(body)
 
-    return res(ctx.json({ results: logs }))
+    const limit = body.query?.limit ?? 100
+    const offset = body.query?.offset ?? 0
+
+    const results = logs.slice(offset, offset + limit)
+
+    return res(ctx.json({ results: results }))
 }
 
 const sparklineMock: MockSignature = async (req, res, ctx) => {
     await delayIfNotTestRunner()
-    const { startTime, endTime } = await getLogs(req)
+    const body = await req.json()
+    const { startTime, endTime, logs } = await getLogs(body)
 
-    // Count the logs per level/minute/interval
-
-    let intervalMins = 1 // 1 minute
-
-    if (endTime.diff(startTime, 'hours') < 1) {
-        intervalMins = 1
-    } else if (endTime.diff(startTime, 'hours') < 24) {
+    // Interval selection
+    const hoursSpan = endTime.diff(startTime, 'hours', true)
+    let intervalMins = 1
+    if (hoursSpan >= 12 && hoursSpan < 24) {
         intervalMins = 5
-    } else if (endTime.diff(startTime, 'days') < 7) {
+    } else if (hoursSpan >= 24 * 7) {
         intervalMins = 60
     }
 
-    // Group all the messages by the interval
-    // Iterate between the start and end time in the interval and count the logs per level
+    // Build buckets
+    type Counts = { info: number; warn: number; error: number; total: number }
+    const bucketMap = new Map<string, Counts>()
 
-    const response = []
-    let currentTime = startTime
-    while (currentTime.isBefore(endTime)) {
-        response.push({
-            time: currentTime.format('YYYY-MM-DDTHH:mm:ssZ'),
-            level: 'warn',
-            count: 197999,
-        })
-        currentTime = currentTime.add(intervalMins, 'minutes')
+    // Pre-seed buckets so we include empty intervals
+    let cursor = startTime.startOf('minute')
+    const endCursor = endTime.startOf('minute')
+    while (cursor.isBefore(endCursor)) {
+        const key = cursor.toISOString()
+        bucketMap.set(key, { info: 0, warn: 0, error: 0, total: 0 })
+        cursor = cursor.add(intervalMins, 'minute')
     }
 
-    return res(ctx.json(response))
+    // Assign logs to buckets
+    for (const log of logs) {
+        const ts = dayjs(log.timestamp)
+        if (ts.isBefore(startTime) || !ts.isBefore(endTime)) {
+            continue
+        }
+
+        const minsFromStart = ts.diff(startTime, 'minute')
+        const bucketIndex = Math.floor(minsFromStart / intervalMins)
+        const bucketStart = startTime.startOf('minute').add(bucketIndex * intervalMins, 'minute')
+        const key = bucketStart.toISOString()
+
+        const level = String(log.severity_text ?? log.level ?? 'info').toLowerCase()
+        const counts = bucketMap.get(key)
+        if (!counts) {
+            continue
+        }
+
+        if (level === 'error') {
+            counts.error += 1
+        } else if (level === 'warn' || level === 'warning') {
+            counts.warn += 1
+        } else {
+            counts.info += 1
+        }
+        counts.total += 1
+    }
+
+    const results: { count: number; level: string; time: string }[] = []
+
+    // Emit ordered response
+    Array.from(bucketMap.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .forEach(([timestamp, counts]) =>
+            Object.entries(counts).forEach(([level, count]) => {
+                results.push({
+                    count: count,
+                    level: level,
+                    time: timestamp,
+                })
+            })
+        )
+
+    return res(ctx.json(results))
 }
 
 const attributesMock: MockSignature = async (req, res, ctx) => {
