@@ -6,6 +6,7 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio import common
 from temporalio.client import (
     Client,
     Schedule,
@@ -167,6 +168,9 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             EnforceMaxReplayRetentionInput(dry_run=False),
             id="enforce-max-replay-retention-schedule",
             task_queue=SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         ),
         spec=ScheduleSpec(
             calendars=[
