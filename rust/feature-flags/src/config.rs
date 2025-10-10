@@ -9,6 +9,20 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::Level;
 
+// Timeout validation constants
+/// Maximum reasonable timeout for hash key check operations (5 seconds)
+const MAX_REASONABLE_CHECK_TIMEOUT_MS: u64 = 5000;
+/// Maximum reasonable timeout for hash key write operations (10 seconds)  
+const MAX_REASONABLE_WRITE_TIMEOUT_MS: u64 = 10000;
+/// Maximum reasonable timeout for hash key read operations (10 seconds)
+const MAX_REASONABLE_READ_TIMEOUT_MS: u64 = 10000;
+
+// Default values
+/// Default timeout for writer pool acquisition when not explicitly configured (1 second)
+const DEFAULT_WRITER_ACQUIRE_TIMEOUT_SECS: u64 = 1;
+/// Default circuit breaker threshold for writer pool utilization (80%)
+const DEFAULT_WRITER_POOL_CIRCUIT_BREAKER_THRESHOLD: f32 = 0.8;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
 
@@ -279,7 +293,7 @@ pub struct Config {
 
     // - Writer pool utilization threshold to trigger circuit breaker (0.0-1.0)
     // When writer pool utilization exceeds this, skip hash key override operations
-    #[envconfig(default = "0.8")]
+    #[envconfig(default = "0.8")] // DEFAULT_WRITER_POOL_CIRCUIT_BREAKER_THRESHOLD
     pub writer_pool_circuit_breaker_threshold: f32,
 
     // - Enable circuit breaker for hash key override writes
@@ -315,19 +329,19 @@ impl Config {
         }
 
         // Warn if timeouts seem unreasonably high
-        if self.hash_key_check_timeout_ms > 5000 {
+        if self.hash_key_check_timeout_ms > MAX_REASONABLE_CHECK_TIMEOUT_MS {
             tracing::warn!(
                 "hash_key_check_timeout_ms is very high ({}ms), this may cause slow responses",
                 self.hash_key_check_timeout_ms
             );
         }
-        if self.hash_key_write_timeout_ms > 10000 {
+        if self.hash_key_write_timeout_ms > MAX_REASONABLE_WRITE_TIMEOUT_MS {
             tracing::warn!(
                 "hash_key_write_timeout_ms is very high ({}ms), this may cause slow responses",
                 self.hash_key_write_timeout_ms
             );
         }
-        if self.hash_key_read_timeout_ms > 10000 {
+        if self.hash_key_read_timeout_ms > MAX_REASONABLE_READ_TIMEOUT_MS {
             tracing::warn!(
                 "hash_key_read_timeout_ms is very high ({}ms), this may cause slow responses",
                 self.hash_key_read_timeout_ms
@@ -364,7 +378,7 @@ impl Config {
             max_pg_connections: 10,
             acquire_timeout_secs: 3,
             reader_acquire_timeout_secs: None, // Will use acquire_timeout_secs
-            writer_acquire_timeout_secs: Some(1), // 1 second for writers
+            writer_acquire_timeout_secs: Some(DEFAULT_WRITER_ACQUIRE_TIMEOUT_SECS),
             idle_timeout_secs: 300,
             max_lifetime_secs: 1800,
             test_before_acquire: FlexBool(true),
@@ -381,7 +395,7 @@ impl Config {
             hash_key_check_timeout_ms: 100,
             hash_key_write_timeout_ms: 500,
             hash_key_read_timeout_ms: 500,
-            writer_pool_circuit_breaker_threshold: 0.8,
+            writer_pool_circuit_breaker_threshold: DEFAULT_WRITER_POOL_CIRCUIT_BREAKER_THRESHOLD,
             hash_key_circuit_breaker_enabled: FlexBool(true),
             cookieless_disabled: false,
             cookieless_force_stateless: false,
@@ -414,7 +428,8 @@ impl Config {
     /// Uses writer_acquire_timeout_secs if set, otherwise falls back to acquire_timeout_secs
     /// Default is 1 second to fail fast when writer DB is overloaded
     pub fn get_writer_acquire_timeout_secs(&self) -> u64 {
-        self.writer_acquire_timeout_secs.unwrap_or(1) // Default to 1 second for writers if not explicitly set
+        self.writer_acquire_timeout_secs
+            .unwrap_or(DEFAULT_WRITER_ACQUIRE_TIMEOUT_SECS)
     }
 
     pub fn get_maxmind_db_path(&self) -> PathBuf {

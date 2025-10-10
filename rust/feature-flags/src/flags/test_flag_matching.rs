@@ -5810,9 +5810,18 @@ mod tests {
         };
 
         // These are constants, so we just verify they have the expected values
-        assert_eq!(FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER, "flags_hash_key_circuit_breaker_triggered_total");
-        assert_eq!(FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER, "flags_hash_key_operation_timeouts_total");
-        assert_eq!(FLAG_WRITER_POOL_UTILIZATION_GAUGE, "flags_writer_pool_utilization");
+        assert_eq!(
+            FLAG_HASH_KEY_CIRCUIT_BREAKER_TRIGGERED_COUNTER,
+            "flags_hash_key_circuit_breaker_triggered_total"
+        );
+        assert_eq!(
+            FLAG_HASH_KEY_OPERATION_TIMEOUTS_COUNTER,
+            "flags_hash_key_operation_timeouts_total"
+        );
+        assert_eq!(
+            FLAG_WRITER_POOL_UTILIZATION_GAUGE,
+            "flags_writer_pool_utilization"
+        );
     }
 
     #[tokio::test]
