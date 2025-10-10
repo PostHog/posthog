@@ -745,7 +745,7 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
-                                ...(showEvalsTab && isLLMTraceEvent(event)
+                                ...(showEvalsTab
                                     ? [
                                           {
                                               key: 'evals' as const,

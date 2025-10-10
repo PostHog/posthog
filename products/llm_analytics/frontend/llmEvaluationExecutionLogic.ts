@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -9,16 +9,18 @@ import type { llmEvaluationExecutionLogicType } from './llmEvaluationExecutionLo
 
 export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmEvaluationExecutionLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
     actions({
         runEvaluation: (evaluationId: string, targetEventId: string) => ({ evaluationId, targetEventId }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         evaluationRun: [
             null as { workflow_id: string } | null,
             {
                 runEvaluation: async ({ evaluationId, targetEventId }) => {
-                    const { currentTeamId } = teamLogic.values
-                    if (!currentTeamId) {
+                    if (!values.currentTeamId) {
                         throw new Error('No team selected')
                     }
 

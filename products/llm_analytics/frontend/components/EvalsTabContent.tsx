@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
@@ -21,10 +20,8 @@ function EvalsTabContentInner({ generationEventId }: { generationEventId: string
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
-    const { refreshGenerationEvaluationRuns } = useActions(generationEvaluationRunsLogic)
-    const { generationEvaluationRunsLoading } = useValues(generationEvaluationRunsLogic)
-
-    const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null)
+    const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationEvaluationRunsLogic)
+    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationEvaluationRunsLogic)
 
     return (
         <div className="py-4">
@@ -52,7 +49,6 @@ function EvalsTabContentInner({ generationEventId }: { generationEventId: string
                         onClick={() => {
                             if (selectedEvaluationId) {
                                 runEvaluation(selectedEvaluationId, generationEventId)
-                                setSelectedEvaluationId(null)
                             }
                         }}
                         loading={evaluationRunLoading}

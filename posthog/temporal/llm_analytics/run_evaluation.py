@@ -53,7 +53,7 @@ async def fetch_target_event_activity(inputs: RunEvaluationInputs) -> dict[str, 
     )
 
     if not result:
-        logger.error("Event not found", target_event_id=inputs.target_event_id)
+        logger.exception("Event not found", target_event_id=inputs.target_event_id)
         raise ValueError(f"Event {inputs.target_event_id} not found")
 
     row = result[0]
@@ -74,13 +74,17 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
     """Fetch evaluation config from Postgres"""
 
     def _fetch():
-        evaluation = Evaluation.objects.get(id=inputs.evaluation_id)
-        return {
-            "id": str(evaluation.id),
-            "name": evaluation.name,
-            "prompt": evaluation.prompt,
-            "team_id": evaluation.team_id,
-        }
+        try:
+            evaluation = Evaluation.objects.get(id=inputs.evaluation_id)
+            return {
+                "id": str(evaluation.id),
+                "name": evaluation.name,
+                "prompt": evaluation.prompt,
+                "team_id": evaluation.team_id,
+            }
+        except Evaluation.DoesNotExist:
+            logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
+            raise ValueError(f"Evaluation {inputs.evaluation_id} not found")
 
     return await database_sync_to_async(_fetch)()
 
@@ -176,7 +180,11 @@ async def emit_evaluation_event_activity(
     """Emit $ai_evaluation event to ClickHouse"""
 
     def _emit():
-        team = Team.objects.get(id=event_data["team_id"])
+        try:
+            team = Team.objects.get(id=event_data["team_id"])
+        except Team.DoesNotExist:
+            logger.exception("Team not found", team_id=event_data["team_id"])
+            raise ValueError(f"Team {event_data['team_id']} not found")
 
         event_uuid = uuid.uuid4()
         properties = {

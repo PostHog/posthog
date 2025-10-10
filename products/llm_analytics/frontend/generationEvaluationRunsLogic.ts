@@ -16,6 +16,7 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
 
     actions({
         refreshGenerationEvaluationRuns: true,
+        setSelectedEvaluationId: (evaluationId: string | null) => ({ evaluationId }),
     }),
 
     loaders(({ props, values }) => ({
@@ -44,6 +45,12 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
                 refreshGenerationEvaluationRuns: () => true,
                 loadGenerationEvaluationRunsSuccess: () => false,
                 loadGenerationEvaluationRunsFailure: () => false,
+            },
+        ],
+        selectedEvaluationId: [
+            null as string | null,
+            {
+                setSelectedEvaluationId: (_, { evaluationId }) => evaluationId,
             },
         ],
     }),

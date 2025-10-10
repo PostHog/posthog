@@ -35,7 +35,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
                 )}
                 {model && (
                     <MetadataTag label="Judge model" textToCopy={lowercaseFirstLetter(model)}>
-                        {model}
+                        {lowercaseFirstLetter(model)}
                     </MetadataTag>
                 )}
                 {traceId && targetEventId && (

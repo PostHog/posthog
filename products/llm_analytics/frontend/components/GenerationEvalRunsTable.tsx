@@ -65,12 +65,7 @@ function GenerationEvalRunsTableContent(): JSX.Element {
                     </div>
                 )
             },
-            sorter: (a, b) => {
-                if (a.status !== 'completed' || b.status !== 'completed') {
-                    return a.status.localeCompare(b.status)
-                }
-                return Number(b.result) - Number(a.result)
-            },
+            sorter: (a, b) => Number(b.result) - Number(a.result),
         },
         {
             title: 'Reasoning',
