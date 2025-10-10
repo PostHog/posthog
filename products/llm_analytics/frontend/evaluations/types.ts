@@ -29,5 +29,5 @@ export interface EvaluationRun {
     timestamp: string
     result: boolean
     reasoning: string
-    status: 'completed'
+    status: 'completed' | 'failed' | 'running'
 }
