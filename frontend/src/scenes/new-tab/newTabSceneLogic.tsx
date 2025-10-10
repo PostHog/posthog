@@ -492,7 +492,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Add persons section if filter is enabled
                 if (includePersons) {
-                    grouped['persons'] = filterBySearch(personSearchItems)
+                    // Only show person results if there's a search term, otherwise empty array
+                    grouped['persons'] = search.trim() ? personSearchItems : []
                 }
 
                 return grouped
@@ -527,42 +528,16 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSearch: () => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-            // Clear previous person search results when search changes
-            newTabSceneData && actions.loadPersonSearchResultsSuccess([])
-
             actions.loadRecents()
 
-            // Auto-switch to persons category when typing /persons from another category
-            if (newTabSceneData && values.search.startsWith('/persons') && values.selectedCategory !== 'persons') {
-                actions.setSelectedCategory('persons')
-            }
-
-            // If search starts with /persons, debounce the person search
-            if (newTabSceneData && values.search.startsWith('/persons')) {
-                const searchTerm = values.search.replace(/^\/persons?\s*/, '').trim()
-
-                if (searchTerm) {
-                    // Debounce person search to avoid hitting server on every keystroke
-                    actions.debouncedPersonSearch(searchTerm)
+            // For newTabSceneData mode, trigger person search if includePersons is enabled and there's a search term
+            if (newTabSceneData && values.newTabSceneDataIncludePersons) {
+                if (values.search.trim()) {
+                    actions.debouncedPersonSearch(values.search.trim())
                 } else {
-                    // Clear results if search term is empty but still in person search mode
+                    // Clear results when search is empty
                     actions.loadPersonSearchResultsSuccess([])
                 }
-            }
-
-            // If in persons mode and search doesn't start with /person, debounce person search results
-            if (
-                newTabSceneData &&
-                values.selectedCategory === 'persons' &&
-                !values.search.startsWith('/persons') &&
-                values.search.trim()
-            ) {
-                actions.debouncedPersonSearch(values.search.trim())
-            }
-
-            // For newTabSceneData mode, trigger person search if includePersons is enabled and there's a search term
-            if (newTabSceneData && values.newTabSceneDataIncludePersons && values.search.trim()) {
-                actions.debouncedPersonSearch(values.search.trim())
             }
         },
         setNewTabSceneDataIncludePersons: ({ includePersons }) => {
@@ -580,23 +555,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             // Debounce for 300ms
             await breakpoint(300)
             actions.loadPersonSearchResults({ searchTerm })
-        },
-        setSelectedCategory: ({ category }) => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
-            if (newTabSceneData) {
-                // When switching away from persons tab, remove /persons prefix
-                if (category !== 'persons' && values.search.startsWith('/persons')) {
-                    const cleanedSearch = values.search.replace(/^\/persons\s*/, '')
-                    actions.setSearch(cleanedSearch)
-                }
-
-                // When switching to persons tab, add /persons prefix if not already there
-                if (category === 'persons' && !values.search.startsWith('/persons')) {
-                    const currentSearch = values.search.trim()
-                    actions.setSearch(currentSearch ? `/persons ${currentSearch}` : '/persons ')
-                }
-            }
         },
     })),
     tabAwareActionToUrl(({ values }) => ({

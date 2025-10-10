@@ -213,7 +213,7 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                   orderedSections.push(section)
               })
 
-              return orderedSections
+              const result = orderedSections
                   .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
                   .filter(([section, items]) => {
                       // Always show persons section if filter is enabled (even when empty)
@@ -223,10 +223,12 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                       // For other sections, only show if they have items
                       return items.length > 0
                   })
+
+              return result
           })()
         : Object.entries(groupedFilteredItems)
 
-    if (!newTabSceneData && (selectedCategory !== 'all' || (newTabSceneData && specialSearchMode === 'persons'))) {
+    if (!newTabSceneData && selectedCategory !== 'all') {
         const categoryToShow = specialSearchMode === 'persons' ? 'persons' : selectedCategory
         const items = groupedFilteredItems[categoryToShow] || []
         const typedItems = items as NewTabTreeDataItem[]
