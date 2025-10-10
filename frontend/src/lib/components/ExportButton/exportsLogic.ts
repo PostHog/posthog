@@ -13,7 +13,15 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
+import {
+    APIErrorType,
+    CohortType,
+    ExportContext,
+    ExportedAssetType,
+    ExporterFormat,
+    LocalExportContext,
+    SidePanelTab,
+} from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -215,16 +223,20 @@ export const exportsLogic = kea<exportsLogicType>([
                                 lemonToast.error('Export failed: ' + response.exception)
                             }
                         } catch (error) {
+                            const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit
-                            if (error?.data?.attr === 'export_limit_exceeded') {
-                                lemonToast.info(error?.data?.detail || 'You reached your export limit after 30 days.', {
-                                    button: {
-                                        label: 'I want more',
-                                        className: 'replay-export-limit-reached-button',
-                                        action: () => {},
-                                        dataAttr: 'export-limit-reached-button',
-                                    },
-                                })
+                            if (apiError?.data?.attr === 'export_limit_exceeded') {
+                                lemonToast.info(
+                                    apiError?.data?.detail || 'You reached your export limit after 30 days.',
+                                    {
+                                        button: {
+                                            label: 'I want more',
+                                            className: 'replay-export-limit-reached-button',
+                                            action: () => {},
+                                            dataAttr: 'export-limit-reached-button',
+                                        },
+                                    }
+                                )
                             } else {
                                 const message = error instanceof Error ? error.message : String(error)
                                 lemonToast.error('Export failed: ' + message)
