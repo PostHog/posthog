@@ -24,7 +24,6 @@ import { urls } from 'scenes/urls'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
-import { calculateTTL } from '../utils'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
@@ -243,12 +242,8 @@ export const SessionRecordingPreview = memo(
         const iconProperties = gatherIconProperties(recordingProperties, recording)
 
         const iconClassNames = 'text-secondary shrink-0'
-
-        const recordingTTL = recording.retention_period_days
-            ? calculateTTL(recording.start_time, recording.retention_period_days)
-            : null
         const ttlColor =
-            recordingTTL && recordingTTL <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? '#f63b3bff' : 'currentColor'
+            recording.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? '#f63b3bff' : 'currentColor'
 
         return (
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -301,14 +296,12 @@ export const SessionRecordingPreview = memo(
                                             <span>{recording.keypress_count}</span>
                                         </span>
                                     </Tooltip>
-                                    {recordingTTL && (
-                                        <Tooltip className="flex items-center" title="Days until recording expires">
-                                            <span className="flex gap-x-0.5">
-                                                <IconHourglass fill={ttlColor} className={iconClassNames} />
-                                                <span style={{ color: ttlColor }}>{recordingTTL}d</span>
-                                            </span>
-                                        </Tooltip>
-                                    )}
+                                    <Tooltip className="flex items-center" title="Days until recording expires">
+                                        <span className="flex gap-x-0.5">
+                                            <IconHourglass fill={ttlColor} className={iconClassNames} />
+                                            <span style={{ color: ttlColor }}>{recording.recording_ttl}d</span>
+                                        </span>
+                                    </Tooltip>
                                 </div>
                             </div>
 

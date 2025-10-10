@@ -24130,6 +24130,9 @@
                     "description": "When the recording ends in ISO format.",
                     "type": "string"
                 },
+                "expiry_time": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -24159,6 +24162,9 @@
                 },
                 "recording_duration": {
                     "description": "Length of recording in seconds.",
+                    "type": "number"
+                },
+                "recording_ttl": {
                     "type": "number"
                 },
                 "retention_period_days": {
@@ -24196,7 +24202,17 @@
                     "type": "array"
                 }
             },
-            "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "required": [
+                "id",
+                "viewed",
+                "viewers",
+                "recording_duration",
+                "start_time",
+                "end_time",
+                "snapshot_source",
+                "expiry_time",
+                "recording_ttl"
+            ],
             "type": "object"
         },
         "SessionsTimelineQuery": {

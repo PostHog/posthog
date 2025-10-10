@@ -1676,6 +1676,9 @@ export interface SessionRecordingType {
     activity_score?: number
     /** retention period for this recording */
     retention_period_days?: number
+
+    expiry_time: string
+    recording_ttl: number
 }
 
 export interface SessionRecordingUpdateType {

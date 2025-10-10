@@ -1,7 +1,5 @@
 import emojiRegex from 'emoji-regex'
 
-import { dayjs } from 'lib/dayjs'
-
 import {
     LegacyRecordingFilters,
     RecordingUniversalFilters,
@@ -63,11 +61,4 @@ export function isSingleEmoji(s: string): boolean {
     // or the second emoji it checks always results in false 🤷
     const regex = emojiRegex()
     return regex.test(graphemes[0].segment)
-}
-
-export function calculateTTL(recording_start_time: string, retention_period_days: number): number {
-    const start = dayjs(recording_start_time)
-    const now = dayjs()
-
-    return Math.max(retention_period_days - now.diff(start, 'days'), 0)
 }
