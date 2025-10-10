@@ -14,7 +14,9 @@ from django.dispatch import receiver
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
+from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from posthog.schema import PropertyOperator
@@ -75,6 +77,12 @@ from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
+
+LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
+    "posthog_local_evaluation_request_total",
+    "Local evaluation API requests",
+    labelnames=["send_cohorts"],
+)
 
 
 class LocalEvaluationThrottle(BurstRateThrottle):
@@ -609,6 +617,7 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
         project_id = self.context["project_id"]
 
         # Skip validation for flags with flag dependencies since the evaluation
@@ -619,7 +628,7 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -1067,12 +1076,18 @@ class FeatureFlagViewSet(
                 evaluation_runtime = request.GET["evaluation_runtime"]
                 queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
             elif key == "excluded_properties":
-                import json
-
                 try:
                     excluded_keys = json.loads(request.GET["excluded_properties"])
                     if excluded_keys:
                         queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
+            elif key == "tags":
+                try:
+                    tags = json.loads(request.GET["tags"])
+                    if tags:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
                 except (json.JSONDecodeError, TypeError):
                     # If the JSON is invalid, ignore the filter
                     pass
@@ -1178,6 +1193,13 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of feature flag keys to exclude from the results.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names to filter feature flags by.",
             ),
         ]
     )
@@ -1366,6 +1388,9 @@ class FeatureFlagViewSet(
         logger = logging.getLogger(__name__)
 
         include_cohorts = "send_cohorts" in request.GET
+
+        # Track send_cohorts parameter usage
+        LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
 
         try:
             # Check if team is quota limited for feature flags
@@ -1663,3 +1688,22 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+class CanEditFeatureFlag(BasePermission):
+    """
+    Permission class to check if a user can edit a specific feature flag.
+    This leverages PostHog's existing access control system for feature flags.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        # Get the team from the object (feature flag)
+        team = obj.team if hasattr(obj, "team") else obj
+
+        # Get user access control for this team
+        user_access_control = UserAccessControl(user=request.user, team=team)
+
+        # Check if user has editor or higher access to feature flags for this team
+        return user_access_control.check_access_level_for_object(obj, "editor")

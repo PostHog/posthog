@@ -24,13 +24,10 @@ import {
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { EventPipelineResult } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { deduplicateEvents } from './deduplication/events'
-import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
@@ -43,12 +40,22 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createEmitEventStep } from './event-processing/emit-event-step'
 import {
     PreprocessedEventWithStores,
     createEventPipelineRunnerV1Step,
 } from './event-processing/event-pipeline-runner-v1-step'
-import { createBatch, createNewBatchPipeline, createNewPipeline, createRetryingPipeline } from './pipelines/helpers'
+import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
+import { BatchPipeline } from './pipelines/batch-pipeline.interface'
+import {
+    createBatch,
+    createNewBatchPipeline,
+    createNewPipeline,
+    createRetryingPipeline,
+    createUnwrapper,
+} from './pipelines/helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
+import { SideEffectHandlingPipeline } from './pipelines/side-effect-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -116,11 +123,10 @@ export class IngestionConsumer {
     private personStore: BatchWritingPersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
-    private perDistinctIdPipeline!: ResultHandlingPipeline<PreprocessedEventWithStores, EventPipelineResult>
+    private preprocessingPipeline!: BatchPipelineUnwrapper<{ message: Message }, PreprocessedEvent>
+    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void>
 
     constructor(
         private hub: Hub,
@@ -176,7 +182,6 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
-        this.deduplicationRedis = createDeduplicationRedis(this.hub)
         this.kafkaConsumer = new KafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
@@ -249,7 +254,13 @@ export class IngestionConsumer {
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
-        this.preprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        const sideEffectHandlingPipeline = new SideEffectHandlingPipeline(
+            resultHandlingPipeline,
+            this.promiseScheduler,
+            { await: false }
+        )
+        this.preprocessingPipeline = createUnwrapper(sideEffectHandlingPipeline)
     }
 
     private initializePerDistinctIdPipeline(): void {
@@ -260,9 +271,13 @@ export class IngestionConsumer {
         }
 
         const eventPipelineStep = createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)
+        const emitEventStep = createEmitEventStep({
+            kafkaProducer: this.kafkaProducer!,
+            clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+        })
 
         const eventProcessingPipeline = createRetryingPipeline(
-            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep),
+            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep).pipe(emitEventStep),
             {
                 tries: 3,
                 sleepMs: 100,
@@ -272,7 +287,10 @@ export class IngestionConsumer {
         const perDistinctIdBatchPipeline =
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
-        this.perDistinctIdPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
+        const resultHandlingPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
+        this.perDistinctIdPipeline = new SideEffectHandlingPipeline(resultHandlingPipeline, this.promiseScheduler, {
+            await: false,
+        })
     }
 
     public async stop(): Promise<void> {
@@ -288,8 +306,6 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
-        logger.info('🔁', `${this.name} - stopping deduplication redis`)
-        await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -338,13 +354,6 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        // Fire-and-forget deduplication call
-        void this.promiseScheduler.schedule(
-            deduplicateEvents(
-                this.deduplicationRedis,
-                preprocessedEvents.map((x) => x.event)
-            )
-        )
         const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
@@ -552,15 +561,7 @@ export class IngestionConsumer {
         // Feed the batch to the main event pipeline
         const eventsSequence = createBatch(preprocessedEventsWithStores)
         this.perDistinctIdPipeline.feed(eventsSequence)
-        const results = await this.perDistinctIdPipeline.next()
-
-        if (results) {
-            results.forEach((result) => {
-                result.ackPromises?.forEach((promise: Promise<void>) => {
-                    void this.promiseScheduler.schedule(promise)
-                })
-            })
-        }
+        await this.perDistinctIdPipeline.next()
     }
 
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {

@@ -1141,10 +1141,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         canEditSource: [
             (s) => [s.type, s.template, s.hogFunction],
             (type, template, hogFunction) => {
-                return (
-                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
-                    (type === 'destination' &&
-                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
+                const codeLanguage = template?.code_language || hogFunction?.template?.code_language
+
+                // Only allow editing if code language is 'hog'
+                if (codeLanguage && codeLanguage !== 'hog') {
+                    return false
+                }
+
+                return ['site_destination', 'site_app', 'source_webhook', 'transformation', 'destination'].includes(
+                    type
                 )
             },
         ],

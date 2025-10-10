@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -61,6 +62,13 @@ export function IntegrationChoice({
         input.click()
     }
 
+    const handleNewDatabricksIntegration = (integrationId: number | undefined): void => {
+        if (integrationId) {
+            onChange?.(integrationId)
+        }
+        closeNewIntegrationModal()
+    }
+
     const button = (
         <LemonMenu
             items={[
@@ -103,21 +111,30 @@ export function IntegrationChoice({
                                   },
                               ],
                           }
-                        : {
-                              items: [
-                                  {
-                                      to: api.integrations.authorizeUrl({
-                                          kind,
-                                          next: redirectUrl,
-                                      }),
-                                      disableClientSideRouting: true,
-                                      onClick: beforeRedirect,
-                                      label: integrationsOfKind?.length
-                                          ? `Connect to a different integration for ${kindName}`
-                                          : `Connect to ${kindName}`,
-                                  },
-                              ],
-                          },
+                        : ['databricks'].includes(kind)
+                          ? {
+                                items: [
+                                    {
+                                        label: 'Configure new Databricks account',
+                                        onClick: () => openNewIntegrationModal('databricks'),
+                                    },
+                                ],
+                            }
+                          : {
+                                items: [
+                                    {
+                                        to: api.integrations.authorizeUrl({
+                                            kind,
+                                            next: redirectUrl,
+                                        }),
+                                        disableClientSideRouting: true,
+                                        onClick: beforeRedirect,
+                                        label: integrationsOfKind?.length
+                                            ? `Connect to a different integration for ${kindName}`
+                                            : `Connect to ${kindName}`,
+                                    },
+                                ],
+                            },
                 {
                     items: [
                         {
@@ -157,6 +174,11 @@ export function IntegrationChoice({
                 channelType="twilio"
                 integration={integrationKind || undefined}
                 onComplete={closeNewIntegrationModal}
+            />
+            <DatabricksSetupModal
+                isOpen={newIntegrationModalKind === 'databricks'}
+                integration={integrationKind || undefined}
+                onComplete={handleNewDatabricksIntegration}
             />
         </>
     )

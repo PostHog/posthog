@@ -29,6 +29,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
             headers: {
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
+                force_disable_person_processing: false,
             },
         }
 
@@ -48,6 +49,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
             headers: {
                 token: 't-xyz',
                 distinct_id: 'd-1',
+                force_disable_person_processing: false,
             },
         }
 
@@ -69,6 +71,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
             headers: {
                 token: 't-abc',
                 distinct_id: 'd-2',
+                force_disable_person_processing: false,
             },
         }
 
@@ -105,7 +108,9 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('handles empty headers', async () => {
         const input = {
             message: {} as any,
-            headers: {},
+            headers: {
+                force_disable_person_processing: false,
+            },
         }
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(false)
 
@@ -130,6 +135,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
             headers: {
                 token: 'test-token',
                 distinct_id: 'test-user',
+                force_disable_person_processing: false,
             },
         }
 

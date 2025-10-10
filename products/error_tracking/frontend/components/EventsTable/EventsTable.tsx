@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 
 import { IconAI } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -15,15 +14,17 @@ import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
+import { EventsQuery } from '~/queries/schema/schema-general'
+
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'
 import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
-import { eventsQueryLogic } from './eventsQueryLogic'
 import { eventsSourceLogic } from './eventsSourceLogic'
 
 export interface EventsTableProps {
-    issueId: string
+    query: EventsQuery
+    queryKey: string
     selectedEvent: ErrorEventType | null
     onEventSelect: (event: ErrorEventType | null) => void
 }
@@ -83,8 +84,7 @@ function renderMoreButton(event: ErrorEventType): JSX.Element {
     )
 }
 
-export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
-    const { query, queryKey } = useValues(eventsQueryLogic({ issueId }))
+export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
     const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
 

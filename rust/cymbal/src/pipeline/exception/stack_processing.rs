@@ -1,12 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
+use common_types::error_tracking::FrameId;
 use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
     fingerprinting::resolve_fingerprint,
-    frames::FrameId,
     metric_consts::{FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
@@ -59,7 +59,7 @@ pub async fn do_stack_processing(
                     metrics::counter!(FRAME_RESOLUTION).increment(1);
                     let res = context
                         .resolver
-                        .resolve(&frame, team_id, &context.pool, &context.catalog)
+                        .resolve(&frame, team_id, &context.posthog_pool, &context.catalog)
                         .await;
                     context.worker_liveness.report_healthy().await;
                     res
@@ -114,7 +114,7 @@ pub async fn do_stack_processing(
             .team_id;
 
         let mut conn = context
-            .pool
+            .posthog_pool
             .acquire()
             .await
             .map_err(|e| (index, e.into()))?;

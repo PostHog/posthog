@@ -243,6 +243,8 @@ export const MOCK_DEFAULT_USER: UserType = {
         plugin_disabled: false,
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
+        error_tracking_issue_assigned: false,
+        discussions_mentioned: false,
     },
     anonymize_data: false,
     toolbar_mode: 'toolbar',

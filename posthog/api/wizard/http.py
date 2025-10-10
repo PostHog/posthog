@@ -96,7 +96,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     def dangerously_get_required_scopes(self):
         if self.action == "authenticate":
-            return ["team:read"]
+            return ["project:read"]
 
         return []
 
@@ -254,7 +254,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
             messages: list[ChatCompletionMessageParam] = [system_message, user_message]
 
-            openai = OpenAI(posthog_client=posthog_client)
+            openai = OpenAI(posthog_client=posthog_client, base_url=settings.OPENAI_BASE_URL)
 
             result = openai.chat.completions.create(
                 model=model,

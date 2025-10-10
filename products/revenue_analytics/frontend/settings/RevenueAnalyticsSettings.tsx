@@ -13,7 +13,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
@@ -56,7 +56,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.RevenueAnalytics}
-                                minAccessLevel="editor"
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
                                     type="primary"
@@ -73,7 +73,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.RevenueAnalytics}
-                                minAccessLevel="editor"
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
                                     type="primary"
@@ -99,7 +99,10 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                 }
             />
 
-            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.RevenueAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
                 <BaseCurrency />
             </AccessControlAction>
             <SceneDivider />

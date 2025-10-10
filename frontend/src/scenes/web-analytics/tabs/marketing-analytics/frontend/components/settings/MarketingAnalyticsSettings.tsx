@@ -4,12 +4,19 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings({ hideTitle = false }: { hideTitle?: boolean }): JSX.Element {
+export function MarketingAnalyticsSettings({
+    hideTitle = false,
+    hideBaseCurrency = false,
+}: {
+    hideTitle?: boolean
+    hideBaseCurrency?: boolean
+}): JSX.Element {
     return (
         <SceneContent>
             {!hideTitle && (
@@ -21,8 +28,14 @@ export function MarketingAnalyticsSettings({ hideTitle = false }: { hideTitle?: 
                     }}
                 />
             )}
+            {!hideBaseCurrency && (
+                <>
+                    <SceneDivider />
+                    <BaseCurrency />
+                </>
+            )}
             <SceneDivider />
-            <BaseCurrency />
+            <AttributionSettings />
             <SceneDivider />
             <ConversionGoalsConfiguration />
             <SceneDivider />

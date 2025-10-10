@@ -55,10 +55,31 @@ In the vast majority of cases, just follow the [previous](#when-to-run-a-migrati
 
 ### The ON CLUSTER clause
 
-The ON CLUSTER clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
+**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+This may cause lots of troubles and block migrations.
 
-Ideally, **do not use the ON CLUSTER clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the ON CLUSTER clause make the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
 
 ### Testing
 
 To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
+
+## Ingestion layer
+
+We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
+
+1. Create your data table in ClickHouse main cluster.
+2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`.
+3. Create a Kafka table in ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`.
+4. Create materialized view between Kafka table and writable table on ingestion nodes.
+
+Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
+
+**How and why?**
+
+Our main cluster (`posthog`) nodes were overwhelmed with ingestion and sometimes the query load
+was interfering with ingestion. This was causing delays and at the end incidents.
+
+We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
+
+ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers, coordinator and our new ingestion nodes.

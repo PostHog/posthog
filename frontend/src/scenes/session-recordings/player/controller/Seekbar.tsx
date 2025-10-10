@@ -11,7 +11,7 @@ import { RecordingSegment } from '~/types'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
@@ -42,7 +42,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 
 function SeekbarSegments(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { segments, durationMs } = useValues(sessionRecordingDataLogic(logicProps))
+    const { segments, durationMs } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     return (
         <div className="PlayerSeekbar__segments">
             {segments?.map((segment: RecordingSegment) => (
@@ -64,7 +64,7 @@ export function Seekbar(): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(logicProps))
+    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)

@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import NonAtomicBaseTest
@@ -16,10 +18,19 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
+    DateRange,
     FunnelsQuery,
     HogQLQuery,
+    IntervalType,
     RetentionFilter,
     RetentionQuery,
+    RevenueAnalyticsBreakdown,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsMRRQueryResultItem,
+    RevenueAnalyticsTopCustomersGroupBy,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -317,6 +328,181 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         response = {"results": [{"count": 100}], "columns": ["count"]}
         result = await self.query_runner._compress_results(hogql_query, response)
         self.assertIn("count\n100", result)
+
+    async def test_compress_results_revenue_analytics_gross_revenue_query(self):
+        revenue_analytics_gross_revenue_query = RevenueAnalyticsGrossRevenueQuery(
+            dateRange=DateRange(date_from="2024-11-01", date_to="2025-02-01"),
+            interval=IntervalType.MONTH,
+            properties=[],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
+        )
+        response = {
+            "results": [
+                {
+                    "label": "stripe.posthog_test - Product F",
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [Decimal("647.24355"), Decimal("2507.21839"), Decimal("2110.27254"), Decimal("2415.34023")],
+                },
+                {
+                    "label": "stripe.posthog_test - Product E",
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [Decimal("64.243532"), Decimal("207.2432"), Decimal("210.272"), Decimal("415.3402")],
+                },
+            ]
+        }
+        result = await self.query_runner._compress_results(revenue_analytics_gross_revenue_query, response)
+        self.assertIn("Breakdown by revenue_analytics_product.name", result)
+        self.assertIn("Date|stripe", result)
+
+    async def test_compress_results_revenue_analytics_metrics_query(self):
+        revenue_analytics_metrics_query = RevenueAnalyticsMetricsQuery(
+            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
+            interval=IntervalType.MONTH,
+            properties=[],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
+        )
+        response: dict[str, Any] = {
+            "results": [
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [1, 2, 3, 4],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "Subscription Count"},
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [0, 1, 1, 2],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "New Subscription Count"},
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [0, 0, 0, 1],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "Churned Subscription Count"},
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [1, 2, 3, 3],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "Customer Count"},
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [0, 1, 1, 1],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "New Customer Count"},
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [0, 0, 0, 1],
+                    "breakdown": {
+                        "property": "stripe.posthog_test - Product F",
+                        "kind": "Churned Customer Count",
+                    },
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [0, 0, Decimal("152.235"), Decimal("215.3234")],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "ARPU"},
+                },
+                {
+                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
+                    "data": [0, 0, None, None],
+                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "LTV"},
+                },
+            ]
+        }
+        result = await self.query_runner._compress_results(revenue_analytics_metrics_query, response)
+        self.assertIn("Breakdown by revenue_analytics_product.name", result)
+        self.assertIn("Date|stripe", result)
+        self.assertIn("Subscription Count", result)
+        self.assertIn("New Subscription Count", result)
+        self.assertIn("Churned Subscription Count", result)
+        self.assertIn("Customer Count", result)
+        self.assertIn("New Customer Count", result)
+        self.assertIn("Churned Customer Count", result)
+        self.assertIn("ARPU", result)
+        self.assertIn("LTV", result)
+
+    async def test_compress_results_revenue_analytics_mrr_query(self):
+        revenue_analytics_mrr_query = RevenueAnalyticsMRRQuery(
+            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
+            interval=IntervalType.MONTH,
+            properties=[],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
+        )
+        response: dict[str, Any] = {
+            "results": [
+                RevenueAnalyticsMRRQueryResultItem(
+                    churn={
+                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "Churn"},
+                        "data": [Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0")],
+                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
+                    },
+                    contraction={
+                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "Contraction"},
+                        "data": [Decimal("0"), Decimal("-45.391"), Decimal("-1.497"), Decimal("0")],
+                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
+                    },
+                    expansion={
+                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "Expansion"},
+                        "data": [Decimal("0"), Decimal("0"), Decimal("8.380455"), Decimal("25.12")],
+                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
+                    },
+                    new={
+                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "New"},
+                        "data": [Decimal("0"), Decimal("5.7325"), Decimal("18.01"), Decimal("0")],
+                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
+                    },
+                    total={
+                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": None},
+                        "data": [Decimal("5.325"), Decimal("4.335"), Decimal("19.865"), Decimal("19.845")],
+                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
+                    },
+                ),
+            ]
+        }
+        result = await self.query_runner._compress_results(revenue_analytics_mrr_query, response)
+        self.assertIn("Breakdown by revenue_analytics_product.name", result)
+        self.assertIn("Date|stripe", result)
+        self.assertIn("Total MRR", result)
+        self.assertIn("New MRR", result)
+        self.assertIn("Expansion MRR", result)
+        self.assertIn("Contraction MRR", result)
+        self.assertIn("Churned MRR", result)
+
+    async def test_compress_results_revenue_analytics_top_customers_query(self):
+        revenue_analytics_top_customers_query = RevenueAnalyticsTopCustomersQuery(
+            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
+            groupBy=RevenueAnalyticsTopCustomersGroupBy.MONTH,
+            properties=[],
+        )
+        month_response: dict[str, Any] = {
+            "results": [
+                ("cus_3", "John Smith", Decimal("615.997315"), date(2025, 2, 1)),
+                ("cus_2", "Jane Doe", Decimal("26.0100949999"), date(2025, 2, 1)),
+                ("cus_1", "John Doe", Decimal("5.2361453433"), date(2025, 2, 1)),
+            ]
+        }
+        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query, month_response)
+        self.assertIn("Grouped by month", result)
+        self.assertIn("John Smith", result)
+        self.assertIn("Jane Doe", result)
+        self.assertIn("John Doe", result)
+
+        revenue_analytics_top_customers_query_all = RevenueAnalyticsTopCustomersQuery(
+            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
+            groupBy=RevenueAnalyticsTopCustomersGroupBy.ALL,
+            properties=[],
+        )
+        all_response: dict[str, Any] = {
+            "results": [
+                ("cus_3", "John Smith", Decimal("615.997315"), "all"),
+                ("cus_2", "Jane Doe", Decimal("26.0100949999"), "all"),
+                ("cus_1", "John Doe", Decimal("5.2361453433"), "all"),
+            ]
+        }
+        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query_all, all_response)
+        self.assertNotIn("Grouped by month", result)
+        self.assertIn("John Smith", result)
+        self.assertIn("Jane Doe", result)
+        self.assertIn("John Doe", result)
 
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_response_dict_handling(self, mock_process_query):

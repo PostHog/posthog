@@ -105,7 +105,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         type="tertiary"
                         size="xsmall"
                     >
-                        Show database
+                        Data warehouse
                     </LemonButton>
                 ) : null}
                 <RunButton />

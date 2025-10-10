@@ -83,7 +83,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
-                    if (!response.sources) {
+                    if (!response || !response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
@@ -215,7 +215,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
                 }
 
                 if (!props.blobV2PollingDisabled) {

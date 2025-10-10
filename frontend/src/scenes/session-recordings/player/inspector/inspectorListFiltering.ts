@@ -109,32 +109,25 @@ function networkMatch(
 ): SharedListMiniFilter | null {
     if (isNavigationEvent(item)) {
         return miniFiltersByKey['performance-document']
-    } else if (
-        item.data.entry_type === 'resource' &&
-        ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
-    ) {
+    } else if (['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) {
         return miniFiltersByKey['performance-fetch']
     } else if (
-        item.data.entry_type === 'resource' &&
-        (item.data.initiator_type === 'script' ||
-            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js')))
+        item.data.initiator_type === 'script' ||
+        (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js'))
     ) {
         return miniFiltersByKey['performance-assets-js']
     } else if (
-        item.data.entry_type === 'resource' &&
-        (item.data.initiator_type === 'css' ||
-            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css')))
+        item.data.initiator_type === 'css' ||
+        (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css'))
     ) {
         return miniFiltersByKey['performance-assets-css']
     } else if (
-        item.data.entry_type === 'resource' &&
-        (item.data.initiator_type === 'img' ||
-            (['link', 'other'].includes(item.data.initiator_type || '') &&
-                !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
+        item.data.initiator_type === 'img' ||
+        (['link', 'other'].includes(item.data.initiator_type || '') &&
+            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`)))
     ) {
         return miniFiltersByKey['performance-assets-img']
     } else if (
-        item.data.entry_type === 'resource' &&
         ['other'].includes(item.data.initiator_type || '') &&
         ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
     ) {

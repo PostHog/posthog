@@ -56,6 +56,7 @@ import {
     formatLLMUsage,
     getEventType,
     getSessionID,
+    getTraceTimestamp,
     hasSessionID,
     isLLMTraceEvent,
     normalizeMessages,
@@ -367,7 +368,7 @@ const TreeNode = React.memo(function TraceNode({
             <Link
                 to={urls.llmAnalyticsTrace(topLevelTrace.id, {
                     event: item.id,
-                    timestamp: removeMilliseconds(topLevelTrace.createdAt),
+                    timestamp: getTraceTimestamp(topLevelTrace.createdAt),
                     ...(searchQuery?.trim() && { search: searchQuery }),
                 })}
                 className={classNames(

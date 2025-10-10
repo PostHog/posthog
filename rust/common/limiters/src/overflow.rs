@@ -15,6 +15,13 @@ use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 use metrics::gauge;
 use rand::Rng;
 
+#[derive(Debug, PartialEq)]
+pub enum OverflowLimiterResult {
+    Limited,
+    NotLimited,
+    ForceLimited,
+}
+
 // See: https://docs.rs/governor/latest/governor/_guide/index.html#usage-in-multiple-threads
 #[derive(Clone)]
 pub struct OverflowLimiter {
@@ -53,23 +60,29 @@ impl OverflowLimiter {
     // "<token>:<distinct_id>" for std events or "<token>:<ip_addr>" for cookieless.
     // If this method returns true, the event should be rerouted to the overflow topic
     // without a partition key, to avoid hot partitions in that pipeline.
-    pub fn is_limited(&self, event_key: &String) -> bool {
+    pub fn is_limited(&self, event_key: &String) -> OverflowLimiterResult {
         if event_key.is_empty() {
-            return false;
+            return OverflowLimiterResult::NotLimited;
         }
+
         // is the event key in the forced_keys list?
-        let forced_key_match = self.keys_to_reroute.contains(event_key);
+        if self.keys_to_reroute.contains(event_key) {
+            return OverflowLimiterResult::ForceLimited;
+        }
 
         // is the token (first component of the event key) in the forced_keys list?
-        let forced_token_match = match event_key.split(':').find(|s| !s.trim().is_empty()) {
-            Some(token) => self.keys_to_reroute.contains(token),
-            None => false,
-        };
+        if let Some(token) = event_key.split(':').find(|s| !s.trim().is_empty()) {
+            if self.keys_to_reroute.contains(token) {
+                return OverflowLimiterResult::ForceLimited;
+            }
+        }
 
         // should rate limiting be triggered for this event?
-        let rate_limited_key = self.limiter.check_key(event_key).is_err();
+        if self.limiter.check_key(event_key).is_err() {
+            return OverflowLimiterResult::Limited;
+        }
 
-        forced_key_match || forced_token_match || rate_limited_key
+        OverflowLimiterResult::NotLimited
     }
 
     // should we retain event partition keys when we reroute to
@@ -111,6 +124,8 @@ impl OverflowLimiter {
 
 #[cfg(test)]
 mod tests {
+    use crate::overflow::OverflowLimiterResult;
+
     use super::OverflowLimiter;
     use std::num::NonZeroU32;
 
@@ -124,8 +139,8 @@ mod tests {
         );
 
         let key = String::from("test:user");
-        assert!(!limiter.is_limited(&key));
-        assert!(limiter.is_limited(&key));
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::Limited);
     }
 
     #[tokio::test]
@@ -140,24 +155,33 @@ mod tests {
         // limiter should behave as normal even when an empty string entry
         // slipped through the env var to OverflowLimiter::new
         let key = String::from("token3:user3");
-        assert!(!limiter.is_limited(&key));
-        assert!(!limiter.is_limited(&key));
-        assert!(!limiter.is_limited(&key));
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
 
         let key = String::from("token3");
-        assert!(!limiter.is_limited(&key));
-        assert!(!limiter.is_limited(&key));
-        assert!(!limiter.is_limited(&key));
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
 
         let key = String::from("token1");
-        assert!(limiter.is_limited(&key));
+        assert_eq!(
+            limiter.is_limited(&key),
+            OverflowLimiterResult::ForceLimited
+        );
 
         let key = String::from("token2:user2");
-        assert!(limiter.is_limited(&key));
+        assert_eq!(
+            limiter.is_limited(&key),
+            OverflowLimiterResult::ForceLimited
+        );
 
         // empty *incoming* event key doesn't trigger limiter in error
         let empty_key = String::from("");
-        assert!(!limiter.is_limited(&empty_key))
+        assert_eq!(
+            limiter.is_limited(&empty_key),
+            OverflowLimiterResult::NotLimited
+        );
     }
 
     #[tokio::test]
@@ -170,10 +194,10 @@ mod tests {
         );
 
         let key = String::from("test:user");
-        assert!(!limiter.is_limited(&key));
-        assert!(!limiter.is_limited(&key));
-        assert!(!limiter.is_limited(&key));
-        assert!(limiter.is_limited(&key));
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key), OverflowLimiterResult::Limited);
     }
 
     #[tokio::test]
@@ -191,12 +215,24 @@ mod tests {
         );
 
         // token1:user1 and token2:user2 are limited from the start, token3:user3 is not
-        assert!(limiter.is_limited(&key1));
-        assert!(!limiter.is_limited(&String::from("token3:user3")));
-        assert!(limiter.is_limited(&key2));
+        assert_eq!(
+            limiter.is_limited(&key1),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&String::from("token3:user3")),
+            OverflowLimiterResult::NotLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&key2),
+            OverflowLimiterResult::ForceLimited
+        );
 
         // token3:user3 is limited on the second event
-        assert!(limiter.is_limited(&String::from("token3:user3")));
+        assert_eq!(
+            limiter.is_limited(&String::from("token3:user3")),
+            OverflowLimiterResult::Limited
+        );
     }
 
     #[tokio::test]
@@ -214,18 +250,46 @@ mod tests {
         );
 
         // rerouting for token in candidate list should kick in right away
-        assert!(limiter.is_limited(&key1));
-        assert!(limiter.is_limited(&key1));
+        assert_eq!(
+            limiter.is_limited(&key1),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&key1),
+            OverflowLimiterResult::ForceLimited
+        );
 
         // no key-based limiting for tokens not in the overflow list
-        assert!(!limiter.is_limited(&String::from("token3:user3")));
-        assert!(!limiter.is_limited(&String::from("token3:user3")));
-        assert!(!limiter.is_limited(&String::from("token3:user3")));
-        assert!(!limiter.is_limited(&String::from("token3:user3")));
+        assert_eq!(
+            limiter.is_limited(&String::from("token3:user3")),
+            OverflowLimiterResult::NotLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&String::from("token3:user3")),
+            OverflowLimiterResult::NotLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&String::from("token3:user3")),
+            OverflowLimiterResult::NotLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&String::from("token3:user3")),
+            OverflowLimiterResult::NotLimited
+        );
 
         // token:distinct_id from candidate list should also be rerouted/limited right away
-        assert!(limiter.is_limited(&key2));
-        assert!(limiter.is_limited(&key2));
+        assert_eq!(
+            limiter.is_limited(&key2),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&key2),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&key2),
+            OverflowLimiterResult::ForceLimited
+        );
     }
 
     #[tokio::test]
@@ -248,16 +312,31 @@ mod tests {
         );
 
         // token1 is limited for all distinct_ids
-        assert!(limiter.is_limited(&key1));
-        assert!(limiter.is_limited(&format!("{}:{}", token1, "other_user")));
-        assert!(limiter.is_limited(&token1.to_string()));
+        assert_eq!(
+            limiter.is_limited(&key1),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&format!("{}:{}", token1, "other_user")),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&token1.to_string()),
+            OverflowLimiterResult::ForceLimited
+        );
 
         // token2:user2 is limited only for that specific user
-        assert!(limiter.is_limited(&key2));
-        assert!(!limiter.is_limited(&format!("{}:{}", token2, "other_user")));
+        assert_eq!(
+            limiter.is_limited(&key2),
+            OverflowLimiterResult::ForceLimited
+        );
+        assert_eq!(
+            limiter.is_limited(&format!("{}:{}", token2, "other_user")),
+            OverflowLimiterResult::NotLimited
+        );
 
         // token3 gets rate limited normally
-        assert!(!limiter.is_limited(&key3));
-        assert!(limiter.is_limited(&key3)); // Second hit is limited
+        assert_eq!(limiter.is_limited(&key3), OverflowLimiterResult::NotLimited);
+        assert_eq!(limiter.is_limited(&key3), OverflowLimiterResult::Limited); // Second hit is limited
     }
 }

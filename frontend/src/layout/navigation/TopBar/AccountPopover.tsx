@@ -11,7 +11,6 @@ import {
     IconCopy,
     IconFeatures,
     IconGear,
-    IconInfo,
     IconLeave,
     IconLive,
     IconPlusSmall,
@@ -216,34 +215,13 @@ function DjangoAdmin(): JSX.Element {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { closeAccountPopover, acknowledgeFeaturePreviewChange } = useActions(navigationLogic)
-    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
-
     return (
         <LemonButton
             onClick={() => {
-                closeAccountPopover()
-                acknowledgeFeaturePreviewChange()
                 router.actions.push(urls.settings('user-feature-previews'))
             }}
-            className={!featurePreviewChangeAcknowledged ? 'animate-mark' : ''}
             icon={<IconFeatures />}
             fullWidth
-            // TODO: Remove this in a while so all users have acknowledged the change
-            tooltipForceMount={!featurePreviewChangeAcknowledged}
-            tooltipPlacement="right"
-            tooltip={
-                !featurePreviewChangeAcknowledged ? (
-                    <>
-                        <div className="flex items-center gap-2">
-                            <IconInfo className="size-4" />
-                            <span>
-                                <span className="font-bold">Feature previews</span> now live in settings.
-                            </span>
-                        </div>
-                    </>
-                ) : null
-            }
         >
             Feature previews
         </LemonButton>

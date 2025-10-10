@@ -220,7 +220,7 @@ export function EditAlertModal({
                                                                   } (${formula})`,
                                                                   value: index,
                                                               }))
-                                                            : alertSeries?.map(
+                                                            : (alertSeries?.map(
                                                                   ({ custom_name, name, event }, index) => ({
                                                                       label: isBreakdownValid
                                                                           ? 'any breakdown value'
@@ -229,7 +229,7 @@ export function EditAlertModal({
                                                                             }`,
                                                                       value: isBreakdownValid ? 0 : index,
                                                                   })
-                                                              )
+                                                              ) ?? [])
                                                     }
                                                     disabledReason={
                                                         isBreakdownValid &&

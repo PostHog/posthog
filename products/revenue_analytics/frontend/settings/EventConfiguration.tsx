@@ -4,13 +4,14 @@ import { useState } from 'react'
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EventConfigurationModal } from './EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
@@ -33,7 +34,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                 <div className="flex flex-row w-full gap-1 justify-end my-2">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel="editor"
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
                             type="primary"
@@ -156,7 +157,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                             <div className="flex items-center gap-1">
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.RevenueAnalytics}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
                                         size="small"
@@ -169,7 +170,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
 
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.RevenueAnalytics}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
                                         size="small"
@@ -191,12 +192,13 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                 ]}
             />
 
-            {modalState.isOpen && userHasAccess(AccessControlResourceType.RevenueAnalytics, 'editor') && (
-                <EventConfigurationModal
-                    event={modalState.event}
-                    onClose={() => setModalState({ isOpen: false, event: undefined })}
-                />
-            )}
+            {modalState.isOpen &&
+                userHasAccess(AccessControlResourceType.RevenueAnalytics, AccessControlLevel.Editor) && (
+                    <EventConfigurationModal
+                        event={modalState.event}
+                        onClose={() => setModalState({ isOpen: false, event: undefined })}
+                    />
+                )}
         </SceneSection>
     )
 }

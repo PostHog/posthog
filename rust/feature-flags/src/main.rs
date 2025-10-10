@@ -76,9 +76,6 @@ async fn main() {
 
     let log_layer = {
         let base_layer = fmt::layer()
-            .with_span_events(
-                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-            )
             .with_target(true)
             .with_thread_ids(true)
             .with_level(true);
@@ -86,6 +83,13 @@ async fn main() {
         if debug {
             // Development: Pretty colored output (like Django's ConsoleRenderer(colors=DEBUG))
             base_layer
+                .with_span_events(
+                    FmtSpan::NEW
+                        | FmtSpan::CLOSE
+                        | FmtSpan::ENTER
+                        | FmtSpan::EXIT
+                        | FmtSpan::ACTIVE,
+                )
                 .with_ansi(true)
                 .with_filter(EnvFilter::from_default_env())
                 .boxed()

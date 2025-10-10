@@ -25,7 +25,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
 
         # If there is no revenue item view, we return a query that returns 0 for all values
         if not subqueries:
@@ -136,7 +136,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                         [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
                     ),
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
+                        op=ast.CompareOperationOp.Gt,
                         left=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
                         right=ZERO_DECIMAL,
                     ),

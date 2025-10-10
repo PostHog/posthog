@@ -2,6 +2,8 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
     INSIGHT = 'insight',
@@ -69,6 +71,7 @@ type MaxInsightContextInput = {
     data: InsightWithQuery
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
+    revenueAnalyticsQuery?: RevenueAnalyticsQuery
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
@@ -100,13 +103,21 @@ export const createMaxContextHelpers = {
 
     insight: (
         insight: InsightWithQuery,
-        filtersOverride?: DashboardFilter,
-        variablesOverride?: Record<string, HogQLVariable>
+        {
+            filtersOverride,
+            variablesOverride,
+            revenueAnalyticsQuery,
+        }: {
+            filtersOverride?: DashboardFilter
+            variablesOverride?: Record<string, HogQLVariable>
+            revenueAnalyticsQuery?: RevenueAnalyticsQuery
+        } = {}
     ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
         data: insight,
         filtersOverride,
         variablesOverride,
+        revenueAnalyticsQuery,
     }),
 
     event: (event: EventDefinition): MaxEventContextInput => ({

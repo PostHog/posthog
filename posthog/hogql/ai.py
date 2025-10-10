@@ -1,6 +1,8 @@
 import os
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
+
 import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
@@ -19,7 +21,9 @@ from .query import create_default_modifiers_for_team
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API_KEY") else None  # type: ignore
+openai_client = (
+    OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL) if os.getenv("OPENAI_API_KEY") else None  # type: ignore
+)
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 

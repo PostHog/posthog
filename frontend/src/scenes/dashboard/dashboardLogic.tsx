@@ -22,13 +22,13 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
@@ -53,6 +53,7 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
@@ -270,6 +271,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        reportInsightsViewed: (insights: QueryBasedInsightModel[]) => ({ insights }),
 
         /**
          * Dashboard result colors.
@@ -1149,7 +1151,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard],
             (dashboard) => {
                 return dashboard?.user_access_level
-                    ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
+                    ? accessLevelSatisfied(
+                          AccessControlResourceType.Dashboard,
+                          dashboard.user_access_level,
+                          AccessControlLevel.Editor
+                      )
                     : false
             },
         ],
@@ -1711,12 +1717,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
+        reportInsightsViewed: ({ insights }: { insights: QueryBasedInsightModel[] }) => {
+            const insightIds = insights
+                .map((insight: QueryBasedInsightModel) => insight?.id)
+                .filter((id): id is number => !!id)
+
+            if (insightIds.length > 0 && values.currentTeamId) {
+                void api.create(`api/environments/${values.currentTeamId}/insights/viewed`, {
+                    insight_ids: insightIds,
+                })
+            }
+        },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
-            const { dashboard, lastDashboardRefresh } = values
+            const { dashboard, lastDashboardRefresh, tiles } = values
             if (dashboard) {
                 eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
+
+                const insights = tiles.map((t) => t.insight).filter((i): i is QueryBasedInsightModel => !!i)
+                actions.reportInsightsViewed(insights)
+
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
                     router.values.location.pathname === urls.dashboard(dashboard.id) ||

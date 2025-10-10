@@ -126,7 +126,7 @@ export class CdpApi {
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
-        router.post('/public/m/ses_webhook', asyncHandler(this.postSesWebhook()))
+        router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router

@@ -574,6 +574,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **batch_export.destination.config,
                     **destination_data.get("config", {}),
                 }
+                integration = destination_data.get("integration", batch_export.destination.integration)
+                batch_export.destination.integration = integration
 
             if hogql_query := validated_data.pop("hogql_query", None):
                 batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)

@@ -1,8 +1,9 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -11,6 +12,8 @@ import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
 import { errorTrackingQuery } from '../../queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from '../../utils'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
+
+export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
@@ -21,9 +24,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     connect(() => ({
         values: [
-            issueFiltersLogic,
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
-            issueQueryOptionsLogic,
+            issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['assignee', 'orderBy', 'orderDirection', 'status'],
         ],
         actions: [issueActionsLogic, ['mutationSuccess', 'mutationFailure'], bulkSelectLogic, ['setSelectedIssueIds']],
@@ -59,8 +62,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterGroup,
                 searchQuery,
                 orderDirection
-            ): DataTableNode =>
-                errorTrackingQuery({
+            ): DataTableNode => {
+                const columns =
+                    orderBy === 'revenue'
+                        ? ['error', 'volume', 'occurrences', 'sessions', 'users', 'revenue']
+                        : ['error', 'volume', 'occurrences', 'sessions', 'users']
+
+                return errorTrackingQuery({
                     orderBy,
                     status,
                     dateRange,
@@ -69,9 +77,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
-                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
+                    columns,
                     orderDirection,
-                }),
+                })
+            },
         ],
         breadcrumbs: [
             () => [],
@@ -82,6 +91,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     iconType: 'error_tracking',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+            }),
         ],
     }),
 

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
+import { hexToRGBA } from 'lib/utils'
 
 import {
     ExperimentMetric,
@@ -12,6 +13,7 @@ import {
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
 
+import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
@@ -223,7 +225,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     datasets.push({
                         label: '',
                         data: upperBounds,
-                        borderColor: 'rgba(200, 200, 200, 0.8)',
+                        borderColor: COLORS.BAR_DEFAULT,
                         borderWidth: 1,
                         fill: false,
                         tension: 0,
@@ -234,24 +236,36 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     datasets.push({
                         label: '',
                         data: lowerBounds,
-                        borderColor: 'rgba(200, 200, 200, 0.8)',
+                        borderColor: COLORS.BAR_DEFAULT,
                         borderWidth: 1,
                         fill: '-1',
                         backgroundColor: (context: any) => {
                             if (context.parsed) {
                                 const index = context.dataIndex
-                                return trimmedData[index]?.significant
-                                    ? 'rgba(34, 197, 94, 0.15)'
-                                    : 'rgba(200, 200, 200, 0.15)'
+                                const dataPoint = trimmedData[index]
+                                if (dataPoint?.significant) {
+                                    // Check if delta is positive or negative
+                                    const isPositive = dataPoint.value !== null && dataPoint.value > 0
+                                    return isPositive
+                                        ? hexToRGBA(COLORS.BAR_POSITIVE, 0.15)
+                                        : hexToRGBA(COLORS.BAR_NEGATIVE, 0.15)
+                                }
+                                return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                             }
-                            return 'rgba(200, 200, 200, 0.15)'
+                            return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                         },
                         segment: {
                             backgroundColor: (ctx: any) => {
                                 const index = ctx.p0DataIndex
-                                return trimmedData[index]?.significant
-                                    ? 'rgba(34, 197, 94, 0.15)'
-                                    : 'rgba(200, 200, 200, 0.15)'
+                                const dataPoint = trimmedData[index]
+                                if (dataPoint?.significant) {
+                                    // Check if delta is positive or negative
+                                    const isPositive = dataPoint.value !== null && dataPoint.value > 0
+                                    return isPositive
+                                        ? hexToRGBA(COLORS.BAR_POSITIVE, 0.15)
+                                        : hexToRGBA(COLORS.BAR_NEGATIVE, 0.15)
+                                }
+                                return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                             },
                         },
                         tension: 0,

@@ -1040,7 +1040,8 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_can_delete_user_with_no_organization_memberships(self):
+    @patch("posthoganalytics.capture")
+    def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -1056,6 +1057,12 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
+
+        mock_capture.assert_called_once_with(
+            distinct_id=user.distinct_id,
+            event="user account deleted",
+            properties=mock.ANY,
+        )
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
@@ -1227,7 +1234,10 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "discussions_mentioned": False,
+                    "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
+                    "all_weekly_digest_disabled": True,
                 }
             },
         )
@@ -1238,9 +1248,10 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1249,9 +1260,10 @@ class TestUserAPI(APIBaseTest):
             self.user.partial_notification_settings,
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1314,6 +1326,7 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": True,  # Default value
+                "discussions_mentioned": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value

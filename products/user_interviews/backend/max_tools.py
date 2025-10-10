@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
@@ -40,7 +42,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
         interview_summaries = "\n\n".join(interview_summaries)
 
         # Use GPT to analyze the summaries
-        analysis_response = OpenAI().responses.create(
+        analysis_response = OpenAI(base_url=settings.OPENAI_BASE_URL).responses.create(
             model="gpt-4.1-mini",
             input=[
                 {

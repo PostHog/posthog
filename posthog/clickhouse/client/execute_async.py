@@ -16,7 +16,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -150,35 +150,20 @@ class QueryStatusManager:
 
     def get_running_query_by_cache_key(self, cache_key: str) -> Optional[str]:
         """Get the query_id of a running query with the given cache_key, if any."""
-        try:
-            query_id = self.redis_client.hget(self.running_queries_key, cache_key)
-            if query_id:
-                decoded_query_id = query_id.decode("utf-8")
-                logger.debug("Found duplicate running query", cache_key=cache_key, query_id=decoded_query_id)
-                return decoded_query_id
-            return None
-        except Exception as e:
-            logger.exception("Error getting running query", cache_key=cache_key, error=str(e))
-            return None
+        query_id = self.redis_client.hget(self.running_queries_key, cache_key)
+        if query_id:
+            decoded_query_id = query_id.decode("utf-8")
+            return decoded_query_id
+        return None
 
     def register_cache_key_mapping(self, cache_key: str) -> None:
         """Register this query as running with the given cache_key."""
-        try:
-            self.redis_client.hset(self.running_queries_key, cache_key, self.query_id)
-            self.redis_client.expire(self.running_queries_key, self.DEDUP_TTL_SECONDS)
-            logger.debug("Registered running query", cache_key=cache_key, query_id=self.query_id)
-        except Exception as e:
-            logger.exception(
-                "Error registering running query", cache_key=cache_key, query_id=self.query_id, error=str(e)
-            )
+        self.redis_client.hset(self.running_queries_key, cache_key, self.query_id)
+        self.redis_client.expire(self.running_queries_key, self.DEDUP_TTL_SECONDS)
 
     def unregister_cache_key_mapping(self, cache_key: str) -> None:
         """Unregister a query that's no longer running."""
-        try:
-            self.redis_client.hdel(self.running_queries_key, cache_key)
-            logger.debug("Unregistered running query", cache_key=cache_key)
-        except Exception as e:
-            logger.exception("Error unregistering running query", cache_key=cache_key, error=str(e))
+        self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
 def execute_process_query(
@@ -261,27 +246,14 @@ def execute_process_query(
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
+        cache_key = None
         try:
-            cache_key = None
             if query_status.results:
                 cache_key = query_status.results.get("cache_key")
-
-            if cache_key:
-                manager.unregister_cache_key_mapping(cache_key)
-                posthoganalytics.capture(
-                    event="query duplicate unregistered",
-                    distinct_id=user_id,
-                    properties={
-                        "team": team_id,
-                        "cache_key": cache_key,
-                        "query_id": query_id,
-                        "query_json": query_json,
-                        "start_time": query_status.start_time,
-                        "end_time": query_status.end_time,
-                    },
-                )
+                if cache_key:
+                    manager.unregister_cache_key_mapping(cache_key)
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"cache_key": cache_key})
 
 
 def enqueue_process_query_task(
@@ -315,9 +287,19 @@ def enqueue_process_query_task(
         if cache_key:
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
-                return get_query_status(team.id, existing_query_id)
+                query_status = get_query_status(team.id, existing_query_id)
+                posthoganalytics.capture(
+                    "query duplicate found",
+                    distinct_id=user_id,
+                    properties={
+                        "cache_key": cache_key,
+                        "query_id": existing_query_id,
+                        "query_json": query_json,
+                    },
+                )
+                return query_status
     except Exception as e:
-        logger.exception("Error checking for duplicate query", team_id=team.id, error=str(e))
+        capture_exception(e, {"cache_key": cache_key})
 
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(
@@ -327,26 +309,17 @@ def enqueue_process_query_task(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
     )
+    query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)
 
     if cache_key:
         try:
             manager.register_cache_key_mapping(cache_key)
-            posthoganalytics.capture(
-                event="query duplicate registered",
-                distinct_id=user_id,
-                properties={
-                    "team": team.id,
-                    "cache_key": cache_key,
-                    "query_id": query_id,
-                    "query_json": query_json,
-                },
-            )
         except Exception as e:
-            logger.exception("Error registering running query for deduplication", team_id=team.id, error=str(e))
+            capture_exception(e, {"cache_key": cache_key})
 
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, is_query_service, LimitContext.QUERY_ASYNC
+        team.id, user_id, query_id, query_json, query_tags, is_query_service, LimitContext.QUERY_ASYNC
     )
 
     if _test_only_bypass_celery:
