@@ -147,7 +147,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                     actions.openSidePanel(cache.initialPanelState.selectedTab)
                 }
             }
-            cache.disposables.remove('dragListener')
+            cache.disposables.dispose('dragListener')
         },
     })),
 

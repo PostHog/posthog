@@ -649,7 +649,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             // Remove any existing refresh timeout
-            cache.disposables.remove('refreshTimeout')
+            cache.disposables.dispose('refreshTimeout')
 
             // Add new refresh timeout
             cache.disposables.add(() => {

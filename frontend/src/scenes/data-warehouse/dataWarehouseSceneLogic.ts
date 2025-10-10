@@ -229,7 +229,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         },
         loadSourcesSuccess: () => {
             // Remove any existing refresh timeout
-            cache.disposables.remove('refreshTimeout')
+            cache.disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {

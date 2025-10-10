@@ -154,8 +154,8 @@ export const resizerLogic = kea<resizerLogicType>([
 
         endResize: () => {
             // Remove the dynamic listeners we added
-            cache.disposables.remove('dynamicMouseMove')
-            cache.disposables.remove('dynamicMouseUp')
+            cache.disposables.dispose('dynamicMouseMove')
+            cache.disposables.dispose('dynamicMouseUp')
 
             document.body.classList.remove('is-resizing')
         },

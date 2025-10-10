@@ -467,7 +467,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         },
         abortAnyRunningQuery: () => {
             // Remove any existing abort controller
-            cache.disposables.remove('abortController')
+            cache.disposables.dispose('abortController')
 
             // Add new abort controller
             cache.disposables.add(() => {

@@ -520,7 +520,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
             const onScrollResize = (): void => {
                 // Clear any existing timeout
-                cache.disposables.remove('clickDelayTimeout')
+                cache.disposables.dispose('clickDelayTimeout')
                 actions.updateRects()
 
                 // Add new timeout

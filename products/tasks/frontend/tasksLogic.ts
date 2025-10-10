@@ -452,7 +452,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
         startPolling: () => {
             // Remove any existing polling interval
-            cache.disposables.remove('pollingInterval')
+            cache.disposables.dispose('pollingInterval')
 
             // Add new polling interval
             cache.disposables.add(() => {
@@ -467,7 +467,7 @@ export const tasksLogic = kea<tasksLogicType>([
             }, 'pollingInterval')
         },
         stopPolling: () => {
-            cache.disposables.remove('pollingInterval')
+            cache.disposables.dispose('pollingInterval')
         },
         loadTasksSuccess: () => {
             // Start polling when tasks are loaded if there are active tasks
