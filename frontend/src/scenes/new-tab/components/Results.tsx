@@ -15,6 +15,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
@@ -79,8 +80,14 @@ function Category({
                 <div className="flex flex-col gap-2">
                     {(category === 'recents' || newTabSceneData) && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
-                        <div className="flex flex-col gap-2 text-tertiary text-balance px-2">
-                            {isSearching ? 'Searching...' : 'No results found'}
+                        <div className="flex flex-col gap-2 text-tertiary text-balance">
+                            {isSearching ? (
+                                <WrappingLoadingSkeleton>
+                                    <ButtonPrimitive>Loading items...</ButtonPrimitive>
+                                </WrappingLoadingSkeleton>
+                            ) : (
+                                <ButtonPrimitive inert>No results found</ButtonPrimitive>
+                            )}
                         </div>
                     ) : (
                         typedItems.map((item, index) => (

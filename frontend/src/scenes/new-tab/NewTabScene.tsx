@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconInfo, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { IconCheck, IconInfo, IconPerson, IconSearch } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -89,8 +89,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             virtualFocus
             autoSelectFirst
         >
-            <div className="flex flex-col gap-4">
-                <div className="px-1 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
+            <div className="flex flex-col gap-2">
+                <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
                     <ListBox.Item asChild virtualFocusIgnore>
                         <LemonInput
                             inputRef={inputRef}
@@ -159,14 +159,19 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     </TabsPrimitive>
                 ) : (
                     <div className="border-b">
-                        <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-3">
-                            <div className="flex items-center gap-4">
+                        <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
+                            <div className="flex items-center gap-3">
                                 <span className="text-sm text-tertiary">Include:</span>
-                                <LemonCheckbox
-                                    checked={newTabSceneDataIncludePersons}
-                                    onChange={setNewTabSceneDataIncludePersons}
-                                    label="Persons"
-                                />
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="sm"
+                                        active={newTabSceneDataIncludePersons}
+                                        onClick={() => setNewTabSceneDataIncludePersons(!newTabSceneDataIncludePersons)}
+                                    >
+                                        <IconPerson className="size-4" /> Persons
+                                        {newTabSceneDataIncludePersons && <IconCheck className="size-3 text-success" />}
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
                             </div>
                         </div>
                     </div>
@@ -213,6 +218,18 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 'flex flex-col gap-4': newTabSceneData,
                             })}
                         >
+                            {/* TODO: Remove this once we're done testing */}
+                            {newTabSceneData && (
+                                <div className="col-span-4 border border-primary border-px rounded-md p-2">
+                                    <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
+                                        <IconInfo className="size-4" /> You're trying out the new tab scene with the
+                                        flag:{' '}
+                                        <pre className="border border-primary border-px rounded-md px-1 mb-0">
+                                            data-in-new-tab-scene
+                                        </pre>
+                                    </p>
+                                </div>
+                            )}
                             <Results tabId={tabId || ''} />
                         </div>
                     )}

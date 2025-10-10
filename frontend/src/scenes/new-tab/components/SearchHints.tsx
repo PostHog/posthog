@@ -1,6 +1,5 @@
 import { IconSidePanel } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 
@@ -29,7 +28,6 @@ export function SearchHints({
     focusSearchInput,
     openSidePanel,
 }: SearchHintsProps): JSX.Element {
-    const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
     return (
         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
             {specialSearchMode === 'persons' && search.trim() ? (
@@ -64,34 +62,18 @@ export function SearchHints({
             ) : (
                 <span>
                     <span className="text-tertiary">Try:</span>
-
-                    {newTabSceneData ? (
-                        <ListBox.Item asChild>
-                            <ButtonPrimitive
-                                size="xxs"
-                                className="text-xs"
-                                onClick={() => {
-                                    setSearch('/persons ')
-                                    focusSearchInput()
-                                }}
-                            >
-                                /persons <span className="text-tertiary -ml-1">$email/id</span>
-                            </ButtonPrimitive>
-                        </ListBox.Item>
-                    ) : (
-                        <ListBox.Item asChild>
-                            <ButtonPrimitive
-                                size="xxs"
-                                className="text-xs"
-                                onClick={() => {
-                                    setSearch('New SQL query')
-                                    focusSearchInput()
-                                }}
-                            >
-                                New SQL query
-                            </ButtonPrimitive>
-                        </ListBox.Item>
-                    )}
+                    <ListBox.Item asChild>
+                        <ButtonPrimitive
+                            size="xxs"
+                            className="text-xs"
+                            onClick={() => {
+                                setSearch('New SQL query')
+                                focusSearchInput()
+                            }}
+                        >
+                            New SQL query
+                        </ButtonPrimitive>
+                    </ListBox.Item>
                     <span className="text-tertiary">or</span>
                     <ListBox.Item asChild>
                         <ButtonPrimitive
