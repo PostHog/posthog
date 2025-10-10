@@ -175,6 +175,9 @@ const getLogs = async (
         if (endDate && endDate.isBefore(dayjs(log.timestamp))) {
             return false
         }
+        if (body.query?.serviceNames?.length && !body.query?.serviceNames.includes(log.attributes['service.name'])) {
+            return false
+        }
         return severityLevels.includes(log.severity_text.toLowerCase())
     })
 
