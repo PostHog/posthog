@@ -69,7 +69,7 @@ export function OverviewGrid({
     return (
         <>
             <EvenlyDistributedRows
-                className="flex justify-center items-center flex-wrap w-full gap-1"
+                className={`flex justify-center items-center flex-wrap w-full ${compact ? 'gap-1' : 'gap-2'}`}
                 minWidthRems={
                     compact
                         ? OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT + 1
