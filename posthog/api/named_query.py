@@ -11,8 +11,18 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import HogQLQuery, NamedQueryRequest, NamedQueryRunRequest, QueryRequest
+from posthog.schema import (
+    EndpointLastExecutionTimesRequest,
+    EndpointRequest,
+    EndpointRunRequest,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    QueryRequest,
+    QueryStatus,
+    QueryStatusResponse,
+)
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.documentation import extend_schema
@@ -27,6 +37,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.named_query import NamedQuery
@@ -88,7 +99,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         return Response({"results": results})
 
-    def validate_request(self, data: NamedQueryRequest, strict: bool = True) -> None:
+    def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
             raise ValidationError("Must specify query")
@@ -105,13 +116,13 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             )
 
     @extend_schema(
-        request=NamedQueryRequest,
+        request=EndpointRequest,
         description="Create a new named query",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create a new named query."""
         upgraded_query = upgrade(request.data)
-        data = self.get_model(upgraded_query, NamedQueryRequest)
+        data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=True)
 
         try:
@@ -145,7 +156,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             raise ValidationError("Failed to create named query.")
 
     @extend_schema(
-        request=NamedQueryRequest,
+        request=EndpointRequest,
         description="Update an existing named query. Parameters are optional.",
     )
     def update(self, request: Request, name=None, *args, **kwargs) -> Response:
@@ -153,7 +164,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name)
 
         upgraded_query = upgrade(request.data)
-        data = self.get_model(upgraded_query, NamedQueryRequest)
+        data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=False)
 
         try:
@@ -193,14 +204,14 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
-        request=NamedQueryRunRequest,
+        request=EndpointRunRequest,
         description="Update an existing named query. Parameters are optional.",
     )
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a named query with optional parameters."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name, is_active=True)
-        data = self.get_model(request.data, NamedQueryRunRequest)
+        data = self.get_model(request.data, EndpointRunRequest)
 
         self.validate_run_request(data, named_query)
         data.variables_values = data.variables_values or {}
@@ -265,9 +276,51 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             capture_exception(e)
             raise
 
-    def validate_run_request(self, data: NamedQueryRunRequest, named_query: NamedQuery) -> None:
+    def validate_run_request(self, data: EndpointRunRequest, named_query: NamedQuery) -> None:
         if named_query.query.get("kind") == "HogQLQuery" and data.query_override:
             raise ValidationError("Query override is not supported for HogQL queries")
+
+    @extend_schema(
+        description="Get the last execution times in the past 6 months for multiple named queries.",
+        request=EndpointLastExecutionTimesRequest,
+        responses={200: QueryStatusResponse},
+    )
+    @action(methods=["POST"], detail=False, url_path="last_execution_times")
+    def get_named_queries_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
+        try:
+            data = EndpointLastExecutionTimesRequest.model_validate(request.data)
+            names = data.names
+            if not names:
+                return Response(
+                    QueryStatusResponse(
+                        query_status=QueryStatus(id="", team_id=self.team.pk, complete=True)
+                    ).model_dump(),
+                    status=200,
+                )
+
+            quoted_names = [f"'{name}'" for name in names]
+            names_list = ",".join(quoted_names)
+
+            query = HogQLQuery(
+                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/named_query/%' and query_start_time >= (today() - interval 6 month) group by name",
+                name="get_named_queries_last_execution_times",
+            )
+            hogql_runner = HogQLQueryRunner(
+                query=query,
+                team=self.team,
+                modifiers=HogQLQueryModifiers(),
+                limit_context=LimitContext.QUERY,
+            )
+            result = hogql_runner.calculate()
+
+            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=result.results)
+
+            return Response(QueryStatusResponse(query_status=query_status).model_dump(), status=200)
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
+        except Exception as e:
+            capture_exception(e)
+            raise
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

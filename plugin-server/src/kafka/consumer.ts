@@ -26,7 +26,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
+import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -830,7 +830,9 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
     // We extract the specific headers we care about into a structured format.
 
-    const result: EventHeaders = {}
+    const result: EventHeaders = {
+        force_disable_person_processing: false,
+    }
 
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
@@ -841,8 +843,28 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.distinct_id = value
             } else if (key === 'timestamp') {
                 result.timestamp = value
+            } else if (key === 'event') {
+                result.event = value
+            } else if (key === 'uuid') {
+                result.uuid = value
+            } else if (key === 'force_disable_person_processing') {
+                result.force_disable_person_processing = value === 'true'
             }
         })
+    })
+
+    // Track comprehensive header status metrics
+    const trackedHeaders = [
+        'token',
+        'distinct_id',
+        'timestamp',
+        'event',
+        'uuid',
+        'force_disable_person_processing',
+    ] as const
+    trackedHeaders.forEach((header) => {
+        const status = result[header] ? 'present' : 'absent'
+        kafkaHeaderStatusCounter.labels(header, status).inc()
     })
 
     return result

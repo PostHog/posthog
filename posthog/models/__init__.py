@@ -18,7 +18,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .batch_imports import BatchImport
-from .cohort import Cohort, CohortPeople
+from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
@@ -100,6 +100,7 @@ __all__ = [
     "BatchImport",
     "Cohort",
     "CohortPeople",
+    "CohortCalculationHistory",
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",

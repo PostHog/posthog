@@ -1,1 +1,1 @@
-0867_initial_migration
+0876_add_marketing_analytics_attribution_settings

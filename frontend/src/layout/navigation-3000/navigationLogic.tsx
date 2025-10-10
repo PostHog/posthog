@@ -39,7 +39,7 @@ import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -71,7 +71,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
+            sessionRecordingSavedFiltersLogic,
             ['savedFilters', 'savedFiltersLoading'],
             organizationLogic,
             ['isCurrentOrganizationUnavailable'],
@@ -592,16 +592,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.dataPipelines('overview'),
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
-                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
-                            ? {
-                                  identifier: Scene.Heatmaps,
-                                  label: 'Heatmaps',
-                                  icon: <IconCursorClick />,
-                                  to: urls.heatmaps(),
-                                  tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Heatmaps,
+                            label: 'Heatmaps',
+                            icon: <IconCursorClick />,
+                            to: urls.heatmaps(),
+                            tag: 'beta' as const,
+                            tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
+                        },
                         featureFlags[FEATURE_FLAGS.LINKS]
                             ? {
                                   identifier: Scene.Links,

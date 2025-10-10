@@ -32,7 +32,7 @@ export const errorTrackingQuery = ({
     'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
-    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee' | 'library')[]
+    columns: string[]
     volumeResolution?: number
 }): DataTableNode => {
     return {
@@ -87,6 +87,7 @@ export const errorTrackingIssueQuery = ({
         issueId,
         dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
+        orderBy: 'last_seen',
         filterTestAccounts,
         searchQuery,
         volumeResolution,
@@ -100,28 +101,24 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    issueId,
+    fingerprints,
     filterTestAccounts,
     filterGroup,
     searchQuery,
     dateRange,
     columns,
 }: {
-    issueId: string | null
+    fingerprints: string[]
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     searchQuery: string
     dateRange: DateRange
     columns: string[]
 }): EventsQuery => {
-    if (!issueId) {
-        throw new Error('issue id is required')
-    }
-
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `'${issueId}' == issue_id`
+    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}]`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery
