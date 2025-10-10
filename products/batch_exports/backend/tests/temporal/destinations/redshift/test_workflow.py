@@ -12,7 +12,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -68,6 +68,7 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
 async def test_redshift_export_workflow(
@@ -83,6 +84,11 @@ async def test_redshift_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
+    mode,
+    aws_credentials,
+    bucket_name,
+    bucket_region,
+    key_prefix,
     use_internal_stage,
 ):
     """Test Redshift Export Workflow end-to-end.
@@ -104,6 +110,26 @@ async def test_redshift_export_workflow(
     ):
         pytest.skip(f"Batch export model {model.name} cannot be tested in PostgreSQL")
 
+    if mode == "COPY":
+        if MISSING_REQUIRED_ENV_VARS:
+            pytest.skip("Testing COPY mode requires a Redshift instance")
+
+        if use_internal_stage is False:
+            pytest.skip("Testing COPY mode requires internal stage")
+
+        if not aws_credentials or not bucket_name or not bucket_region:
+            pytest.skip("Testing COPY mode requires S3 variables to be configured")
+
+        copy_inputs = RedshiftCopyInputs(
+            s3_bucket=bucket_name,
+            region_name=bucket_region,
+            s3_key_prefix=key_prefix,
+            authorization=aws_credentials,
+            bucket_credentials=aws_credentials,
+        )
+    else:
+        copy_inputs = None
+
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
@@ -119,6 +145,8 @@ async def test_redshift_export_workflow(
         interval=interval,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
+        mode=mode,
+        copy_inputs=copy_inputs,
         **redshift_batch_export.destination.config,
     )
 
@@ -179,6 +207,7 @@ async def test_redshift_export_workflow(
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key=sort_key,
+        copy=mode == "COPY",
     )
 
 
