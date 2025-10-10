@@ -154,7 +154,7 @@ const generateLogs = (): LogMessage[] => {
     return results
 }
 
-const ALL_LOGS_GENERATED = generateLogs()
+let _cachedLogs: LogMessage[] | null = null
 
 const getLogs = async (
     body: any
@@ -163,6 +163,10 @@ const getLogs = async (
     endTime: dayjs.Dayjs
     logs: LogMessage[]
 }> => {
+    if (!_cachedLogs?.length) {
+        _cachedLogs = generateLogs()
+    }
+    const ALL_LOGS_GENERATED = _cachedLogs
     const severityLevels = body.query?.severityLevels ?? ['info', 'warn', 'error']
 
     const startDate = dateStringToDayJs(body.query?.dateRange?.date_from ?? null) ?? dayjs().subtract(30, 'minutes')
