@@ -456,11 +456,13 @@ class DatabricksClient:
             query_kwargs={"input_stream": file},
         )
 
-    async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
+    async def acopy_into_table_from_volume(
+        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
+    ):
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
         self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
-            table_name=table_name, volume_path=volume_path, fields=fields
+            table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
         try:
             await self.execute_async_query(query, fetch_results=False)
@@ -473,9 +475,13 @@ class DatabricksClient:
             raise
 
     def _get_copy_into_table_from_volume_query(
-        self, table_name: str, volume_path: str, fields: list[DatabricksField]
+        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
     ) -> str:
         """Get the query to copy data from a Databricks volume into a Databricks table.
+
+        We use the following COPY_OPTIONS:
+        - force=true to ensure we always load in data from the source file
+        - mergeSchema: whether to merge the schema of the source table with the schema of the target table
 
         Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
         Therefore, we need to cast the data to the correct type, otherwise the request will fail.
@@ -494,12 +500,15 @@ class DatabricksClient:
                 select_fields.append(f"`{field[0]}`")
         select_fields_str = ", ".join(select_fields)
 
+        merge_schema = f"true" if with_schema_evolution else "false"
+
         return f"""
         COPY INTO `{table_name}`
         FROM (
             SELECT {select_fields_str} FROM '{volume_path}'
         )
         FILEFORMAT = PARQUET
+        COPY_OPTIONS ('force' = 'true', 'mergeSchema' = '{merge_schema}')
         """
 
     @contextlib.asynccontextmanager
@@ -1026,6 +1035,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     table_name=stage_table_name if stage_table_name else inputs.table_name,
                     volume_path=volume_path,
                     fields=table_fields,
+                    with_schema_evolution=inputs.use_automatic_schema_evolution,
                 )
 
                 if requires_merge and stage_table_name is not None:
