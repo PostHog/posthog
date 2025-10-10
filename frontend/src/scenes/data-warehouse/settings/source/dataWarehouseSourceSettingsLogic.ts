@@ -190,9 +190,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     })),
     listeners(({ values, actions, props, cache }) => ({
         loadSourceSuccess: () => {
-            // Clear any existing source refresh timeout
-            cache.disposables.dispose('sourceRefreshTimeout')
-
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadSource()
@@ -207,9 +204,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 ?.actions.setBreadcrumbName(values.source?.source_type ?? 'Source')
         },
         loadSourceFailure: () => {
-            // Clear any existing source refresh timeout
-            cache.disposables.dispose('sourceRefreshTimeout')
-
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadSource()
@@ -218,9 +212,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             }, 'sourceRefreshTimeout')
         },
         loadJobsSuccess: () => {
-            // Clear any existing jobs refresh timeout
-            cache.disposables.dispose('jobsRefreshTimeout')
-
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadJobs()
@@ -229,9 +220,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             }, 'jobsRefreshTimeout')
         },
         loadJobsFailure: () => {
-            // Clear any existing jobs refresh timeout
-            cache.disposables.dispose('jobsRefreshTimeout')
-
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadJobs()

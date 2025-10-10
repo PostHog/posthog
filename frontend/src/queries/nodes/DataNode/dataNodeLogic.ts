@@ -918,9 +918,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         resetLoadingTimer: () => {
-            // Clear any existing loading timer
-            cache.disposables.dispose('loadingTimer')
-
             if (values.dataLoading) {
                 const startTime = Date.now()
                 cache.disposables.add(() => {
@@ -938,9 +935,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onError?.(error)
         },
         autoLoadRunning: (autoLoadRunning) => {
-            // Clear any existing autoload interval
-            cache.disposables.dispose('autoLoadInterval')
-
             if (autoLoadRunning) {
                 actions.loadNewData()
                 cache.disposables.add(() => {

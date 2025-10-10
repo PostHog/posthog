@@ -331,7 +331,6 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             if (tab === 'exports') {
                 // Start polling when switching to exports tab
                 actions.loadExports()
-                cache.disposables.dispose('exportPollingInterval')
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
                         actions.loadExports()

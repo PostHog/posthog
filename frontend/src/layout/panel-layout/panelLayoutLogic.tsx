@@ -177,9 +177,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             }
         },
         setMainContentRef: ({ ref }) => {
-            // Clean up old ResizeObserver
-            cache.disposables.dispose('resizeObserver')
-
             // Measure width immediately when container ref is set
             if (ref?.current) {
                 actions.setMainContentRect(ref.current.getBoundingClientRect())

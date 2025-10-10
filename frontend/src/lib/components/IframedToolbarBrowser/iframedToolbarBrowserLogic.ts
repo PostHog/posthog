@@ -297,10 +297,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            // Clear any existing timeouts
-            cache.disposables.dispose('errorTimeout')
-            cache.disposables.dispose('warnTimeout')
-
             cache.disposables.add(() => {
                 const errorTimerId = setTimeout(() => {
                     actions.setIframeBanner({

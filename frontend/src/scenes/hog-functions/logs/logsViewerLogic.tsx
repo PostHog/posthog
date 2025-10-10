@@ -490,8 +490,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     }),
     listeners(({ actions, cache, values }) => ({
         loadLogs: () => {
-            cache.disposables.dispose('pollingTimeout')
-
             if (values.isGrouped) {
                 actions.loadGroupedLogs()
             } else {
@@ -516,7 +514,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         loadGroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         loadUngroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         scheduleLoadNewerLogs: () => {
-            cache.disposables.dispose('pollingTimeout')
             cache.disposables.add(() => {
                 const timeoutId = setTimeout(() => actions.loadNewerLogs(), POLLING_INTERVAL)
                 return () => clearTimeout(timeoutId)

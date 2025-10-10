@@ -141,7 +141,6 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
 
     listeners(({ actions, cache }) => ({
         loadStatusPageSuccess: () => {
-            cache.disposables.dispose('refreshTimeout')
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => actions.loadStatusPage(), REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)

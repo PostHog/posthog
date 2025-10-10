@@ -400,9 +400,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            // Clear any existing timeout
-            cache.disposables.dispose('errorTimeout')
-
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.setIframeBanner({

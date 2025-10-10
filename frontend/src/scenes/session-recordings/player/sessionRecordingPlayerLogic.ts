@@ -1150,9 +1150,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 if (iframeContentWindow) {
-                    // Clean up any previous listeners before adding new ones
-                    cache.disposables.dispose('iframeErrorListeners')
-
                     cache.disposables.add(() => {
                         return registerErrorListeners({
                             iframeWindow: iframeContentWindow,

@@ -1671,8 +1671,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.resetInterval()
         },
         resetInterval: () => {
-            cache.disposables.dispose('autoRefreshInterval')
-
             if (values.autoRefresh.enabled) {
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (

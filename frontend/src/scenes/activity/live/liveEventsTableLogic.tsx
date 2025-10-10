@@ -210,7 +210,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             } finally {
-                cache.disposables.dispose('statsTimer')
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.pollStats()

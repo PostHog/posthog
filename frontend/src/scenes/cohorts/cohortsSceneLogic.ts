@@ -162,7 +162,6 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
                 return
             }
-            cache.disposables.dispose('pollTimeout')
             cache.disposables.add(() => {
                 const timerId = window.setTimeout(actions.loadCohorts, POLL_TIMEOUT)
                 return () => clearTimeout(timerId)

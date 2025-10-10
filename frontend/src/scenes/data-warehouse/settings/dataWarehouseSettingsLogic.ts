@@ -190,9 +190,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
         loadSourcesSuccess: () => {
-            // Clear any existing refresh timeout
-            cache.disposables.dispose('refreshTimeout')
-
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
@@ -203,9 +200,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             }
         },
         loadSourcesFailure: () => {
-            // Clear any existing refresh timeout
-            cache.disposables.dispose('refreshTimeout')
-
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {

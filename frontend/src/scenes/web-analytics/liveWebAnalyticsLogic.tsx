@@ -86,7 +86,6 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
         },
         setIsHovering: ({ isHovering }) => {
             if (isHovering) {
-                cache.disposables.dispose('nowInterval')
                 actions.setNow({ now: new Date() })
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {

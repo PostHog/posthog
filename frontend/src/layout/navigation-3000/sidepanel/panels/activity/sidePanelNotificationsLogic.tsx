@@ -63,8 +63,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
                     await breakpoint(1)
 
-                    cache.disposables.dispose('pollTimeout')
-
                     try {
                         const response = await api.get<ChangesResponse>(
                             `api/projects/${values.currentProjectId}/my_notifications?` +
