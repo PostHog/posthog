@@ -26,19 +26,10 @@ export const errorTrackingQuery = ({
     volumeResolution = ERROR_TRACKING_LISTING_RESOLUTION,
     columns,
     orderDirection,
-    personId,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    | 'orderBy'
-    | 'status'
-    | 'dateRange'
-    | 'assignee'
-    | 'filterTestAccounts'
-    | 'limit'
-    | 'searchQuery'
-    | 'orderDirection'
-    | 'personId'
+    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: string[]
@@ -60,7 +51,6 @@ export const errorTrackingQuery = ({
             orderDirection,
             withAggregations: true,
             withFirstEvent: false,
-            personId,
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },

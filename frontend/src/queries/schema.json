@@ -10555,9 +10555,6 @@
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
-                "personId": {
-                    "type": "string"
-                },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },

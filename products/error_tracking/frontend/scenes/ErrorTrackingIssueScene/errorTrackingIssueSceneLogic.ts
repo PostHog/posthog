@@ -33,8 +33,6 @@ export interface ErrorTrackingIssueSceneLogicProps {
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
 
-export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
-
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
     path((key) => [
         'products',
@@ -48,12 +46,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect(() => ({
-        values: [
-            issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
-        ],
+        values: [issueFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
         actions: [
-            issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
+            issueFiltersLogic,
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
             ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],

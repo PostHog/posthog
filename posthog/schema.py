@@ -12730,7 +12730,6 @@ class ErrorTrackingQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: OrderBy
     orderDirection: Optional[OrderDirection] = None
-    personId: Optional[str] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     revenueEntity: Optional[RevenueEntity] = None
     revenuePeriod: Optional[RevenuePeriod] = None
