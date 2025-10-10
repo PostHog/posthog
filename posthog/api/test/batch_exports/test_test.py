@@ -13,10 +13,11 @@ import pytest_asyncio
 from rest_framework import status
 
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
-from posthog.models import BatchExportDestination
+from posthog.models import BatchExportDestination, Integration
 
 from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
 from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryProjectTestStep
+from products.batch_exports.backend.api.destination_tests.databricks import DatabricksEstablishConnectionTestStep
 from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
 
 pytestmark = [
@@ -24,7 +25,7 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("destination", ["S3", "BigQuery", "Snowflake"])
+@pytest.mark.parametrize("destination", ["S3", "BigQuery", "Snowflake", "Databricks"])
 def test_can_get_test_for_destination(client: HttpClient, destination: str, organization, team, user):
     client.force_login(user)
 
@@ -389,3 +390,116 @@ def test_can_run_bigquery_test_step_with_castable_type(
 
     assert destination_test["result"]["status"] == "Passed", destination_test
     assert destination_test["result"]["message"] is None
+
+
+@pytest.fixture
+def databricks_integration(team, user):
+    """Create a Databricks integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="my-server-hostname",
+        config={"server_hostname": "my-server-hostname"},
+        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def enable_databricks(team):
+    with unittest.mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ) as feature_enabled:
+        yield
+        feature_enabled.assert_called_once_with(
+            "databricks-batch-exports",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+
+def test_can_run_databricks_test_step_for_new_destination(
+    client: HttpClient, organization, team, user, databricks_integration, enable_databricks
+):
+    destination_data = {
+        "type": "Databricks",
+        "integration": databricks_integration.id,
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-batch-export",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
+    ) as run_step_mocked:
+        fake_test_step = DatabricksEstablishConnectionTestStep()
+        fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
+        run_step_mocked.return_value = fake_test_step
+        response = client.post(
+            f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
+            {**{"step": 0}, **batch_export_data},
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    destination_test = response.json()
+
+    assert destination_test["result"]["status"] == "Passed", destination_test
+    assert destination_test["result"]["message"] is None
+
+
+def test_integration_is_required_for_databricks_destination_tests(
+    client: HttpClient,
+    organization,
+    team,
+    user,
+    enable_databricks,
+):
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-batch-export",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
+        {**{"step": 0}, **batch_export_data},
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    response_json = response.json()
+    assert response_json["detail"] == "integration is required for Databricks batch exports"

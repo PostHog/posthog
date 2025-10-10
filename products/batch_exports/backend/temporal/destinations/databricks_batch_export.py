@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator
 from django.conf import settings
 
 import pyarrow as pa
+import urllib3.exceptions
 from databricks import sql
 from databricks.sdk._base_client import _BaseClient
 from databricks.sdk.core import Config, ConfigAttribute, oauth_service_principal
@@ -265,8 +266,8 @@ class DatabricksClient:
             raise DatabricksConnectionError(
                 f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
-        # for some reason, some connection failures are reported as a ValueError
-        except ValueError as err:
+        # for some reason, Databricks reports some connection failures as a ValueError
+        except (ValueError, urllib3.exceptions.HTTPError, urllib3.exceptions.MaxRetryError) as err:
             self.logger.info(
                 "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
                 err,
@@ -284,23 +285,26 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
+
         return result
 
     @contextlib.asynccontextmanager
-    async def connect(self):
+    async def connect(self, set_context: bool = True):
         """Manage a Databricks connection.
 
         Methods that require a connection should be ran within this block.
 
-        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        If set_context is `True`, we call `use_catalog` and `use_schema` to ensure that all queries are run in the
+        correct catalog and schema.
         """
         self.logger.info("Initializing Databricks connection")
 
         self._connection = await self._connect()
         self.logger.info("Connected to Databricks")
 
-        await self.use_catalog(self.catalog)
-        await self.use_schema(self.schema)
+        if set_context is True:
+            await self.use_catalog(self.catalog)
+            await self.use_schema(self.schema)
 
         try:
             yield self
