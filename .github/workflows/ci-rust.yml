@@ -91,6 +91,7 @@ jobs:
                     - common-hypercache
                     - common-metrics
                     - common-kafka
+                    - common-profiler
                     - common-s3
                     - cyclotron-core
                     - cyclotron-node

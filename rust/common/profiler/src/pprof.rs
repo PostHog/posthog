@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{
+    body::Body,
     extract::Query,
+    http::header::CONTENT_TYPE,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -27,18 +29,21 @@ pub struct ProfileQueryParams {
 //
 // Generate a flamegraph SVG image of the profiler data
 //
-// Example:
-// curl -vsSL -X GET "http://<POD_URL>:<POD_PORT>/pprof/profile?seconds=10&frequency=200" > profile.pb.gz
+// Examples:
+// curl -vsSL -X GET "http://<POD_URL>:<POD_PORT>/pprof/profile/report?seconds=10&frequency=200" > profile.pb.gz
 //
-// Example:
-// curl -vsSL -X GET "http://<POD_URL>:<POD_PORT>/pprof/flamegraph?seconds=10&frequency=200&image_width=2500" > flamegraph.svg.gz
+// curl -vsSL -X GET "http://<POD_URL>:<POD_PORT>/pprof/profile/flamegraph?seconds=10&frequency=200&image_width=2500" > flamegraph.svg.gz
+//
+// curl -vsSL -X GET "http://<POD_URL>:<POD_PORT>/pprof/heap/report" > heap.pb.gz
+//
+// curl -vsSL -X GET "http://<POD_URL>:<POD_PORT>/pprof/heap/flamegraph" > heap.svg.gz
 //
 // NOTE: if deployed to k8s, use "kubectl port-forward" to forward the port
 //       to your local machine, then replace <POD_URL> with "localhost"
 
 const DEFAULT_IMAGE_WIDTH: usize = 2500;
 
-pub async fn handle_profile(
+pub async fn handle_profile_report(
     Query(params): Query<ProfileQueryParams>,
 ) -> Result<Response, Response> {
     let seconds = params.seconds.unwrap_or(10);
@@ -60,7 +65,7 @@ pub async fn handle_profile(
     }
 }
 
-pub async fn handle_flamegraph(
+pub async fn handle_profile_flamegraph(
     Query(params): Query<ProfileQueryParams>,
 ) -> Result<Response, Response> {
     let seconds = params.seconds.unwrap_or(10);
@@ -81,6 +86,47 @@ pub async fn handle_flamegraph(
         )
             .into_response()),
     }
+}
+
+pub async fn handle_allocation_report() -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut prof_ctl = jemalloc_pprof::PROF_CTL
+        .as_ref()
+        .ok_or_else(|| {
+            (
+                axum::http::StatusCode::FORBIDDEN,
+                "jemalloc profiling not activated".into(),
+            )
+        })?
+        .lock()
+        .await;
+    require_profiling_activated(&prof_ctl)?;
+
+    let pprof = prof_ctl
+        .dump_pprof()
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(pprof)
+}
+
+pub async fn handle_allocation_flamegraph() -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut prof_ctl = jemalloc_pprof::PROF_CTL
+        .as_ref()
+        .ok_or_else(|| {
+            (
+                axum::http::StatusCode::FORBIDDEN,
+                "jemalloc profiling not activated".into(),
+            )
+        })?
+        .lock()
+        .await;
+    require_profiling_activated(&prof_ctl)?;
+
+    let svg = prof_ctl
+        .dump_flamegraph()
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Response::builder()
+        .header(CONTENT_TYPE, "image/svg+xml")
+        .body(Body::from(svg))
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
 async fn generate_report(frequency: i32, seconds: u64) -> Result<Vec<u8>> {
@@ -143,4 +189,18 @@ async fn generate_flamegraph(frequency: i32, seconds: u64, image_width: usize) -
         .context("Failed to finish encoding flamegraph image to buffer")?;
 
     Ok(body)
+}
+
+/// Checks whether jemalloc profiling is activated and returns an error response if not
+fn require_profiling_activated(
+    prof_ctl: &jemalloc_pprof::JemallocProfCtl,
+) -> Result<(), (StatusCode, String)> {
+    if prof_ctl.activated() {
+        Ok(())
+    } else {
+        Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "heap profiling not activated".into(),
+        ))
+    }
 }
