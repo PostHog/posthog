@@ -395,6 +395,7 @@ export const billingLogic = kea<billingLogicType>([
 
                         const productDisplayName = capitalizeFirstLetter(data.to_product_key)
                         lemonToast.success(`You're now on ${productDisplayName}`)
+                        actions.setSwitchPlanLoading(null)
 
                         // Reload billing, user, and organization to get the updated available features
                         actions.loadBilling()
@@ -409,6 +410,7 @@ export const billingLogic = kea<billingLogicType>([
                             (error && error.detail) ||
                                 'There was an error switching your plan. Please try again or contact support.'
                         )
+                        actions.setSwitchPlanLoading(null)
                         // Keep the current billing state on failure
                         return values.billing as BillingType
                     }
@@ -555,6 +557,23 @@ export const billingLogic = kea<billingLogicType>([
                     (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
                 return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
+            },
+        ],
+        unusedPlatformAddonAmount: [
+            (s) => [s.currentPlatformAddon, s.timeRemainingInSeconds, s.timeTotalInSeconds],
+            (
+                currentPlatformAddon: BillingProductV2AddonType | null,
+                timeRemainingInSeconds: number,
+                timeTotalInSeconds: number
+            ): number => {
+                if (!currentPlatformAddon || !timeTotalInSeconds) {
+                    return 0
+                }
+                const currentPlan = currentPlatformAddon.plans?.[0]
+                const unitAmount = parseFloat(currentPlan?.unit_amount_usd || '0')
+                const ratio = Math.max(0, Math.min(1, timeRemainingInSeconds / timeTotalInSeconds))
+                const amount = unitAmount * ratio
+                return Math.round(amount * 100) / 100
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
@@ -752,12 +771,6 @@ export const billingLogic = kea<billingLogicType>([
         },
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
-        },
-        switchFlatrateSubscriptionPlanSuccess: () => {
-            actions.setSwitchPlanLoading(null)
-        },
-        switchFlatrateSubscriptionPlanFailure: () => {
-            actions.setSwitchPlanLoading(null)
         },
         loadBillingSuccess: async (_, breakpoint) => {
             actions.registerInstrumentationProps()

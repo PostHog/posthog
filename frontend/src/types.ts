@@ -5266,6 +5266,13 @@ export type BillingTableTierRow = {
     subrows: ProductPricingTierSubrows
 }
 
+export type BillingInvoiceItemRow = {
+    description: string
+    dateRange?: string
+    amount: string
+    isBold?: boolean
+}
+
 export type AvailableOnboardingProducts = Record<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY

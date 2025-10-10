@@ -38,7 +38,6 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(minutes=1),
         )
 
         if len(recording_blocks) > 0:
@@ -51,7 +50,6 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),
                 ),
-                heartbeat_timeout=timedelta(seconds=10),
             )
 
             async with asyncio.TaskGroup() as delete_blocks:
@@ -66,7 +64,6 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                                 maximum_attempts=2,
                                 initial_interval=timedelta(minutes=1),
                             ),
-                            heartbeat_timeout=timedelta(minutes=1),
                         )
                     )
 
@@ -90,7 +87,6 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(minutes=1),
         )
 
         for batch in batched(session_ids, input.batch_size):
