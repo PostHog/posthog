@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -17,6 +17,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
@@ -38,7 +39,6 @@ function Category({
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const newTabLogic = newTabSceneLogic({ tabId })
     const { filteredItemsGrid, search, categories, isSearching, personSearchPagination, personSearchResults } =
         useValues(newTabSceneLogic({ tabId }))
 
@@ -156,20 +156,21 @@ function Category({
                     )}
                     {newTabSceneData && category === 'persons' && personSearchPagination.hasMore && (
                         <ListBox.Item asChild>
-                            <ButtonPrimitive
-                                variant="panel"
-                                onClick={() => {
+                            <Link
+                                to={(() => {
                                     const searchTerm = search.startsWith('/persons ')
                                         ? search.replace('/persons ', '')
                                         : search
-                                    newTabLogic.actions.loadMorePersonSearchResults({
-                                        searchTerm,
-                                    })
+                                    return searchTerm
+                                        ? `${urls.persons()}?q=${encodeURIComponent(searchTerm)}`
+                                        : urls.persons()
+                                })()}
+                                buttonProps={{
+                                    className: 'w-full mt-2',
                                 }}
-                                className="w-full mt-2"
                             >
-                                Load more persons
-                            </ButtonPrimitive>
+                                <IconArrowRight className="size-4" /> See all persons
+                            </Link>
                         </ListBox.Item>
                     )}
                 </div>
