@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import { RefObject } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,14 +16,14 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
         loadCommentCount: true,
         resetCommentCount: true,
         scrollToLastComment: true,
-        setCommentsListRef: (ref: RefObject<HTMLDivElement>) => ({ ref }),
+        setCommentsListRef: (ref: HTMLDivElement) => ({ ref }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], sidePanelContextLogic, ['sceneSidePanelContext']],
     })),
     reducers({
         commentsListRef: [
-            null as RefObject<HTMLDivElement> | null,
+            null as HTMLDivElement | null,
             {
                 setCommentsListRef: (_, { ref }) => ref,
             },
