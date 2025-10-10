@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { EventDefinition } from '~/types'
 
 import { PropertyGroupModal } from '../schema/PropertyGroupModal'
+import { PropertyTypeTag } from '../schema/PropertyTypeTag'
 import { SelectPropertyGroupModal } from '../schema/SelectPropertyGroupModal'
 import { SchemaPropertyGroupProperty, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import { EventSchema, eventDefinitionSchemaLogic } from './eventDefinitionSchemaLogic'
@@ -21,7 +22,7 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
                 <span className="font-semibold">{property.name}</span>
             </div>
             <div className="w-32">
-                <LemonTag type="muted">{property.property_type}</LemonTag>
+                <PropertyTypeTag propertyName={property.name} schemaPropertyType={property.property_type} />
             </div>
             <div className="w-24">
                 {property.is_required ? (
@@ -120,8 +121,11 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                             )
                                         )}
                                         <div className="p-4 bg-bg-light">
-                                            <h4 className="font-semibold mb-2 text-sm">
+                                            <h4 className="font-semibold mb-2 text-sm flex items-center gap-1">
                                                 Property Coverage Trends (90 days)
+                                                <Tooltip title="% of events containing this property">
+                                                    <IconInfo className="text-xl text-secondary shrink-0" />
+                                                </Tooltip>
                                             </h4>
                                             <div>
                                                 {(() => {
