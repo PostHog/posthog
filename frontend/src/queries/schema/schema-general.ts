@@ -133,6 +133,7 @@ export enum NodeKind {
 
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
+    MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -179,6 +180,7 @@ export type AnyDataNode =
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -252,6 +254,7 @@ export type QuerySchema =
 
     // Marketing analytics
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -802,6 +805,7 @@ export interface DataTableNode
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
+                    | MarketingAnalyticsAggregatedQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -835,6 +839,7 @@ export interface DataTableNode
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
         | ErrorTrackingQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
@@ -3774,6 +3779,24 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
+
+export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, MarketingAnalyticsItem>
+    hogql?: string
+    samplingRate?: SamplingRate
+}
+
+export type CachedMarketingAnalyticsAggregatedQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAggregatedQueryResponse>
+
+export interface MarketingAnalyticsAggregatedQuery
+    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>, 'orderBy' | 'limit' | 'offset'> {
+    kind: NodeKind.MarketingAnalyticsAggregatedQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: HogQLExpression[]
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter
+}
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
