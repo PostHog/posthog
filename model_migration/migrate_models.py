@@ -1230,14 +1230,121 @@ class {app_name.title()}Config(AppConfig):
 
         return True
 
+    def cleanup_old_model_directory(self, source_files: list[str], target_app: str) -> bool:
+        """Delete old posthog/models/<app>/ directories after successful migration"""
+        # Only cleanup if all source files are from a subdirectory
+        subdirectories_to_delete = set()
+
+        for source_file in source_files:
+            if "/" in source_file:
+                # Extract subdirectory name
+                subdirectory = source_file.split("/")[0]
+                subdirectories_to_delete.add(subdirectory)
+
+        if not subdirectories_to_delete:
+            logger.info("✅ No subdirectories to clean up")
+            return True
+
+        for subdirectory in subdirectories_to_delete:
+            old_dir = self.root_dir / "posthog" / "models" / subdirectory
+
+            if old_dir.exists() and old_dir.is_dir():
+                import shutil
+
+                shutil.rmtree(old_dir)
+                logger.info("🗑️  Deleted old model directory: %s", old_dir)
+            else:
+                logger.warning("⚠️  Old model directory not found: %s", old_dir)
+
+        return True
+
+    def update_tach_config(self, target_app: str) -> bool:
+        """Add product entry to tach.toml for dependency tracking"""
+        tach_file = self.root_dir / "tach.toml"
+
+        if not tach_file.exists():
+            logger.warning("⚠️  tach.toml not found, skipping")
+            return True
+
+        try:
+            content = tach_file.read_text()
+
+            # Check if product already exists in tach.toml
+            product_entry = f'path = "products.{target_app}"'
+            if product_entry in content:
+                logger.info("✅ Product %s already in tach.toml", target_app)
+                return True
+
+            # Find the last products module entry to insert after
+            import re
+
+            # Pattern to find all products.* module blocks
+            product_pattern = r'\[\[modules\]\]\npath = "products\.[^"]+"\ndepends_on = \["posthog"\]'
+            matches = list(re.finditer(product_pattern, content))
+
+            if not matches:
+                logger.warning("⚠️  No existing products modules found in tach.toml, cannot determine insertion point")
+                return False
+
+            # Find the position after the last products module
+            last_match = matches[-1]
+            insert_position = last_match.end()
+
+            # Create new module entry
+            new_entry = f'\n\n[[modules]]\npath = "products.{target_app}"\ndepends_on = ["posthog"]'
+
+            # Insert the new entry
+            new_content = content[:insert_position] + new_entry + content[insert_position:]
+
+            tach_file.write_text(new_content)
+            logger.info("✅ Added products.%s to tach.toml", target_app)
+
+            # Also need to add to posthog's depends_on list
+            posthog_pattern = r'(\[\[modules\]\]\npath = "posthog"\ndepends_on = \[)(.*?)(\])'
+
+            def add_to_posthog_deps(match):
+                prefix = match.group(1)
+                deps_content = match.group(2)
+                suffix = match.group(3)
+
+                # Check if already in dependencies
+                if f'"products.{target_app}"' in deps_content:
+                    return match.group(0)
+
+                # Add new dependency before the closing bracket
+                # Find the line with the last product dependency
+                lines = deps_content.split("\n")
+                new_dep = f'    "products.{target_app}",'
+
+                # Insert before the closing comment or at the end
+                for i, line in enumerate(lines):
+                    if line.strip().startswith("]"):
+                        lines.insert(i, new_dep)
+                        break
+                else:
+                    # Add at the end if no closing bracket found
+                    lines.append(new_dep)
+
+                return prefix + "\n".join(lines) + suffix
+
+            new_content = re.sub(posthog_pattern, add_to_posthog_deps, new_content, flags=re.DOTALL)
+            tach_file.write_text(new_content)
+            logger.info("✅ Added products.%s to posthog dependencies in tach.toml", target_app)
+
+            return True
+
+        except Exception:
+            logger.exception("❌ Failed to update tach.toml")
+            return False
+
     def generate_migrations(self, target_app: str) -> tuple[bool, str, str]:
         """Generate Django migrations with proper naming"""
         logger.info("🔄 Generating migrations for %s...", target_app)
 
         # Generate with descriptive names as per README
         success, output = self.run_command(
-            f"python manage.py makemigrations {target_app} -n initial_migration",
-            f"Generating initial migration for {target_app}",
+            f"python manage.py makemigrations {target_app} -n migrate_{target_app}_models",
+            f"Generating migration for {target_app}",
         )
 
         if not success:
@@ -1477,6 +1584,14 @@ class {app_name.title()}Config(AppConfig):
         # Step 11: Test
         if not self.run_tests(target_app):
             return False
+
+        # Step 12: Cleanup old model directories
+        if not self.cleanup_old_model_directory(source_files, target_app):
+            logger.warning("⚠️  Cleanup of old model directory failed, but continuing...")
+
+        # Step 13: Update tach.toml
+        if not self.update_tach_config(target_app):
+            logger.warning("⚠️  Failed to update tach.toml, but continuing...")
 
         logger.info("✅ Migration %s completed successfully!", name)
         return True
