@@ -23,8 +23,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
@@ -740,6 +741,128 @@ class EnterpriseExperimentsViewSet(
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
+    def eligible_feature_flags(self, request: Request, **kwargs: Any) -> Response:
+        """
+        Returns a paginated list of feature flags eligible for use in experiments.
+
+        Eligible flags must:
+        - Be multivariate with at least 2 variants
+        - Have "control" as the first variant key
+
+        Query parameters:
+        - search: Filter by flag key or name (case insensitive)
+        - limit: Number of results per page (default: 20)
+        - offset: Pagination offset (default: 0)
+        - active: Filter by active status ("true" or "false")
+        - created_by_id: Filter by creator user ID
+        - order: Sort order field
+        - evaluation_runtime: Filter by evaluation runtime
+        """
+        from django.db.models import Prefetch
+
+        from posthog.api.feature_flag import FeatureFlagSerializer
+        from posthog.models import Survey
+
+        try:
+            limit = min(int(request.query_params.get("limit", 20)), 100)
+            offset = max(int(request.query_params.get("offset", 0)), 0)
+        except ValueError:
+            return Response({"error": "Invalid limit or offset"}, status=400)
+
+        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+
+        # Filter for multivariate flags with at least 2 variants and first variant is "control"
+        queryset = queryset.extra(
+            where=[
+                """
+                jsonb_array_length(filters->'multivariate'->'variants') >= 2
+                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
+                """
+            ]
+        )
+
+        # Exclude survey targeting flags (same as regular feature flag list endpoint)
+        survey_targeting_flags = Survey.objects.filter(
+            team__project_id=self.project_id, targeting_flag__isnull=False
+        ).values_list("targeting_flag_id", flat=True)
+        survey_internal_targeting_flags = Survey.objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        excluded_flag_ids = set(survey_targeting_flags) | set(survey_internal_targeting_flags)
+        queryset = queryset.exclude(id__in=excluded_flag_ids)
+
+        # Apply search filter
+        search = request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        # Apply active filter
+        active = request.query_params.get("active")
+        if active is not None:
+            queryset = queryset.filter(active=active.lower() == "true")
+
+        # Apply created_by filter
+        created_by_id = request.query_params.get("created_by_id")
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Apply evaluation_runtime filter
+        evaluation_runtime = request.query_params.get("evaluation_runtime")
+        if evaluation_runtime:
+            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        # Ordering
+        order = request.query_params.get("order")
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        # Prefetch related data to avoid N+1 queries (same as regular feature flag list)
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
+            ),
+            "features",
+            "analytics_dashboards",
+            "surveys_linked_flag",
+            Prefetch(
+                "evaluation_tags",
+                queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
+            ),
+            Prefetch(
+                "team__cohort_set",
+                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                to_attr="available_cohorts",
+            ),
+        ).select_related("created_by", "last_modified_by")
+
+        # Pagination
+        limit = int(request.query_params.get("limit", 20))
+        offset = int(request.query_params.get("offset", 0))
+
+        total_count = queryset.count()
+        results = queryset[offset : offset + limit]
+
+        # Serialize using the standard FeatureFlagSerializer
+        serializer = FeatureFlagSerializer(
+            results,
+            many=True,
+            context={
+                "request": request,
+                "team_id": self.team_id,
+                "project_id": self.project_id,
+            },
+        )
+
+        return Response(
+            {
+                "results": serializer.data,
+                "count": total_count,
+            }
+        )
 
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
