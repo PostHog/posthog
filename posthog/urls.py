@@ -2,6 +2,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.conf.urls.static import static
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
@@ -244,6 +245,8 @@ if settings.DEBUG:
     urlpatterns.append(path("_metrics", ExportToDjangoView))
     # Temporal codec server endpoint for UI decryption - locally only for now
     urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
+    # Static files serving in development
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 
 if settings.TEST:
