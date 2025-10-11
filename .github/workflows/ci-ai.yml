@@ -74,7 +74,7 @@ jobs:
             - name: Post eval summary to PR
               # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
               if: always() && github.event_name == 'pull_request'
-              uses: actions/github-script@v6
+              uses: actions/github-script@v8
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
