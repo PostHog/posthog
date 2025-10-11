@@ -40,6 +40,7 @@ from posthog.hogql.functions import (
     find_hogql_posthog_function,
 )
 from posthog.hogql.functions.core import validate_function_args
+from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
@@ -1386,6 +1387,8 @@ class _Printer(Visitor[str]):
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect == "clickhouse":
+                if node.name == "embed_text":
+                    return self.visit_constant(resolve_embed_text(self.context.team_id, node))
                 if node.name == "hogql_lookupDomainType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
