@@ -1404,6 +1404,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return !experiment?.start_date
             },
         ],
+        properties: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType) => {
+                return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
+            },
+        ],
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
