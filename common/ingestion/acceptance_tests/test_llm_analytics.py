@@ -40,7 +40,6 @@ def assert_parts_order_and_details(response_data, expected_parts):
         logger.debug(f"Part {i}: {actual_part['name']} - {actual_part['length']} bytes - {actual_part['content-type']}")
 
 
-@pytest.mark.requires_posthog
 @pytest.mark.usefixtures("shared_org_project")
 class TestLLMAnalytics:
     """Test LLM Analytics capture flow with multipart requests and S3 storage."""

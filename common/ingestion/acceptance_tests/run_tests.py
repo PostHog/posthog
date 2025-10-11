@@ -26,9 +26,24 @@ def run_tests():
     # -v: verbose
     # -s: no capture, show print statements
     # --tb=short: short traceback format
+    # --log-cli-level=DEBUG: show debug logs in console
+    # --log-cli-format: format for console logs
     result = subprocess.run(
-        [python_cmd, "-m", "pytest", "-v", "-s", "--tb=short", "--numprocesses=auto"],
+        [
+            python_cmd,
+            "-m",
+            "pytest",
+            "-v",
+            "-s",
+            "--tb=short",
+            "--log-cli-level=DEBUG",
+            "--log-cli-format=%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            "--log-cli-date-format=%H:%M:%S",
+            "--numprocesses=auto",
+        ],
         cwd=test_dir,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
     )
 
     return result.returncode

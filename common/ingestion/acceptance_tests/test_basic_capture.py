@@ -1,15 +1,11 @@
 """Basic capture test - creates project, sends event, and verifies it."""
 
-import time
 import uuid
 import logging
-
-import pytest
 
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.requires_posthog
 class TestBasicCapture:
     """Test basic event capture flow."""
 
@@ -39,11 +35,6 @@ class TestBasicCapture:
             project_api_key = project["api_token"]
             logger.info("Project created: %s", project_id)
             logger.debug("API key: %s", project_api_key)
-
-            # Wait for project to be fully initialized
-            logger.info("Waiting 10 seconds for project initialization")
-            time.sleep(10)
-            logger.info("Project initialization wait complete")
 
             # Step 3: Prepare test event
             logger.info("Step 3: Preparing test event")

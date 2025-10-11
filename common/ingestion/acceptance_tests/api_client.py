@@ -1,5 +1,6 @@
 """PostHog API client for acceptance tests."""
 
+import json
 import time
 import uuid
 import logging
@@ -78,7 +79,7 @@ class PostHogTestClient:
 
                 # Then try a simple HogQL query to see if the project is ready
                 query_response = self.session.post(
-                    f"{self.base_url}/api/projects/{project_id}/query/",
+                    f"{self.base_url}/api/environments/{project_id}/query/",
                     json={"query": {"kind": "HogQLQuery", "query": "SELECT 1 LIMIT 1"}},
                 )
                 if query_response.status_code == 200:
@@ -156,7 +157,7 @@ class PostHogTestClient:
 
         logger.debug("Executing HogQL query: %s", query)
         response = self.session.post(
-            f"{self.base_url}/api/projects/{project_id}/query/",
+            f"{self.base_url}/api/environments/{project_id}/query/",
             json={"refresh": "force_blocking", "query": {"kind": "HogQLQuery", "query": query}},
         )
 
@@ -175,7 +176,14 @@ class PostHogTestClient:
                 event = {}
                 for i, col in enumerate(columns):
                     if i < len(row):
-                        event[col] = row[i]
+                        value = row[i]
+                        # Parse JSON columns (properties is returned as JSON string)
+                        if col == "properties" and isinstance(value, str):
+                            try:
+                                value = json.loads(value)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                        event[col] = value
                 results.append(event)
             return results
         return []
@@ -207,9 +215,9 @@ class PostHogTestClient:
     def delete_project(self, project_id: str) -> None:
         """Delete a project using private API."""
         logger.info("Deleting project %s", project_id)
-        logger.debug("DELETE %s/api/projects/%s/", self.base_url, project_id)
+        logger.debug("DELETE %s/api/environments/%s/", self.base_url, project_id)
 
-        response = self.session.delete(f"{self.base_url}/api/projects/{project_id}/")
+        response = self.session.delete(f"{self.base_url}/api/environments/{project_id}/")
 
         logger.debug("Response status: %s", response.status_code)
         response.raise_for_status()
