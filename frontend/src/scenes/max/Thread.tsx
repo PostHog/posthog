@@ -254,11 +254,17 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
-                                    <span className="font-medium">{message.content}…</span>
+                                    {messageIndex === messages.length - 1 ? (
+                                        <img
+                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                        />
+                                    ) : (
+                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                    )}
+                                    <span className="font-medium">
+                                        {message.content}…{messageIndex < messages.length - 1 ? ' Done.' : ''}
+                                    </span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
