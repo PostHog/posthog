@@ -155,6 +155,7 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+    DocumentEmbeddingsQuery = 'DocumentEmbeddingsQuery',
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
@@ -2307,6 +2308,74 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
+
+// TODO - we should support ad-hoc queries across documents, not just similarity search
+// export interface AdHocEmbeddingQuery {
+//     // What are we embedding to look for?
+//     content: string,
+//     model_name: EmbeddingModelName
+//     // How were the documents we're searching embedded?
+//     product?: string
+//     document_type?: string
+//     rendering?: string
+// }
+
+export interface DocumentEmbeddingsQuery extends DataNode<DocumentEmbeddingsQueryResponse> {
+    kind: NodeKind.DocumentEmbeddingsQuery
+    dateRange: DateRange
+    distance_func: 'L1Distance' | 'L2Distance' | 'cosineDistance'
+    threshold?: number
+    order_direction: 'asc' | 'desc'
+    order_by: 'distance' | 'timestamp'
+    limit?: integer
+    offset?: integer
+    needle: EmbeddedDocumentQuery //| AdHocEmbeddingQuery, - TODO
+}
+
+// A single embedded document, which is a collection of all the ways
+// the document has been embedded, across different models and renderings
+export interface EmbeddedDocument {
+    product: string
+    document_type: string
+    document_id: string
+    /**  @format date-time */
+    timestamp: string
+}
+
+// A specific embedding of a document, with a specific model and rendering
+export type EmbeddingRecord = EmbeddedDocument & {
+    model_name: EmbeddingModelName
+    rendering: string
+}
+
+export interface EmbeddingDistance {
+    result: EmbeddingRecord
+    query?: EmbeddingRecord
+    distance: number // How far was this particular embedding from the query
+}
+
+export interface EmbeddedDocumentQuery {
+    needle: EmbeddedDocument
+    model_name: EmbeddingModelName // Which model are we searching with?
+    // Are we looking for a specific rendering of this document?
+    // Required if specificity is 'any' or 'product' (if you're searching across document
+    // types, you must specify a rendering of the needle, so we only have one embedding
+    // calculate distances on. If you're searching within a product:document bucket,
+    // you can compare embedded documents on a per-rendering basis.)
+    rendering?: string
+    specificity: 'any' | 'product' | 'document_type' | 'rendering' // How closely must result documents match the needle in type?
+}
+
+export interface DocumentEmbeddingsQueryResponse extends AnalyticsQueryResponseBase {
+    results: EmbeddingDistance[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedDocumentEmbeddingsQueryResponse = CachedQueryResponse<DocumentEmbeddingsQueryResponse>
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 

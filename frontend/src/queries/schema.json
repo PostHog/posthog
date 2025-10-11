@@ -2759,6 +2759,90 @@
             ],
             "type": "object"
         },
+        "CachedDocumentEmbeddingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/EmbeddingDistance"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedErrorTrackingIssueCorrelationQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -10123,6 +10207,107 @@
             ],
             "type": "string"
         },
+        "DocumentEmbeddingsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "distance_func": {
+                    "enum": ["L1Distance", "L2Distance", "cosineDistance"],
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "DocumentEmbeddingsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "needle": {
+                    "$ref": "#/definitions/EmbeddedDocumentQuery"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "order_by": {
+                    "enum": ["distance", "timestamp"],
+                    "type": "string"
+                },
+                "order_direction": {
+                    "enum": ["asc", "desc"],
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/DocumentEmbeddingsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "threshold": {
+                    "type": "number"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "distance_func", "kind", "needle", "order_by", "order_direction"],
+            "type": "object"
+        },
+        "DocumentEmbeddingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/EmbeddingDistance"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -10190,6 +10375,92 @@
                 }
             },
             "required": ["attributes", "tag_name"],
+            "type": "object"
+        },
+        "EmbeddedDocument": {
+            "additionalProperties": false,
+            "properties": {
+                "document_id": {
+                    "type": "string"
+                },
+                "document_type": {
+                    "type": "string"
+                },
+                "product": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                }
+            },
+            "required": ["product", "document_type", "document_id", "timestamp"],
+            "type": "object"
+        },
+        "EmbeddedDocumentQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "model_name": {
+                    "$ref": "#/definitions/EmbeddingModelName"
+                },
+                "needle": {
+                    "$ref": "#/definitions/EmbeddedDocument"
+                },
+                "rendering": {
+                    "type": "string"
+                },
+                "specificity": {
+                    "enum": ["any", "product", "document_type", "rendering"],
+                    "type": "string"
+                }
+            },
+            "required": ["needle", "model_name", "specificity"],
+            "type": "object"
+        },
+        "EmbeddingDistance": {
+            "additionalProperties": false,
+            "properties": {
+                "distance": {
+                    "type": "number"
+                },
+                "query": {
+                    "$ref": "#/definitions/EmbeddingRecord"
+                },
+                "result": {
+                    "$ref": "#/definitions/EmbeddingRecord"
+                }
+            },
+            "required": ["result", "distance"],
+            "type": "object"
+        },
+        "EmbeddingModelName": {
+            "enum": ["text-embedding-3-small-1536", "text-embedding-3-large-3072"],
+            "type": "string"
+        },
+        "EmbeddingRecord": {
+            "additionalProperties": false,
+            "properties": {
+                "document_id": {
+                    "type": "string"
+                },
+                "document_type": {
+                    "type": "string"
+                },
+                "model_name": {
+                    "$ref": "#/definitions/EmbeddingModelName"
+                },
+                "product": {
+                    "type": "string"
+                },
+                "rendering": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                }
+            },
+            "required": ["document_id", "document_type", "model_name", "product", "rendering", "timestamp"],
             "type": "object"
         },
         "EmptyPropertyFilter": {
@@ -17290,6 +17561,7 @@
                 "TracesQuery",
                 "TraceQuery",
                 "VectorSearchQuery",
+                "DocumentEmbeddingsQuery",
                 "UsageMetricsQuery"
             ],
             "type": "string"

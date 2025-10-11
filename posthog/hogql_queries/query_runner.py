@@ -560,6 +560,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "DocumentEmbeddingsQuery":
+        from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+
+        return DocumentEmbeddingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingIssueCorrelationQuery":
         from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
             ErrorTrackingIssueCorrelationQueryRunner,

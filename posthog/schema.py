@@ -969,6 +969,22 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DistanceFunc(StrEnum):
+    L1_DISTANCE = "L1Distance"
+    L2_DISTANCE = "L2Distance"
+    COSINE_DISTANCE = "cosineDistance"
+
+
+class OrderBy(StrEnum):
+    DISTANCE = "distance"
+    TIMESTAMP = "timestamp"
+
+
+class OrderDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
@@ -995,6 +1011,40 @@ class ElementType(BaseModel):
     order: Optional[float] = None
     tag_name: str
     text: Optional[str] = None
+
+
+class EmbeddedDocument(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    document_id: str
+    document_type: str
+    product: str
+    timestamp: datetime
+
+
+class Specificity(StrEnum):
+    ANY = "any"
+    PRODUCT = "product"
+    DOCUMENT_TYPE = "document_type"
+    RENDERING = "rendering"
+
+
+class EmbeddingModelName(StrEnum):
+    TEXT_EMBEDDING_3_SMALL_1536 = "text-embedding-3-small-1536"
+    TEXT_EMBEDDING_3_LARGE_3072 = "text-embedding-3-large-3072"
+
+
+class EmbeddingRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    document_id: str
+    document_type: str
+    model_name: EmbeddingModelName
+    product: str
+    rendering: str
+    timestamp: datetime
 
 
 class EmptyPropertyFilter(BaseModel):
@@ -1078,7 +1128,7 @@ class ErrorTrackingIssueAssigneeType(StrEnum):
     ROLE = "role"
 
 
-class OrderBy(StrEnum):
+class OrderBy1(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     OCCURRENCES = "occurrences"
@@ -1087,7 +1137,7 @@ class OrderBy(StrEnum):
     REVENUE = "revenue"
 
 
-class OrderDirection(StrEnum):
+class OrderDirection1(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
@@ -1756,7 +1806,7 @@ class LogSeverityLevel(StrEnum):
     FATAL = "fatal"
 
 
-class OrderBy2(StrEnum):
+class OrderBy3(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
 
@@ -2009,6 +2059,7 @@ class NodeKind(StrEnum):
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
+    DOCUMENT_EMBEDDINGS_QUERY = "DocumentEmbeddingsQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
 
 
@@ -3789,6 +3840,25 @@ class ElementPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["element"] = "element"
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class EmbeddedDocumentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    model_name: EmbeddingModelName
+    needle: EmbeddedDocument
+    rendering: Optional[str] = None
+    specificity: Specificity
+
+
+class EmbeddingDistance(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distance: float
+    query: Optional[EmbeddingRecord] = None
+    result: EmbeddingRecord
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -6185,6 +6255,43 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     )
 
 
+class CachedDocumentEmbeddingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EmbeddingDistance]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8364,6 +8471,33 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
+class DocumentEmbeddingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EmbeddingDistance]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class EndpointRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8530,8 +8664,8 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             ]
         ]
     ] = None
-    orderBy: OrderBy
-    orderDirection: Optional[OrderDirection] = None
+    orderBy: OrderBy1
+    orderDirection: Optional[OrderDirection1] = None
     removedFilterIndexes: Optional[list[int]] = None
     searchQuery: Optional[str] = None
     status: Optional[Status2] = None
@@ -12079,6 +12213,27 @@ class Response19(BaseModel):
     )
 
 
+class DocumentEmbeddingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    distance_func: DistanceFunc
+    kind: Literal["DocumentEmbeddingsQuery"] = "DocumentEmbeddingsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    needle: EmbeddedDocumentQuery
+    offset: Optional[int] = None
+    order_by: OrderBy
+    order_direction: OrderDirection
+    response: Optional[DocumentEmbeddingsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    threshold: Optional[float] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ErrorTrackingCorrelatedIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13056,8 +13211,8 @@ class ErrorTrackingQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: OrderBy
-    orderDirection: Optional[OrderDirection] = None
+    orderBy: OrderBy1
+    orderDirection: Optional[OrderDirection1] = None
     personId: Optional[str] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     revenueEntity: Optional[RevenueEntity] = None
@@ -13612,7 +13767,7 @@ class LogsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: Optional[OrderBy2] = None
+    orderBy: Optional[OrderBy3] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
     serviceNames: list[str]
