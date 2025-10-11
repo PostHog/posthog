@@ -1,4 +1,7 @@
 procs:
+    slack:
+        shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && python manage.py run_slack_socket_mode'
+
     backend:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-backend'
 

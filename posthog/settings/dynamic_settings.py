@@ -150,6 +150,16 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "SLACK_APP_TOKEN": (
+        get_from_env("SLACK_APP_TOKEN", default=""),
+        "Slack app-level token for Socket Mode connections",
+        str,
+    ),
+    "SLACK_BOT_TOKEN": (
+        get_from_env("SLACK_BOT_TOKEN", default=""),
+        "Slack bot user OAuth token for Socket Mode",
+        str,
+    ),
     "PARALLEL_DASHBOARD_ITEM_CACHE": (
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
@@ -204,6 +214,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SLACK_APP_TOKEN",
+    "SLACK_BOT_TOKEN",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
@@ -217,4 +229,6 @@ SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SLACK_APP_TOKEN",
+    "SLACK_BOT_TOKEN",
 ]
