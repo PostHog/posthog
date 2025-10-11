@@ -211,11 +211,11 @@ class Command(BaseCommand):
                 )
             )
             if options["say_on_complete"]:
-                os.system('say "done"')
+                os.system('say "demo data ready"')
         else:
             print("Dry run - not saving results.")
             if options["say_on_complete"]:
-                os.system('say "done (dry run)"')
+                os.system('say "demo data completed (dry run)"')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
