@@ -254,6 +254,7 @@ export type AssistantContextualTool =
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
+    | 'edit_current_dashboard'
     | 'filter_revenue_analytics'
 
 /** Exact possible `urls` keys for the `navigate` tool. */

@@ -145,6 +145,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Create email templates from scratch or using a URL for inspiration',
         product: Scene.Messaging,
     },
+    edit_current_dashboard: {
+        name: 'Edit the dashboard',
+        description: "Edit the dashboard you're viewing",
+        product: Scene.Dashboard,
+    },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',
         description: 'Filter revenue analytics to find the most impactful revenue insights',
