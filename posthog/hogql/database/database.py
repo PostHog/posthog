@@ -51,6 +51,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -149,6 +150,7 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2, SessionsTableV3] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+    posthog_document_embeddings: DocumentEmbeddingsTable = DocumentEmbeddingsTable()
 
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
@@ -178,6 +180,7 @@ class Database(BaseModel):
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV1()
     raw_sessions_v3: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV3()
     raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
+    raw_posthog_document_embeddings: RawDocumentEmbeddingsTable = RawDocumentEmbeddingsTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
     # logs table for logs product
     logs: LogsTable = LogsTable()
