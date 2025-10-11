@@ -2,41 +2,29 @@ import datetime
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
-    CachedDocumentEmbeddingsQueryResponse,
-    DateRange,
-    DistanceFunc,
-    DocumentEmbeddingsQuery,
-    DocumentEmbeddingsQueryResponse,
+    CachedDocumentSimilarityQueryResponse,
+    DocumentSimilarityQuery,
+    DocumentSimilarityQueryResponse,
     EmbeddedDocument,
-    EmbeddedDocumentQuery,
     EmbeddingDistance,
-    EmbeddingModelName,
     EmbeddingRecord,
-    OrderBy,
-    OrderDirection,
-    Specificity,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.tasks.tasks import LimitContext
 from posthog.utils import relative_date_parse
 
 
-# The metaphor here is broken - a needle is a thing you search for, not a thing you
-# search with, but I've used it here to me "the input query embedding", and used
-# "haystack" to mean the returned documents being distance matched. I do like the image
-# of a man going through a haystack with a needle, searching for something piece by piece,
-# though.
-class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQueryResponse]):
-    query: DocumentEmbeddingsQuery
-    cached_response: CachedDocumentEmbeddingsQueryResponse
+class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQueryResponse]):
+    query: DocumentSimilarityQuery
+    cached_response: CachedDocumentSimilarityQueryResponse
     paginator: HogQLHasMorePaginator
     date_from: datetime.datetime
     date_to: datetime.datetime
-    needle: EmbeddedDocumentQuery
+    origin: EmbeddedDocument
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -47,7 +35,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
         )
         self.date_from = DocumentEmbeddingsQueryRunner.parse_relative_date_from(self.query.dateRange.date_from)
         self.date_to = DocumentEmbeddingsQueryRunner.parse_relative_date_to(self.query.dateRange.date_to)
-        self.needle = self.query.needle
+        self.origin = self.query.origin
 
     @classmethod
     def parse_relative_date_from(cls, date: str | None) -> datetime.datetime:
@@ -65,12 +53,12 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
 
         return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
 
-    def _calculate(self) -> DocumentEmbeddingsQueryResponse:
+    def _calculate(self) -> DocumentSimilarityQueryResponse:
         with self.timings.measure("document_embeddings_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
-                query_type="DocumentEmbeddingsQuery",
+                query_type="DocumentSimilarityQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
@@ -82,19 +70,19 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
             EmbeddingDistance(  # noqa: F821
                 distance=row["distance"],
                 result=EmbeddingRecord(
-                    product=row["haystack_product"],
-                    document_type=row["haystack_document_type"],
-                    document_id=row["haystack_document_id"],
-                    timestamp=row["haystack_timestamp"],
-                    model_name=row["haystack_model_name"],
-                    rendering=row["haystack_rendering"],
+                    product=row["result_product"],
+                    document_type=row["result_document_type"],
+                    document_id=row["result_document_id"],
+                    timestamp=row["result_timestamp"],
+                    model_name=row["result_model_name"],
+                    rendering=row["result_rendering"],
                 ),
-                query=None,
+                origin=None,
             )
             for row in mapped_result
         ]
 
-        return DocumentEmbeddingsQueryResponse(
+        return DocumentSimilarityQueryResponse(
             columns=columns,
             results=results,
             timings=query_result.timings,
@@ -104,56 +92,79 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
         )
 
     def to_query(self) -> ast.SelectQuery:
-        haystack = lambda col: column("haystack", col)
-        needle = lambda col: column("needle", col)
+        # as in "universal set"
+        universe = lambda col: column("universe", col)
+        # as in "point from which all distances are measured"
+        origin = lambda col: column("origin", col)
 
         nearest = lambda expr: ast.Call(
             name=self.output_argby_func,
-            args=[expr, self.distance_expr(haystack("embedding"), needle("embedding"))],
+            args=[expr, self.distance_expr(universe("embedding"), origin("embedding"))],
         )
 
         cols = [
-            ast.Alias(alias="haystack_product", expr=haystack("product")),
-            ast.Alias(alias="haystack_document_type", expr=haystack("document_type")),
-            ast.Alias(alias="haystack_model_name", expr=nearest(haystack("model_name"))),
-            ast.Alias(alias="haystack_rendering", expr=nearest(haystack("rendering"))),
-            ast.Alias(alias="haystack_document_id", expr=haystack("document_id")),
-            ast.Alias(alias="haystack_timestamp", expr=haystack("timestamp")),
-            ast.Alias(alias="needle_product", expr=nearest(needle("product"))),
-            ast.Alias(alias="needle_document_type", expr=nearest(needle("document_type"))),
-            ast.Alias(alias="needle_model_name", expr=nearest(needle("model_name"))),
-            ast.Alias(alias="needle_rendering", expr=nearest(needle("rendering"))),
-            ast.Alias(alias="needle_document_id", expr=nearest(needle("document_id"))),
-            ast.Alias(alias="needle_timestamp", expr=nearest(needle("timestamp"))),
+            ast.Alias(alias="result_product", expr=universe("product")),
+            ast.Alias(alias="result_document_type", expr=universe("document_type")),
+            ast.Alias(alias="result_model_name", expr=nearest(universe("model_name"))),
+            ast.Alias(alias="result_rendering", expr=nearest(universe("rendering"))),
+            ast.Alias(alias="result_document_id", expr=universe("document_id")),
+            ast.Alias(alias="result_timestamp", expr=universe("timestamp")),
+            ast.Alias(alias="origin_product", expr=nearest(origin("product"))),
+            ast.Alias(alias="origin_document_type", expr=nearest(origin("document_type"))),
+            ast.Alias(alias="origin_model_name", expr=nearest(origin("model_name"))),
+            ast.Alias(alias="origin_rendering", expr=nearest(origin("rendering"))),
+            ast.Alias(alias="origin_document_id", expr=nearest(origin("document_id"))),
+            ast.Alias(alias="origin_timestamp", expr=nearest(origin("timestamp"))),
             ast.Alias(
                 alias="distance",
                 expr=ast.Call(
-                    name=self.output_distance_agg, args=[self.distance_expr(haystack("embedding"), needle("embedding"))]
+                    name=self.output_distance_agg, args=[self.distance_expr(universe("embedding"), origin("origin"))]
                 ),
             ),
         ]
 
         group_by = [
-            haystack("product"),
-            haystack("document_type"),
-            haystack("document_id"),
-            haystack("timestamp"),
+            universe("product"),
+            universe("document_type"),
+            universe("document_id"),
+            universe("timestamp"),
         ]
 
         where_exprs = [
             ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq, left=haystack("timestamp"), right=ast.Constant(value=self.date_from)
+                op=ast.CompareOperationOp.GtEq, left=universe("timestamp"), right=ast.Constant(value=self.date_from)
             ),
             ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq, left=haystack("timestamp"), right=ast.Constant(value=self.date_to)
+                op=ast.CompareOperationOp.LtEq, left=universe("timestamp"), right=ast.Constant(value=self.date_to)
             ),
-            # TODO - right now "specificity" is how people control what documents to compare the
-            # query document to. This basically sucks - we should expose "product", "document_type" and
-            # maybe "rendering" as taxonomic filter properties and let people write arbitrary queries
-            # against them. We should also expose the ID of the document (in case it's semantically useful)
-            # We should expose timestamp and distance too, so they can ve used in where clauses and order by's at
-            # will
         ]
+
+        if self.query.products:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=universe("product"),
+                    right=ast.Constant(value=self.query.products),
+                )
+            )
+
+        if self.query.document_types:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=universe("document_type"),
+                    right=ast.Constant(value=self.query.document_types),
+                )
+            )
+
+        if self.query.renderings:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=universe("rendering"),
+                    right=ast.Constant(value=self.query.renderings),
+                )
+            )
 
         return ast.SelectQuery(
             select=cols,
@@ -171,8 +182,8 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["needle", "model_name"]),
-                        right=ast.Field(chain=["haystack", "model_name"]),
+                        left=ast.Field(chain=["origin", "model_name"]),
+                        right=ast.Field(chain=["universe", "model_name"]),
                     ),
                     ast.Or(
                         exprs=[
@@ -180,25 +191,25 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
                                 exprs=[
                                     ast.CompareOperation(
                                         op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["needle", "product"]),
-                                        right=ast.Field(chain=["haystack", "product"]),
+                                        left=ast.Field(chain=["origin", "product"]),
+                                        right=ast.Field(chain=["universe", "product"]),
                                     ),
                                     ast.CompareOperation(
                                         op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["needle", "document_type"]),
-                                        right=ast.Field(chain=["haystack", "document_type"]),
+                                        left=ast.Field(chain=["origin", "document_type"]),
+                                        right=ast.Field(chain=["universe", "document_type"]),
                                     ),
                                     ast.CompareOperation(
                                         op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["needle", "rendering"]),
-                                        right=ast.Field(chain=["haystack", "rendering"]),
+                                        left=ast.Field(chain=["origin", "rendering"]),
+                                        right=ast.Field(chain=["universe", "rendering"]),
                                     ),
                                 ]
                             ),
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.NotEq,
-                                left=ast.Field(chain=["needle", "document_type"]),
-                                right=ast.Field(chain=["haystack", "document_type"]),
+                                left=ast.Field(chain=["origin", "document_type"]),
+                                right=ast.Field(chain=["universe", "document_type"]),
                             ),
                         ]
                     ),
@@ -207,18 +218,18 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
         )
 
         return ast.JoinExpr(
-            table=self.needle_select,
-            alias="needle",
+            table=self.origin_select,
+            alias="origin",
             next_join=ast.JoinExpr(
                 join_type="INNER JOIN",
                 constraint=constraint,
-                table=ast.Field(chain=["posthog_document_embeddings"]),
-                alias="haystack",
+                table=ast.Field(chain=["document_embeddings"]),
+                alias="universe",
             ),
         )
 
     @property
-    def needle_select(self) -> ast.SelectQuery:
+    def origin_select(self) -> ast.SelectQuery:
         # We're argMax'ing columns to output cols of the same name, so we do this. I think
         # the hogql parser would actually handle this for us, but I'm doing it here for clarity,
         # and because it made local work faster to test
@@ -238,43 +249,34 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
             ast.Alias(alias="embedding", expr=most_recent(col("embedding"))),
         ]
 
+        # Note that one thing node added here is renderings - even if the caller specified
+        # a set of renderings to select for, we still use all available renderings for the
+        # origin in the join, we simply exclude it from the result set. The renderings filter
+        # is the same as the product and document type filters semantically for this query,
+        # which is to say it's only applied to the final output
         where_exprs = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=col("product"),
-                right=ast.Constant(value=self.needle.needle.product),
+                right=ast.Constant(value=self.origin.product),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=col("document_type"),
-                right=ast.Constant(value=self.needle.needle.document_type),
+                right=ast.Constant(value=self.origin.document_type),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=col("document_id"),
-                right=ast.Constant(value=self.needle.needle.document_id),
+                right=ast.Constant(value=self.origin.document_id),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=col("model_name"),
-                right=ast.Constant(value=str(self.needle.model_name)),
+                right=ast.Constant(value=str(self.query.model)),
             ),
-            timestamp_fuzzy_match(col("timestamp"), self.needle.needle.timestamp, datetime.timedelta(hours=1)),
+            timestamp_fuzzy_match(col("timestamp"), self.origin.timestamp, datetime.timedelta(hours=1)),
         ]
-
-        # If we're searching across products, you have to tell use which rendering to
-        # use for the needle embedding
-        # TODO - this is a hack, see comment in where exprs of output select
-        if self.needle.specificity in ["any", "product"]:
-            if self.needle.rendering is None:
-                raise ValueError(f"{self.needle.specificity} rendering requires a rendering value")
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=col("rendering"),
-                    right=ast.Constant(value=self.needle.rendering),
-                )
-            )
 
         group_by = [
             col("product"),
@@ -286,7 +288,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
 
         return ast.SelectQuery(
             select=select_cols,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog_document_embeddings"]), alias="d"),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["document_embeddings"]), alias="d"),
             group_by=group_by,
             where=ast.And(exprs=where_exprs),
         )
@@ -297,7 +299,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
         if self.query.order_by == "distance":
             return [ast.OrderExpr(expr=ast.Field(chain=["distance"]), order=order_direction)]
         elif self.query.order_by == "timestamp":
-            return [ast.OrderExpr(expr=ast.Field(chain=["haystack_timestamp"]), order=order_direction)]
+            return [ast.OrderExpr(expr=ast.Field(chain=["result_timestamp"]), order=order_direction)]
 
     @property
     def output_argby_func(self):
@@ -336,29 +338,6 @@ def timestamp_fuzzy_match(left: ast.Expr, timestamp: datetime.datetime, range: d
                 right=ast.Constant(value=timestamp + range),
             ),
         ]
-    )
-
-
-def get_embedding_test_doc():
-    return DocumentEmbeddingsQuery(
-        needle=EmbeddedDocumentQuery(
-            needle=EmbeddedDocument(
-                product="docs",
-                document_type="api",
-                document_id="1234",
-                timestamp=datetime.datetime.now() - datetime.timedelta(days=1),
-            ),
-            model_name=EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536,
-            rendering="text",
-            specificity=Specificity.DOCUMENT_TYPE,
-        ),
-        dateRange=DateRange(),
-        distance_func=DistanceFunc.COSINE_DISTANCE,
-        order_by=OrderBy.DISTANCE,
-        order_direction=OrderDirection.ASC,
-        limit=10,
-        offset=0,
-        threshold=0.5,
     )
 
 

@@ -51,7 +51,7 @@ class RawDocumentEmbeddingsTable(Table):
         return DOCUMENT_EMBEDDINGS
 
     def to_printed_hogql(self):
-        return f"raw_{DOCUMENT_EMBEDDINGS}"
+        return f"raw_document_embeddings"
 
 
 class DocumentEmbeddingsTable(LazyTable):
@@ -69,4 +69,4 @@ class DocumentEmbeddingsTable(LazyTable):
         return DOCUMENT_EMBEDDINGS
 
     def to_printed_hogql(self):
-        return DOCUMENT_EMBEDDINGS
+        return "document_embeddings"

@@ -1023,13 +1023,6 @@ class EmbeddedDocument(BaseModel):
     timestamp: datetime
 
 
-class Specificity(StrEnum):
-    ANY = "any"
-    PRODUCT = "product"
-    DOCUMENT_TYPE = "document_type"
-    RENDERING = "rendering"
-
-
 class EmbeddingModelName(StrEnum):
     TEXT_EMBEDDING_3_SMALL_1536 = "text-embedding-3-small-1536"
     TEXT_EMBEDDING_3_LARGE_3072 = "text-embedding-3-large-3072"
@@ -2059,7 +2052,7 @@ class NodeKind(StrEnum):
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
-    DOCUMENT_EMBEDDINGS_QUERY = "DocumentEmbeddingsQuery"
+    DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
 
 
@@ -3842,22 +3835,12 @@ class ElementPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
-class EmbeddedDocumentQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    model_name: EmbeddingModelName
-    needle: EmbeddedDocument
-    rendering: Optional[str] = None
-    specificity: Specificity
-
-
 class EmbeddingDistance(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     distance: float
-    query: Optional[EmbeddingRecord] = None
+    origin: Optional[EmbeddingRecord] = None
     result: EmbeddingRecord
 
 
@@ -6255,7 +6238,7 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     )
 
 
-class CachedDocumentEmbeddingsQueryResponse(BaseModel):
+class CachedDocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8471,7 +8454,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
-class DocumentEmbeddingsQueryResponse(BaseModel):
+class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12213,22 +12196,26 @@ class Response19(BaseModel):
     )
 
 
-class DocumentEmbeddingsQuery(BaseModel):
+class DocumentSimilarityQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     dateRange: DateRange
     distance_func: DistanceFunc
-    kind: Literal["DocumentEmbeddingsQuery"] = "DocumentEmbeddingsQuery"
+    document_types: list[str] = Field(..., max_length=1, min_length=1)
+    kind: Literal["DocumentSimilarityQuery"] = "DocumentSimilarityQuery"
     limit: Optional[int] = None
+    model: str
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    needle: EmbeddedDocumentQuery
     offset: Optional[int] = None
     order_by: OrderBy
     order_direction: OrderDirection
-    response: Optional[DocumentEmbeddingsQueryResponse] = None
+    origin: EmbeddedDocument
+    products: list[str] = Field(..., max_length=1, min_length=1)
+    renderings: list[str] = Field(..., max_length=1, min_length=1)
+    response: Optional[DocumentSimilarityQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     threshold: Optional[float] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")

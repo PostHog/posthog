@@ -2759,7 +2759,7 @@
             ],
             "type": "object"
         },
-        "CachedDocumentEmbeddingsQueryResponse": {
+        "CachedDocumentSimilarityQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -10207,7 +10207,7 @@
             ],
             "type": "string"
         },
-        "DocumentEmbeddingsQuery": {
+        "DocumentSimilarityQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
@@ -10217,19 +10217,27 @@
                     "enum": ["L1Distance", "L2Distance", "cosineDistance"],
                     "type": "string"
                 },
+                "document_types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
                 "kind": {
-                    "const": "DocumentEmbeddingsQuery",
+                    "const": "DocumentSimilarityQuery",
                     "type": "string"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
                 },
+                "model": {
+                    "type": "string"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
-                },
-                "needle": {
-                    "$ref": "#/definitions/EmbeddedDocumentQuery"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
@@ -10242,8 +10250,27 @@
                     "enum": ["asc", "desc"],
                     "type": "string"
                 },
+                "origin": {
+                    "$ref": "#/definitions/EmbeddedDocument"
+                },
+                "products": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "renderings": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
                 "response": {
-                    "$ref": "#/definitions/DocumentEmbeddingsQueryResponse"
+                    "$ref": "#/definitions/DocumentSimilarityQueryResponse"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -10256,10 +10283,21 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "distance_func", "kind", "needle", "order_by", "order_direction"],
+            "required": [
+                "dateRange",
+                "distance_func",
+                "document_types",
+                "kind",
+                "model",
+                "order_by",
+                "order_direction",
+                "origin",
+                "products",
+                "renderings"
+            ],
             "type": "object"
         },
-        "DocumentEmbeddingsQueryResponse": {
+        "DocumentSimilarityQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "error": {
@@ -10397,33 +10435,13 @@
             "required": ["product", "document_type", "document_id", "timestamp"],
             "type": "object"
         },
-        "EmbeddedDocumentQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "model_name": {
-                    "$ref": "#/definitions/EmbeddingModelName"
-                },
-                "needle": {
-                    "$ref": "#/definitions/EmbeddedDocument"
-                },
-                "rendering": {
-                    "type": "string"
-                },
-                "specificity": {
-                    "enum": ["any", "product", "document_type", "rendering"],
-                    "type": "string"
-                }
-            },
-            "required": ["needle", "model_name", "specificity"],
-            "type": "object"
-        },
         "EmbeddingDistance": {
             "additionalProperties": false,
             "properties": {
                 "distance": {
                     "type": "number"
                 },
-                "query": {
+                "origin": {
                     "$ref": "#/definitions/EmbeddingRecord"
                 },
                 "result": {
@@ -17561,7 +17579,7 @@
                 "TracesQuery",
                 "TraceQuery",
                 "VectorSearchQuery",
-                "DocumentEmbeddingsQuery",
+                "DocumentSimilarityQuery",
                 "UsageMetricsQuery"
             ],
             "type": "string"

@@ -150,7 +150,7 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2, SessionsTableV3] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
-    posthog_document_embeddings: DocumentEmbeddingsTable = DocumentEmbeddingsTable()
+    document_embeddings: DocumentEmbeddingsTable = DocumentEmbeddingsTable()
 
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()

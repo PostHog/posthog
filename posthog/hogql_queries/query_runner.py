@@ -560,7 +560,7 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "DocumentEmbeddingsQuery":
+    if kind == "DocumentSimilarityQuery":
         from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 
         return DocumentEmbeddingsQueryRunner(

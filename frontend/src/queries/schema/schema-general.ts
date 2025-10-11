@@ -155,7 +155,7 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
-    DocumentEmbeddingsQuery = 'DocumentEmbeddingsQuery',
+    DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
@@ -2311,27 +2311,29 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
 
-// TODO - we should support ad-hoc queries across documents, not just similarity search
-// export interface AdHocEmbeddingQuery {
-//     // What are we embedding to look for?
-//     content: string,
-//     model_name: EmbeddingModelName
-//     // How were the documents we're searching embedded?
-//     product?: string
-//     document_type?: string
-//     rendering?: string
-// }
+export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQueryResponse> {
+    // Query metadata
+    kind: NodeKind.DocumentSimilarityQuery
 
-export interface DocumentEmbeddingsQuery extends DataNode<DocumentEmbeddingsQueryResponse> {
-    kind: NodeKind.DocumentEmbeddingsQuery
+    // Standard
     dateRange: DateRange
-    distance_func: 'L1Distance' | 'L2Distance' | 'cosineDistance'
-    threshold?: number
     order_direction: 'asc' | 'desc'
     order_by: 'distance' | 'timestamp'
     limit?: integer
     offset?: integer
-    needle: EmbeddedDocumentQuery //| AdHocEmbeddingQuery, - TODO
+
+    // Embedding-specifics
+    // To what point are all distances being measured?
+    origin: EmbeddedDocument // | string -- TODO, we should support ad-hoc querying too, but it requires a modification of the cross join
+    distance_func: 'L1Distance' | 'L2Distance' | 'cosineDistance' // How is the distance being measured?
+    threshold?: number // Some distance under-or-over which results will be excluded - useful mainly if sorting by timestamp
+    model: string // Model to do the query with. Only documents embedded with this model will be considered.
+
+    // TODO - these are a hack, and we should expose them as proper HogQL filterables instead, but
+    // I don't want to go to war in the taxonomic filter mines right now
+    products: [string] // Limit the results to specific products. Empty means all.
+    document_types: [string] // Limit the results to specific document types. Empty means all.
+    renderings: [string] // Limit the results to specific renderings. Empty means all.
 }
 
 // A single embedded document, which is a collection of all the ways
@@ -2352,30 +2354,18 @@ export type EmbeddingRecord = EmbeddedDocument & {
 
 export interface EmbeddingDistance {
     result: EmbeddingRecord
-    query?: EmbeddingRecord
+    origin?: EmbeddingRecord
     distance: number // How far was this particular embedding from the query
 }
 
-export interface EmbeddedDocumentQuery {
-    needle: EmbeddedDocument
-    model_name: EmbeddingModelName // Which model are we searching with?
-    // Are we looking for a specific rendering of this document?
-    // Required if specificity is 'any' or 'product' (if you're searching across document
-    // types, you must specify a rendering of the needle, so we only have one embedding
-    // calculate distances on. If you're searching within a product:document bucket,
-    // you can compare embedded documents on a per-rendering basis.)
-    rendering?: string
-    specificity: 'any' | 'product' | 'document_type' | 'rendering' // How closely must result documents match the needle in type?
-}
-
-export interface DocumentEmbeddingsQueryResponse extends AnalyticsQueryResponseBase {
+export interface DocumentSimilarityQueryResponse extends AnalyticsQueryResponseBase {
     results: EmbeddingDistance[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
 }
 
-export type CachedDocumentEmbeddingsQueryResponse = CachedQueryResponse<DocumentEmbeddingsQueryResponse>
+export type CachedDocumentSimilarityQueryResponse = CachedQueryResponse<DocumentSimilarityQueryResponse>
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
