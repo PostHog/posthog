@@ -22,21 +22,6 @@ async function analyzeProductUsage() {
         
         Keep your response focused and data-driven.`,
     })
-
-    // Show tool usage summary
-    const toolCalls = result.steps.flatMap((step) => step.toolCalls ?? [])
-    if (toolCalls.length > 0) {
-        const toolUsage = toolCalls.reduce(
-            (acc, call) => {
-                acc[call.toolName] = (acc[call.toolName] || 0) + 1
-                return acc
-            },
-            {} as Record<string, number>
-        )
-
-        for (const [tool, count] of Object.entries(toolUsage)) {
-        }
-    }
 }
 
 async function main() {

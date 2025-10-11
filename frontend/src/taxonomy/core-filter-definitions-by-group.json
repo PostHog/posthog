@@ -91,6 +91,36 @@
             "examples": [23],
             "label": "AI cache read input tokens (LLM)"
         },
+        "$ai_evaluation_id": {
+            "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+            "label": "AI Evaluation ID (LLM)"
+        },
+        "$ai_evaluation_model": {
+            "description": "The LLM model used as the judge for the evaluation.",
+            "examples": ["gpt-4", "claude-3-opus"],
+            "label": "AI Evaluation Model (LLM)"
+        },
+        "$ai_evaluation_name": {
+            "description": "The name of the evaluation configuration used.",
+            "examples": ["Factual accuracy check", "Response relevance"],
+            "label": "AI Evaluation Name (LLM)"
+        },
+        "$ai_evaluation_reasoning": {
+            "description": "The LLM's explanation for why the evaluation passed or failed.",
+            "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+            "label": "AI Evaluation Reasoning (LLM)"
+        },
+        "$ai_evaluation_result": {
+            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
+            "examples": [true, false],
+            "label": "AI Evaluation Result (LLM)"
+        },
+        "$ai_evaluation_start_time": {
+            "description": "The timestamp when the evaluation started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+            "label": "AI Evaluation Start Time (LLM)"
+        },
         "$ai_feedback_text": {
             "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": ["\"The response was helpful, but it did not use the provided context.\""],
@@ -207,6 +237,16 @@
             "description": "Whether the response from the LLM API was streamed.",
             "examples": ["true", "false"],
             "label": "AI stream (LLM)"
+        },
+        "$ai_target_event_id": {
+            "description": "The unique identifier of the event being evaluated.",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+            "label": "AI Target Event ID (LLM)"
+        },
+        "$ai_target_event_type": {
+            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "examples": ["$ai_generation", "$ai_span"],
+            "label": "AI Target Event Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
@@ -1751,6 +1791,10 @@
             "description": "A call to an embedding model.",
             "label": "AI embedding (LLM)"
         },
+        "$ai_evaluation": {
+            "description": "An automated evaluation of an AI event. Contains the verdict, target event, and evaluation metadata.",
+            "label": "AI evaluation (LLM)"
+        },
         "$ai_feedback": {
             "description": "User-provided feedback for a trace of a generative AI model (LLM).",
             "label": "AI feedback (LLM)"
@@ -1982,6 +2026,36 @@
             "examples": [23],
             "label": "AI cache read input tokens (LLM)"
         },
+        "$ai_evaluation_id": {
+            "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+            "label": "AI Evaluation ID (LLM)"
+        },
+        "$ai_evaluation_model": {
+            "description": "The LLM model used as the judge for the evaluation.",
+            "examples": ["gpt-4", "claude-3-opus"],
+            "label": "AI Evaluation Model (LLM)"
+        },
+        "$ai_evaluation_name": {
+            "description": "The name of the evaluation configuration used.",
+            "examples": ["Factual accuracy check", "Response relevance"],
+            "label": "AI Evaluation Name (LLM)"
+        },
+        "$ai_evaluation_reasoning": {
+            "description": "The LLM's explanation for why the evaluation passed or failed.",
+            "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+            "label": "AI Evaluation Reasoning (LLM)"
+        },
+        "$ai_evaluation_result": {
+            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
+            "examples": [true, false],
+            "label": "AI Evaluation Result (LLM)"
+        },
+        "$ai_evaluation_start_time": {
+            "description": "The timestamp when the evaluation started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+            "label": "AI Evaluation Start Time (LLM)"
+        },
         "$ai_feedback_text": {
             "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": ["\"The response was helpful, but it did not use the provided context.\""],
@@ -2098,6 +2172,16 @@
             "description": "Whether the response from the LLM API was streamed.",
             "examples": ["true", "false"],
             "label": "AI stream (LLM)"
+        },
+        "$ai_target_event_id": {
+            "description": "The unique identifier of the event being evaluated.",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+            "label": "AI Target Event ID (LLM)"
+        },
+        "$ai_target_event_type": {
+            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "examples": ["$ai_generation", "$ai_span"],
+            "label": "AI Target Event Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",

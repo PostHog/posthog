@@ -7,7 +7,7 @@ import pyarrow as pa
 from posthog.temporal.data_imports.sources.common.sql import Column, Table, TableReference
 
 
-class TestColumn(Column):
+class SimpleColumn(Column):
     """Simple test column."""
 
     def __init__(self, name: str) -> None:
@@ -20,7 +20,7 @@ class TestColumn(Column):
 def test_table_get_item():
     """Test `Table.__getitem__` with `int` and `str` keys."""
     column_name = "some_column"
-    column = TestColumn(column_name)
+    column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
 
     assert table[0] == column
@@ -39,7 +39,7 @@ def test_table_get_item():
 def test_table_contains():
     """Test `Table.__contains__` returns `True` with existing column."""
     column_name = "some_column"
-    column = TestColumn(column_name)
+    column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
 
     assert column_name in table
@@ -49,7 +49,7 @@ def test_table_contains():
 def test_table_len():
     """Test `Table.__len__` returns number of columns."""
     column_name = "some_column"
-    column = TestColumn(column_name)
+    column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
 
     assert len(table) == 1
@@ -62,9 +62,9 @@ def test_table_len():
 def test_table_to_arrow_schema():
     """Test `to_arrow_schema` method returns fields based on columns."""
     column_name = "some_column"
-    column_0 = TestColumn(column_name)
-    column_1 = TestColumn(column_name)
-    column_2 = TestColumn(column_name)
+    column_0 = SimpleColumn(column_name)
+    column_1 = SimpleColumn(column_name)
+    column_2 = SimpleColumn(column_name)
     table = Table(name="test", columns=[column_0])
     schema = table.to_arrow_schema()
 
@@ -83,7 +83,7 @@ def test_table_to_arrow_schema():
 def test_table_fully_qualified_name():
     """Test `Table` generates correct fully qualified names."""
     column_name = "some_column"
-    column = TestColumn(column_name)
+    column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
 
     assert table.fully_qualified_name == "test"
