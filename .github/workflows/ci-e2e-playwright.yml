@@ -259,7 +259,7 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
 
             - name: Stop/Start stack with Docker Compose
@@ -306,7 +306,7 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: 3.11.13
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
@@ -615,7 +615,7 @@ jobs:
                   message: 'Update E2E screenshots for Playwright'
                   pull: --rebase --autostash # Make sure we're up to date with other commits
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs

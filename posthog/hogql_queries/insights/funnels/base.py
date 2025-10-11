@@ -795,22 +795,19 @@ class FunnelBase(ABC):
         assert actorsQuery is not None
 
         funnelStep = actorsQuery.funnelStep
-        funnelCustomSteps = actorsQuery.funnelCustomSteps
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+
+        if funnelStep is None:
+            raise ValueError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
-        if funnelCustomSteps:
-            conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
-        elif funnelStep is not None:
-            if funnelStep >= 0:
-                step_nums = list(range(funnelStep, max_steps + 1))
-                conditions.append(parse_expr(f"steps IN {step_nums}"))
-            else:
-                step_num = abs(funnelStep) - 1
-                conditions.append(parse_expr(f"steps = {step_num}"))
+        if funnelStep >= 0:
+            step_nums = list(range(funnelStep, max_steps + 1))
+            conditions.append(parse_expr(f"steps IN {step_nums}"))
         else:
-            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+            step_num = abs(funnelStep) - 1
+            conditions.append(parse_expr(f"steps = {step_num}"))
 
         if funnelStepBreakdown is not None:
             if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
