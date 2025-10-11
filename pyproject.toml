@@ -67,7 +67,7 @@ dependencies = [
     "langchain==0.3.26",
     "langchain-community==0.3.27",
     "langchain-openai==0.3.32",
-    "langchain-anthropic>=0.3.16",
+    "langchain-anthropic==0.3.*",
     "langgraph==0.4.10",
     "lxml==5.2.1",
     "lzstring==1.0.4",

@@ -4449,7 +4449,7 @@ requires-dist = [
     { name = "kafka-python", specifier = "==2.0.2" },
     { name = "kombu", specifier = "==5.3.2" },
     { name = "langchain", specifier = "==0.3.26" },
-    { name = "langchain-anthropic", specifier = ">=0.3.16" },
+    { name = "langchain-anthropic", specifier = "==0.3.*" },
     { name = "langchain-community", specifier = "==0.3.27" },
     { name = "langchain-openai", specifier = "==0.3.32" },
     { name = "langchain-perplexity", specifier = ">=0.1.1" },
