@@ -89,6 +89,8 @@ where
         .route("/flags/", any(endpoint::flags))
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
+        .route("/evaluation_reasons", get(endpoint::evaluation_reasons))
+        .route("/evaluation_reasons/", get(endpoint::evaluation_reasons))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
     let router = Router::new()

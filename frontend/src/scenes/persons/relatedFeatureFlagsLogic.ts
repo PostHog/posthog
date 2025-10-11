@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
@@ -63,6 +64,28 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             null as RelatedFeatureFlagResponse | null,
             {
                 loadRelatedFeatureFlags: async () => {
+                    // For local testing, always use the Rust endpoint
+                    const useRustEndpoint = true // TODO: Change to featureFlagLogic.values.featureFlags?.['use-rust-evaluation-reasons']
+
+                    if (useRustEndpoint) {
+                        // Use the Rust endpoint directly
+                        const currentTeam = teamLogic.values.currentTeam
+                        // In local dev, the Rust service runs on port 3001
+                        const rustEndpointUrl =
+                            window.location.hostname === 'localhost'
+                                ? `http://localhost:3001/evaluation_reasons`
+                                : `/evaluation_reasons`
+
+                        const response = await api.get(
+                            `${rustEndpointUrl}?${toParams({
+                                token: currentTeam?.api_token,
+                                ...(props.distinctId ? { distinct_id: props.distinctId } : {}),
+                                ...(props.groups ? { groups: JSON.stringify(props.groups) } : {}),
+                            })}`
+                        )
+                        return response
+                    }
+                    // Use the Python endpoint
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
                             ...(props.distinctId ? { distinct_id: props.distinctId } : {}),

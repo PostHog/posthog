@@ -41,6 +41,11 @@ impl FlagService {
         }
     }
 
+    /// Returns a clone of the PostgresReader client
+    pub fn pg_client(&self) -> PostgresReader {
+        self.pg_client.clone()
+    }
+
     /// Verifies the Project API token against the cache or the database.
     /// If the token is not found in the cache, it will be verified against the database,
     /// and the result will be cached in redis.
