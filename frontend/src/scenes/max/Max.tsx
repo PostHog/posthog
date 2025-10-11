@@ -1,7 +1,15 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconChevronLeft,
+    IconClockRewind,
+    IconExternal,
+    IconGear,
+    IconPlus,
+    IconSidePanel,
+} from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -12,6 +20,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
@@ -71,13 +80,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
         useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+    const { closeSidePanel } = useActions(sidePanelLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const threadProps: MaxThreadLogicProps = {
         conversationId: threadLogicKey,
         conversation,
     }
-
-    const { closeSidePanel } = useActions(sidePanelLogic)
 
     const headerButtons = (
         <>
@@ -145,6 +154,17 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 tooltipPlacement="bottom"
                             />
                         )}
+                        <LemonButton
+                            size="small"
+                            icon={<IconGear />}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                openSettingsPanel({ sectionId: 'environment-max' })
+                            }}
+                            to={urls.settings('environment-max')}
+                            tooltip="Edit Max's memory"
+                            tooltipPlacement="bottom"
+                        />
                         <LemonButton
                             size="small"
                             sideIcon={<IconExternal />}
