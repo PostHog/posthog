@@ -152,6 +152,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     notebook: {
         icon: <IconNotebook />,
     },
+    live_debugger: {
+        icon: <IconBug />,
+    },
     action: {
         icon: <IconCursor />,
     },

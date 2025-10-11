@@ -34,7 +34,7 @@ async function analyzeProductUsage() {
             {} as Record<string, number>
         )
 
-        for (const [tool, count] of Object.entries(toolUsage)) {
+        for (const [_tool, _count] of Object.entries(toolUsage)) {
         }
     }
 }

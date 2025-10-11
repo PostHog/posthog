@@ -44,7 +44,6 @@ import {
     type CreateInsightInput,
     CreateInsightInputSchema,
     type ListInsightsData,
-    ListInsightsSchema,
     type SimpleInsight,
     SimpleInsightSchema,
 } from '@/schema/insights'
