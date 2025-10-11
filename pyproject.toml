@@ -113,7 +113,7 @@ dependencies = [
     "slack-sdk==3.17.1",
     "snowflake-connector-python==3.15.0",
     "snowflake-sqlalchemy==1.7.3",
-    "social-auth-app-django==5.0.0",
+    "social-auth-app-django==5.6.0",
     "social-auth-core==4.3.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
