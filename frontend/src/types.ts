@@ -4518,6 +4518,7 @@ export type APIScopeObject =
     | 'dashboard_template'
     | 'dataset'
     | 'early_access_feature'
+    | 'endpoint'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
