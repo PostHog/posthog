@@ -760,3 +760,204 @@ class TestLLMAnalytics:
 
         response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
         assert response.status_code == 400, f"Expected 400 for event not being first, got {response.status_code}"
+
+    # ----------------------------------------------------------------------------
+    # Scenario 1.5: Basic Validation
+    # ----------------------------------------------------------------------------
+
+    def test_invalid_event_name_not_ai_prefix_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Events with invalid names (not starting with $ai_) are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Invalid event name (not $ai_ prefix)")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        # Create event with invalid name (not starting with $ai_)
+        event_data = {
+            "event": "invalid_event_name",  # Should start with $ai_
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-invalid-name"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for invalid event name, got {response.status_code}"
+
+    def test_invalid_event_name_regular_event_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Regular PostHog events (not AI events) are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Regular PostHog event (not AI event)")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        # Create regular PostHog event (not AI event)
+        event_data = {
+            "event": "$pageview",  # Regular PostHog event
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"page": "/test"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for regular PostHog event, got {response.status_code}"
+
+    def test_invalid_event_name_custom_event_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Custom events (not AI events) are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Custom event (not AI event)")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        # Create custom event (not AI event)
+        event_data = {
+            "event": "button_clicked",  # Custom event
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"button": "submit"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for custom event, got {response.status_code}"
+
+    def test_duplicate_blob_properties_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Duplicate blob properties are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Duplicate blob properties")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-duplicate-blobs"},
+        }
+
+        # Create multipart data with duplicate blob property names
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+            "event.properties.$ai_input": (
+                "input1.json",
+                json.dumps({"messages": [{"role": "user", "content": "First input"}]}),
+                "application/json",
+            ),
+            "event.properties.$ai_input": (  # Duplicate property name
+                "input2.json",
+                json.dumps({"messages": [{"role": "user", "content": "Second input"}]}),
+                "application/json",
+            ),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for duplicate blob properties, got {response.status_code}"
+
+    def test_missing_required_ai_properties_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Events missing required AI properties are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Missing required AI properties")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        # Create AI event without required $ai_model property
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {
+                # Missing $ai_model property
+                "custom_property": "test_value",
+            },
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert (
+            response.status_code == 400
+        ), f"Expected 400 for missing required AI properties, got {response.status_code}"
+
+    def test_empty_event_name_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Events with empty event names are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Empty event name")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        # Create event with empty event name
+        event_data = {
+            "event": "",  # Empty event name
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test-empty-name"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for empty event name, got {response.status_code}"
+
+    def test_missing_distinct_id_returns_400(self, shared_org_project):
+        """Test Phase 1.5: Events missing distinct_id are rejected."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Missing distinct_id")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_api_key = shared_org_project["api_key"]
+
+        # Create event without distinct_id
+        event_data = {
+            "event": "$ai_generation",
+            # Missing distinct_id
+            "properties": {"$ai_model": "test-missing-distinct-id"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(f"{client.base_url}/i/v0/ai", data=multipart_data, headers=headers)
+        assert response.status_code == 400, f"Expected 400 for missing distinct_id, got {response.status_code}"
