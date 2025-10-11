@@ -1,4 +1,5 @@
 import json
+from typing import cast
 
 from django.http import JsonResponse
 
@@ -10,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
 from posthog.redis import get_client
 
 from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
@@ -25,7 +27,8 @@ def github_sdk_versions(request: Request) -> JsonResponse:
     Data is cached by Dagster job that runs every 6 hours.
     Protected by sdk-doctor-beta feature flag.
     """
-    if not posthoganalytics.feature_enabled("sdk-doctor-beta", str(request.user.distinct_id)):
+    user = cast(User, request.user)
+    if not posthoganalytics.feature_enabled("sdk-doctor-beta", str(user.distinct_id)):
         raise exceptions.ValidationError("SDK Doctor is not enabled for this user")
 
     redis_client = get_client()

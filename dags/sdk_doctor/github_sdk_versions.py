@@ -363,7 +363,7 @@ def fetch_github_sdk_versions_op(context: dagster.OpExecutionContext) -> dict[st
         }
     )
 
-    return sdk_data
+    return sdk_data  # type: ignore
 
 
 @dagster.op(retry_policy=retry_policy)
