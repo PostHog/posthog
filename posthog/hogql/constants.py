@@ -33,7 +33,7 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
 # Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
-MAX_SELECT_RETURNED_ROWS = 50000
+MAX_SELECT_RETURNED_ROWS = 100000
 # Max limit for retention queries.
 MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 # Max limit for heatmaps which don't really need 1 billion so have their own max

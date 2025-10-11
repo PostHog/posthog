@@ -291,16 +291,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
@@ -335,16 +335,16 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters
@@ -365,16 +365,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
@@ -412,16 +412,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
@@ -442,16 +442,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
@@ -489,16 +489,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
@@ -536,16 +536,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
@@ -583,16 +583,16 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=60,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=0,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1

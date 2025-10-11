@@ -31,7 +31,7 @@ import { ExporterFormat } from '~/types'
 import { dataTableLogic } from './dataTableLogic'
 
 // Sync with posthog/hogql/constants.py
-export const MAX_SELECT_RETURNED_ROWS = 50000
+export const MAX_SELECT_RETURNED_ROWS = 100000
 
 const columnDisallowList = ['person.$delete', '*']
 

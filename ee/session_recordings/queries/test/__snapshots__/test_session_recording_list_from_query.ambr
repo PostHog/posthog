@@ -29,7 +29,7 @@
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_effect_of_poe_settings_on_query_generated_1_test_poe_being_unavailable_we_fall_back_to_person_id_overrides
@@ -74,7 +74,7 @@
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_effect_of_poe_settings_on_query_generated_2_test_poe_being_unavailable_we_fall_back_to_person_subquery_but_still_use_mat_props
@@ -119,7 +119,7 @@
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_effect_of_poe_settings_on_query_generated_3_test_allow_denormalised_props_fix_does_not_stop_all_poe_processing
@@ -152,7 +152,7 @@
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_effect_of_poe_settings_on_query_generated_4_test_poe_v2_available_person_properties_are_used_in_replay_listing
@@ -185,7 +185,7 @@
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_00_poe_v2_and_materialized_columns_allowed_with_materialization
