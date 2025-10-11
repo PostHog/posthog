@@ -140,6 +140,60 @@ describe('CyclotronJobQueue', () => {
             }
         )
 
+        it.each([
+            ['cdp_cyclotron_delay-24h', 24 * 60],
+            ['cdp_cyclotron_delay-60m', 60],
+            ['cdp_cyclotron_delay-10m', 10],
+            ['cdp_cyclotron_hog', 0],
+        ])('should make sure kafka delay routing works for %s', async (topic, minutes) => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+
+            // Mock the producers to avoid kafka connection
+            queue['jobQueuePostgres'].startAsProducer = jest.fn()
+            queue['jobQueueKafka'].startAsProducer = jest.fn()
+
+            const mockProducer = {
+                produce: jest.fn().mockResolvedValue(undefined),
+            }
+            queue['jobQueueKafka']['getKafkaProducer'] = jest.fn().mockReturnValue(mockProducer)
+
+            await queue.startAsProducer()
+
+            const invocations = [
+                {
+                    ...createInvocation(
+                        {
+                            ...createHogExecutionGlobals(),
+                            inputs: {},
+                        },
+                        exampleHogFunction
+                    ),
+                    queueScheduledAt: DateTime.now().plus({
+                        minutes,
+                    }),
+                },
+            ]
+            await queue.queueInvocations(invocations)
+
+            expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+
+            expect(mockProducer.produce).toHaveBeenCalledTimes(1)
+            expect(mockProducer.produce).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic,
+                    headers:
+                        topic === 'cdp_cyclotron_hog'
+                            ? expect.any(Object)
+                            : expect.objectContaining({
+                                  queueScheduledAt: expect.any(String),
+                                  returnTopic: 'cdp_cyclotron_hog',
+                              }),
+                })
+            )
+        })
+
         it('should not route scheduled jobs to postgres if they are not scheduled far enough in the future', async () => {
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = true
 
