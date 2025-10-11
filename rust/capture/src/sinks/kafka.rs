@@ -267,7 +267,8 @@ impl KafkaSink {
                         headers.set_force_disable_person_processing(true);
                         counter!(
                             "capture_events_rerouted_overflow",
-                            &[("reason", "force_limited")]
+                            "reason" => "force_limited",
+                            "key" => event_key.to_string()
                         )
                         .increment(1);
                         (&self.overflow_topic, None)
@@ -275,7 +276,8 @@ impl KafkaSink {
                     OverflowLimiterResult::Limited => {
                         counter!(
                             "capture_events_rerouted_overflow",
-                            &[("reason", "rate_limited")]
+                            "reason" => "rate_limited",
+                            "key" => event_key.to_string()
                         )
                         .increment(1);
                         if self.partition.as_ref().unwrap().should_preserve_locality() {
