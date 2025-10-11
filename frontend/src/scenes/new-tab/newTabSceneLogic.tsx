@@ -2,9 +2,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconDatabase, IconHogQL } from '@posthog/icons'
+import { IconDatabase, IconHogQL, IconPerson } from '@posthog/icons'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -23,17 +24,24 @@ import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogi
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { PersonType } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
-export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'recents'
+export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'recents' | 'persons'
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
 }
+
+interface NewTabCategoryItem {
+    key: NEW_TAB_CATEGORY_ITEMS
+    label: string
+}
+
+export type SpecialSearchMode = 'persons' | null
 
 const PAGINATION_LIMIT = 20
 
@@ -65,8 +73,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: true,
+        debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
+        setPersonSearchPagination: (pagination: { count: number; hasMore: boolean; limit: number }) => ({ pagination }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         recents: [
             (() => {
                 if ('sessionStorage' in window) {
@@ -115,6 +125,55 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
+        personSearchResults: [
+            [] as PersonType[],
+            {
+                loadPersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    if (!searchTerm.trim()) {
+                        return []
+                    }
+                    const limit = 20
+                    const url = api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${limit}`
+                    const response = await api.get(url)
+                    breakpoint()
+
+                    // Store pagination info immediately
+                    setTimeout(() => {
+                        actions.setPersonSearchPagination({
+                            count: response.count,
+                            hasMore: Boolean(response.next),
+                            limit,
+                        })
+                    }, 0)
+
+                    return response.results
+                },
+                loadMorePersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    if (!searchTerm.trim()) {
+                        return values.personSearchResults
+                    }
+
+                    const currentResults = values.personSearchResults
+                    const offset = currentResults.length
+
+                    const url =
+                        api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=20&offset=${offset}`
+                    const response = await api.get(url)
+                    breakpoint()
+
+                    // Update pagination info
+                    setTimeout(() => {
+                        actions.setPersonSearchPagination({
+                            count: response.count,
+                            hasMore: Boolean(response.next),
+                            limit: 20,
+                        })
+                    }, 0)
+
+                    return [...currentResults, ...response.results]
+                },
+            },
+        ],
     })),
     reducers({
         search: [
@@ -129,6 +188,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setSelectedCategory: (_, { category }) => category,
             },
         ],
+        personSearchPagination: [
+            { count: 0, hasMore: false, limit: 20 } as { count: number; hasMore: boolean; limit: number },
+            {
+                setPersonSearchPagination: (_, { pagination }) => pagination,
+            },
+        ],
         rawSelectedIndex: [
             0,
             {
@@ -141,16 +206,47 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     }),
     selectors({
         categories: [
-            () => [],
-            (): { key: NEW_TAB_CATEGORY_ITEMS; label: string }[] => [
-                { key: 'all', label: 'All' },
-                { key: 'create-new', label: 'Create new' },
-                { key: 'apps', label: 'Apps' },
-                { key: 'data-management', label: 'Data management' },
-                { key: 'recents', label: 'Recents' },
-            ],
+            (s) => [s.featureFlags],
+            (featureFlags): NewTabCategoryItem[] => {
+                const categories: NewTabCategoryItem[] = [
+                    { key: 'all', label: 'All' },
+                    {
+                        key: 'create-new',
+                        label: 'Create new',
+                    },
+                    { key: 'apps', label: 'Apps' },
+                    {
+                        key: 'data-management',
+                        label: 'Data management',
+                    },
+                    { key: 'recents', label: 'Recents' },
+                ]
+                if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
+                    categories.push({
+                        key: 'persons',
+                        label: 'Persons',
+                    })
+                }
+                return categories
+            },
         ],
-        isSearching: [(s) => [s.recentsLoading], (recentsLoading): boolean => recentsLoading],
+        specialSearchMode: [
+            (s) => [s.search, s.selectedCategory, s.featureFlags],
+            (search, selectedCategory, featureFlags): SpecialSearchMode => {
+                if (
+                    featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] &&
+                    (search.startsWith('/person') || selectedCategory === 'persons')
+                ) {
+                    return 'persons'
+                }
+                return null
+            },
+        ],
+        isSearching: [
+            (s) => [s.recentsLoading, s.personSearchResultsLoading],
+            (recentsLoading: boolean, personSearchResultsLoading: boolean): boolean =>
+                recentsLoading || personSearchResultsLoading,
+        ],
         projectTreeSearchItems: [
             (s) => [s.recents],
             (recents): NewTabTreeDataItem[] => {
@@ -171,9 +267,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 })
             },
         ],
+        personSearchItems: [
+            (s) => [s.personSearchResults],
+            (personSearchResults): NewTabTreeDataItem[] => {
+                const items = personSearchResults.map((person) => {
+                    const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
+                    const displayName = person.properties?.email || personId
+                    const item = {
+                        id: `person-${person.uuid}`,
+                        name: `${displayName}`,
+                        category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
+                        href: urls.personByUUID(person.uuid || ''),
+                        icon: <IconPerson />,
+                        record: {
+                            type: 'person',
+                            path: `Person: ${displayName}`,
+                            href: urls.personByUUID(person.uuid || ''),
+                        },
+                    }
+
+                    return item
+                })
+
+                return items
+            },
+        ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems],
-            (featureFlags, projectTreeSearchItems): NewTabTreeDataItem[] => {
+            (s) => [s.featureFlags, s.projectTreeSearchItems, s.personSearchItems, s.specialSearchMode],
+            (featureFlags, projectTreeSearchItems, personSearchItems, specialSearchMode): NewTabTreeDataItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs, index) => ({
@@ -238,6 +359,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+                // If in person search mode, return persons items (can be empty array)
+                if (newTabSceneData && specialSearchMode === 'persons') {
+                    return personSearchItems
+                }
+
                 const allItems: NewTabTreeDataItem[] = [
                     {
                         id: 'new-sql-query',
@@ -266,13 +394,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         filteredItemsGrid: [
-            (s) => [s.itemsGrid, s.search, s.selectedCategory],
-            (itemsGrid, search, selectedCategory): NewTabTreeDataItem[] => {
+            (s) => [s.itemsGrid, s.search, s.selectedCategory, s.specialSearchMode],
+            (
+                itemsGrid: NewTabTreeDataItem[],
+                search: string,
+                selectedCategory: NEW_TAB_CATEGORY_ITEMS,
+                specialSearchMode: SpecialSearchMode
+            ): NewTabTreeDataItem[] => {
                 let filtered = itemsGrid
 
                 // Filter by selected category
                 if (selectedCategory !== 'all') {
                     filtered = filtered.filter((item) => item.category === selectedCategory)
+                }
+
+                // For special search modes (like person search), skip the normal search filtering
+                if (specialSearchMode === 'persons') {
+                    return filtered
                 }
 
                 // Filter by search
@@ -292,10 +430,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
-        filteredItemsList: [
-            (s) => [s.filteredItemsGrid],
-            (filteredItemsGrid): NewTabTreeDataItem[] => filteredItemsGrid,
-        ],
         groupedFilteredItems: [
             (s) => [s.filteredItemsGrid],
             (filteredItemsGrid: NewTabTreeDataItem[]): Record<string, NewTabTreeDataItem[]> => {
@@ -312,25 +446,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         selectedIndex: [
-            (s) => [s.rawSelectedIndex, s.filteredItemsList],
-            (rawSelectedIndex, filteredItemsList): number | null => {
-                if (filteredItemsList.length === 0) {
+            (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
+            (rawSelectedIndex, filteredItemsGrid): number | null => {
+                if (filteredItemsGrid.length === 0) {
                     return null
                 }
                 return (
-                    ((rawSelectedIndex % filteredItemsList.length) + filteredItemsList.length) %
-                    filteredItemsList.length
+                    ((rawSelectedIndex % filteredItemsGrid.length) + filteredItemsGrid.length) %
+                    filteredItemsGrid.length
                 )
             },
         ],
         selectedItem: [
-            (s) => [s.selectedIndex, s.filteredItemsList],
-            (selectedIndex, filteredItemsList): NewTabTreeDataItem | null =>
-                selectedIndex !== null && selectedIndex < filteredItemsList.length
-                    ? filteredItemsList[selectedIndex]
+            (s) => [s.selectedIndex, s.filteredItemsGrid],
+            (selectedIndex, filteredItemsGrid): NewTabTreeDataItem | null =>
+                selectedIndex !== null && selectedIndex < filteredItemsGrid.length
+                    ? filteredItemsGrid[selectedIndex]
                     : null,
         ],
-        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'new-tab', name: 'New tab', iconType: 'blank' }]],
     }),
     listeners(({ actions, values }) => ({
         onSubmit: () => {
@@ -339,7 +472,62 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+            // Clear previous person search results when search changes
+            newTabSceneData && actions.loadPersonSearchResultsSuccess([])
+
             actions.loadRecents()
+
+            // Auto-switch to persons category when typing /persons from another category
+            if (newTabSceneData && values.search.startsWith('/persons') && values.selectedCategory !== 'persons') {
+                actions.setSelectedCategory('persons')
+            }
+
+            // If search starts with /persons, debounce the person search
+            if (newTabSceneData && values.search.startsWith('/persons')) {
+                const searchTerm = values.search.replace(/^\/persons?\s*/, '').trim()
+
+                if (searchTerm) {
+                    // Debounce person search to avoid hitting server on every keystroke
+                    actions.debouncedPersonSearch(searchTerm)
+                } else {
+                    // Clear results if search term is empty but still in person search mode
+                    actions.loadPersonSearchResultsSuccess([])
+                }
+            }
+
+            // If in persons mode and search doesn't start with /person, debounce person search results
+            if (
+                newTabSceneData &&
+                values.selectedCategory === 'persons' &&
+                !values.search.startsWith('/persons') &&
+                values.search.trim()
+            ) {
+                actions.debouncedPersonSearch(values.search.trim())
+            }
+        },
+        debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
+            // Debounce for 300ms
+            await breakpoint(300)
+            actions.loadPersonSearchResults({ searchTerm })
+        },
+        setSelectedCategory: ({ category }) => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+            if (newTabSceneData) {
+                // When switching away from persons tab, remove /persons prefix
+                if (category !== 'persons' && values.search.startsWith('/persons')) {
+                    const cleanedSearch = values.search.replace(/^\/persons\s*/, '')
+                    actions.setSearch(cleanedSearch)
+                }
+
+                // When switching to persons tab, add /persons prefix if not already there
+                if (category === 'persons' && !values.search.startsWith('/persons')) {
+                    const currentSearch = values.search.trim()
+                    actions.setSearch(currentSearch ? `/persons ${currentSearch}` : '/persons ')
+                }
+            }
         },
     })),
     tabAwareActionToUrl(({ values }) => ({
