@@ -24,7 +24,7 @@ CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
 def get_sdk_versions_for_team(
     team_id: int,
     *,
-    logger=default_logger,  # type: ignore
+    logger=default_logger,
 ) -> Optional[dict[str, list[dict[str, Any]]]]:
     """
     Query ClickHouse for events in the last 7 days and extract SDK usage.
@@ -83,7 +83,7 @@ def get_and_cache_team_sdk_versions(
     team_id: int,
     redis_client: redis.Redis,
     *,
-    logger=default_logger,  # type: ignore
+    logger=default_logger,
 ) -> Optional[dict[str, list[dict[str, Any]]]]:
     """
     Query ClickHouse for team SDK versions and cache the result.

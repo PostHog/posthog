@@ -2,7 +2,7 @@ import re
 import json
 import time
 from collections.abc import Callable
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 import dagster
 import requests
@@ -67,7 +67,7 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], Optional[dict[str, Any]]]] = {
 
 def fetch_github_data_for_sdk(lib_name: str) -> Optional[dict[str, Any]]:
     """Fetch GitHub data for specific SDK type using ClickHouse $lib value."""
-    fetch_fn = SDK_FETCH_FUNCTIONS.get(lib_name)
+    fetch_fn = SDK_FETCH_FUNCTIONS.get(cast(SdkTypes, lib_name))
     if fetch_fn:
         return fetch_fn()
     return None
@@ -343,11 +343,9 @@ def fetch_github_sdk_versions_op(context: dagster.OpExecutionContext) -> dict[st
                 fetched_count += 1
                 context.log.info(f"Successfully fetched {lib_name} SDK data")
             else:
-                sdk_data[lib_name] = None
                 failed_count += 1
                 context.log.warning(f"No data received from GitHub for {lib_name}")
         except Exception as e:
-            sdk_data[lib_name] = None
             failed_count += 1
             context.log.exception(f"Failed to fetch {lib_name} SDK data")
             capture_exception(e)
