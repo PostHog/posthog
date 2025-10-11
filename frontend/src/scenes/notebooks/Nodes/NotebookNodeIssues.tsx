@@ -1,4 +1,5 @@
 import { BindLogic, useValues } from 'kea'
+import { PropsWithChildren } from 'react'
 
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -22,12 +23,37 @@ const getLogicKey = (nodeId: string): string => {
     return `NotebookNodeIssues:${nodeId}`
 }
 
+export const Settings = ({
+    attributes,
+}: NotebookNodeAttributeProperties<NotebookNodeIssuesAttributes>): JSX.Element => {
+    return (
+        <ContextualFilters nodeId={attributes.nodeId}>
+            <div className="p-2 space-y-2 mb-2">
+                <IssuesFilters />
+                <ListOptions />
+            </div>
+        </ContextualFilters>
+    )
+}
+
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttributes>): JSX.Element | null => {
-    const logicKey = getLogicKey(attributes.nodeId)
     const { expanded } = useValues(notebookNodeLogic)
-    const { personId } = attributes
-    const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic({ logicKey }))
-    const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic({ logicKey }))
+
+    if (!expanded) {
+        return null
+    }
+
+    return (
+        <ContextualFilters nodeId={attributes.nodeId}>
+            <IssuesQuery personId={attributes.personId} />
+        </ContextualFilters>
+    )
+}
+
+const IssuesQuery = ({ personId }: { personId: string }): JSX.Element => {
+    const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic)
+    const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic)
+
     const context = useIssueQueryContext()
     const query = errorTrackingQuery({
         orderBy,
@@ -45,10 +71,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
         dashboardItemId: `new-NotebookNodeIssues-${personId}`,
     }
 
-    if (!expanded) {
-        return null
-    }
-
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
             <Query query={{ ...query, embedded: true }} context={context} />
@@ -56,18 +78,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
     )
 }
 
-export const Settings = ({
-    attributes,
-}: NotebookNodeAttributeProperties<NotebookNodeIssuesAttributes>): JSX.Element => {
-    const logicKey = getLogicKey(attributes.nodeId)
+const ContextualFilters = ({ children, nodeId }: PropsWithChildren<{ nodeId: string }>): JSX.Element => {
+    const logicKey = getLogicKey(nodeId)
 
     return (
         <BindLogic logic={issueFiltersLogic} props={{ logicKey }}>
             <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey }}>
-                <div className="p-2 space-y-2 mb-2">
-                    <IssuesFilters />
-                    <ListOptions />
-                </div>
+                {children}
             </BindLogic>
         </BindLogic>
     )
