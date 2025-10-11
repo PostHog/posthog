@@ -39,8 +39,8 @@ export const manifest: ProductManifest = {
     },
     treeItemsMetadata: [
         {
-            path: 'Revenue settings',
-            category: 'Definitions',
+            path: 'Revenue definitions',
+            category: 'Schema',
             iconType: 'revenue_analytics_metadata' as FileSystemIconType,
             href: urls.revenueSettings(),
         },
