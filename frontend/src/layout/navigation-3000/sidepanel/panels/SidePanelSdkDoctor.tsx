@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconStethoscope } from '@posthog/icons'
+import { IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -216,16 +216,22 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                 ) : outdatedSdkCount === 0 ? (
                     <section className="mb-2">
                         <h3>SDK health is good</h3>
-                        <LemonBanner
-                            type="success"
-                            icon={<IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />}
-                            hideIcon={false}
-                        >
+                        <LemonBanner type="success" hideIcon={false}>
                             <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
                             <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
                         </LemonBanner>
                     </section>
-                ) : null}
+                ) : (
+                    <section className="mb-2">
+                        <h3>Time for an update!</h3>
+                        <LemonBanner type="warning" hideIcon={false}>
+                            <p className="font-semibold">
+                                An outdated SDK means you're missing out on bug fixes and enhacements.
+                            </p>
+                            <p className="text-sm mt-1">Check the links below to get caught up.</p>
+                        </LemonBanner>
+                    </section>
+                )}
             </div>
 
             {Object.keys(sdkVersionsMap).map((sdkType) => (
