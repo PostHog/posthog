@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
@@ -62,6 +63,8 @@ class SessionRecording(UUIDTModel):
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
     ttl_days: Optional[int] = None
+    expiry_time: Optional[datetime] = None
+    recording_ttl: Optional[int] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -102,6 +105,8 @@ class SessionRecording(UUIDTModel):
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
             self.retention_period_days = metadata["retention_period_days"]
+            self.expiry_time = metadata["expiry_time"]
+            self.recording_ttl = metadata["recording_ttl"]
 
         return True
 
@@ -203,6 +208,8 @@ class SessionRecording(UUIDTModel):
             recording.ongoing = bool(ch_recording.get("ongoing", False))
             recording.activity_score = ch_recording.get("activity_score", None)
             recording.retention_period_days = ch_recording.get("retention_period_days", None)
+            recording.expiry_time = ch_recording.get("expiry_time", None)
+            recording.recording_ttl = ch_recording.get("recording_ttl", None)
 
             recordings.append(recording)
 

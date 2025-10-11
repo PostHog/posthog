@@ -1,5 +1,4 @@
 import { defaultQuickEmojis } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
-import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 describe('session recording utils', () => {
     defaultQuickEmojis.forEach((quickEmoji) => {

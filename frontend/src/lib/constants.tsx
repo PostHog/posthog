@@ -399,6 +399,7 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+export const SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS = 10 // days
 
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
