@@ -1,5 +1,6 @@
 # ruff: noqa: T201 allow print statements
 
+import os
 import logging
 import secrets
 import datetime as dt
@@ -97,6 +98,11 @@ class Command(BaseCommand):
             help="Skip running dagster materializations after data generation",
         )
         parser.add_argument(
+            "--say-on-complete",
+            action="store_true",
+            default=False,
+            help="Use text-to-speech to say when the process is complete",
+        parser.add_argument(
             "--skip-flag-sync",
             action="store_true",
             default=False,
@@ -188,6 +194,7 @@ class Command(BaseCommand):
                     print("Continuing anyway...")
             else:
                 print("Skipping feature flag sync.")
+
             print(
                 "\nMaster project reset!\n"
                 if existing_team_id == 0
@@ -202,8 +209,12 @@ class Command(BaseCommand):
                     f"http://localhost:8000/signup?email={user.email}\n"
                 )
             )
+            if options["say_on_complete"]:
+                os.system('say "demo data ready"')
         else:
             print("Dry run - not saving results.")
+            if options["say_on_complete"]:
+                os.system('say "demo data completed (dry run)"')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
