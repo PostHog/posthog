@@ -164,6 +164,40 @@ class TestSessionRecordingV2Storage(APIBaseTest):
             storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
         assert "Unexpected data length" in str(cm.exception)
 
+    def test_fetch_block_bytes_success(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test data"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = storage.fetch_block_bytes(block_url)
+
+        assert result == compressed_data
+        mock_client.get_object.assert_called_with(
+            Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
+        )
+
+    def test_fetch_block_bytes_returns_compressed_data(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test data for compression"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = storage.fetch_block_bytes(block_url)
+
+        # Verify it returns compressed bytes, not decompressed string
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")  # Should NOT be decompressed
+
     def test_store_lts_recording_success(self):
         mock_client = MagicMock()
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
@@ -349,6 +383,40 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         with self.assertRaises(BlockFetchError) as cm:
             await storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
         assert "Unexpected data length" in str(cm.exception)
+
+    async def test_fetch_block_bytes_success(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test data"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = await storage.fetch_block_bytes(block_url)
+
+        assert result == compressed_data
+        mock_client.get_object.assert_called_with(
+            Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
+        )
+
+    async def test_fetch_block_bytes_returns_compressed_data(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test data for compression"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = await storage.fetch_block_bytes(block_url)
+
+        # Verify it returns compressed bytes, not decompressed string
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")  # Should NOT be decompressed
 
     async def test_store_lts_recording_success(self):
         mock_client = AsyncMock()

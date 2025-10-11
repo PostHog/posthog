@@ -408,3 +408,94 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             {"timestamp": 2000, "type": "snapshot2"}
         """
         )
+
+    @parameterized.expand(
+        [
+            (True, "application/jsonl", None, 2, 0),
+            (False, "application/octet-stream", "snappy", 0, 2),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_decompress_parameter(
+        self,
+        decompress,
+        expected_content_type,
+        expected_content_encoding,
+        expected_fetch_block_calls,
+        expected_fetch_block_bytes_calls,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_client,
+    ) -> None:
+        import snappy
+
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_blocks = [
+            MagicMock(url="http://test.com/block0"),
+            MagicMock(url="http://test.com/block1"),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        mock_client_instance = MagicMock()
+        mock_client.return_value = mock_client_instance
+
+        test_data_1 = '{"timestamp": 1000, "type": "snapshot1"}'
+        test_data_2 = '{"timestamp": 2000, "type": "snapshot2"}'
+        compressed_data_1 = snappy.compress(test_data_1.encode("utf-8"))
+        compressed_data_2 = snappy.compress(test_data_2.encode("utf-8"))
+
+        mock_client_instance.fetch_block.side_effect = [test_data_1, test_data_2]
+        mock_client_instance.fetch_block_bytes.side_effect = [compressed_data_1, compressed_data_2]
+
+        decompress_param = f"&decompress={str(decompress).lower()}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1{decompress_param}"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.headers.get("content-type") == expected_content_type
+        assert response.headers.get("content-encoding") == expected_content_encoding
+        assert mock_client_instance.fetch_block.call_count == expected_fetch_block_calls
+        assert mock_client_instance.fetch_block_bytes.call_count == expected_fetch_block_bytes_calls
+
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_decompress_defaults_to_true(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_client,
+    ) -> None:
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_blocks = [MagicMock(url="http://test.com/block0")]
+        mock_list_blocks.return_value = mock_blocks
+
+        mock_client_instance = MagicMock()
+        mock_client.return_value = mock_client_instance
+        mock_client_instance.fetch_block.return_value = '{"timestamp": 1000, "type": "snapshot1"}'
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        assert mock_client_instance.fetch_block.call_count == 1
+        assert mock_client_instance.fetch_block_bytes.call_count == 0
