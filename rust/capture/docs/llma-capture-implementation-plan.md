@@ -10,13 +10,13 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 0.1 Routing Configuration
 
-- [ ] Create new `/ai` endpoint in capture service
+- [x] Create new `/ai` endpoint in capture service
 - [ ] Set up routing for `/ai` endpoint to capture service
 
 #### 0.2 End-to-End Integration Tests
 
-- [ ] Implement end-to-end integration tests for the full LLM analytics pipeline
-- [ ] Create test scenarios with multipart requests and blob data
+- [x] Implement end-to-end integration tests for the full LLM analytics pipeline
+- [x] Create test scenarios with multipart requests and blob data
 - [ ] Test Kafka message output and S3 storage integration
 - [ ] Set up automated test suite for continuous validation
 
@@ -24,16 +24,16 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 1.1 HTTP Endpoint Foundation
 
-- [ ] Implement multipart/form-data request parsing
-- [ ] Add server-side boundary validation
+- [x] Implement multipart/form-data request parsing
+- [x] Add server-side boundary validation
 - [ ] Output events with blob placeholders to Kafka
-- [ ] Implement error schema
+- [x] Implement error schema
 
 #### 1.2 Basic Validation
 
-- [ ] Implement `$ai_` event name prefix validation
-- [ ] Validate blob part names against event properties
-- [ ] Prevent blob overwriting of existing properties
+- [x] Implement `$ai_` event name prefix validation
+- [x] Validate blob part names against event properties
+- [x] Prevent blob overwriting of existing properties
 
 #### 1.3 Initial Deployment
 
