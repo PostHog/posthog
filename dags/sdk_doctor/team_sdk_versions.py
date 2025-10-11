@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional
 import dagster
 import structlog
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.exceptions_capture import capture_exception
@@ -33,23 +35,26 @@ def get_sdk_versions_for_team(
 
         # TODO: Extract the semVer sorting below to either a Clickhouse UDF/HogQL function.
         # Source: https://clickhouse.com/blog/semantic-versioning-udf
-        query = """
-            SELECT
-                properties.$lib AS lib,
-                properties.$lib_version AS lib_version,
-                MAX(timestamp) AS max_timestamp,
-                COUNT(*) AS event_count
-            FROM events
-            WHERE
-                timestamp >= now() - INTERVAL 7 DAY
-                AND lib IS NOT NULL
-                AND lib_version IS NOT NULL
-            GROUP BY lib, lib_version
-            ORDER BY
-                lib,
-                arrayMap(x -> toIntOrZero(x),  splitByChar('.', extract(assumeNotNull(lib_version), '(\\d+(\\.\\d+)+)'))) DESC,
-                event_count DESC
-        """
+        query = parse_select(
+            """
+                SELECT
+                    properties.$lib AS lib,
+                    properties.$lib_version AS lib_version,
+                    MAX(timestamp) AS max_timestamp,
+                    COUNT(*) AS event_count
+                FROM events
+                WHERE
+                    timestamp >= now() - INTERVAL 7 DAY
+                    AND lib IS NOT NULL
+                    AND lib_version IS NOT NULL
+                GROUP BY lib, lib_version
+                ORDER BY
+                    lib,
+                    arrayMap(x -> toIntOrZero(x),  splitByChar('.', extract(assumeNotNull(lib_version), {regex}))) DESC,
+                    event_count DESC
+            """,
+            placeholders={"regex": ast.Constant(value="(\\d+(\\.\\d+)+)")},  # Matches number.number.number.number.<...>
+        )
 
         response = execute_hogql_query(query, team, query_type="sdk_versions_for_team")
 
