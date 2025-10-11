@@ -8,6 +8,8 @@ services:
             # Mount the whole frontend/ directory to avoid to a new Docker image being generated each time
             # frontend code changes. Also, this allows frontend/__snapshots__/ to be updated.
             - './frontend:/work/frontend'
+            - './common/storybook/.storybook:/work/common/storybook/.storybook'
+            - './products:/work/products'
             - './playwright:/work/playwright'
             - './playwright-report:/work/playwright-report'
             - './test-results:/work/test-results'

@@ -9,11 +9,13 @@ WORKDIR /work
 
 RUN npm install -g pnpm
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
+COPY common/storybook/package.json common/storybook/
+COPY frontend/package.json frontend/
 
 RUN pnpm install --frozen-lockfile
 
-COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json test-runner-jest.config.js test-runner-jest-environment.js ./
-
-COPY .storybook/ .storybook/
+COPY tsconfig.json test-runner-jest.config.js test-runner-jest-environment.js ./
+COPY common/storybook/webpack.config.js common/storybook/babel.config.js common/storybook/
+COPY common/storybook/.storybook/ common/storybook/.storybook/
