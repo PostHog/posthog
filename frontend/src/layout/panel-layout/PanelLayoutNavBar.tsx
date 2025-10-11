@@ -18,11 +18,11 @@ import {
 } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccountPopover } from 'lib/components/AccountPopover/AccountPopover'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -39,8 +39,6 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
-import { navigationLogic } from '../navigation/navigationLogic'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
@@ -79,9 +77,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
-    const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
@@ -466,35 +462,32 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Settings'}
                             </Link>
 
-                            <Popover
-                                overlay={<AccountPopoverOverlay />}
-                                visible={isAccountPopoverOpen}
-                                onClickOutside={closeAccountPopover}
-                                placement="right-end"
-                                className="min-w-70"
-                            >
-                                <ButtonPrimitive
-                                    menuItem={!isLayoutNavCollapsed}
-                                    active={isAccountPopoverOpen}
-                                    onClick={toggleAccountPopover}
-                                    tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
-                                    tooltipPlacement="right"
-                                    iconOnly={isLayoutNavCollapsed}
-                                    data-attr="menu-item-me"
-                                >
-                                    <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
-                                    {!isLayoutNavCollapsed && (
-                                        <>
-                                            {user?.first_name ? (
-                                                <span>{user?.first_name}</span>
-                                            ) : (
-                                                <span>{user?.email}</span>
-                                            )}
-                                            <IconChevronRight className="size-3 text-secondary ml-auto" />
-                                        </>
-                                    )}
-                                </ButtonPrimitive>
-                            </Popover>
+                            <AccountPopover
+                                align="end"
+                                side="right"
+                                alignOffset={10}
+                                trigger={
+                                    <ButtonPrimitive
+                                        menuItem={!isLayoutNavCollapsed}
+                                        tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
+                                        tooltipPlacement="right"
+                                        iconOnly={isLayoutNavCollapsed}
+                                        data-attr="menu-item-me"
+                                    >
+                                        <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
+                                        {!isLayoutNavCollapsed && (
+                                            <>
+                                                {user?.first_name ? (
+                                                    <span>{user?.first_name}</span>
+                                                ) : (
+                                                    <span>{user?.email}</span>
+                                                )}
+                                                <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                            </>
+                                        )}
+                                    </ButtonPrimitive>
+                                }
+                            />
                         </div>
                     </div>
                     {!isMobileLayout && (
