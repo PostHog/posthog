@@ -350,17 +350,15 @@ export function Exposures(): JSX.Element {
                                 </span>
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
                                 {variants.length > 0 && (
-                                    <div className="ml-2">
-                                        <div className="flex items-center gap-4">
-                                            {variants.map(({ variant, percentage }) => (
-                                                <div key={variant} className="flex items-center gap-2">
-                                                    <div className="metric-cell">
-                                                        <VariantTag experimentId={experimentId} variantKey={variant} />
-                                                    </div>
-                                                    <span className="metric-cell">{percentage.toFixed(1)}%</span>
+                                    <div className="ml-2 flex items-center gap-4">
+                                        {variants.map(({ variant, percentage }) => (
+                                            <div key={variant} className="flex items-center gap-2">
+                                                <div className="metric-cell">
+                                                    <VariantTag experimentId={experimentId} variantKey={variant} />
                                                 </div>
-                                            ))}
-                                        </div>
+                                                <span className="metric-cell">{percentage.toFixed(1)}%</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                             </>
