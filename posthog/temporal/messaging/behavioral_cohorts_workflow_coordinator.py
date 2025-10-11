@@ -27,9 +27,7 @@ class CoordinatorWorkflowInputs:
     condition: Optional[str] = None
     min_matches: int = 3
     days: int = 30
-    limit: Optional[int] = None
     parallelism: int = 10  # Number of child workflows to spawn
-    conditions_per_workflow: int = 5000  # Max conditions per child workflow
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -39,7 +37,6 @@ class CoordinatorWorkflowInputs:
             "min_matches": self.min_matches,
             "days": self.days,
             "parallelism": self.parallelism,
-            "conditions_per_workflow": self.conditions_per_workflow,
         }
 
 
@@ -79,17 +76,6 @@ async def get_conditions_count_activity(inputs: CoordinatorWorkflowInputs) -> Co
         FROM behavioral_cohorts_matches
         WHERE {where_clause}
     """
-
-    if inputs.limit:
-        # Apply limit to the subquery
-        query = f"""
-            SELECT COUNT(*) as count FROM (
-                SELECT DISTINCT team_id, cohort_id, condition
-                FROM behavioral_cohorts_matches
-                WHERE {where_clause}
-                LIMIT {inputs.limit}
-            )
-        """
 
     try:
         with tags_context(
@@ -142,7 +128,6 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
 
         # Step 2: Calculate ranges for each child workflow
         conditions_per_workflow = math.ceil(total_conditions / inputs.parallelism)
-        conditions_per_workflow = min(conditions_per_workflow, inputs.conditions_per_workflow)
 
         # Step 3: Import the child workflow inputs and workflow class
         from posthog.temporal.messaging.behavioral_cohorts_workflow import (
