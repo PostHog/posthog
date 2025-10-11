@@ -106,11 +106,16 @@ class Person(models.Model):
                         uuid=uuidFromDistinctId(self.team_id, distinct_id),
                         team_id=self.team_id,
                         defaults={
-                            "version": original_person_version + 1,
+                            # Set version higher than delete events (which use version + 100).
+                            # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
+                            # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+                            "version": original_person_version + 101,
                         },
                     )
                     pdi.person_id = str(person.id)
-                    pdi.version = (pdi.version or 0) + 1
+                    # Set distinct_id version higher than delete events (which use pdi.version + 100).
+                    # This ensures the split distinct_id overrides any deleted distinct_id.
+                    pdi.version = (pdi.version or 0) + 101
                     pdi.save(update_fields=["version", "person_id"])
 
                 from posthog.models.person.util import create_person, create_person_distinct_id

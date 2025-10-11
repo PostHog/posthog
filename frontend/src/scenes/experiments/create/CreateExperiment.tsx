@@ -16,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { Experiment } from '~/types'
 
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
@@ -32,11 +33,15 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-export const CreateExperiment = (): JSX.Element => {
+type CreateExperimentProps = Partial<{
+    draftExperiment: Experiment
+}>
+
+export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
-    const { experiment, experimentErrors } = useValues(createExperimentLogic)
-    const { setExperimentValue } = useActions(createExperimentLogic)
+    const { experiment, experimentErrors } = useValues(createExperimentLogic({ experiment: draftExperiment }))
+    const { setExperimentValue } = useActions(createExperimentLogic({ experiment: draftExperiment }))
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
