@@ -633,6 +633,138 @@ class TestExports(APIBaseTest):
             assert results[0]["id"] == csv_export.id
             assert results[0]["export_format"] == "text/csv"
 
+    def test_video_export_monthly_limit(self) -> None:
+        # Create 9 video exports this month (we're at the limit - 1)
+        for i in range(9):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        # The 10th video export should succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_10",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # The 11th video export should fail with limit exceeded error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_11",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["type"], "validation_error")
+        self.assertIn("export_limit_exceeded", error_data["detail"])
+        self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
+
+    def test_video_export_limit_only_applies_to_full_videos(self) -> None:
+        # Create 10 video exports this month (at the limit)
+        for i in range(10):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        # Full video export should fail
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_full",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # But clip export (screenshot mode) should succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "screenshot",
+                    "session_recording_id": "session_clip",
+                    "timestamp": 100,
+                    "duration": 5,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Other video formats should also succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/webm",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_webm",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_video_export_limit_resets_monthly(self) -> None:
+        """Test that the video export limit resets at the beginning of each month"""
+
+        # Create 10 video exports in January (at the limit)
+        for i in range(10):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"mode": "video", "session_recording_id": f"session_jan_{i}"},
+                created_by=self.user,
+            )
+
+        # Should fail in January
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_jan_fail",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Move to February 1st
+        with freeze_time("2024-02-01T12:00:00Z"):
+            # Should succeed in February (limit reset)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "video/mp4",
+                    "export_context": {
+                        "mode": "video",
+                        "session_recording_id": "session_feb_success",
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
 
 class TestExportMixin(APIBaseTest):
     def _get_export_output(self, path: str) -> list[str]:
