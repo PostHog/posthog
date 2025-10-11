@@ -40,9 +40,16 @@ def _get_events_earliest_timestamp_query() -> SelectQuery:
 
     :return: A SelectQuery object that retrieves the earliest timestamp from the events table.
     """
+    # Exclude events with timestamps before 1971 to prevent invalid/corrupted timestamps
+    # (e.g., events from 1970 due to epoch timestamp issues) from affecting "all time" date ranges
     return ast.SelectQuery(
         select=[ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=datetime.fromisoformat("1971-01-01T00:00:00Z")),
+        ),
     )
 
 
