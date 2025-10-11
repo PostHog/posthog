@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#
+# Starts dmypy daemon for fast local type checking
+# First check takes ~90s to warm cache, subsequent checks are <1s
+#
+
+# Stop daemon on exit
+trap "dmypy stop 2>/dev/null || true" SIGINT SIGTERM EXIT
+
+echo -e "\n\033[47m>>\033[0m Starting dmypy daemon...\n"
+
+# Stop any existing daemon first
+dmypy stop 2>/dev/null || true
+
+# Start daemon
+dmypy start -- --config-file mypy.ini
+
+echo -e "\n\033[47m>>\033[0m ✓ dmypy daemon running\n"
+echo -e "\033[47m>>\033[0m First type check will warm the cache (~90s), then checks are <1s\n"
+
+# Keep script running so mprocs doesn't restart it
+while true; do
+    sleep 60
+done
