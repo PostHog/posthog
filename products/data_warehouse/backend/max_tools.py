@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery
+from posthog.schema import AssistantHogQLQuery, AssistantTool
 
 from posthog.models import Team, User
 
@@ -24,7 +24,7 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.base import AssistantNodeName, ToolResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 
@@ -124,14 +124,13 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
 
 
 class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
-    name: str = "generate_hogql_query"
+    name: str = AssistantTool.GENERATE_HOGQL_QUERY
     description: str = "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor only include the current change the user requested"
-    thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, str]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         current_query: str | None = self.context.get("current_query", "")
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 
@@ -151,9 +150,9 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                 result_so_far = await graph.ainvoke(graph_context)
                 if result_so_far.get("intermediate_steps"):
                     if result_so_far["intermediate_steps"][-1]:
-                        return result_so_far["intermediate_steps"][-1][0].tool_input, ""
+                        return ToolResult(content=result_so_far["intermediate_steps"][-1][0].tool_input)
                     else:
-                        return "I need more information to generate the query.", ""
+                        return ToolResult(content="I need more information to generate the query.")
                 else:
                     output = result_so_far["output"]
                     assert output is not None
@@ -177,4 +176,6 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
             # Well, better that that nothing - let's just capture the error and send what we've got
             capture_exception(final_error)
 
-        return "```sql\n" + final_result.query.query + "\n```", final_result.query.query
+        return ToolResult(
+            content="```sql\n" + final_result.query.query + "\n```", metadata={"query": final_result.query.query}
+        )

@@ -11,6 +11,10 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
+from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.utils.dispatcher import AssistantActionDispatcher
+from ee.hogai.utils.types.base import AssistantState
+
 
 class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
@@ -49,8 +53,21 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else None
             ),
         }
+        # TODO: This is super hacky, but it's the only way to get the tool execution to work outside of Max
+        context_manager = AssistantContextManager(self.team, user, config)
 
-        result = HogQLQueryFixerTool(team=self.team, user=user).invoke({}, config)
+        def writer(x):
+            pass
+
+        dispatcher = AssistantActionDispatcher(writer, "fix_hogql_query", None)
+        result = HogQLQueryFixerTool(
+            team=self.team,
+            user=user,
+            config=config,
+            state=AssistantState(),
+            context_manager=context_manager,
+            dispatcher=dispatcher,
+        ).arun(trace_id, {})
 
         if result is None or (isinstance(result, str) and len(result) == 0):
             return Response({"trace_id": trace_id, "error": "Could not fix the query"}, status=400)

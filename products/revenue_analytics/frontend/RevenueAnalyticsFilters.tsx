@@ -137,11 +137,11 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                     properties: revenueAnalyticsFilter,
                 },
             }}
-            callback={(toolOutput: Record<string, any>) => {
+            callback={(toolOutput: { filters: Record<string, any> }) => {
                 // Types suck here, but they *should* be correct if pydantic does its job correctly
-                setRevenueAnalyticsFilters(toolOutput.properties)
-                setDates(toolOutput.date_from, toolOutput.date_to)
-                setBreakdownProperties(toolOutput.breakdown)
+                setRevenueAnalyticsFilters(toolOutput.filters.properties)
+                setDates(toolOutput.filters.date_from, toolOutput.filters.date_to)
+                setBreakdownProperties(toolOutput.filters.breakdown)
             }}
             initialMaxPrompt="Show my revenue for "
             suggestions={[

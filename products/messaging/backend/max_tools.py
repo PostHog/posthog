@@ -7,8 +7,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantTool
+
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import ToolResult
 
 
 class CreateTemplateArgs(BaseModel):
@@ -34,12 +37,11 @@ class TemplateOutput(BaseModel):
 
 
 class CreateMessageTemplateTool(MaxTool):
-    name: str = "create_message_template"
+    name: str = AssistantTool.CREATE_MESSAGE_TEMPLATE
     description: str = "Create a message template from a prompt, optionally using a URL to inform the content."
-    thinking_message: str = "Creating your template"
     args_schema: type[BaseModel] = CreateTemplateArgs
 
-    def _run_impl(self, instructions: str) -> tuple[str, str]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         url_match = re.search(r"https" r"?://\S+", instructions)
         url = url_match.group(0) if url_match else None
 
@@ -100,7 +102,7 @@ Now, create a template for these instructions: {instructions}
             )
 
         template_json = json.dumps(parsed_result.model_dump(), indent=2)
-        return f"```json\n{template_json}\n```", template_json
+        return ToolResult(content=f"```json\n{template_json}\n```", metadata={"template": template_json})
 
     @property
     def _model(self):

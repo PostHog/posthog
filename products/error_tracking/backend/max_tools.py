@@ -7,7 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
+from posthog.schema import AssistantTool, ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
 
 from posthog.models import Team, User
 
@@ -19,6 +19,7 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import ToolResult
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -37,13 +38,13 @@ class UpdateIssueQueryArgs(BaseModel):
 
 
 class ErrorTrackingIssueFilteringTool(MaxTool):
-    name: str = "filter_error_tracking_issues"
+    name: str = AssistantTool.FILTER_ERROR_TRACKING_ISSUES.value
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
     thinking_message: str = "Updating your error tracking filters..."
     context_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
-    def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
+    async def _arun_impl(self, change: str) -> ToolResult:
         if "current_query" not in self.context:
             raise ValueError("Context `current_query` is required for the `filter_error_tracking_issues` tool")
 
@@ -79,7 +80,7 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
         else:
             raise final_error
 
-        return "✅ Updated error tracking filters.", parsed_result
+        return ToolResult(content="✅ Updated error tracking filters.", metadata={"filters": parsed_result})
 
     @property
     def _model(self):
@@ -171,13 +172,13 @@ class IssueImpactQueryArgs(BaseModel):
 
 
 class ErrorTrackingIssueImpactTool(MaxTool):
-    name: str = "find_error_tracking_impactful_issue_event_list"
+    name: str = AssistantTool.FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST
     description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
     thinking_message: str = "Finding related issues"
     context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
         graph_context = {
@@ -198,4 +199,4 @@ class ErrorTrackingIssueImpactTool(MaxTool):
                 events = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
-        return content, events
+        return ToolResult(content=content, metadata={"events": events})

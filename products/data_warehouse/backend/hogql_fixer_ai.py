@@ -4,6 +4,8 @@ from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
+from posthog.schema import AssistantTool
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
@@ -18,6 +20,7 @@ from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserExceptio
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import ToolResult
 
 _hogql_functions: str | None = None
 
@@ -181,12 +184,12 @@ def _get_user_prompt(schema_description: str) -> str:
 
 
 class HogQLQueryFixerTool(MaxTool):
-    name: str = "fix_hogql_query"
+    name: str = AssistantTool.FIX_HOGQL_QUERY
     description: str = "Fixes any error in the current HogQL query"
     thinking_message: str = "Fixing errors in the SQL query"
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    def _run_impl(self) -> tuple[str, str | None]:
+    async def _arun_impl(self) -> ToolResult:
         database = create_hogql_database(team=self._team)
         hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
@@ -231,9 +234,9 @@ The newly updated query gave us this error:
                     )
                 )
         else:
-            return "", None
+            return ToolResult(content="")
 
-        return parsed_result, parsed_result
+        return ToolResult(content=parsed_result, metadata={"query": parsed_result})
 
     @property
     def _model(self):

@@ -6,6 +6,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantTool
+
 from posthog.hogql.ai import (
     DESTINATION_LIMITATIONS_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
@@ -31,6 +33,7 @@ from products.cdp.backend.prompts import (
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import ToolResult
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):
@@ -50,9 +53,8 @@ class HogFunctionFiltersOutput(BaseModel):
 
 
 class CreateHogTransformationFunctionTool(MaxTool):
-    name: str = "create_hog_transformation_function"  # Must match a value in AssistantContextualTool enum
+    name: str = AssistantTool.CREATE_HOG_TRANSFORMATION_FUNCTION
     description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
-    thinking_message: str = "Creating your desired function"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
@@ -62,7 +64,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
         + DESTINATION_LIMITATIONS_MESSAGE
     )
 
-    def _run_impl(self, instructions: str) -> tuple[str, str]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         current_hog_code = self.context.get("current_hog_code", "")
 
         system_content = (
@@ -97,7 +99,9 @@ class CreateHogTransformationFunctionTool(MaxTool):
         else:
             raise final_error
 
-        return "```hog\n" + parsed_result.hog_code + "\n```", parsed_result.hog_code
+        return ToolResult(
+            content="```hog\n" + parsed_result.hog_code + "\n```", metadata={"hog_code": parsed_result.hog_code}
+        )
 
     @property
     def _model(self):
@@ -129,15 +133,14 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
 
 class CreateHogFunctionFiltersTool(MaxTool):
-    name: str = "create_hog_function_filters"  # Must match a value in AssistantContextualTool enum
+    name: str = AssistantTool.CREATE_HOG_FUNCTION_FILTERS
     description: str = (
         "Create or edit filters for hog functions to specify which events and properties trigger the function"
     )
-    thinking_message: str = "Setting up filters"
     args_schema: type[BaseModel] = CreateHogFunctionFiltersArgs
     context_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    def _run_impl(self, instructions: str) -> tuple[str, str]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         current_filters = self.context.get("current_filters", "{}")
         function_type = self.context.get("function_type", "destination")
 
@@ -177,7 +180,10 @@ class CreateHogFunctionFiltersTool(MaxTool):
         else:
             raise final_error
 
-        return f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```", json.dumps(parsed_result.filters)
+        return ToolResult(
+            content=f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```",
+            metadata={"filters": json.dumps(parsed_result.filters)},
+        )
 
     @property
     def _model(self):
@@ -217,13 +223,12 @@ class HogFunctionInputsOutput(BaseModel):
 
 
 class CreateHogFunctionInputsTool(MaxTool):
-    name: str = "create_hog_function_inputs"
+    name: str = AssistantTool.CREATE_HOG_FUNCTION_INPUTS
     description: str = "Generate or modify input variables for hog functions based on the current code and requirements"
-    thinking_message: str = "Generating input variables for your hog function"
     args_schema: type[BaseModel] = CreateHogFunctionInputsArgs
     context_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    def _run_impl(self, instructions: str) -> tuple[str, list]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         current_inputs_schema = self.context.get("current_inputs_schema", [])
         hog_code = self.context.get("hog_code", "")
 
@@ -257,7 +262,7 @@ class CreateHogFunctionInputsTool(MaxTool):
         import json
 
         formatted_json = json.dumps(parsed_result.inputs_schema, indent=2)
-        return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
+        return ToolResult(content=f"```json\n{formatted_json}\n```", metadata={"schema": parsed_result.inputs_schema})
 
     @property
     def _model(self):

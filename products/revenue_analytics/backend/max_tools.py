@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import RevenueAnalyticsAssistantFilters
+from posthog.schema import AssistantTool, RevenueAnalyticsAssistantFilters
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
@@ -21,7 +21,7 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorM
 from ee.hogai.graph.taxonomy.tools import ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types import AssistantNodeName, ToolResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -162,7 +162,7 @@ class FilterRevenueAnalyticsArgs(BaseModel):
 
 
 class FilterRevenueAnalyticsTool(MaxTool):
-    name: str = "filter_revenue_analytics"
+    name: str = AssistantTool.FILTER_REVENUE_ANALYTICS
     description: str = """
     - Update revenue analytics filters on this page, in order to better represent the user's revenue.
     - When to use the tool:
@@ -175,7 +175,6 @@ class FilterRevenueAnalyticsTool(MaxTool):
     thinking_message: str = "Coming up with filters"
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -194,7 +193,7 @@ class FilterRevenueAnalyticsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
         return result
 
-    async def _arun_impl(self, change: str) -> tuple[str, RevenueAnalyticsAssistantFilters]:
+    async def _arun_impl(self, change: str) -> ToolResult:
         result = await self._invoke_graph(change)
         if type(result["output"]) is not RevenueAnalyticsAssistantFilters:
             content = result["intermediate_steps"][-1][0].tool_input
@@ -205,4 +204,4 @@ class FilterRevenueAnalyticsTool(MaxTool):
                 filters = RevenueAnalyticsAssistantFilters.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate RevenueAnalyticsAssistantFilters: {e}")
-        return content, filters
+        return ToolResult(content=content, metadata={"filters": filters})

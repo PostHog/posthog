@@ -58,8 +58,8 @@ export function MessageTemplatesTable(): JSX.Element {
             <MaxTool
                 identifier="create_message_template"
                 context={{}}
-                callback={(toolOutput: any) => {
-                    createTemplate({ template: JSON.parse(toolOutput) })
+                callback={(toolOutput: { template: string }) => {
+                    createTemplate({ template: JSON.parse(toolOutput.template) })
                 }}
             >
                 <div className="relative" />

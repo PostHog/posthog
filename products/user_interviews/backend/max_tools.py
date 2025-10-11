@@ -1,11 +1,12 @@
-from typing import Any
-
 from django.conf import settings
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantTool
+
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types import ToolResult
 
 from .models import UserInterview
 
@@ -17,18 +18,18 @@ class AnalyzeUserInterviewsArgs(BaseModel):
 
 
 class AnalyzeUserInterviewsTool(MaxTool):
-    name: str = "analyze_user_interviews"
+    name: str = AssistantTool.ANALYZE_USER_INTERVIEWS
     description: str = "Analyze all user interviews from a specific angle to find patterns and insights"
     thinking_message: str = "Analyzing user interviews"
     context_prompt_template: str = "Since the user is currently on the user interviews page, you should lean towards the `analyze_user_interviews` when it comes to any questions about users or customers."
     args_schema: type[BaseModel] = AnalyzeUserInterviewsArgs
 
-    def _run_impl(self, analysis_angle: str) -> tuple[str, Any]:
+    async def _arun_impl(self, analysis_angle: str) -> ToolResult:
         # Get all interviews for the current team
         interviews = UserInterview.objects.filter(team=self._team).order_by("-created_at")
 
         if not interviews:
-            return "No user interviews found to analyze.", None
+            return ToolResult(content="No user interviews found to analyze.")
 
         # Prepare interview summaries for analysis
         interview_summaries = []
@@ -37,7 +38,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
                 interview_summaries.append(f"Interview from {interview.created_at}:\n{interview.summary}\n")
 
         if not interview_summaries:
-            return "No interview summaries found to analyze.", None
+            return ToolResult(content="No interview summaries found to analyze.")
 
         interview_summaries = "\n\n".join(interview_summaries)
 
@@ -68,4 +69,4 @@ Provide a structured analysis with clear sections and bullet points where approp
             ],
         )
 
-        return analysis_response.output_text, None
+        return ToolResult(content=analysis_response.output_text)
