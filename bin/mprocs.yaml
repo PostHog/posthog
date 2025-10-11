@@ -72,7 +72,6 @@ procs:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service embedding-worker
-        autostart: false
 
     feature-flags:
         shell: |-
