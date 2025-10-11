@@ -40,8 +40,8 @@ const meta: Meta = {
                 '/api/projects/:id/surveys/responses_count/': { results: [] },
                 '/api/environments/:team_id/exports/': { results: [] },
                 '/api/environments/:team_id/events': { results: [] },
-                '/api/sdk_versions/': {},
-                '/api/team_sdk_versions/': { sdk_versions: {}, cached: true },
+                '/api/sdk_versions/': sdkVersions,
+                '/api/team_sdk_versions/': teamSdkVersions,
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -78,12 +78,16 @@ export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
 }
 
+export const SidePanelSdkDoctor: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
+}
+
 export const SidePanelSupportNoEmail: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Support} />
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
-    const { openEmailForm } = useActions(supportLogic)
+    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
 
     useStorybookMocks({
         get: {
@@ -107,22 +111,10 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
         },
     })
 
-    useOnMountEffect(openEmailForm)
-
-    return <BaseTemplate panel={SidePanelTab.Support} />
-}
-
-export const SidePanelSdkDoctor: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/sdk_versions/': sdkVersions,
-            '/api/team_sdk_versions/': teamSdkVersions,
-        },
+    useOnMountEffect(() => {
+        openEmailForm()
+        return () => closeEmailForm()
     })
 
-    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
-}
-
-SidePanelSdkDoctor.parameters = {
-    featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA],
+    return <BaseTemplate panel={SidePanelTab.Support} />
 }
