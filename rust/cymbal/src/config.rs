@@ -42,8 +42,6 @@ pub struct Config {
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
 
-    pub embedding_enabled_team_id: Option<i32>,
-
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
