@@ -1047,7 +1047,7 @@ class FeatureFlagViewSet(
                                     )
                                 )
                                 OR
-                                -- Multivariate that has a condition that overrides with a specific variant and the roll_out percentage is 100
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout percentage is 100
                                 (
                                     EXISTS (
                                         SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
