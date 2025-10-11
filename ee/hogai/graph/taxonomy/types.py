@@ -48,6 +48,7 @@ class TaxonomyNodeName(StrEnum):
     TOOLS_NODE = "taxonomy_tools_node"
     START = START
     END = END
+    TASK_EXECUTOR = "taxonomy_task_executor"
 
 
 class EntityType(str, Enum):

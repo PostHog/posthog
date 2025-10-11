@@ -64,11 +64,18 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
             },
         )
 
+        _create_event(
+            event="no-properties-event",
+            distinct_id="user456",
+            team=self.team,
+            properties={},
+        )
+
         Action.objects.create(
             id=232, team=self.team, name="action1", description="Test Description", steps_json=[{"event": "event1"}]
         )
 
-        self.toolkit = DummyToolkit(self.team)
+        self.toolkit = DummyToolkit(self.team, self.user)
 
     async def test_events_property_values_exists(self):
         result = await self.toolkit._get_entity_names()
@@ -121,14 +128,35 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "Firefox" in "\n".join(property_vals.get(232, []))
 
     async def test_retrieve_event_or_action_properties_action_not_found(self):
-        result = await self.toolkit.retrieve_event_or_action_properties(999)
+        result = await self.toolkit.retrieve_event_or_action_properties_parallel([999])
         assert (
-            "Action 999 does not exist in the taxonomy. Verify that the action ID is correct and try again." == result
+            "Action 999 does not exist in the taxonomy. Verify that the action ID is correct and try again."
+            == result["999"]
         )
 
     async def test_retrieve_event_or_action_properties_event_not_found(self):
-        result = await self.toolkit.retrieve_event_or_action_properties("test")
-        assert "Properties do not exist in the taxonomy for the event test." == result
+        result = await self.toolkit.retrieve_event_or_action_properties_parallel(["test"])
+        assert "Properties do not exist in the taxonomy for the event test." == result["test"]
+
+    async def test_retrieve_event_or_action_properties_action_mixed(self):
+        result = await self.toolkit.retrieve_event_or_action_properties_parallel([232, "event1"])
+
+        assert "event1" in result
+        assert (
+            "<properties><String><prop><name>id</name></prop><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String></properties>"
+            == result["event1"]
+        )
+        assert "<properties>" in result["232"]
+
+    async def test_retrieve_event_or_action_properties_action_no_properties(self):
+        result = await self.toolkit.retrieve_event_or_action_properties_parallel([232, "no-properties-event"])
+
+        assert "no-properties-event" in result
+        assert (
+            "Properties do not exist in the taxonomy for the event no-properties-event."
+            == result["no-properties-event"]
+        )
+        assert "<properties>" in result["232"]
 
     def tearDown(self):
         flush_persons_and_events()
