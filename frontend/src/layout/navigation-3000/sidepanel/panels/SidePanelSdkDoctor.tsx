@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -184,7 +185,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
             </SidePanelPaneHeader>
 
             {/* Explain to devs how they can get the SDK data to show up */}
-            {isDev && (
+            {isDev && !inStorybook() && !inStorybookTestRunner() && (
                 <div className="m-2 mb-4">
                     <LemonBanner type="info">
                         <strong>DEVELOPMENT WARNING!</strong> When running in development, make sure you've run the
@@ -215,17 +216,14 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                 ) : outdatedSdkCount === 0 ? (
                     <section className="mb-2">
                         <h3>SDK health is good</h3>
-                        <div className="p-3 bg-success/10 rounded border border-success/20">
-                            <div className="flex items-start">
-                                <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
-                                <div>
-                                    <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                                    <p className="text-sm mt-1">
-                                        You've got the latest. Nice work keeping everything current.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                        <LemonBanner
+                            type="success"
+                            icon={<IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />}
+                            hideIcon={false}
+                        >
+                            <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
+                            <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                        </LemonBanner>
                     </section>
                 ) : null}
             </div>
