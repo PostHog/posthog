@@ -23,16 +23,15 @@ const getLogicKey = (nodeId: string): string => {
     return `NotebookNodeIssues:${nodeId}`
 }
 
-export const Settings = ({
-    attributes,
-}: NotebookNodeAttributeProperties<NotebookNodeIssuesAttributes>): JSX.Element => {
+const ContextualFilters = ({ children, nodeId }: PropsWithChildren<{ nodeId: string }>): JSX.Element => {
+    const logicKey = getLogicKey(nodeId)
+
     return (
-        <ContextualFilters nodeId={attributes.nodeId}>
-            <div className="p-2 space-y-2 mb-2">
-                <IssuesFilters />
-                <ListOptions />
-            </div>
-        </ContextualFilters>
+        <BindLogic logic={issueFiltersLogic} props={{ logicKey }}>
+            <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey }}>
+                {children}
+            </BindLogic>
+        </BindLogic>
     )
 }
 
@@ -78,15 +77,16 @@ const IssuesQuery = ({ personId }: { personId: string }): JSX.Element => {
     )
 }
 
-const ContextualFilters = ({ children, nodeId }: PropsWithChildren<{ nodeId: string }>): JSX.Element => {
-    const logicKey = getLogicKey(nodeId)
-
+export const Settings = ({
+    attributes,
+}: NotebookNodeAttributeProperties<NotebookNodeIssuesAttributes>): JSX.Element => {
     return (
-        <BindLogic logic={issueFiltersLogic} props={{ logicKey }}>
-            <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey }}>
-                {children}
-            </BindLogic>
-        </BindLogic>
+        <ContextualFilters nodeId={attributes.nodeId}>
+            <div className="p-2 space-y-2 mb-2">
+                <IssuesFilters />
+                <ListOptions />
+            </div>
+        </ContextualFilters>
     )
 }
 
