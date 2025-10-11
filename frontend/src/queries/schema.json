@@ -12745,7 +12745,8 @@
                 "DoIt",
                 "LinkedinAds",
                 "RedditAds",
-                "TikTokAds"
+                "TikTokAds",
+                "Shopify"
             ],
             "type": "string"
         },
