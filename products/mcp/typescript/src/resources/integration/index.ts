@@ -9,9 +9,9 @@ import {
 import { convertRepoToMarkdown } from './repo-to-md'
 
 // Import workflow markdown files
-import workflowBegin from './workflow-prompts/1.0-event-setup-begin.md'
-import workflowEdit from './workflow-prompts/1.1-event-setup-edit.md'
-import workflowRevise from './workflow-prompts/1.2-event-setup-revise.md'
+import workflowBegin from './workflow-guides/1.0-event-setup-begin.md'
+import workflowEdit from './workflow-guides/1.1-event-setup-edit.md'
+import workflowRevise from './workflow-guides/1.2-event-setup-revise.md'
 
 /**
  * Resource URI constants for PostHog integration resources
