@@ -55,6 +55,11 @@ class ReplaceVariables(CloningVisitor):
                 else matching_insight_variable[0].default_value
             )
 
+            # Handle List variables with multi-select - convert arrays to HogQL Array AST nodes
+            variable_type = matching_insight_variable[0].type
+            if variable_type == "List" and isinstance(value, list):
+                return ast.Array(exprs=[ast.Constant(value=item) for item in value])
+
             return ast.Constant(value=value)
 
         return super().visit_placeholder(node)
