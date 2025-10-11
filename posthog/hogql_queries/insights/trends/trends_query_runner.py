@@ -24,6 +24,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    FormulaItem,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     InCohortVia,
@@ -197,6 +198,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         series_index: int,
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
+        formula_value: Optional[FormulaItem] = None,
         include_recordings: Optional[bool] = None,
     ) -> TrendsActorsQueryBuilder:
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
@@ -215,6 +217,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             series_index=series_index,
             breakdown_value=breakdown_value if breakdown_value != "all" else None,
             compare_value=compare_value,
+            formula_value=formula_value,
             include_recordings=include_recordings,
         )
 
@@ -226,6 +229,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         res_series: list[Series] = []
         res_compare: list[CompareItem] | None = None
+        res_formula: list[FormulaItem] = []
 
         # Days
         res_days: Optional[list[DayItem]] = (
@@ -251,6 +255,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 CompareItem(label="Current", value="current"),
                 CompareItem(label="Previous", value="previous"),
             ]
+
+        # Formula
+        if self.query.trendsFilter is not None and self.query.trendsFilter.formulaNodes is not None:
+            for index, formula_node in enumerate(self.query.trendsFilter.formulaNodes):
+                res_formula.append(
+                    FormulaItem(label=formula_node.custom_name or f"Formula ({formula_node.formula})", value=index)
+                )
 
         # Breakdowns
         if self.query.breakdownFilter is not None and (
@@ -337,6 +348,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             breakdowns=res_breakdowns,
             day=res_days,
             compare=res_compare,
+            formula=res_formula,
         )
 
     def _calculate(self):
@@ -453,6 +465,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Set the order based on the formula index
                         for result in formula_results:
                             result["order"] = formula_idx
+                            result["formula"] = formula_idx
 
                         final_result.extend(formula_results)
                 else:
@@ -462,6 +475,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Set the order based on the formula index
                         for result in formula_results:
                             result["order"] = formula_idx
+                            result["formula"] = formula_idx
 
                         # Create a new list for each formula's results
                         final_result.extend(formula_results)

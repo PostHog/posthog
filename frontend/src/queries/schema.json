@@ -3933,6 +3933,22 @@
                     },
                     "type": "array"
                 },
+                "formula": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "$ref": "#/definitions/integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "interval": {
                     "items": {
                         "additionalProperties": false,
@@ -14742,6 +14758,9 @@
                         }
                     ]
                 },
+                "formula": {
+                    "$ref": "#/definitions/integer"
+                },
                 "includeRecordings": {
                     "type": "boolean"
                 },
@@ -14891,6 +14910,22 @@
                                         "$ref": "#/definitions/Day"
                                     }
                                 ]
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "formula": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "$ref": "#/definitions/integer"
                             }
                         },
                         "required": ["label", "value"],
@@ -18258,6 +18293,22 @@
                                                 "$ref": "#/definitions/Day"
                                             }
                                         ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "formula": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "$ref": "#/definitions/integer"
                                     }
                                 },
                                 "required": ["label", "value"],
