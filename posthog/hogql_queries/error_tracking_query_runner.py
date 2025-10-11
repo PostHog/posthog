@@ -22,10 +22,11 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
 from posthog.utils import relative_date_parse
+
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
 

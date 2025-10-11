@@ -16,7 +16,6 @@ from prometheus_client import Counter
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import OrganizationMembership
@@ -27,6 +26,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+
+from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 

@@ -9,7 +9,8 @@ import structlog
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS
-from posthog.models import ErrorTrackingIssueFingerprintV2
+
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

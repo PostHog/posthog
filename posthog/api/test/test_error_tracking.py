@@ -11,19 +11,20 @@ from boto3 import resource
 from botocore.config import Config
 from rest_framework import status
 
-from posthog.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
-)
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
 )
 
 from ee.models.rbac.role import Role
