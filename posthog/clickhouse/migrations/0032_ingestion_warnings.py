@@ -10,5 +10,5 @@ operations = [
     run_sql_with_exceptions(INGESTION_WARNINGS_DATA_TABLE_SQL()),
     run_sql_with_exceptions(DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL()),
     run_sql_with_exceptions(KAFKA_INGESTION_WARNINGS_TABLE_SQL()),
-    run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL()),
+    run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL(target_table="ingestion_warnings")),
 ]

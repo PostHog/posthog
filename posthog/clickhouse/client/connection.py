@@ -38,6 +38,7 @@ class NodeRole(StrEnum):
     DATA = "data"
     INGESTION_EVENTS = "events"
     INGESTION_SMALL = "small"
+    INGESTION_MEDIUM = "medium"
     SHUFFLEHOG = "shufflehog"
 
 
