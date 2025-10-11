@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -7,6 +7,7 @@ use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::info;
 
+use crate::checkpoint::CheckpointMode;
 use crate::rocksdb::dedup_metadata::EventSimilarity;
 use crate::rocksdb::store::RocksDbStore;
 
@@ -447,9 +448,10 @@ impl DeduplicationStore {
     }
 
     /// Create a checkpoint and return the SST files at the time of checkpoint
-    pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
+    pub fn create_local_checkpoint(
         &self,
-        checkpoint_path: P,
+        local_checkpoint_attempt_dest_path: &Path,
+        _mode: CheckpointMode, // TODO(eli): condition incremental vs full checkpoint creation on this
     ) -> Result<Vec<String>> {
         // Flush before checkpoint to ensure all data is in SST files
         self.flush()?;
@@ -458,7 +460,8 @@ impl DeduplicationStore {
         let sst_files = self.get_sst_file_names()?;
 
         // Create the checkpoint
-        self.store.create_checkpoint(checkpoint_path)?;
+        self.store
+            .create_checkpoint(local_checkpoint_attempt_dest_path)?;
 
         Ok(sst_files)
     }
