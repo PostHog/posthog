@@ -168,7 +168,10 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Field(chain=["properties", prop]),
+                            left=ast.Call(
+                                name="JSONExtractString",
+                                args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                            ),
                             op=ast.CompareOperationOp.NotEq,
                             right=ast.Constant(value=""),
                         )
