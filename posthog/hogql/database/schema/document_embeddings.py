@@ -47,7 +47,7 @@ def select_from_embeddings_table(requested_fields: dict[str, list[str | int]]):
 class RawDocumentEmbeddingsTable(Table):
     fields: dict[str, FieldOrTable] = DOCUMENT_EMBEDDINGS_FIELDS
 
-    def to_printed_clickhouse(self):
+    def to_printed_clickhouse(self, context):
         return DOCUMENT_EMBEDDINGS
 
     def to_printed_hogql(self):

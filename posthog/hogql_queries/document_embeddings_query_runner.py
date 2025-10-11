@@ -142,10 +142,10 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentEmbeddingsQuery
 
         where_exprs = [
             ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq, left=ast.Constant(value=self.date_from), right=haystack("timestamp")
+                op=ast.CompareOperationOp.GtEq, left=haystack("timestamp"), right=ast.Constant(value=self.date_from)
             ),
             ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq, left=ast.Constant(value=self.date_to), right=haystack("timestamp")
+                op=ast.CompareOperationOp.LtEq, left=haystack("timestamp"), right=ast.Constant(value=self.date_to)
             ),
             # TODO - right now "specificity" is how people control what documents to compare the
             # query document to. This basically sucks - we should expose "product", "document_type" and
