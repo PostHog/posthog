@@ -96,6 +96,10 @@ BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 MAILJET_PUBLIC_KEY = get_from_env("MAILJET_PUBLIC_KEY", "", type_cast=str)
 MAILJET_SECRET_KEY = get_from_env("MAILJET_SECRET_KEY", "", type_cast=str)
+MESSAGING_ATTACHMENTS_CDN_DOMAIN = get_from_env("MESSAGING_ATTACHMENTS_CDN_DOMAIN", "", type_cast=str)
+MESSAGING_ATTACHMENTS_OBJECT_STORAGE_BUCKET = get_from_env(
+    "MESSAGING_ATTACHMENTS_OBJECT_STORAGE_BUCKET", "", type_cast=str
+)
 
 SQS_QUEUES = {
     "usage_reports": {

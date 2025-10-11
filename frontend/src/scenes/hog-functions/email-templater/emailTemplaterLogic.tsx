@@ -55,6 +55,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
+        uploadImageAttachment: (file: File) => ({ file }),
     }),
     reducers({
         emailEditorRef: [
@@ -186,6 +187,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (props.value?.design) {
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
+
+            values.emailEditorRef?.editor?.registerCallback(
+                'image',
+                async (
+                    file: { attachments: File[] },
+                    done: (result: { progress: number; url: string | null }) => void
+                ) => {
+                    const fileUrl = await api.messaging.uploadAttachment(file.attachments[0])
+                    done({ progress: 100, url: fileUrl })
+                }
+            )
         },
 
         setEmailTemplateValue: ({ name, value }) => {
