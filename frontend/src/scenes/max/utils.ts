@@ -16,7 +16,7 @@ import {
     PlanningMessage,
     ReasoningMessage,
     RootAssistantMessage,
-    TaskExecutionMessage,
+    ToolExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -77,10 +77,10 @@ export function isPlanningMessage(message: RootAssistantMessage | undefined | nu
     return message?.type === AssistantMessageType.Planning
 }
 
-export function isTaskExecutionMessage(
+export function isToolExecutionMessage(
     message: RootAssistantMessage | undefined | null
-): message is TaskExecutionMessage {
-    return message?.type === AssistantMessageType.TaskExecution
+): message is ToolExecutionMessage {
+    return message?.type === AssistantMessageType.ToolExecution
 }
 
 export function castAssistantQuery(

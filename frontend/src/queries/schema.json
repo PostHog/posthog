@@ -786,35 +786,6 @@
             },
             "type": "object"
         },
-        "AssistantContextualTool": {
-            "enum": [
-                "search_session_recordings",
-                "generate_hogql_query",
-                "fix_hogql_query",
-                "analyze_user_interviews",
-                "create_and_query_insight",
-                "create_hog_transformation_function",
-                "create_hog_function_filters",
-                "create_hog_function_inputs",
-                "create_message_template",
-                "navigate",
-                "filter_error_tracking_issues",
-                "find_error_tracking_impactful_issue_event_list",
-                "experiment_results_summary",
-                "create_survey",
-                "analyze_survey_responses",
-                "search_docs",
-                "search_insights",
-                "session_summarization",
-                "create_dashboard",
-                "read_taxonomy",
-                "search",
-                "read_data",
-                "todo_write",
-                "filter_revenue_analytics"
-            ],
-            "type": "string"
-        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -1524,6 +1495,9 @@
                 "meta": {
                     "$ref": "#/definitions/AssistantMessageMetadata"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tool_calls": {
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
@@ -1533,9 +1507,6 @@
                 "type": {
                     "const": "ai",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -1569,7 +1540,7 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/tool_execution"
             ],
             "type": "string"
         },
@@ -1839,6 +1810,34 @@
             "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
             "type": "string"
         },
+        "AssistantTool": {
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query",
+                "analyze_user_interviews",
+                "create_and_query_insight",
+                "edit_current_insight",
+                "create_hog_transformation_function",
+                "create_hog_function_filters",
+                "create_hog_function_inputs",
+                "create_message_template",
+                "navigate",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
+                "experiment_results_summary",
+                "create_survey",
+                "analyze_survey_responses",
+                "session_summarization",
+                "create_dashboard",
+                "read_taxonomy",
+                "search",
+                "read_data",
+                "todo_write",
+                "filter_revenue_analytics"
+            ],
+            "type": "string"
+        },
         "AssistantToolCall": {
             "additionalProperties": false,
             "properties": {
@@ -1871,6 +1870,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tool_call_id": {
                     "type": "string"
                 },
@@ -1881,9 +1883,6 @@
                 "ui_payload": {
                     "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                     "type": "object"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -2264,8 +2263,8 @@
                 "id": {
                     "type": "string"
                 },
-                "visible": {
-                    "type": "boolean"
+                "parent_tool_call_id": {
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -7255,12 +7254,12 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "context",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -12823,12 +12822,12 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type"],
@@ -14745,15 +14744,15 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
                 },
                 "ui_context": {
                     "$ref": "#/definitions/MaxUIContext"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -17152,32 +17151,6 @@
             "required": ["use_as_profile", "color", "accessories"],
             "type": "object"
         },
-        "MultiVisualizationMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "commentary": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "ai/multi_viz",
-                    "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
-                },
-                "visualizations": {
-                    "items": {
-                        "$ref": "#/definitions/VisualizationItem"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["type", "visualizations"],
-            "type": "object"
-        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -17327,18 +17300,12 @@
                 "notebook_type": {
                     "$ref": "#/definitions/Category"
                 },
-                "tool_calls": {
-                    "items": {
-                        "$ref": "#/definitions/AssistantToolCall"
-                    },
-                    "type": "array"
+                "parent_tool_call_id": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "ai/notebook",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "notebook_id", "content"],
@@ -17793,46 +17760,6 @@
             },
             "required": ["kind"],
             "type": "object"
-        },
-        "PlanningMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "steps": {
-                    "items": {
-                        "$ref": "#/definitions/PlanningStep"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "const": "ai/planning",
-                    "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["type", "steps"],
-            "type": "object"
-        },
-        "PlanningStep": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/PlanningStepStatus"
-                }
-            },
-            "required": ["description", "status"],
-            "type": "object"
-        },
-        "PlanningStepStatus": {
-            "enum": ["pending", "in_progress", "completed"],
-            "type": "string"
         },
         "PlaywrightWorkspaceSetupData": {
             "additionalProperties": false,
@@ -22062,32 +21989,6 @@
             "required": ["query"],
             "type": "object"
         },
-        "ReasoningMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "substeps": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "const": "ai/reasoning",
-                    "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["type", "content"],
-            "type": "object"
-        },
         "RecordingDurationFilter": {
             "additionalProperties": false,
             "properties": {
@@ -23601,12 +23502,6 @@
                     "$ref": "#/definitions/VisualizationMessage"
                 },
                 {
-                    "$ref": "#/definitions/MultiVisualizationMessage"
-                },
-                {
-                    "$ref": "#/definitions/ReasoningMessage"
-                },
-                {
                     "$ref": "#/definitions/AssistantMessage"
                 },
                 {
@@ -23619,37 +23514,7 @@
                     "$ref": "#/definitions/NotebookUpdateMessage"
                 },
                 {
-                    "$ref": "#/definitions/PlanningMessage"
-                },
-                {
-                    "$ref": "#/definitions/TaskExecutionMessage"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "content": {
-                            "type": "string"
-                        },
-                        "id": {
-                            "type": "string"
-                        },
-                        "tool_call_id": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "tool",
-                            "type": "string"
-                        },
-                        "ui_payload": {
-                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                            "type": "object"
-                        },
-                        "visible": {
-                            "type": "boolean"
-                        }
-                    },
-                    "required": ["content", "tool_call_id", "type"],
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantToolCallMessage"
                 }
             ]
         },
@@ -25387,64 +25252,6 @@
             },
             "type": "object"
         },
-        "TaskExecutionItem": {
-            "additionalProperties": false,
-            "properties": {
-                "artifact_ids": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "progress_text": {
-                    "type": "string"
-                },
-                "prompt": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/TaskExecutionStatus"
-                },
-                "task_type": {
-                    "type": "string"
-                }
-            },
-            "required": ["id", "description", "prompt", "status", "task_type"],
-            "type": "object"
-        },
-        "TaskExecutionMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "tasks": {
-                    "items": {
-                        "$ref": "#/definitions/TaskExecutionItem"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "const": "ai/task_execution",
-                    "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["type", "tasks"],
-            "type": "object"
-        },
-        "TaskExecutionStatus": {
-            "enum": ["pending", "in_progress", "completed", "failed"],
-            "type": "string"
-        },
         "TaxonomicFilterGroupType": {
             "enum": [
                 "metadata",
@@ -26636,6 +26443,9 @@
                 "initiator": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "plan": {
                     "type": "string"
                 },
@@ -26649,9 +26459,6 @@
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["answer", "query", "type"],

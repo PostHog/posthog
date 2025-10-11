@@ -51,12 +51,12 @@ export enum AssistantMessageType {
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
-    TaskExecution = 'ai/task_execution',
+    ToolExecution = 'ai/tool_execution',
 }
 
 export interface BaseAssistantMessage {
     id?: string
-    visible?: boolean
+    parent_tool_call_id?: string
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -95,12 +95,6 @@ export interface AssistantMessage extends BaseAssistantMessage {
     content: string
     meta?: AssistantMessageMetadata
     tool_calls?: AssistantToolCall[]
-}
-
-export interface ReasoningMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Reasoning
-    content: string
-    substeps?: string[]
 }
 
 export interface ContextMessage extends BaseAssistantMessage {
@@ -155,64 +149,15 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     notebook_type?: Category
     conversation_notebooks?: NotebookInfo[]
     current_run_notebooks?: NotebookInfo[]
-    tool_calls?: AssistantToolCall[]
-}
-
-export enum PlanningStepStatus {
-    Pending = 'pending',
-    InProgress = 'in_progress',
-    Completed = 'completed',
-}
-
-export interface PlanningStep {
-    description: string
-    status: PlanningStepStatus
-}
-
-export interface PlanningMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Planning
-    steps: PlanningStep[]
-}
-
-export enum TaskExecutionStatus {
-    Pending = 'pending',
-    InProgress = 'in_progress',
-    Completed = 'completed',
-    Failed = 'failed',
-}
-
-export interface TaskExecutionItem {
-    id: string
-    description: string
-    prompt: string
-    status: TaskExecutionStatus
-    artifact_ids?: string[]
-    progress_text?: string
-    task_type: string
-}
-
-export interface TaskExecutionMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.TaskExecution
-    tasks: TaskExecutionItem[]
-}
-
-export interface MultiVisualizationMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.MultiVisualization
-    visualizations: VisualizationItem[]
-    commentary?: string
 }
 
 export type RootAssistantMessage =
     | VisualizationMessage
-    | MultiVisualizationMessage
-    | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
     | NotebookUpdateMessage
-    | PlanningMessage
-    | TaskExecutionMessage
-    | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
+    | AssistantToolCallMessage
 
 export enum AssistantEventType {
     Status = 'status',
@@ -241,12 +186,13 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool =
+export type AssistantTool =
     | 'search_session_recordings'
     | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
+    | 'edit_current_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -257,8 +203,6 @@ export type AssistantContextualTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_docs'
-    | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
     | 'read_taxonomy'
