@@ -2,10 +2,10 @@ import os
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Optional
 
 import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
+from tenacity import RetryError, retry, retry_if_result, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -47,7 +47,7 @@ def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
     return ",".join([f"{key}={value}" for key, value in settings_dict.items()])
 
 
-def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Optional[str] = None) -> str:
+def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: str | None = None) -> str:
     settings = base_settings.copy()
 
     if extra_settings:
@@ -74,6 +74,7 @@ def get_partitions(
         end_partition = end_datetime.strftime("%Y%m%d")
         partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
 
+    context.log.info(f"Executing get_partitions query: {partition_query}")
     partitions_result = cluster.any_host_by_roles(
         lambda client: client.execute(partition_query), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
     ).result()
@@ -104,8 +105,29 @@ def drop_partitions_for_date_range(
         current_date += timedelta(days=1)
 
 
+def get_expected_partitions_from_time_window(
+    context: dagster.AssetExecutionContext,
+) -> list[str]:
+    if not context.partition_time_window:
+        raise dagster.Failure("partition_time_window is required to determine expected partitions")
+
+    start_datetime, end_datetime = context.partition_time_window
+    current_date = start_datetime.date()
+    end_date = end_datetime.date()
+
+    partitions = []
+    while current_date < end_date:
+        partitions.append(current_date.strftime("%Y%m%d"))
+        current_date += timedelta(days=1)
+
+    return partitions
+
+
 def sync_partitions_on_replicas(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    target_table: str,
+    validate_after_sync: bool = True,
 ) -> None:
     context.log.info(f"Syncing replicas for {target_table} on all hosts")
     cluster.map_hosts_by_roles(
@@ -113,17 +135,163 @@ def sync_partitions_on_replicas(
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ).result()
 
+    # Validate expected partitions exist after sync
+    if validate_after_sync and context.partition_time_window:
+        expected_partitions = get_expected_partitions_from_time_window(context)
+        context.log.info(f"Validating expected partitions after sync: {expected_partitions}")
+        validate_partitions_on_all_hosts(context, cluster, target_table, expected_partitions)
+
+
+def _query_partitions_from_hosts(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, query: str
+) -> dict:
+    context.log.info(f"Executing partition validation query: {query}")
+
+    def execute_query(client, query=query):
+        return client.execute(query)
+
+    return cluster.map_hosts_by_roles(
+        execute_query,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+    ).result()
+
+
+def _validate_host_partition_result(
+    host_key: str, result, expected_partitions: list[str], context: dagster.AssetExecutionContext
+) -> tuple[bool, list[str] | None]:
+    if result.error:
+        # Query errors should fail immediately, not retry
+        error_msg = f"Error querying host {host_key}: {result.error}"
+        context.log.error(error_msg)
+        raise dagster.Failure(error_msg)
+
+    if not result.value or len(result.value) == 0:
+        context.log.warning(f"No partition data returned from host {host_key}")
+        return False, expected_partitions
+
+    # Extract partitions from result
+    host_name = result.value[0][0] if result.value[0] else host_key
+    found_partitions = result.value[0][1] if len(result.value[0]) > 1 else []
+
+    # Check for missing partitions
+    missing = set(expected_partitions) - set(found_partitions)
+    if missing:
+        context.log.warning(f"Host {host_name} missing partitions: {sorted(missing)}. Found: {found_partitions}")
+        return False, sorted(missing)
+
+    context.log.info(f"Host {host_name} has all expected partitions: {found_partitions}")
+    return True, None
+
+
+def _get_missing_partitions_on_all_hosts(
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    table_name: str,
+    expected_partitions: list[str],
+) -> dict[str, list[str]] | None:
+    query = f"""
+        SELECT
+            hostName() as host,
+            arraySort(groupArray(DISTINCT partition)) as partitions
+        FROM system.parts
+        WHERE table = '{table_name}'
+            AND active = 1
+            AND partition IN ({','.join([f"'{p}'" for p in expected_partitions])})
+        GROUP BY host
+    """
+    host_results = _query_partitions_from_hosts(context, cluster, query)
+
+    all_hosts_valid = True
+    missing_partitions_by_host = {}
+
+    for host_key, result in host_results.items():
+        is_valid, missing_partitions = _validate_host_partition_result(host_key, result, expected_partitions, context)
+
+        if not is_valid:
+            all_hosts_valid = False
+            if missing_partitions:
+                missing_partitions_by_host[host_key] = missing_partitions
+
+    if all_hosts_valid:
+        context.log.info(f"All hosts validated successfully for table {table_name}")
+        return None
+
+    return missing_partitions_by_host
+
+
+def validate_partitions_on_all_hosts(
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    table_name: str,
+    expected_partitions: list[str],
+    max_retries: int = 3,
+    retry_delay: int = 5,
+) -> None:
+    context.log.info(f"Starting partition validation for table {table_name} with partitions: {expected_partitions}")
+
+    @retry(
+        stop=stop_after_attempt(max_retries),
+        wait=wait_exponential(multiplier=1, min=retry_delay, max=retry_delay * 4),
+        retry=retry_if_result(lambda result: result is not None and len(result) > 0),
+        reraise=True,
+    )
+    def _validate_partitions_with_retry():
+        attempt = (
+            getattr(_validate_partitions_with_retry.retry.statistics.get("attempt_number", 1), "value", 1)
+            if hasattr(_validate_partitions_with_retry, "retry")
+            else 1
+        )
+        context.log.info(f"Validating partitions on all hosts (attempt {attempt}/{max_retries})")
+
+        missing_partitions_by_host = _get_missing_partitions_on_all_hosts(
+            context, cluster, table_name, expected_partitions
+        )
+
+        if missing_partitions_by_host:
+            context.log.warning(
+                f"Partition validation found missing partitions: {missing_partitions_by_host}. "
+                f"Will retry with exponential backoff…"
+            )
+            # Try syncing before the next attempt (without validation to avoid recursion)
+            sync_partitions_on_replicas(context, cluster, table_name, validate_after_sync=False)
+
+        return missing_partitions_by_host
+
+    # Execute the validation with retries
+    try:
+        result = _validate_partitions_with_retry()
+        if result is None:
+            # Success - all partitions validated
+            return
+    except RetryError as e:
+        # All retries exhausted
+        last_result = e.last_attempt.result() if not e.last_attempt.failed else None
+        error_msg = (
+            f"Partition validation failed after {max_retries} attempts for table {table_name}. "
+            f"Expected partitions: {expected_partitions}. "
+            f"Missing partitions by host: {last_result if last_result else 'Unknown'}"
+        )
+        context.log.error(error_msg)  # noqa: TRY400
+        raise dagster.Failure(error_msg)
+
 
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
-    staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
-    context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
+    if not context.partition_time_window:
+        raise dagster.Failure("partition_time_window is required for swapping partitions")
+
+    expected_partitions = get_expected_partitions_from_time_window(context)
+    context.log.info(f"Swapping partitions {expected_partitions} from {staging_table} to {target_table}")
+
+    # Validate partitions exist on staging table before swapping
+    if expected_partitions:
+        validate_partitions_on_all_hosts(context, cluster, staging_table, expected_partitions)
 
     def replace_partition(client, pid):
         return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
 
-    for partition_id in staging_partitions:
+    for partition_id in expected_partitions:
         cluster.any_host_by_roles(
             partial(replace_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
         ).result()
@@ -159,7 +327,6 @@ def recreate_staging_table(
     staging_table: str,
     replace_sql_func: Callable[[], str],
 ) -> None:
-    """Recreate staging table on all hosts using REPLACE TABLE."""
     context.log.info(f"Recreating staging table {staging_table}")
     # We generate a uuid with force_unique_zk_path=True, which we want to be unique per the cluster
     # so we must get the result statement string here instead of inside the lambda to run the
@@ -186,7 +353,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 }
 
 
-def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> Optional[SkipReason]:
+def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> SkipReason | None:
     # Get the schedule name from the context
     schedule_name = context._schedule_name
 

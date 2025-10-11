@@ -274,9 +274,12 @@ class TestPartitionFiltering:
         end_datetime = datetime(2025, 8, 18, tzinfo=UTC)
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
-        # Mock only one partition in the time window
-        mock_partition_data = [("20250817",)]
-        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
+        # Mock the validation query response - needs to be a dict with host results
+        mock_host_results = {
+            "host1": Mock(error=None, value=[["host1", ["20250817"]]]),
+            "host2": Mock(error=None, value=[["host2", ["20250817"]]]),
+        }
+        self.mock_cluster.map_hosts_by_roles.return_value.result.return_value = mock_host_results
 
         swap_partitions_from_staging(
             context=self.mock_context,
@@ -285,20 +288,20 @@ class TestPartitionFiltering:
             staging_table="web_pre_aggregated_stats_staging",
         )
 
-        # Verify get_partitions was called with filtering enabled
-        call_args = self.mock_cluster.any_host_by_roles.call_args_list[0][0][0]
+        # Verify the validation query was called and used proper partition filtering
+        # The validation should use map_hosts_by_roles for the partition validation query
+        call_args = self.mock_cluster.map_hosts_by_roles.call_args[0][0]
         mock_client = Mock()
         call_args(mock_client)
         executed_query = mock_client.execute.call_args[0][0]
 
-        # Should include date filtering in the query
-        assert "partition >= '20250817'" in executed_query
-        assert "partition < '20250818'" in executed_query
+        # Should include partition IN filtering for the expected partition
+        assert "web_pre_aggregated_stats_staging" in executed_query
+        assert "partition IN ('20250817')" in executed_query
+        assert "hostName()" in executed_query
 
-        # Verify only one partition replacement was attempted
-        replace_calls = [call for call in self.mock_cluster.any_host_by_roles.call_args_list if len(call[0]) > 0]
-        # First call is for getting partitions, second call is for replacing partition
-        assert len(replace_calls) == 2
+        # Verify partition replacement was attempted
+        assert self.mock_cluster.any_host_by_roles.call_count >= 1
 
     def test_get_partitions_without_partition_time_window_and_filtering_enabled(self):
         self.mock_context.partition_time_window = None
