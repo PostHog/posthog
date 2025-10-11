@@ -235,6 +235,7 @@ export type QuerySchema =
     | ExperimentTrendsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
+    | DocumentSimilarityQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -2331,9 +2332,9 @@ export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQuer
 
     // TODO - these are a hack, and we should expose them as proper HogQL filterables instead, but
     // I don't want to go to war in the taxonomic filter mines right now
-    products: [string] // Limit the results to specific products. Empty means all.
-    document_types: [string] // Limit the results to specific document types. Empty means all.
-    renderings: [string] // Limit the results to specific renderings. Empty means all.
+    products: string[] // Limit the results to specific products. Empty means all.
+    document_types: string[] // Limit the results to specific document types. Empty means all.
+    renderings: string[] // Limit the results to specific renderings. Empty means all.
 }
 
 // A single embedded document, which is a collection of all the ways

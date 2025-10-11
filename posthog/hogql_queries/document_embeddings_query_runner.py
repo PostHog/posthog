@@ -65,7 +65,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             )
 
         columns: list[str] = query_result.columns or []
-        mapped_result = [dict(zip(columns, value)) for value in query_result]
+        mapped_result = [dict(zip(columns, value)) for value in query_result.results]
         results = [
             EmbeddingDistance(  # noqa: F821
                 distance=row["distance"],
@@ -83,7 +83,6 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         ]
 
         return DocumentSimilarityQueryResponse(
-            columns=columns,
             results=results,
             timings=query_result.timings,
             hogql=query_result.hogql,
@@ -118,7 +117,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             ast.Alias(
                 alias="distance",
                 expr=ast.Call(
-                    name=self.output_distance_agg, args=[self.distance_expr(universe("embedding"), origin("origin"))]
+                    name=self.output_distance_agg, args=[self.distance_expr(universe("embedding"), origin("embedding"))]
                 ),
             ),
         ]

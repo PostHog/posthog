@@ -1,6 +1,7 @@
 import {
     DataTableNode,
     DateRange,
+    DocumentSimilarityQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsQuery,
@@ -165,6 +166,33 @@ export const errorTrackingIssueCorrelationQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
         events,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
+}
+
+export const errorTrackingDocumentSimilarityQuery = ({
+    documentId,
+    timestamp,
+}: {
+    documentId: string
+    timestamp: string
+}): DocumentSimilarityQuery => {
+    return setLatestVersionsOnQuery<DocumentSimilarityQuery>({
+        kind: NodeKind.DocumentSimilarityQuery,
+        origin: {
+            product: 'error_tracking',
+            document_type: 'fingerprint',
+            document_id: documentId,
+            timestamp,
+        },
+        dateRange: {},
+        order_by: 'distance',
+        order_direction: 'asc',
+        distance_func: 'cosineDistance',
+        model: 'text-embedding-3-small-1536',
+        products: ['error_tracking'],
+        document_types: ['fingerprint'],
+        renderings: [],
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }
