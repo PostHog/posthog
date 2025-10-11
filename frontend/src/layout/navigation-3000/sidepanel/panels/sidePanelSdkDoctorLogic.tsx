@@ -118,7 +118,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             {
                 loadSdkVersions: async (): Promise<Record<SdkType, SdkVersionInfo> | null> => {
                     try {
-                        const response = await api.get<Record<SdkType, SdkVersionInfo>>('api/sdk-versions/')
+                        const response = await api.get<Record<SdkType, SdkVersionInfo>>('api/sdk_versions/')
 
                         return response
                     } catch (error) {
@@ -135,7 +135,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     forceRefresh,
                 }: { forceRefresh?: boolean } = {}): Promise<TeamSdkVersionsInfo | null> => {
                     const endpoint =
-                        forceRefresh === true ? 'api/team-sdk-versions/?force_refresh=true' : 'api/team-sdk-versions/'
+                        forceRefresh === true ? 'api/team_sdk_versions/?force_refresh=true' : 'api/team_sdk_versions/'
 
                     try {
                         const response = await api.get<{ sdk_versions: TeamSdkVersionsInfo; cached: boolean }>(endpoint)
