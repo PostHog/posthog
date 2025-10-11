@@ -1,10 +1,20 @@
 use std::{future::ready, sync::Arc};
 
-use axum::{routing::get, Router};
+use axum::{
+    extract::{Json, State},
+    http::StatusCode,
+    routing::get,
+    Router,
+};
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::embedding::EmbeddingRequest;
-use embedding_worker::{app_context::AppContext, config::Config, handle_batch};
+use embedding_worker::{
+    ad_hoc::{handle_ad_hoc_request, AdHocEmbeddingRequest, AdHocEmbeddingResponse},
+    app_context::AppContext,
+    config::Config,
+    handle_batch,
+};
 
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -26,15 +36,32 @@ pub async fn index() -> &'static str {
     "error tracking embedding service"
 }
 
+async fn ad_hoc_handler(
+    State(context): State<Arc<AppContext>>,
+    Json(request): Json<AdHocEmbeddingRequest>,
+) -> Result<Json<AdHocEmbeddingResponse>, StatusCode> {
+    match handle_ad_hoc_request(context, request).await {
+        Ok(response) => Ok(Json(response)),
+        Err(e) => {
+            // TODO - this is a hack until I do a proper pass and add real error enums
+            error!("Ad hoc embedding request failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
 fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
     let config = config.clone();
+    let liveness_context = context.clone();
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
         .route(
             "/_liveness",
-            get(move || ready(context.health_registry.get_status())),
-        );
+            get(move || ready(liveness_context.health_registry.get_status())),
+        )
+        .route("/generate/ad_hoc", axum::routing::post(ad_hoc_handler))
+        .with_state(context);
     let router = setup_metrics_routes(router);
     let bind = format!("{}:{}", config.host, config.port);
     tokio::task::spawn(async move {

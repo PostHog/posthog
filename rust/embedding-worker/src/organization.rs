@@ -1,4 +1,3 @@
-use common_types::embedding::EmbeddingRequest;
 use sqlx::Postgres;
 use uuid::Uuid;
 
@@ -35,16 +34,17 @@ impl Organization {
     }
 }
 
-pub async fn apply_ai_opt_in(
+pub async fn apply_ai_opt_in<T>(
     context: &AppContext,
-    request: EmbeddingRequest,
-) -> Result<Option<EmbeddingRequest>, sqlx::Error> {
-    let org = match context.org_cache.get(&request.team_id) {
+    request: T,
+    team_id: i32,
+) -> Result<Option<T>, sqlx::Error> {
+    let org = match context.org_cache.get(&team_id) {
         Some(Some(org)) => org,
         Some(None) => return Ok(None),
         None => {
-            let org = Organization::for_team(&context.pool, request.team_id).await?;
-            context.org_cache.insert(request.team_id, org.clone());
+            let org = Organization::for_team(&context.pool, team_id).await?;
+            context.org_cache.insert(team_id, org.clone());
             let Some(org) = org else {
                 return Ok(None);
             };

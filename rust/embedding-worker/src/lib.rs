@@ -16,6 +16,7 @@ use crate::{
     organization::apply_ai_opt_in,
 };
 
+pub mod ad_hoc;
 pub mod app_context;
 pub mod config;
 pub mod metric_consts;
@@ -31,25 +32,45 @@ pub async fn handle_batch(
     counter!(MESSAGES_RECEIVED).increment(requests.len() as u64);
 
     for request in requests {
-        let Some(request) = apply_ai_opt_in(&context, request).await? else {
+        let team_id = request.team_id;
+        let Some(request) = apply_ai_opt_in(&context, request, team_id).await? else {
             counter!(DROPPED_REQUESTS, &[("cause", "ai_opt_in")]).increment(1);
             continue;
         };
         for model in &request.models {
-            handles.push(generate_embedding(context.clone(), *model, request.clone()));
+            handles.push(handle_single(context.clone(), *model, request.clone()));
         }
     }
     let results = futures::future::join_all(handles).await;
     results.into_iter().collect()
 }
 
-pub async fn generate_embedding(
+pub async fn handle_single(
     context: Arc<AppContext>,
     model: EmbeddingModel,
     request: EmbeddingRequest,
 ) -> Result<EmbeddingRecord> {
+    let (embedding, _) = generate_embedding(context, model, &request.content).await?;
+
+    Ok(EmbeddingRecord {
+        team_id: request.team_id,
+        product: request.product.clone(),
+        document_type: request.document_type.clone(),
+        model_name: model,
+        rendering: request.rendering.to_string(),
+        document_id: request.document_id.to_string(),
+        timestamp: format_ch_datetime(request.timestamp),
+        embedding,
+    })
+}
+
+pub async fn generate_embedding(
+    context: Arc<AppContext>,
+    model: EmbeddingModel,
+    content: &str,
+) -> Result<(Vec<f64>, usize)> {
     // Generate the text to actually send to OpenAI
-    let (text, token_count) = generate_embedding_text(&request.content, &model)?;
+    let (text, token_count) = generate_embedding_text(content, &model)?;
 
     let api_req = construct_request(
         &text,
@@ -84,21 +105,12 @@ pub async fn generate_embedding(
 
     counter!(EMBEDDINGS_GENERATED, &[("model", model.name())]).increment(1);
 
-    Ok(EmbeddingRecord {
-        team_id: request.team_id,
-        product: request.product.clone(),
-        document_type: request.document_type.clone(),
-        model_name: model,
-        rendering: request.rendering.to_string(),
-        document_id: request.document_id.to_string(),
-        timestamp: format_ch_datetime(request.timestamp),
-        embedding,
-    })
+    Ok((embedding, token_count))
 }
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
 // can reconsider it later if we want
-fn generate_embedding_text(content: &str, model: &EmbeddingModel) -> Result<(String, usize)> {
+pub fn generate_embedding_text(content: &str, model: &EmbeddingModel) -> Result<(String, usize)> {
     match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
             let encoder = tiktoken_rs::cl100k_base()?;
@@ -114,7 +126,7 @@ fn generate_embedding_text(content: &str, model: &EmbeddingModel) -> Result<(Str
     }
 }
 
-fn construct_request(
+pub fn construct_request(
     content: &str,
     model: EmbeddingModel,
     api_key: &str,
