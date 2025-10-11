@@ -90,7 +90,7 @@ class TestFetchSdkDataBase:
 
 
 class TestFetchWebSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_web_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_js_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -105,7 +105,7 @@ class TestFetchWebSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["1.275.0"] == "2025-10-10T14:06:17Z"
         assert mock_get.call_count == 1
 
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_web_sdk_data_request_failure(self, mock_get):
         response = MagicMock()
         response.ok = False
@@ -118,7 +118,7 @@ class TestFetchWebSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchPythonSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_python_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_python_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -135,7 +135,7 @@ class TestFetchPythonSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchNodeSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_node_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_js_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -150,7 +150,7 @@ class TestFetchNodeSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_react_native_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_js_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -165,7 +165,7 @@ class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchFlutterSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_flutter_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_flutter_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -182,7 +182,7 @@ class TestFetchFlutterSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchIosSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_ios_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_ios_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -199,7 +199,7 @@ class TestFetchIosSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchAndroidSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_android_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_android_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -216,7 +216,7 @@ class TestFetchAndroidSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchGoSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_go_sdk_data_success(self, mock_get):
         releases_data = load_releases("posthog_go_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -233,7 +233,7 @@ class TestFetchGoSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchPhpSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_php_sdk_data_success(self, mock_get):
         changelog_content = load_changelog("php_changelog.md")
         self.setup_ok_text_mock(mock_get, changelog_content)
@@ -250,7 +250,7 @@ class TestFetchPhpSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchRubySdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_ruby_sdk_data_success(self, mock_get):
         changelog_content = load_changelog("ruby_changelog.md")
         self.setup_ok_text_mock(mock_get, changelog_content)
@@ -267,7 +267,7 @@ class TestFetchRubySdkData(TestFetchSdkDataBase):
 
 
 class TestFetchElixirSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_elixir_sdk_data_success(self, mock_get):
         changelog_content = load_changelog("elixir_changelog.md")
         self.setup_ok_text_mock(mock_get, changelog_content)
@@ -284,7 +284,7 @@ class TestFetchElixirSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchDotnetSdkData(TestFetchSdkDataBase):
-    @patch("dags.sdk_doctor.jobs.requests.get")
+    @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_dotnet_sdk_data_success(self, mock_get):
         releases_data = load_releases("dotnet_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
