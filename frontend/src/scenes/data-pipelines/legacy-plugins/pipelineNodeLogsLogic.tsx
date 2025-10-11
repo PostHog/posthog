@@ -97,9 +97,10 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                     }
 
-                    if (!cache.pollingInterval) {
-                        cache.pollingInterval = setInterval(actions.pollBackgroundLogs, 5000)
-                    }
+                    cache.disposables.add(() => {
+                        const intervalId = setInterval(actions.pollBackgroundLogs, 5000)
+                        return () => clearInterval(intervalId)
+                    }, 'pollingInterval')
                     actions.clearBackgroundLogs()
                     return results
                 },
