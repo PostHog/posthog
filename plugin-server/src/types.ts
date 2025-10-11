@@ -368,6 +368,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     EXTERNAL_REQUEST_CONNECTIONS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
+    DROP_EXCEPTION_EVENTS: boolean // Drop $exception events (when Cymbal/Rust error tracking service is available)
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number

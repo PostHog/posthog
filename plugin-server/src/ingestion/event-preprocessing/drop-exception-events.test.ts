@@ -2,10 +2,11 @@ import { drop, ok } from '../pipelines/results'
 import { createDropExceptionEventsStep } from './drop-exception-events'
 
 describe('createDropExceptionEventsStep', () => {
-    const step = createDropExceptionEventsStep()
+    const mockHub = { DROP_EXCEPTION_EVENTS: true } as any
 
     describe('exception event handling', () => {
-        it('should drop $exception events', async () => {
+        it('should drop $exception events when DROP_EXCEPTION_EVENTS is true', async () => {
+            const step = createDropExceptionEventsStep(mockHub)
             const input = {
                 event: {
                     event: {
@@ -31,7 +32,38 @@ describe('createDropExceptionEventsStep', () => {
             expect(result).toEqual(drop('Exception events are processed separately in Rust'))
         })
 
+        it('should NOT drop $exception events when DROP_EXCEPTION_EVENTS is false', async () => {
+            const hubDisabled = { DROP_EXCEPTION_EVENTS: false } as any
+            const step = createDropExceptionEventsStep(hubDisabled)
+            const input = {
+                event: {
+                    event: {
+                        event: '$exception',
+                        distinct_id: 'user123',
+                        team_id: 1,
+                        ip: '127.0.0.1',
+                        site_url: 'https://example.com',
+                        now: '2021-01-01T00:00:00Z',
+                        uuid: '123e4567-e89b-12d3-a456-426614174000',
+                    },
+                    headers: {
+                        token: 'token123',
+                        distinct_id: 'user123',
+                        timestamp: '2021-01-01T00:00:00Z',
+                    },
+                },
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual({
+                type: PipelineResultType.OK,
+                value: input,
+            })
+        })
+
         it('should allow non-exception events', async () => {
+            const step = createDropExceptionEventsStep(mockHub)
             const input = {
                 event: {
                     event: {
@@ -58,6 +90,7 @@ describe('createDropExceptionEventsStep', () => {
         })
 
         it('should allow regular events', async () => {
+            const step = createDropExceptionEventsStep(mockHub)
             const input = {
                 event: {
                     event: {
@@ -84,6 +117,7 @@ describe('createDropExceptionEventsStep', () => {
         })
 
         it('should allow identify events', async () => {
+            const step = createDropExceptionEventsStep(mockHub)
             const input = {
                 event: {
                     event: {
@@ -110,6 +144,7 @@ describe('createDropExceptionEventsStep', () => {
         })
 
         it('should allow group identify events', async () => {
+            const step = createDropExceptionEventsStep(mockHub)
             const input = {
                 event: {
                     event: {
@@ -136,6 +171,7 @@ describe('createDropExceptionEventsStep', () => {
         })
 
         it('should allow heatmap events', async () => {
+            const step = createDropExceptionEventsStep(mockHub)
             const input = {
                 event: {
                     event: {
