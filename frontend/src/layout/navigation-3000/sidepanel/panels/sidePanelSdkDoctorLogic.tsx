@@ -1,9 +1,10 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { diffVersions, parseVersion } from 'lib/utils/semver'
-import { teamLogic } from 'scenes/teamLogic'
 
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 
@@ -101,9 +102,19 @@ const DEVICE_CONTEXT_CONFIG = {
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
 
-    connect({
-        values: [teamLogic, ['currentTeamId']],
+    actions({
+        snoozeSdkDoctor: true,
     }),
+
+    reducers(() => ({
+        snoozedUntil: [
+            null as string | null,
+            { persist: true },
+            {
+                snoozeSdkDoctor: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            },
+        ],
+    })),
 
     loaders(() => ({
         sdkVersions: [
@@ -198,7 +209,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
-        needsAttention: [(s) => [s.sdkHealth], (sdkHealth: SdkHealthStatus): boolean => sdkHealth !== 'success'],
+        needsAttention: [
+            (s) => [s.sdkHealth, s.snoozedUntil],
+            (sdkHealth: SdkHealthStatus, snoozedUntil: string | null): boolean =>
+                sdkHealth !== 'success' && (snoozedUntil === null || new Date(snoozedUntil) < new Date()),
+        ],
         hasErrors: [
             (s) => [s.sdkVersions, s.sdkVersionsLoading, s.teamSdkVersions, s.teamSdkVersionsLoading],
             (
@@ -213,6 +228,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 )
             },
         ],
+    }),
+
+    listeners({
+        snoozeSdkDoctor: () => {
+            lemonToast.success('SDK Doctor snoozed for 30 days')
+        },
     }),
 
     afterMount(({ actions }) => {

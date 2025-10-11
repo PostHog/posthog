@@ -132,7 +132,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
     const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, outdatedSdkCount, hasErrors } =
         useValues(sidePanelSdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
-    const { loadTeamSdkVersions } = useActions(sidePanelSdkDoctorLogic)
+    const { loadTeamSdkVersions, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
 
     const loading = sdkVersionsLoading || teamSdkVersionsLoading
 
@@ -224,7 +224,14 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                 ) : (
                     <section className="mb-2">
                         <h3>Time for an update!</h3>
-                        <LemonBanner type="warning" hideIcon={false}>
+                        <LemonBanner
+                            type="warning"
+                            hideIcon={false}
+                            action={{
+                                children: 'Snooze warning for 30 days',
+                                onClick: () => snoozeSdkDoctor(),
+                            }}
+                        >
                             <p className="font-semibold">
                                 An outdated SDK means you're missing out on bug fixes and enhacements.
                             </p>
