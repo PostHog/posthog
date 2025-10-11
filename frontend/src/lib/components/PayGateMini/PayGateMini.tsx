@@ -249,7 +249,7 @@ const renderUsageLimitMessage = (
                         )}
                         <p className="mb-4 text-xs italic text-secondary">
                             Need unlimited projects? Check out one of our{' '}
-                            <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
+                            <Link to="/organization/billing?products=boost" onClick={handleCtaClick}>
                                 platform add-ons
                             </Link>
                             .
