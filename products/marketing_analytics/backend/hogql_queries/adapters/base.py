@@ -24,6 +24,7 @@ class BaseMarketingConfig(ABC):
     """Base configuration for marketing source adapters"""
 
     source_type: str
+    source_id: str
 
 
 @dataclass
@@ -33,7 +34,6 @@ class ExternalConfig(BaseMarketingConfig):
     table: DataWarehouseTable
     source_map: SourceMap
     schema_name: str
-    source_id: str
 
 
 @dataclass
@@ -42,7 +42,6 @@ class GoogleAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -51,7 +50,6 @@ class LinkedinAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -60,7 +58,6 @@ class RedditAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -69,7 +66,6 @@ class MetaAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -116,6 +112,10 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
         pass
+
+    def get_source_id(self) -> str:
+        """Return the source ID for filtering purposes"""
+        return self.config.source_id
 
     @abstractmethod
     def validate(self) -> ValidationResult:
