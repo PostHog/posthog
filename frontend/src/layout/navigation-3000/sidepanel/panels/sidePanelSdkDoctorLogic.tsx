@@ -75,19 +75,12 @@ export type SdkHealthStatus = 'danger' | 'warning' | 'success'
  * SDK Doctor - PostHog SDK Health Monitoring
  *
  * Detects installed SDKs and their versions across a team's events.
- * Provides smart version outdatedness detection and feature flag timing analysis.
+ * Provides smart version outdatedness detection.
  *
  * Architecture:
  * - Backend detection: Team SDK detections cached server-side (72h Redis, re-fetched every 6 hours)
  * - Version checking: Per-SDK GitHub API queries cached server-side (72h Redis, re-fetched every 6 hours)
  * - Smart semver: Contextual thresholds
- *
- * Module structure:
- * - types.ts: Shared type definitions
- * - utils.ts: Device context and event volume utilities
- * - sdkDetectionProcessing.ts: Backend detection processing
- * - versionChecking.ts: Async version checking helpers
- * - featureFlagDetection.ts: Feature flag timing analysis
  */
 
 const DEVICE_CONTEXT_CONFIG = {
