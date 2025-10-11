@@ -1,0 +1,79 @@
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+
+import { DateRange, InsightVizNode } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator } from '~/types'
+
+import { errorTrackingIssueBreakdownQuery } from '../../queries'
+import { breakdownFiltersLogic } from './breakdownFiltersLogic'
+import type { errorTrackingBreakdownsSceneLogicType } from './errorTrackingBreakdownsSceneLogicType'
+
+export interface BreakdownPreset {
+    property: string
+    title: string
+}
+
+export interface ErrorTrackingBreakdownsSceneLogicProps {
+    id: string
+}
+
+export const BREAKDOWN_PRESETS: BreakdownPreset[] = [
+    { property: '$browser', title: 'Browser' },
+    { property: '$device_type', title: 'Device Type' },
+    { property: '$os', title: 'Operating System' },
+    { property: '$pathname', title: 'Path' },
+    { property: '$user_id', title: 'User ID' },
+    { property: '$ip', title: 'IP Address' },
+]
+
+export const errorTrackingBreakdownsSceneLogic = kea<errorTrackingBreakdownsSceneLogicType>([
+    path([
+        'products',
+        'error_tracking',
+        'scenes',
+        'ErrorTrackingIssueBreakdownsScene',
+        'errorTrackingBreakdownsSceneLogic',
+    ]),
+    props({} as ErrorTrackingBreakdownsSceneLogicProps),
+    key(({ id }: ErrorTrackingBreakdownsSceneLogicProps) => id),
+    connect({
+        values: [breakdownFiltersLogic, ['dateRange', 'filterTestAccounts']],
+    }),
+    actions({
+        setSelectedBreakdownPreset: (breakdownPreset: BreakdownPreset) => ({ breakdownPreset }),
+    }),
+    reducers(({ props }) => ({
+        selectedBreakdownPreset: [
+            BREAKDOWN_PRESETS[0],
+            {
+                setSelectedBreakdownPreset: (_, { breakdownPreset }) => breakdownPreset,
+            },
+        ],
+        issueId: [props.id],
+    })),
+    selectors({
+        breakdownQuery: [
+            (s, p) => [s.selectedBreakdownPreset, s.dateRange, s.filterTestAccounts, p.id],
+            (
+                selectedBreakdownPreset: BreakdownPreset,
+                dateRange: DateRange,
+                filterTestAccounts: boolean,
+                issueId: string
+            ): InsightVizNode | null => {
+                if (!selectedBreakdownPreset) {
+                    return null
+                }
+
+                return errorTrackingIssueBreakdownQuery({
+                    breakdownProperty: selectedBreakdownPreset.property,
+                    dateRange,
+                    filterTestAccounts,
+                    filterGroup: {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values: [] }],
+                    },
+                    issueId,
+                })
+            },
+        ],
+    }),
+])

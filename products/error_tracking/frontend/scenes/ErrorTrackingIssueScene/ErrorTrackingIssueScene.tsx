@@ -3,8 +3,8 @@ import './ErrorTrackingIssueScene.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGraph } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -45,6 +45,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasBreakdowns = useFeatureFlag('ERROR_TRACKING_BREAKDOWNS')
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
@@ -55,29 +56,40 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                 <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
                     <SceneBreadcrumbBackButton />
-                    {hasIssueSplitting && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <ButtonPrimitive iconOnly>
-                                    <IconEllipsis />
-                                </ButtonPrimitive>
-                            </DropdownMenuTrigger>
-
-                            <DropdownMenuContent loop align="end">
-                                <DropdownMenuItem asChild>
-                                    <ButtonPrimitive
-                                        size="base"
-                                        menuItem
-                                        onClick={() =>
-                                            router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
-                                        }
-                                    >
-                                        Split issue
+                    <div className="flex gap-2">
+                        {hasBreakdowns && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconGraph />}
+                                onClick={() => router.actions.push(urls.errorTrackingIssueBreakdowns(issueId))}
+                            >
+                                Breakdowns
+                            </LemonButton>
+                        )}
+                        {hasIssueSplitting && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <ButtonPrimitive iconOnly>
+                                        <IconEllipsis />
                                     </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    )}
+                                </DropdownMenuTrigger>
+
+                                <DropdownMenuContent loop align="end">
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            size="base"
+                                            menuItem
+                                            onClick={() =>
+                                                router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
+                                            }
+                                        >
+                                            Split issue
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
+                    </div>
                 </div>
 
                 {isPostHogSDKIssue && (
