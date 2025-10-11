@@ -28,7 +28,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
     const { personId } = attributes
     const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic({ logicKey }))
     const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic({ logicKey }))
-    const context = useIssueQueryContext()
+    const context = useIssueQueryContext(logicKey)
     const query = errorTrackingQuery({
         orderBy,
         status,
