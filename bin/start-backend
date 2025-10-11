@@ -3,6 +3,7 @@ set -e
 
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:19000
+export PERSONS_DB_WRITER_URL=postgres://posthog:posthog@localhost:5432/posthog_persons
 
 export CLICKHOUSE_API_USER="api"
 export CLICKHOUSE_API_PASSWORD="apipass"
