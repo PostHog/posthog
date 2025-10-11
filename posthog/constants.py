@@ -48,6 +48,20 @@ class AvailableFeature(StrEnum):
     AUDIT_LOGS = "audit_logs"
 
 
+# When adding a new product, ensure the enum value matches the ProductKey value in frontend/src/types.ts
+class Product(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    SESSION_REPLAY = "session_replay"
+    FEATURE_FLAGS = "feature_flags"
+    EXPERIMENTS = "experiments"
+    SURVEYS = "surveys"
+    DATA_WAREHOUSE = "data_warehouse"
+    ERROR_TRACKING = "error_tracking"
+    WEB_ANALYTICS = "web_analytics"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    MARKETING_ANALYTICS = "marketing_analytics"
+
+
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"

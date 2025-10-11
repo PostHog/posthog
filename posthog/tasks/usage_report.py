@@ -482,6 +482,7 @@ def get_teams_with_billable_event_count_in_period(
         "survey shown",
         "survey dismissed",
         "$exception",
+        "$product_signal",
         *AI_EVENTS,
     ]
 

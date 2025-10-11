@@ -1,0 +1,112 @@
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import StrEnum
+from typing import Any, Optional
+
+import structlog
+
+from posthog.api.capture import capture_internal
+from posthog.constants import Product
+from posthog.exceptions_capture import capture_exception
+
+logger = structlog.get_logger(__name__)
+
+
+class ProductSignalSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+    UNKNOWN = "unknown"
+
+
+class ProductSignalType(StrEnum):
+    NEW_ISSUE = "new_issue"
+    FUNNEL_CONVERSION_RATE_CHANGE = "funnel_conversion_rate_change"
+
+
+class ProductSignalException(Exception):
+    def __init__(self, signal: "ProductSignal", cause: Optional[Exception] = None) -> None:
+        super().__init__(
+            f"ProductSignalException: {signal.signal_type.value} [{signal.severity.value}] - {signal.title}"
+        )
+        self.signal_type = signal.signal_type
+        self.severity = signal.severity
+        self.title = signal.title
+        self.description = signal.description
+        self.source = signal.source
+        self.distinct_id = signal.distinct_id
+        self.metadata = signal.metadata
+        self.timestamp = signal.timestamp
+        self.cause = cause
+
+
+@dataclass
+class ProductSignal:
+    signal_type: ProductSignalType
+    severity: ProductSignalSeverity
+    title: str
+    source: Product
+    distinct_id: str
+    description: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    timestamp: Optional[datetime] = None
+
+    def to_event_properties(self) -> dict[str, Any]:
+        props = {
+            **self.metadata,
+            "$product_signal_type": self.signal_type.value,
+            "$product_signal_severity": self.severity.value,
+            "$product_signal_title": self.title,
+            "$product_signal_source": self.source.value,
+        }
+
+        if self.description:
+            props["$product_signal_description"] = self.description
+
+        return props
+
+    @staticmethod
+    def create(
+        team_token: str,
+        distinct_id: str,
+        signal_type: ProductSignalType,
+        severity: ProductSignalSeverity,
+        title: str,
+        source: Product,
+        description: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        timestamp: Optional[datetime] = None,
+    ) -> None:
+        signal = ProductSignal(
+            signal_type=signal_type,
+            severity=severity,
+            title=title,
+            source=source,
+            distinct_id=distinct_id,
+            description=description,
+            metadata=metadata or {},
+            timestamp=timestamp,
+        )
+
+        timestamp = signal.timestamp or datetime.now()
+
+        try:
+            capture_internal(
+                token=team_token,
+                event_name="$product_signal",
+                event_source="product_signals",
+                timestamp=timestamp,
+                distinct_id=distinct_id,
+                properties=signal.to_event_properties(),
+                process_person_profile=False,
+            )
+        except Exception as e:
+            exception = ProductSignalException(signal, cause=e)
+            logger.exception(
+                "Failed to capture product signal",
+                signal_type=signal.signal_type.value,
+                severity=signal.severity.value,
+                title=signal.title,
+            )
+            capture_exception(exception)
