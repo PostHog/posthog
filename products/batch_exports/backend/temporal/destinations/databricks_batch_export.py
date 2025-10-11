@@ -14,7 +14,7 @@ from django.conf import settings
 import pyarrow as pa
 from databricks import sql
 from databricks.sdk._base_client import _BaseClient
-from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sdk.core import Config, ConfigAttribute, oauth_service_principal
 from databricks.sdk.oauth import (
     OidcEndpoints,
     get_account_endpoints,
@@ -49,9 +49,14 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -116,6 +121,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         evolution](https://docs.databricks.com/aws/en/delta/update-schema#automatic-schema-evolution-for-delta-lake-merge).
         This means the target table will automatically be updated with the schema of the source table (however, no
         columns will be dropped from the target table).
+        NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
     table_partition_field: the field to partition the table by.
         If None, we will use the default partition by field for the model (if exists)
     """
@@ -139,7 +145,26 @@ class DatabricksConfig(Config):
 
     I have opened an issue with Databricks to make this timeout configurable:
     https://github.com/databricks/databricks-sdk-py/issues/1046
+
+    Subclassing Config has a few issues however:
+
+    The Databricks SDK's attributes() method has bugs with subclassing:
+    1. It only looks at cls.__dict__, not inherited attributes
+    2. It caches results in _attributes, which subclasses inherit
+
+    We work around this by copying parent ConfigAttribute descriptors into our __dict__.
     """
+
+    locals().update({k: v for k, v in Config.__dict__.items() if isinstance(v, ConfigAttribute)})
+
+    @classmethod
+    def attributes(cls):
+        if "_attributes" not in cls.__dict__:
+            try:
+                delattr(cls, "_attributes")
+            except AttributeError:
+                pass
+        return super().attributes()
 
     @property
     def oidc_endpoints(self) -> OidcEndpoints | None:
@@ -213,6 +238,8 @@ class DatabricksClient:
                 host=f"https://{self.server_hostname}",
                 client_id=self.client_id,
                 client_secret=self.client_secret,
+                auth_type="oauth-m2m",
+                disable_async_token_refresh=True,
             )
             return oauth_service_principal(config)
 
@@ -247,7 +274,7 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(
-                f"Failed to connect to Databricks. Please check that the server_hostname and http_path are valid."
+                "Failed to connect to Databricks. Please check that your connection details are valid."
             )
         except OperationalError as err:
             self.logger.info(
@@ -427,6 +454,7 @@ class DatabricksClient:
 
     async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
+        self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields
         )
@@ -532,6 +560,9 @@ class DatabricksClient:
         assert update_key, "Update key must be defined"
 
         if with_schema_evolution is True:
+            self.logger.info(
+                "Merging source table '%s' into target table '%s' with schema evolution", source_table, target_table
+            )
             merge_query = self._get_merge_query_with_schema_evolution(
                 target_table=target_table,
                 source_table=source_table,
@@ -542,6 +573,9 @@ class DatabricksClient:
             assert source_table_fields, "source_table_fields must be defined"
             # first we need to get the column names from the target table
             target_table_field_names = await self.aget_table_columns(target_table)
+            self.logger.info(
+                "Merging source table '%s' into target table '%s' without schema evolution", source_table, target_table
+            )
             merge_query = self._get_merge_query_without_schema_evolution(
                 target_table=target_table,
                 source_table=source_table,
@@ -939,8 +973,11 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        # include attempt in the stage table name to avoid collisions if multiple attempts are running at the same time
+        # (ideally this should never happen but it has in the past)
+        attempt = activity.info().attempt
         stage_table_name: str | None = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}" if requires_merge else None
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}" if requires_merge else None
         )
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
@@ -961,14 +998,20 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                 )
 
+                transformer: TransformerProtocol = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                    include_inserted_at=False,
+                )
+
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
-                    include_inserted_at=False,
+                    transformer=transformer,
                     max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )

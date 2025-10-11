@@ -35,6 +35,14 @@ const bounceRatePageViewModeOptions: LemonRadioOption<SessionTableVersion>[] = [
             </>
         ),
     },
+    {
+        value: 'v3',
+        label: (
+            <>
+                <div>Version 3</div>
+            </>
+        ),
+    },
 ]
 
 export function SessionsTableVersion(): JSX.Element {

@@ -15,6 +15,7 @@ from dagster_graphql import DagsterGraphQLClient
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
+from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
@@ -101,6 +102,11 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Use text-to-speech to say when the process is complete",
+        parser.add_argument(
+            "--skip-flag-sync",
+            action="store_true",
+            default=False,
+            help="Skip syncing feature flags from API after data generation",
         )
 
     def handle(self, *args, **options):
@@ -167,21 +173,6 @@ class Command(BaseCommand):
                         gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
-            else:
-                print(
-                    "\nMaster project reset!\n"
-                    if existing_team_id == 0
-                    else (
-                        f"\nDemo data ready for project {team.name}!\n"
-                        if existing_team_id is not None
-                        else f"\nDemo data ready for {user.email}!\n\n"
-                        "Pre-fill the login form with this link:\n"
-                        f"http://localhost:8000/login?email={user.email}\n"
-                        f"The password is:\n{password}\n\n"
-                        "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={user.email}\n"
-                    )
-                )
             if not options.get("skip_materialization"):
                 print("Materializing common columns...")
                 self.materialize_common_columns(options["days_past"])
@@ -193,6 +184,31 @@ class Command(BaseCommand):
                 self.initialize_dagster_materialization(options["days_past"])
             else:
                 print("Skipping dagster materializations.")
+
+            if not options.get("skip_flag_sync"):
+                print("Syncing feature flags from API...")
+                try:
+                    sync_feature_flags_from_api(distinct_id="generate_demo_data", output_fn=self.stdout.write)
+                except Exception as e:
+                    print(f"Feature flag sync failed: {e}")
+                    print("Continuing anyway...")
+            else:
+                print("Skipping feature flag sync.")
+
+            print(
+                "\nMaster project reset!\n"
+                if existing_team_id == 0
+                else (
+                    f"\nDemo data ready for project {team.name}!\n"
+                    if existing_team_id is not None
+                    else f"\nDemo data ready for {user.email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
+                    f"http://localhost:8000/login?email={user.email}\n"
+                    f"The password is:\n{password}\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={user.email}\n"
+                )
+            )
             if options["say_on_complete"]:
                 os.system('say "demo data ready"')
         else:

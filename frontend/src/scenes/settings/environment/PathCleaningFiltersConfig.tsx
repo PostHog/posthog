@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonInput, Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PathCleanFilterAddItemButton } from 'lib/components/PathCleanFilters/PathCleanFilterAddItemButton'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
@@ -15,7 +16,13 @@ import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, InsightType, PathCleaningFilter } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    InsightType,
+    PathCleaningFilter,
+} from '~/types'
 
 const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): string => {
     return filters.reduce((text, filter) => {
@@ -104,19 +111,24 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 </b>
             </p>
 
-            {useTableUI ? (
-                <div className="flex flex-col gap-4">
-                    <PathCleanFiltersTable
-                        filters={currentTeam.path_cleaning_filters || []}
-                        setFilters={updateFilters}
-                    />
-                    <div>
-                        <PathCleanFilterAddItemButton onAdd={onAddFilter} />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.WebAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                {useTableUI ? (
+                    <div className="flex flex-col gap-4">
+                        <PathCleanFiltersTable
+                            filters={currentTeam.path_cleaning_filters || []}
+                            setFilters={updateFilters}
+                        />
+                        <div>
+                            <PathCleanFilterAddItemButton onAdd={onAddFilter} />
+                        </div>
                     </div>
-                </div>
-            ) : (
-                <PathCleanFilters filters={currentTeam.path_cleaning_filters} setFilters={updateFilters} />
-            )}
+                ) : (
+                    <PathCleanFilters filters={currentTeam.path_cleaning_filters} setFilters={updateFilters} />
+                )}
+            </AccessControlAction>
 
             <p className="mt-4">Wanna test what your cleaned path will look like? Try them out here.</p>
             <div className="flex flex-col sm:flex-row gap-2 items-center justify-center">

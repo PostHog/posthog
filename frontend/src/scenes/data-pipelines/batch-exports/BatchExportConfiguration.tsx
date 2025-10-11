@@ -25,23 +25,25 @@ import {
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportSceneLogic } from './BatchExportScene'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
 
 export function BatchExportConfiguration(): JSX.Element {
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
     const {
         isNew,
         batchExportConfigTest,
         batchExportConfigTestLoading,
         configuration,
+        configurationChanged,
         tables,
         batchExportConfig,
         selectedModel,
         runningStep,
-        logicProps,
-    } = useValues(batchExportConfigurationLogic)
-    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
-        useActions(batchExportConfigurationLogic)
+    } = useValues(logic)
+    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
@@ -241,6 +243,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}
+                                    configurationChanged={configurationChanged}
                                 />
                             </div>
                             {batchExportConfigTest && (
@@ -269,14 +272,20 @@ export function BatchExportConfiguration(): JSX.Element {
 function BatchExportConfigurationFields({
     isNew,
     formValues,
+    configurationChanged,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
+    configurationChanged: boolean
 }): JSX.Element {
     return (
         <>
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
-            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
+            <BatchExportsEditFields
+                isNew={isNew}
+                batchExportConfigForm={formValues}
+                configurationChanged={configurationChanged}
+            />
         </>
     )
 }

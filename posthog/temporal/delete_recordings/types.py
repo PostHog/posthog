@@ -4,14 +4,14 @@ from posthog.session_recordings.session_recording_v2_service import RecordingBlo
 
 
 @dataclass(frozen=True)
-class RecordingInput:
+class Recording:
     session_id: str
     team_id: int
 
 
 @dataclass(frozen=True)
-class DeleteRecordingBlocksInput:
-    recording: RecordingInput
+class RecordingWithBlocks:
+    recording: Recording
     blocks: list[RecordingBlock]
 
 
@@ -19,6 +19,7 @@ class DeleteRecordingBlocksInput:
 class RecordingsWithPersonInput:
     distinct_ids: list[str]
     team_id: int
+    batch_size: int = 100
 
 
 class DeleteRecordingError(Exception):

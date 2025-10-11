@@ -13,7 +13,10 @@ import {
     CurrencyCode,
     DataWarehouseNode,
     DatabaseSchemaDataWarehouseTable,
+    DateRange,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
+    NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
@@ -51,6 +54,10 @@ export type ExternalTable = {
 export type NativeSource = {
     source: ExternalDataSource
     tables: DatabaseSchemaDataWarehouseTable[]
+}
+
+export interface DateFilterState extends DateRange {
+    interval: IntervalType
 }
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -131,7 +138,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => {
+                setDates: (_, { dateFrom, dateTo }) => {
                     if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
                         dateTo = INITIAL_DATE_TO
                     }
@@ -139,20 +146,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         dateFrom = INITIAL_DATE_FROM
                     }
                     return {
-                        dateTo,
                         dateFrom,
+                        dateTo,
                         interval: getDefaultInterval(dateFrom, dateTo),
                     }
                 },
-                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
+                setInterval: (state, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
                     return {
-                        dateTo,
                         dateFrom,
+                        dateTo,
                         interval,
                     }
                 },
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                setDatesAndInterval: (_, { dateFrom, dateTo, interval }) => {
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
                         dateTo = INITIAL_DATE_TO
@@ -164,8 +171,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         dateFrom = INITIAL_DATE_FROM
                     }
                     return {
-                        dateTo,
                         dateFrom,
+                        dateTo,
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
@@ -341,6 +348,19 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
+        ],
+        overviewQuery: [
+            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal],
+            (dateFilter, compareFilter, draftConversionGoal): MarketingAnalyticsAggregatedQuery => ({
+                kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                dateRange: {
+                    date_from: dateFilter.dateFrom,
+                    date_to: dateFilter.dateTo,
+                },
+                compareFilter,
+                properties: [],
+                draftConversionGoal: draftConversionGoal || undefined,
+            }),
         ],
     }),
     actionToUrl(({ values }) => ({

@@ -30,7 +30,6 @@ jobs:
             - uses: actions/setup-python@v5
               with:
                   python-version: '3.8'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Get python deps
               run: pip install python-digitalocean==1.17.0 requests==2.28.1
             - name: Setup DO Hobby Instance

@@ -58,6 +58,16 @@ export class SessionBatchMetrics {
         help: 'Total number of bytes written to S3',
     })
 
+    private static readonly sessionsRateLimited = new Counter({
+        name: 'recording_blob_ingestion_v2_sessions_rate_limited_total',
+        help: 'Number of sessions that were rate limited',
+    })
+
+    private static readonly eventsRateLimited = new Counter({
+        name: 'recording_blob_ingestion_v2_events_rate_limited_total',
+        help: 'Number of events that were rate limited',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -101,5 +111,13 @@ export class SessionBatchMetrics {
 
     public static incrementS3BytesWritten(bytes: number): void {
         this.s3BytesWritten.inc(bytes)
+    }
+
+    public static incrementSessionsRateLimited(count: number = 1): void {
+        this.sessionsRateLimited.inc(count)
+    }
+
+    public static incrementEventsRateLimited(count: number = 1): void {
+        this.eventsRateLimited.inc(count)
     }
 }

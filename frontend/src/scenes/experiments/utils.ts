@@ -8,6 +8,7 @@ import {
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -38,6 +39,14 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+
+export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
+    return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
+}
+
+export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
+    return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
+}
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -138,6 +147,29 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
 
     return null
 }
+
+function createExposureFilter(
+    exposureConfig: ExperimentExposureConfig,
+    featureFlagKey: string,
+    variantKey: string
+): UniversalFiltersGroupValue {
+    const isEvent = isEventExposureConfig(exposureConfig)
+    return {
+        id: isEvent ? exposureConfig.event || 'unknown' : exposureConfig.id,
+        name: isEvent ? exposureConfig.event || 'Unknown Event' : exposureConfig.name || `Action ${exposureConfig.id}`,
+        type: isEvent ? 'events' : 'actions',
+        properties: [
+            ...(exposureConfig.properties || []),
+            {
+                key: `$feature/${featureFlagKey}`,
+                type: PropertyFilterType.Event,
+                value: [variantKey],
+                operator: PropertyOperator.Exact,
+            },
+        ],
+    }
+}
+
 /**
  * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
  * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
@@ -152,24 +184,13 @@ export function getViewRecordingFilters(
     const filters: UniversalFiltersGroupValue[] = []
     /**
      * We need to check the exposure criteria as the first on the filter chain.
-     * exposure criteria can only be events, not actions
      */
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
-        filters.push({
-            id: exposureCriteria.event,
-            name: exposureCriteria.event,
-            type: 'events',
-            properties: [
-                ...(exposureCriteria.properties || []),
-                {
-                    key: `$feature/${experiment.feature_flag_key}`,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
+    if (
+        exposureCriteria &&
+        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === '$feature_flag_called')
+    ) {
+        filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
     } else {
         filters.push({
             id: '$feature_flag_called',
@@ -505,7 +526,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
 /**
  * Used when setting a custom exposure criteria
  */
-export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
+export function exposureConfigToFilter(exposure_config: ExperimentExposureConfig): FilterType {
     if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
         return {
             events: [
@@ -521,6 +542,21 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
             data_warehouse: [],
         }
     }
+    if (exposure_config.kind === NodeKind.ActionsNode) {
+        return {
+            events: [],
+            actions: [
+                {
+                    id: exposure_config.id,
+                    name: exposure_config.name || '',
+                    kind: NodeKind.ActionsNode,
+                    type: 'actions' as const,
+                    properties: exposure_config.properties,
+                },
+            ],
+            data_warehouse: [],
+        }
+    }
 
     return {}
 }
@@ -528,20 +564,26 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
 /**
  * Used when setting a custom exposure criteria
  */
-export function filterToExposureConfig(
-    entity: Record<string, any> | undefined
-): ExperimentEventExposureConfig | undefined {
+export function filterToExposureConfig(entity: Record<string, any> | undefined): ExperimentExposureConfig | undefined {
     if (!entity) {
         return undefined
     }
 
-    if (entity.kind === NodeKind.EventsNode) {
-        if (entity.type === 'events') {
-            return {
-                kind: NodeKind.ExperimentEventExposureConfig,
-                event: entity.id,
-                properties: entity.properties,
-            }
+    // Check type first since ActionFilter may set kind incorrectly
+    if (entity.type === 'actions') {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: entity.id,
+            name: entity.name,
+            properties: entity.properties,
+        }
+    }
+
+    if (entity.type === 'events' || entity.kind === NodeKind.EventsNode) {
+        return {
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: entity.id,
+            properties: entity.properties,
         }
     }
 

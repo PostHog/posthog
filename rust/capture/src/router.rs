@@ -13,6 +13,7 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::metrics_middleware::track_metrics;
 use crate::test_endpoint;
 use crate::{sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
@@ -20,7 +21,7 @@ use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
 use crate::limiters::CaptureQuotaLimiter;
-use crate::prometheus::{setup_metrics_recorder, track_metrics};
+use crate::prometheus::setup_metrics_recorder;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads

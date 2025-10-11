@@ -33,18 +33,15 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
+export const POSTGRES_DELETE_COMMON_TABLES_QUERY = `
 DO $$
 DECLARE
     r RECORD;
 BEGIN
     -- First handle tables with foreign key dependencies
-    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
-    DELETE FROM posthog_cohortpeople CASCADE;
     DELETE FROM posthog_cohort CASCADE;
     DELETE FROM posthog_featureflag CASCADE;
     DELETE FROM posthog_organizationmembership CASCADE;
-    DELETE FROM posthog_grouptypemapping CASCADE;
     DELETE FROM posthog_project CASCADE;
     DELETE FROM posthog_pluginsourcefile CASCADE;
     DELETE FROM posthog_pluginconfig CASCADE;
@@ -52,9 +49,6 @@ BEGIN
     DELETE FROM posthog_organization CASCADE;
     DELETE FROM posthog_action CASCADE;
     DELETE FROM posthog_user CASCADE;
-    DELETE FROM posthog_group CASCADE;
-    DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_person CASCADE;
     DELETE FROM posthog_team CASCADE;
 
     -- Then handle remaining tables
@@ -63,12 +57,9 @@ BEGIN
         FROM pg_tables
         WHERE schemaname = current_schema()
         AND tablename NOT IN (
-            'posthog_featureflaghashkeyoverride',
-            'posthog_cohortpeople',
             'posthog_cohort',
             'posthog_featureflag',
             'posthog_organizationmembership',
-            'posthog_grouptypemapping',
             'posthog_project',
             'posthog_pluginsourcefile',
             'posthog_pluginconfig',
@@ -76,10 +67,61 @@ BEGIN
             'posthog_organization',
             'posthog_action',
             'posthog_user',
-            'posthog_group',
+            'posthog_team',
+            -- Exclude persons-related tables as they're in a different database
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
             'posthog_persondistinctid',
+            'posthog_personlessdistinctid',
             'posthog_person',
-            'posthog_team'
+            'posthog_personoverridemapping',
+            'posthog_personoverride',
+            'posthog_pendingpersonoverride',
+            'posthog_flatpersonoverride',
+            'posthog_group',
+            'posthog_grouptypemapping'
+        )
+    ) LOOP
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END $$;
+`
+
+export const POSTGRES_DELETE_PERSONS_TABLES_QUERY = `
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Delete persons-related tables with proper ordering for foreign keys
+    DELETE FROM posthog_grouptypemapping CASCADE;
+    DELETE FROM posthog_group CASCADE;
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_flatpersonoverride CASCADE;
+    DELETE FROM posthog_pendingpersonoverride CASCADE;
+    DELETE FROM posthog_personoverride CASCADE;
+    DELETE FROM posthog_personoverridemapping CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_personlessdistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+
+    -- Handle any other tables that might exist in the persons database
+    FOR r IN (
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = current_schema()
+        AND tablename NOT IN (
+            'posthog_grouptypemapping',
+            'posthog_group',
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
+            'posthog_flatpersonoverride',
+            'posthog_pendingpersonoverride',
+            'posthog_personoverride',
+            'posthog_personoverridemapping',
+            'posthog_persondistinctid',
+            'posthog_personlessdistinctid',
+            'posthog_person'
         )
     ) LOOP
         EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
@@ -88,11 +130,17 @@ END $$;
 `
 
 export async function clearDatabase(db: PostgresRouter) {
-    // Delete all tables using COMMON_WRITE
     await db
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
-            console.error('Error deleting other tables', e)
+            console.error('Error deleting common tables', e)
+            throw e
+        })
+
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
+        .catch((e) => {
+            console.error('Error deleting persons tables', e)
             throw e
         })
 }
@@ -108,11 +156,19 @@ export async function resetTestDatabase(
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
 
-    // Delete all tables using COMMON_WRITE
+    // Delete common tables using COMMON_WRITE
     await db
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
-            console.error('Error deleting other tables', e)
+            console.error('Error deleting common tables', e)
+            throw e
+        })
+
+    // Delete persons tables using PERSONS_WRITE
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
+        .catch((e) => {
+            console.error('Error deleting persons tables', e)
             throw e
         })
 
@@ -160,6 +216,13 @@ export async function resetTestDatabase(
     await db.end()
 }
 
+// Helper function to determine which database a table belongs to
+function getPostgresUseForTable(table: string): PostgresUse {
+    const personsTablesRegex =
+        /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
+    return personsTablesRegex.test(table) ? PostgresUse.PERSONS_WRITE : PostgresUse.COMMON_WRITE
+}
+
 export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
@@ -177,11 +240,13 @@ export async function insertRow(db: PostgresRouter, table: string, objectProvide
         return value
     })
 
+    const postgresUse = getPostgresUseForTable(table)
+
     try {
         const {
             rows: [rowSaved],
         } = await db.query(
-            PostgresUse.COMMON_WRITE,
+            postgresUse,
             `INSERT INTO ${table} (${keys})
              VALUES (${params})
              RETURNING *`,

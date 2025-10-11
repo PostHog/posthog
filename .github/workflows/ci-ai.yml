@@ -76,7 +76,7 @@ jobs:
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@v6
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
 

@@ -33,6 +33,8 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         indexes = [
             models.Index(
                 fields=("project", "group_type"),

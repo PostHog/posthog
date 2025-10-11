@@ -186,7 +186,7 @@ async def test_connect_when_invalid_host():
     )
     with pytest.raises(
         DatabricksConnectionError,
-        match="Failed to connect to Databricks. Please check that the server_hostname and http_path are valid.",
+        match="Failed to connect to Databricks. Please check that your connection details are valid.",
     ):
         async with client.connect():
             pass

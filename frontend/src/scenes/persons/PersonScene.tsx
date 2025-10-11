@@ -153,7 +153,7 @@ export function PersonScene(): JSX.Element | null {
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
-                                attrs: { id: person?.distinct_ids[0] },
+                                attrs: { distinctId: person?.distinct_ids[0] },
                             }}
                             type="secondary"
                             size="small"

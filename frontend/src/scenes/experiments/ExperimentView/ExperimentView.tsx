@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
-import { ActivityScope } from '~/types'
+import { ActivityScope, ProgressStatus } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -29,7 +30,9 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '../components/ResultsBreakdown'
+import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus } from '../experimentsLogic'
 import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -206,6 +209,17 @@ export function ExperimentView(): JSX.Element {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
 
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
+
+    /**
+     * this is temporary, for testing purposes only.
+     * this has to be migrated into a scene with a proper path, and paramsToProps
+     * so it works seamlesly with the toolbar and tab bar navigation.
+     */
+    const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
+
+    if (!experimentLoading && getExperimentStatus(experiment) === ProgressStatus.Draft && isUnifiedCreateFormEnabled) {
+        return <CreateExperiment draftExperiment={experiment} />
+    }
 
     return (
         <SceneContent>

@@ -7,9 +7,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 
@@ -470,7 +470,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 (shouldBeEditable &&
                     !previewContent &&
                     !!notebook?.user_access_level &&
-                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -517,7 +521,11 @@ export const notebookLogic = kea<notebookLogicType>([
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
-                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+                !accessLevelSatisfied(
+                    AccessControlResourceType.Notebook,
+                    values.notebook.user_access_level,
+                    AccessControlLevel.Editor
+                )
             ) {
                 actions.clearLocalContent()
                 return

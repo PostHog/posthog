@@ -42,7 +42,7 @@ import {
     RecordingEventType,
 } from '~/types'
 
-import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
@@ -271,13 +271,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['setMiniFilter', 'setSearchQuery'],
             sessionRecordingEventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['loadFullEventData', 'setTrackedWindow'],
         ],
         values: [
             miniFiltersLogic,
             ['showOnlyMatching', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTypeByKey', 'miniFilters'],
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             [
                 'sessionPlayerData',
                 'sessionPlayerMetaDataLoading',

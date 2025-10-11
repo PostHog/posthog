@@ -592,16 +592,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.dataPipelines('overview'),
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
-                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
-                            ? {
-                                  identifier: Scene.Heatmaps,
-                                  label: 'Heatmaps',
-                                  icon: <IconCursorClick />,
-                                  to: urls.heatmaps(),
-                                  tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Heatmaps,
+                            label: 'Heatmaps',
+                            icon: <IconCursorClick />,
+                            to: urls.heatmaps(),
+                            tag: 'beta' as const,
+                            tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
+                        },
                         featureFlags[FEATURE_FLAGS.LINKS]
                             ? {
                                   identifier: Scene.Links,

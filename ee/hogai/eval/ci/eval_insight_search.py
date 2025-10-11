@@ -1,6 +1,7 @@
 import re
 
 import pytest
+from unittest.mock import patch
 
 from braintrust import EvalCase
 
@@ -85,14 +86,13 @@ def call_insight_search(demo_org_team_user):
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(
             {
-                "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                "insights": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
                 "root": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
                 "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
             }
         )
-        .add_insights()
         .add_insights_search()
         .compile(checkpointer=DjangoCheckpointer())
     )
@@ -104,8 +104,10 @@ def call_insight_search(demo_org_team_user):
             search_insights_query=search_query,
         )
 
-        raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
-        state = AssistantState.model_validate(raw_state)
+        # search_insights is gated begind feature flag, we need to mock it for always being truthy
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
+            state = AssistantState.model_validate(raw_state)
 
         eval_info = extract_evaluation_info_from_state(state)
 
@@ -150,19 +152,19 @@ async def eval_insight_evaluation_accuracy(call_insight_search, pytestconfig):
         scores=[InsightEvaluationAccuracy()],
         data=[
             EvalCase(
-                input="show me the exact same pageview trends we analyzed last week",
+                input="show me pageview trends",
                 expected=True,
             ),
             EvalCase(
-                input="pageview trends but broken down by device type",
+                input="user signups over time",
                 expected=True,
             ),
             EvalCase(
-                input="show me conversion rates for purple unicorn purchases by left-handed users",
+                input="conversion rates for purple unicorn purchases by left-handed users",
                 expected=False,
             ),
             EvalCase(
-                input="create an insight for pokemon cards sold yesterday",
+                input="pokemon cards sold yesterday",
                 expected=False,
             ),
         ],

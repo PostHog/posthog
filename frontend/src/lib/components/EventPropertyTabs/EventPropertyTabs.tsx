@@ -90,7 +90,7 @@ export const EventPropertyTabs = ({
         isErrorEvent && {
             key: 'error_display',
             label: 'Exception',
-            content: tabContentComponentFn({ event, properties: errorProperties, tabKey: 'error_display' }),
+            content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'error_display' }),
         },
         isAIEvent
             ? {

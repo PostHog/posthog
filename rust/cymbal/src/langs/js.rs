@@ -167,6 +167,12 @@ impl RawJSFrame {
         );
         format!("{:x}", hasher.finalize())
     }
+
+    pub fn is_suspicious(&self) -> bool {
+        self.source_url
+            .as_ref()
+            .is_some_and(|s| s.contains("posthog.com/static/"))
+    }
 }
 
 impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
@@ -190,6 +196,8 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             .map(|s| !s.contains("node_modules"))
             .unwrap_or(raw_frame.meta.in_app);
 
+        let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
+
         let mut res = Self {
             raw_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
@@ -205,6 +213,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             context: get_sourcelocation_context(&token),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -251,6 +260,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -289,6 +299,7 @@ impl From<&RawJSFrame> for Frame {
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

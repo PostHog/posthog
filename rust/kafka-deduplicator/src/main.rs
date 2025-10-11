@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
+use common_profiler::router::apply_pprof_routes;
 use futures::future::ready;
 use health::HealthRegistry;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -20,13 +21,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use kafka_deduplicator::{
-    config::Config,
-    service::KafkaDeduplicatorService,
-    utils::pprof::{handle_flamegraph, handle_profile},
-};
+use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
-common_alloc::used!();
+common_profiler::used_with_profiling!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -130,9 +127,7 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
         );
 
     let router = if config.enable_pprof {
-        router
-            .route("/pprof/profile", get(handle_profile))
-            .route("/pprof/flamegraph", get(handle_flamegraph))
+        apply_pprof_routes(router)
     } else {
         router
     };

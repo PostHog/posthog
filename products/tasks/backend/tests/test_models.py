@@ -513,7 +513,7 @@ class TestTask(TestCase):
         self.assertEqual(repo_list[0]["org"], "PostHog")
         self.assertEqual(repo_list[0]["repo"], "posthog")
         self.assertEqual(repo_list[0]["integration_id"], integration.id)
-        self.assertEqual(repo_list[0]["full_name"], "PostHog/posthog")
+        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
 
     def test_repository_list_empty(self):
         task = Task.objects.create(
@@ -665,6 +665,107 @@ class TestTask(TestCase):
         self.assertEqual(task.workflow, self.workflow)
         assert task.workflow is not None
         self.assertTrue(task.workflow.is_default)
+
+
+class TestTaskSlug(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.workflow = TaskWorkflow.objects.create(
+            team=self.team,
+            name="Test Workflow",
+            is_default=True,
+        )
+        WorkflowStage.objects.create(
+            workflow=self.workflow,
+            name="Backlog",
+            key="backlog",
+            position=0,
+        )
+
+    @parameterized.expand(
+        [
+            ("JonathanLab", "JON"),
+            ("Test Team", "TES"),
+            ("ABC", "ABC"),
+            ("PostHog", "POS"),
+            ("my team", "MYT"),
+            ("123test", "123"),
+            ("test", "TES"),
+            ("t", "T"),
+            ("", "TSK"),
+        ]
+    )
+    def test_generate_team_prefix(self, team_name, expected_prefix):
+        result = Task.generate_team_prefix(team_name)
+        self.assertEqual(result, expected_prefix)
+
+    def test_task_number_auto_generation(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="First Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.assertIsNotNone(task.task_number)
+        self.assertEqual(task.task_number, 0)
+
+    def test_task_number_sequential(self):
+        task1 = Task.objects.create(
+            team=self.team,
+            title="First Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task2 = Task.objects.create(
+            team=self.team,
+            title="Second Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task3 = Task.objects.create(
+            team=self.team,
+            title="Third Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertEqual(task1.task_number, 0)
+        self.assertEqual(task2.task_number, 1)
+        self.assertEqual(task3.task_number, 2)
+
+    def test_slug_generation(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.assertEqual(task.slug, "TES-0")
+
+    def test_slug_with_different_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="JonathanLab")
+        TaskWorkflow.objects.create(
+            team=other_team,
+            name="Other Workflow",
+            is_default=True,
+        )
+
+        task1 = Task.objects.create(
+            team=self.team,
+            title="Task 1",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task2 = Task.objects.create(
+            team=other_team,
+            title="Task 2",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertEqual(task1.slug, "TES-0")
+        self.assertEqual(task2.slug, "JON-0")
 
 
 class TestTaskProgress(TestCase):

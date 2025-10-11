@@ -1,18 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
 import { formatFlatRate } from './BillingProductAddon'
-import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
@@ -30,29 +30,26 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
         trialLoading,
         isSubscribedToAnotherAddon,
         isDataPipelinesDeprecated,
+        isLowerTierThanCurrentAddon,
+        proratedAmount,
+        isProrated,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
+    const { showConfirmUpgradeModal, showConfirmDowngradeModal } = useActions(billingProductLogic({ product: addon }))
+    const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
-    const { prorationAmount, isProrated } = useMemo(
-        () =>
-            getProration({
-                timeRemainingInSeconds,
-                timeTotalInSeconds,
-                amountUsd: upgradePlan?.unit_amount_usd,
-                hasActiveSubscription: billing?.has_active_subscription,
-            }),
-        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
-    )
     const isTrialEligible = !!addon.trial
+    const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
 
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
@@ -186,7 +183,19 @@ export const BillingProductAddonActions = ({
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
                 <p className="mt-2 text-xs text-secondary text-right">
-                    Pay ~${prorationAmount} today (prorated) and
+                    Pay ~${proratedAmount.toFixed(2)} today (prorated) and
+                    <br />
+                    {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
+                </p>
+            )
+        }
+
+        // Upgrading from another add-on to this one
+        if (isSwitchPlanEnabled && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
+            const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
+            return (
+                <p className="mt-2 text-xs text-secondary text-right">
+                    Pay ~${amountDue.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
                 </p>
@@ -194,6 +203,56 @@ export const BillingProductAddonActions = ({
         }
 
         return null
+    }
+
+    const renderDowngradeActions = (): JSX.Element | null => {
+        if (!upgradePlan || !currentPlatformAddon) {
+            return null
+        }
+
+        return (
+            <More
+                overlay={
+                    <LemonButton
+                        fullWidth
+                        onClick={() => {
+                            reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
+                            showConfirmDowngradeModal()
+                        }}
+                    >
+                        Downgrade
+                    </LemonButton>
+                }
+            />
+        )
+    }
+
+    const renderUpgradeActions = (): JSX.Element | null => {
+        if (!upgradePlan || !currentPlatformAddon) {
+            return null
+        }
+
+        const showPricing = upgradePlan.flat_rate
+
+        return (
+            <>
+                {showPricing && (
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                        {formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)}
+                    </h4>
+                )}
+
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'upgrade')
+                        showConfirmUpgradeModal()
+                    }}
+                >
+                    Upgrade
+                </LemonButton>
+            </>
+        )
     }
 
     let content
@@ -219,6 +278,10 @@ export const BillingProductAddonActions = ({
         // We don't allow multiple add-ons to be subscribed to at the same time so this checks if the customer is subscribed to another add-on
         // TODO: add support for when a customer has a Paid Plan trial
         content = renderPurchaseActions()
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
+        content = renderDowngradeActions()
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
+        content = renderUpgradeActions()
     }
 
     return (

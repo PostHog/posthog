@@ -1,0 +1,133 @@
+name: MCP CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+
+jobs:
+    changes:
+        permissions:
+            contents: read
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run MCP checks
+        outputs:
+            mcp: ${{ steps.filter.outputs.mcp }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      mcp:
+                        - 'products/mcp/**'
+                        - '.github/workflows/mcp-ci.yml'
+                        - '.github/workflows/mcp-publish.yml'
+
+    lint-and-format:
+        name: Lint, Format, and Type Check
+        runs-on: ubuntu-latest
+        needs: changes
+        if: needs.changes.outputs.mcp == 'true'
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Run linter
+              run: cd products/mcp && pnpm run lint
+
+            - name: Run formatter
+              run: cd products/mcp && pnpm run format
+
+            - name: Run type check
+              run: cd products/mcp && pnpm run typecheck
+
+            - name: Check for changes
+              run: |
+                  if [ -n "$(git status --porcelain)" ]; then
+                    echo "Code formatting or linting changes detected!"
+                    git diff
+                    exit 1
+                  fi
+
+    unit-tests:
+        name: Unit Tests
+        runs-on: ubuntu-latest
+        needs: changes
+        permissions:
+            contents: read
+        if: needs.changes.outputs.mcp == 'true'
+        concurrency:
+            group: ${{ github.workflow }}-unit-${{ github.head_ref || github.ref }}
+            cancel-in-progress: true
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Run unit tests
+              run: cd products/mcp && pnpm run test
+
+    integration-tests:
+        name: Integration Tests
+        runs-on: ubuntu-latest
+        needs: [changes, unit-tests]
+        if: needs.changes.outputs.mcp == 'true'
+        permissions:
+            contents: read
+        concurrency:
+            group: ${{ github.workflow }}-integration-${{ github.head_ref || github.ref }}
+            cancel-in-progress: true
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Run integration tests
+              run: cd products/mcp && pnpm run test:integration
+              env:
+                  TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
+                  TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_PERSONAL_API_KEY }}
+                  TEST_ORG_ID: ${{ secrets.MCP_TEST_ORG_ID }}
+                  TEST_PROJECT_ID: ${{ secrets.MCP_TEST_PROJECT_ID }}

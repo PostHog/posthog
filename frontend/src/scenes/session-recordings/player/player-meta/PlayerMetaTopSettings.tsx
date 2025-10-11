@@ -4,8 +4,6 @@ import posthog from 'posthog-js'
 import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -146,18 +144,16 @@ export function PlayerMetaTopSettings(): JSX.Element {
                     </div>
 
                     <div className="flex flex-row gap-0.5">
-                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
-                            <SettingsButton
-                                size="xsmall"
-                                icon={<IconHeatmap />}
-                                onClick={() => {
-                                    setPause()
-                                    openHeatmap()
-                                }}
-                                label="View heatmap"
-                                tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
-                            />
-                        </FlaggedFeature>
+                        <SettingsButton
+                            size="xsmall"
+                            icon={<IconHeatmap />}
+                            onClick={() => {
+                                setPause()
+                                openHeatmap()
+                            }}
+                            label="View heatmap"
+                            tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
+                        />
                         {noInspector ? null : <InspectDOM />}
                         {noInspector ? null : <PlayerInspectorButton />}
                     </div>

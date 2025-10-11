@@ -17,6 +17,8 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id",
+            "task_number",
+            "slug",
             "title",
             "description",
             "origin_product",
@@ -38,6 +40,8 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "task_number",
+            "slug",
             "created_at",
             "updated_at",
             "github_branch",
@@ -80,6 +84,9 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
+
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):

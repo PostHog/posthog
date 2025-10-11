@@ -40,6 +40,7 @@ impl From<&RawGoFrame> for Frame {
             junk_drawer: None,
             context: None,
             release: None,
+            suspicious: false,
         }
     }
 }
