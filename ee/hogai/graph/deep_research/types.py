@@ -63,6 +63,22 @@ class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
     """
     Notebooks created in the current deep research run (reset on new run).
     """
+    skip_onboarding: Annotated[Optional[bool], replace] = Field(default=None)
+    """
+    If true, skip the onboarding node routing and go straight to planning.
+    """
+    template_markdown: Annotated[Optional[str], replace] = Field(default=None)
+    """
+    Template markdown content when deep research starts from a template.
+    """
+    template_notebook_short_id: Annotated[Optional[str], replace] = Field(default=None)
+    """
+    Template notebook ID when deep research starts from a template.
+    """
+    has_emitted_template_loaded: Annotated[bool, replace] = Field(default=False)
+    """
+    Whether the template loaded message has been emitted.
+    """
 
 
 class DeepResearchState(_SharedDeepResearchState):

@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
+from posthog.notebooks.curated_templates import DEFAULT_CUSTOM_DEEP_RESEARCH_NOTEBOOK
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
@@ -122,6 +123,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        # If creating a deep research template, populate default content when FE sent only a barebone tiptap document
+        if "template_deep_research" in validated_data.get("tags", []):
+            content = validated_data.get("content")
+            title = validated_data.get("title")
+
+            if not content or self._is_barebone_tiptap_doc(content, title):
+                validated_data["content"] = DEFAULT_CUSTOM_DEEP_RESEARCH_NOTEBOOK["content"]
+                if not validated_data.get("title"):
+                    validated_data["title"] = DEFAULT_CUSTOM_DEEP_RESEARCH_NOTEBOOK["title"]
+
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
             team=team,
@@ -176,6 +187,30 @@ class NotebookSerializer(NotebookMinimalSerializer):
         )
 
         return updated_notebook
+
+    def _is_barebone_tiptap_doc(self, doc: dict | None, title_text: str | None) -> bool:
+        """Check if TipTap doc is empty or only contains a heading matching the title."""
+        if not isinstance(doc, dict):
+            return True
+
+        nodes = doc.get("content", [])
+        if not nodes:
+            return True
+
+        # Only check if it's a single heading node
+        if len(nodes) != 1 or nodes[0].get("type") != "heading":
+            return False
+
+        heading_content = nodes[0].get("content", [])
+        if not heading_content:
+            return True
+
+        # Single text node in heading
+        if len(heading_content) == 1 and heading_content[0].get("type") == "text":
+            text = (heading_content[0].get("text") or "").strip()
+            return text == "" or text == (title_text or "").strip()
+
+        return False
 
 
 @extend_schema(
@@ -266,6 +301,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         for key in filters:
             value = filters.get(key, None)
+            if key == "tags" and isinstance(value, str):
+                # value may be comma-separated list of tags; match notebooks containing ANY of the tags
+                tag_list = [v.strip() for v in value.split(",") if v.strip()]
+                if tag_list:
+                    queryset = queryset.filter(tags__overlap=tag_list)
+                continue
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "created_by":

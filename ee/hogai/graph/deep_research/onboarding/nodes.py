@@ -20,6 +20,12 @@ class DeepResearchOnboardingNode(DeepResearchNode):
         return DeepResearchNodeName.NOTEBOOK_PLANNING
 
     def should_run_onboarding_at_start(self, state: DeepResearchState) -> Literal["onboarding", "planning", "continue"]:
+        # Skipping onboarding when provided a template
+        if state.skip_onboarding:
+            if state.current_run_notebooks:
+                return "continue"
+            return "planning"
+
         if not state.messages:
             return "onboarding"
 
