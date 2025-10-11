@@ -41,11 +41,11 @@ pub async fn handle_ad_hoc_request(
     let (embedding, token_count) =
         generate_embedding(context.clone(), request.model, &request.content).await?;
 
-    return Ok(AdHocEmbeddingResponse {
+    Ok(AdHocEmbeddingResponse {
         embedding,
         tokens_used: token_count,
         did_truncate: would_truncate,
-    });
+    })
 }
 
 pub fn check_would_truncate(content: &str, model: &EmbeddingModel) -> bool {
