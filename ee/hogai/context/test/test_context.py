@@ -504,10 +504,10 @@ Query results: 42 events
     @patch("ee.hogai.tool.get_assistant_tool_class")
     def test_get_contextual_tools_prompt(self, mock_get_assistant_tool_class):
         """Test generation of contextual tools prompt"""
-        # Mock the tool class
-        mock_tool = MagicMock()
-        mock_tool.format_system_prompt_injection.return_value = "Tool system prompt"
-        mock_get_assistant_tool_class.return_value = lambda team, user: mock_tool
+        # Mock the tool class - get_assistant_tool_class returns a class, not a factory
+        mock_tool_class = MagicMock()
+        mock_tool_class.format_system_prompt_injection.return_value = "Tool system prompt"
+        mock_get_assistant_tool_class.return_value = mock_tool_class
 
         config = RunnableConfig(
             configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}

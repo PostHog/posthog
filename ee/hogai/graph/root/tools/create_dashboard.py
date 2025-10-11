@@ -29,4 +29,17 @@ class CreateDashboardTool(MaxTool):
     args_schema = CreateDashboardToolArgs
 
     async def _arun_impl(self, search_insights_queries: list[InsightQuery], dashboard_name: str) -> ToolResult:
-        return await self._run_legacy_node(DashboardCreationNode)
+        original_state = self._state
+        if self._state:
+            self._state = self._state.model_copy(
+                update={
+                    "dashboard_name": dashboard_name,
+                    "search_insights_queries": search_insights_queries,
+                    "root_tool_call_id": self._tool_call_id,
+                }
+            )
+        try:
+            return await self._run_legacy_node(DashboardCreationNode)
+        finally:
+            # Restore original state
+            self._state = original_state

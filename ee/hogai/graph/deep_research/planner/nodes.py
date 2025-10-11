@@ -38,7 +38,6 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     TODO_READ_TOOL_RESULT,
     TODO_WRITE_TOOL_RESULT,
     WRITE_RESULT_FAILED_TOOL_RESULT,
-    WRITE_RESULT_TOOL_RESULT,
 )
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
@@ -277,8 +276,16 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             else:
                 execute_tool_calls.append(tool_call)
 
+        # Validate execute_tool_calls contain known tools
+        from ee.hogai.tool.base import get_assistant_tool_class
+
+        for tool_call in execute_tool_calls:
+            if get_assistant_tool_class(tool_call.name) is None:
+                raise ValueError(f"Unknown tool call: {tool_call.name}")
+
         # Process tool calls in the correct order, respecting dependencies
         messages: list[AssistantMessageUnion] = []
+        todos_to_return: list[TodoItem] | None = None
 
         # 1. Process todo_write and todo_read first (no dependencies)
         for tool_call in todo_write_calls:
@@ -286,6 +293,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             messages.extend(result.messages or [])
             if result.todos:
                 state = DeepResearchState(**{**state.model_dump(), "todos": result.todos})
+                todos_to_return = result.todos
 
         for tool_call in todo_read_calls:
             result = await self._handle_todo_read(tool_call, state)
@@ -332,17 +340,22 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             return PartialDeepResearchState(messages=messages)
 
         # 6. Process result_write and finalize_research (require tool results)
+        intermediate_results: list[DeepResearchIntermediateResult] = []
         for tool_call in result_write_calls:
             result = await self._handle_result_write(tool_call, state)
             messages.extend(result.messages or [])
+            if result.intermediate_results:
+                intermediate_results.extend(result.intermediate_results)
 
         for tool_call in finalize_research_calls:
             result = await self._handle_finalize_research(tool_call, state)
             messages.extend(result.messages or [])
 
-        # Return all collected messages
-        if messages:
-            return PartialDeepResearchState(messages=messages)
+        # Return all collected messages, intermediate results, and todos
+        if messages or intermediate_results or todos_to_return:
+            return PartialDeepResearchState(
+                messages=messages, intermediate_results=intermediate_results, todos=todos_to_return
+            )
 
         # This shouldn't happen if tool_calls is not empty, but handle it gracefully
         raise ValueError("No valid tool calls were processed")
@@ -436,6 +449,8 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         self, tool_calls: list[AssistantToolCall], state: DeepResearchState, config: RunnableConfig
     ) -> PartialDeepResearchState:
         result_messages: list[AssistantMessageUnion] = []
+        tool_execution_message = None
+        tool_results: list[ToolResult] = []
 
         ToolExecutionClass = ParallelToolExecution(
             team=self._team, user=self._user, write_message_afunc=self._write_message
@@ -522,7 +537,9 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Create visualization messages from selected artifacts
-        selected_artifacts = [artifact for artifact in artifacts if artifact.id in intermediate_result.artifact_ids]
+        selected_artifacts = [
+            artifact for artifact in artifacts if artifact.tool_call_id in intermediate_result.artifact_ids
+        ]
 
         visualizations = [
             VisualizationItem(query=artifact.content, answer=artifact.query)
@@ -536,11 +553,6 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
                     id=str(uuid4()),
                     visualizations=visualizations,
                     commentary=intermediate_result.content,
-                ),
-                AssistantToolCallMessage(
-                    content=WRITE_RESULT_TOOL_RESULT,
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
                 ),
             ],
             intermediate_results=[intermediate_result],

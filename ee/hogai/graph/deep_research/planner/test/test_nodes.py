@@ -30,7 +30,6 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     FINALIZE_RESEARCH_TOOL_RESULT,
     NO_TOOL_RESULTS,
     WRITE_RESULT_FAILED_TOOL_RESULT,
-    WRITE_RESULT_TOOL_RESULT,
 )
 from ee.hogai.graph.deep_research.types import DeepResearchState
 from ee.hogai.utils.types import InsightArtifact
@@ -57,7 +56,7 @@ class TestDeepResearchPlannerNode(BaseTest):
             "messages": [],
             "todos": None,
             "tasks": None,
-            "task_results": [],
+            "tool_results": [],
             "intermediate_results": [],
             "previous_response_id": None,
             "conversation_notebooks": [],
@@ -330,7 +329,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             "messages": [],
             "todos": None,
             "tasks": None,
-            "task_results": [],
+            "tool_results": [],
             "intermediate_results": [],
             "previous_response_id": None,
             "conversation_notebooks": [],
@@ -370,18 +369,6 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         self.assertEqual(
             cast(HumanMessage, result.messages[0]).content, "You have to use at least one tool to continue."
         )
-
-    async def test_arun_multiple_tool_calls_error(self):
-        """Test node execution raises error when multiple tool calls are present"""
-        tool_calls = [
-            AssistantToolCall(id="1", name="todo_write", args={"todos": []}),
-            AssistantToolCall(id="2", name="todo_read", args={}),
-        ]
-        state = self._create_state(messages=[self._create_assistant_message_with_tool_calls(tool_calls)])
-
-        with self.assertRaises(ValueError) as cm:
-            await self.node.arun(state, self.config)
-        self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
 
     @parameterized.expand(
         [
@@ -447,11 +434,14 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
     async def test_tools_requiring_todos_without_todos(self):
         """Test tools that require todos fail when no todos exist"""
-        tool_names = ["artifacts_read", "execute_tasks", "result_write", "finalize_research"]
+        # BUG FIX: Updated to use real tool names. "execute_tasks" was the old architecture's tool name.
+        # In the new ParallelToolExecution architecture, we use specific tools like "create_and_query_insight".
+        tool_names = ["artifacts_read", "create_and_query_insight", "result_write", "finalize_research"]
 
         for tool_name in tool_names:
             with self.subTest(tool=tool_name):
-                tool_calls = [AssistantToolCall(id="test_1", name=tool_name, args={})]
+                tool_args = {"query_description": "test"} if tool_name == "create_and_query_insight" else {}
+                tool_calls = [AssistantToolCall(id="test_1", name=tool_name, args=tool_args)]
                 state = self._create_state(
                     messages=[self._create_assistant_message_with_tool_calls(tool_calls)], todos=None
                 )
@@ -468,7 +458,8 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 [
                     ToolResult(
                         id="1",
-                        description="Task 1",
+                        tool_name="test_tool",
+                        send_result_to_frontend=False,
                         content="Result",
                         status=ToolExecutionStatus.COMPLETED,
                         artifacts=[_create_test_artifact("art1", "Artifact 1")],
@@ -480,23 +471,24 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 [
                     ToolResult(
                         id="1",
-                        description="Task 1",
+                        tool_name="test_tool",
+                        send_result_to_frontend=False,
                         content="Result",
                         status=ToolExecutionStatus.COMPLETED,
                         artifacts=[],
                     )
                 ],
             ),
-            ("empty_task_results", []),
+            ("empty_tool_results", []),
         ]
     )
-    async def test_artifacts_read_tool(self, _name, task_results):
+    async def test_artifacts_read_tool(self, _name, tool_results):
         """Test artifacts_read tool execution with different artifact states"""
         tool_calls = [AssistantToolCall(id="test_1", name="artifacts_read", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=task_results,
+            tool_results=tool_results,
         )
 
         result = await self.node.arun(state, self.config)
@@ -506,7 +498,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
         self.assertIn("Current artifacts:", cast(AssistantToolCallMessage, result.messages[0]).content)
 
-    async def test_tools_requiring_task_results_without_results(self):
+    async def test_tools_requiring_tool_results_without_results(self):
         """Test tools that require task results fail when no results exist"""
         tool_names = ["result_write", "finalize_research"]
 
@@ -516,7 +508,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 state = self._create_state(
                     messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
                     todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-                    task_results=[],
+                    tool_results=[],
                 )
 
                 result = await self.node.arun(state, self.config)
@@ -538,8 +530,14 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                ToolResult(id="1", description="Task", content="Result", status=ToolExecutionStatus.COMPLETED)
+            tool_results=[
+                ToolResult(
+                    id="1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
+                    content="Result",
+                    status=ToolExecutionStatus.COMPLETED,
+                )
             ],
         )
 
@@ -553,10 +551,10 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             )
             self.assertEqual(len(result.intermediate_results), 0)
         else:
-            self.assertEqual(len(result.messages), 2)
+            # BUG FIX: result_write now returns 1 message (MultiVisualizationMessage) not 2
+            # The ParallelToolExecution architecture handles tool completion signaling
+            self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], MultiVisualizationMessage)
-            self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(cast(AssistantToolCallMessage, result.messages[1]).content, WRITE_RESULT_TOOL_RESULT)
             self.assertEqual(len(result.intermediate_results), 1)
 
     async def test_result_write_tool_invalid_artifact_ids(self):
@@ -566,10 +564,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
+            tool_results=[
                 ToolResult(
                     id="1",
-                    description="Task",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result",
                     status=ToolExecutionStatus.COMPLETED,
                     artifacts=[_create_test_artifact("valid_id", "Valid artifact")],
@@ -593,10 +592,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
+            tool_results=[
                 ToolResult(
                     id="1",
-                    description="Task",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result",
                     status=ToolExecutionStatus.COMPLETED,
                     artifacts=[artifact1, artifact2],
@@ -606,7 +606,9 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
         result = await self.node.arun(state, self.config)
 
-        self.assertEqual(len(result.messages), 2)
+        # BUG FIX: result_write now returns 1 message (MultiVisualizationMessage) not 2
+        # The architecture changed to only return the visualization message
+        self.assertEqual(len(result.messages), 1)
 
         viz_message = result.messages[0]
         self.assertIsInstance(viz_message, MultiVisualizationMessage)
@@ -623,8 +625,14 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                ToolResult(id="1", description="Task", content="Result", status=ToolExecutionStatus.COMPLETED)
+            tool_results=[
+                ToolResult(
+                    id="1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
+                    content="Result",
+                    status=ToolExecutionStatus.COMPLETED,
+                )
             ],
         )
 
@@ -640,7 +648,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
+            tool_results=[
                 ToolResult(
                     id="1",
                     tool_name="Task",

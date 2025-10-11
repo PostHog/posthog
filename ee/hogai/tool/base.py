@@ -50,7 +50,11 @@ def get_assistant_tool_class(tool_name: str) -> type["MaxTool"] | None:
     _import_assistant_tools()  # Ensure max_tools are imported
     from ee.hogai.tool import ASSISTANT_TOOL_NAME_TO_TOOL
 
-    return ASSISTANT_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
+    # BUG FIX: Return None for unknown tool names instead of raising ValueError
+    try:
+        return ASSISTANT_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
+    except (ValueError, KeyError):
+        return None
 
 
 ToolUpdateCallback = Callable[[str, str | None, list[str] | None], Coroutine[Any, Any, None]]
@@ -210,7 +214,7 @@ class MaxTool(AssistantContextMixin, MaxToolMixin, ABC):
         self._team = team
         self._user = user
         self._state = state
-        self._config = config if config else RunnableConfig(configurable={})
+        self._config = config
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
 
     def __init_subclass__(cls, **kwargs):

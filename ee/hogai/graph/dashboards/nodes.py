@@ -124,13 +124,14 @@ class DashboardCreationNode(AssistantNode):
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
         tool_calls: list[AssistantToolCall] = []
-        for query_id in left_to_create.keys():
+        for query_id, insight_query in left_to_create.items():
             tool_calls.append(
                 AssistantToolCall(
                     id=query_id,
-                    name="create_insights",
+                    name="create_and_query_insight",
                     args={
-                        "query_id": query_id,
+                        "query_description": insight_query.description,
+                        "tool_call_explanation": f"Creating insight: {insight_query.name}",
                     },
                 )
             )
@@ -152,9 +153,11 @@ class DashboardCreationNode(AssistantNode):
             tool_calls.append(
                 AssistantToolCall(
                     id=query_id,
-                    name="search_insights",
+                    name="search",
                     args={
-                        "search_query": query_metadata.query.description,
+                        "kind": "insights",
+                        "query": query_metadata.query.description,
+                        "tool_call_explanation": f"Searching for insight: {query_metadata.query.name}",
                     },
                 )
             )
@@ -185,12 +188,12 @@ class DashboardCreationNode(AssistantNode):
 
     @database_sync_to_async
     def _process_insight_creation_results(
-        self, task_results: list[ToolResult], query_metadata: dict[str, QueryMetadata]
+        self, tool_results: list[ToolResult], query_metadata: dict[str, QueryMetadata]
     ) -> dict[str, QueryMetadata]:
         insights_to_create = []
         insight_metadata = []
 
-        for task_result in task_results:
+        for task_result in tool_results:
             if task_result.status != ToolExecutionStatus.COMPLETED:
                 query_metadata[task_result.id].created_insight_messages.append(
                     f"\n -{query_metadata[task_result.id].query.name}: Could not create insights for the query with the description **{task_result.content}**"

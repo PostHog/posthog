@@ -228,7 +228,7 @@ Current artifacts:
 """
 
 NO_TOOL_RESULTS = """
-No task results yet. Use `execute_tasks`.
+No tool results yet. Run some tools before using `result_write`.
 """
 
 ARTIFACTS_READ_FAILED = """

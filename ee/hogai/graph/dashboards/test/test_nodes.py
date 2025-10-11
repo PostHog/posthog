@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, ToolExecution, ToolExecutionStatus
+from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, ToolExecutionStatus
 
 from posthog.models import Dashboard, Insight, Team, User
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationExecutorNode, DashboardCreationNode, QueryMetadata
+from ee.hogai.graph.dashboards.nodes import DashboardCreationNode, QueryMetadata
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseStateWithToolResults, InsightArtifact, InsightQuery, ToolResult
+from ee.hogai.utils.types.base import InsightArtifact, InsightQuery, ToolResult
 
 
 class TestQueryMetadata(TestCase):
@@ -31,97 +31,6 @@ class TestQueryMetadata(TestCase):
         self.assertEqual(metadata.found_insight_messages, ["Found message 1", "Found message 2"])
         self.assertEqual(metadata.created_insight_messages, ["Created message 1"])
         self.assertEqual(metadata.query, query)
-
-
-class TestDashboardCreationExecutorNode:
-    @pytest.fixture(autouse=True)
-    def setup_method(self):
-        self.mock_team = MagicMock(spec=Team)
-        self.mock_team.id = 1
-        self.mock_user = MagicMock(spec=User)
-        self.mock_user.id = 1
-        self.node = DashboardCreationExecutorNode(self.mock_team, self.mock_user)
-
-    def test_initialization(self):
-        """Test node initialization."""
-        assert self.node._team == self.mock_team
-        assert self.node._user == self.mock_user
-
-    @pytest.mark.asyncio
-    async def test_aget_input_tuples_search_insights(self):
-        """Test _aget_input_tuples for search_insights tasks."""
-        state = BaseStateWithToolResults(
-            tasks=[
-                ToolExecution(
-                    id="task_1",
-                    description="Test search",
-                    prompt="Test prompt",
-                    status=ToolExecutionStatus.PENDING,
-                    task_type="search_insights",
-                )
-            ]
-        )
-
-        input_tuples = await self.node._aget_input_tuples(state)
-
-        assert len(input_tuples) == 1
-        task, artifacts, callable_func = input_tuples[0]
-        assert task.id == "task_1"
-        assert task.task_type == "search_insights"
-        assert callable_func == self.node._execute_search_insights
-
-    @pytest.mark.asyncio
-    async def test_aget_input_tuples_create_insight(self):
-        """Test _aget_input_tuples for create_insight tasks."""
-        state = BaseStateWithToolResults(
-            tasks=[
-                ToolExecution(
-                    id="task_1",
-                    description="Test create",
-                    prompt="Test prompt",
-                    status=ToolExecutionStatus.PENDING,
-                    task_type="create_insight",
-                )
-            ]
-        )
-
-        input_tuples = await self.node._aget_input_tuples(state)
-
-        assert len(input_tuples) == 1
-        task, artifacts, callable_func = input_tuples[0]
-        assert task.id == "task_1"
-        assert task.task_type == "create_insight"
-        assert callable_func == self.node._execute_create_insight
-
-    @pytest.mark.asyncio
-    async def test_aget_input_tuples_unsupported_task(self):
-        """Test _aget_input_tuples raises error for unsupported task type."""
-        state = BaseStateWithToolResults(
-            tasks=[
-                ToolExecution(
-                    id="task_1",
-                    description="Test task",
-                    prompt="Test prompt",
-                    status=ToolExecutionStatus.PENDING,
-                    task_type="unsupported_type",
-                )
-            ]
-        )
-
-        with pytest.raises(ValueError) as exc_info:
-            await self.node._aget_input_tuples(state)
-
-        assert "Unsupported task type: unsupported_type" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_aget_input_tuples_no_tasks(self):
-        """Test _aget_input_tuples raises error when no tasks."""
-        state = BaseStateWithToolResults(tasks=None)
-
-        with pytest.raises(ValueError) as exc_info:
-            await self.node._aget_input_tuples(state)
-
-        assert "No tasks to execute" in str(exc_info.value)
 
 
 class TestDashboardCreationNode:
@@ -170,12 +79,8 @@ class TestDashboardCreationNode:
         assert url == expected_url
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
-    async def test_arun_missing_search_insights_queries(self, mock_executor_node_class):
+    async def test_arun_missing_search_insights_queries(self):
         """Test arun returns error when search_insights_queries is missing."""
-        mock_executor_node = MagicMock()
-        mock_executor_node_class.return_value = mock_executor_node
-
         state = AssistantState(
             dashboard_name="Create dashboard",
             search_insights_queries=None,
@@ -191,7 +96,6 @@ class TestDashboardCreationNode:
         assert "Search insights queries are required" in result.messages[0].content
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
     @patch.object(DashboardCreationNode, "_create_dashboard_with_insights")
@@ -200,12 +104,8 @@ class TestDashboardCreationNode:
         mock_create_dashboard,
         mock_create_insights,
         mock_search_insights,
-        mock_executor_node_class,
     ):
         """Test successful arun flow with found insights."""
-        mock_executor_node = MagicMock()
-        mock_executor_node_class.return_value = mock_executor_node
-
         # Setup mocks
         mock_dashboard = MagicMock(spec=Dashboard)
         mock_dashboard.id = 1
@@ -247,16 +147,10 @@ class TestDashboardCreationNode:
         assert "Test Dashboard" in result.messages[0].content
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
-    async def test_arun_no_insights_found_or_created(
-        self, mock_create_insights, mock_search_insights, mock_executor_node_class
-    ):
+    async def test_arun_no_insights_found_or_created(self, mock_create_insights, mock_search_insights):
         """Test arun when no insights are found or created."""
-        mock_executor_node = MagicMock()
-        mock_executor_node_class.return_value = mock_executor_node
-
         # Setup search results with no insights
         search_result = {
             "query_1": QueryMetadata(
@@ -285,13 +179,10 @@ class TestDashboardCreationNode:
         assert "No existing insights matched" in result.messages[0].content
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch("ee.hogai.graph.dashboards.nodes.logger")
-    async def test_arun_exception_handling(self, mock_logger, mock_search_insights, mock_executor_node_class):
+    async def test_arun_exception_handling(self, mock_logger, mock_search_insights):
         """Test arun handles exceptions properly."""
-        mock_executor_node = MagicMock()
-        mock_executor_node_class.return_value = mock_executor_node
         mock_search_insights.side_effect = Exception("Test error")
 
         state = AssistantState(
@@ -370,16 +261,17 @@ class TestDashboardCreationNodeAsyncMethods:
         self.node = DashboardCreationNode(self.mock_team, self.mock_user)
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
-    async def test_create_insights(self, mock_executor_node_class):
+    @patch("ee.hogai.graph.dashboards.nodes.ParallelToolExecution")
+    async def test_create_insights(self, mock_tool_execution_class):
         """Test _create_insights method."""
         # Setup mocks
-        mock_executor_node = MagicMock()
-        mock_executor_node_class.return_value = mock_executor_node
+        mock_tool_execution = MagicMock()
+        mock_tool_execution_class.return_value = mock_tool_execution
 
         mock_task_result = ToolResult(
             id="task_1",
-            description="Test task",
+            tool_name="create_and_query_insight",
+            send_result_to_frontend=False,
             content="Task completed successfully",
             artifacts=[
                 InsightArtifact(
@@ -388,10 +280,10 @@ class TestDashboardCreationNodeAsyncMethods:
             ],
             status=ToolExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithToolResults(tool_results=[mock_task_result]))
+        mock_tool_execution.arun = AsyncMock(return_value=([mock_task_result], MagicMock()))
 
         # Mock _process_insight_creation_results to return the modified query_metadata
-        async def mock_process_insight_creation_results(task_results, query_metadata):
+        async def mock_process_insight_creation_results(tool_results, query_metadata):
             query_metadata["task_1"].created_insight_ids.add(1)
             query_metadata["task_1"].created_insight_ids.add(2)
             query_metadata["task_1"].created_insight_messages.append("Insight created")
@@ -420,16 +312,17 @@ class TestDashboardCreationNodeAsyncMethods:
             assert len(result["task_1"].created_insight_messages) == 1
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
-    async def test_search_insights(self, mock_executor_node_class):
+    @patch("ee.hogai.graph.dashboards.nodes.ParallelToolExecution")
+    async def test_search_insights(self, mock_tool_execution_class):
         """Test _search_insights method."""
         # Setup mocks
-        mock_executor_node = MagicMock()
-        mock_executor_node_class.return_value = mock_executor_node
+        mock_tool_execution = MagicMock()
+        mock_tool_execution_class.return_value = mock_tool_execution
 
         mock_task_result = ToolResult(
             id="task_1",
-            description="Test task",
+            tool_name="search",
+            send_result_to_frontend=False,
             content="Task completed successfully",
             artifacts=[
                 InsightArtifact(
@@ -441,7 +334,7 @@ class TestDashboardCreationNodeAsyncMethods:
             ],
             status=ToolExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithToolResults(tool_results=[mock_task_result]))
+        mock_tool_execution.arun = AsyncMock(return_value=([mock_task_result], MagicMock()))
 
         queries_metadata = {
             "task_1": QueryMetadata(
@@ -500,10 +393,11 @@ class TestDashboardCreationNodeAsyncMethods:
         # Create a node with mocked models
         node = DashboardCreationNode(team, user)
 
-        task_results = [
+        tool_results = [
             ToolResult(
                 id="task_1",
-                description="Test task",
+                tool_name="create_and_query_insight",
+                send_result_to_frontend=False,
                 content="Task completed successfully",
                 artifacts=[
                     InsightArtifact(
@@ -517,7 +411,8 @@ class TestDashboardCreationNodeAsyncMethods:
             ),
             ToolResult(
                 id="task_2",
-                description="Test task failed",
+                tool_name="create_and_query_insight",
+                send_result_to_frontend=False,
                 content="Task failed",
                 artifacts=[
                     InsightArtifact(
@@ -552,7 +447,7 @@ class TestDashboardCreationNodeAsyncMethods:
         mock_insight.id = 123
 
         with patch.object(node, "_save_insights", return_value=[mock_insight]):
-            result = await node._process_insight_creation_results(task_results, query_metadata)
+            result = await node._process_insight_creation_results(tool_results, query_metadata)
 
         assert "task_1" in result
         # Check that exactly one insight was created

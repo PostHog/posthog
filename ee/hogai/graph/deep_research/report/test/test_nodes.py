@@ -34,7 +34,7 @@ from ee.hogai.graph.deep_research.types import (
 )
 from ee.hogai.notebook.notebook_serializer import NotebookContext
 from ee.hogai.utils.types import InsightArtifact
-from ee.hogai.utils.types.base import TaskArtifact, ToolResult
+from ee.hogai.utils.types.base import ToolArtifact, ToolResult
 
 
 class TestDeepResearchReportNode:
@@ -87,10 +87,11 @@ class TestDeepResearchReportNode:
                 )
             ]
 
-        task_results = [
+        tool_results = [
             ToolResult(
                 id="task_1",
-                description="Analyze user behavior",
+                tool_name="test_tool",
+                send_result_to_frontend=False,
                 content="Users show high engagement",
                 artifacts=artifacts,
                 status=ToolExecutionStatus.COMPLETED,
@@ -100,7 +101,7 @@ class TestDeepResearchReportNode:
         last_message = AssistantToolCallMessage(content=last_message_content, tool_call_id="tool_call_1")
 
         return DeepResearchState(
-            messages=[last_message], tool_results=task_results, intermediate_results=intermediate_results
+            messages=[last_message], tool_results=tool_results, intermediate_results=intermediate_results
         )
 
     def test_collect_all_artifacts_success(self):
@@ -112,7 +113,8 @@ class TestDeepResearchReportNode:
             tool_results=[
                 ToolResult(
                     id="task_1",
-                    description="Task 1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result 1",
                     artifacts=[artifact1, artifact2],
                     status=ToolExecutionStatus.COMPLETED,
@@ -126,8 +128,8 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 2
-        assert artifacts[0].tool_id == "artifact_1"
-        assert artifacts[1].tool_id == "artifact_2"
+        assert artifacts[0].tool_call_id == "artifact_1"
+        assert artifacts[1].tool_call_id == "artifact_2"
 
     def test_collect_all_artifacts_filters_invalid_ids(self):
         """Test that artifacts with invalid IDs are filtered out."""
@@ -138,7 +140,8 @@ class TestDeepResearchReportNode:
             tool_results=[
                 ToolResult(
                     id="task_1",
-                    description="Task 1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result 1",
                     artifacts=[artifact1, artifact2],
                     status=ToolExecutionStatus.COMPLETED,
@@ -155,7 +158,7 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 1
-        assert artifacts[0].tool_id == "artifact_1"
+        assert artifacts[0].tool_call_id == "artifact_1"
 
     def test_collect_all_artifacts_empty_results(self):
         """Test that empty task results return empty artifact list."""
@@ -192,7 +195,7 @@ class TestDeepResearchReportNode:
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
 
-        artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
+        artifacts: list[ToolArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
 
         formatted_insights = self.node._format_insights(artifacts)
 
@@ -211,7 +214,7 @@ class TestDeepResearchReportNode:
         mock_executor.run_and_format_query.side_effect = Exception("Query execution failed")
         mock_executor_class.return_value = mock_executor
 
-        artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
+        artifacts: list[ToolArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
 
         formatted_insights = self.node._format_insights(artifacts)
 
@@ -292,7 +295,7 @@ class TestDeepResearchReportNode:
 
     def test_create_context(self):
         """Test that notebook context is created correctly."""
-        artifacts: list[TaskArtifact] = [
+        artifacts: list[ToolArtifact] = [
             self.create_sample_artifact("artifact_1", "trends"),
             self.create_sample_artifact("artifact_2", "funnels"),
         ]
@@ -414,13 +417,14 @@ class TestDeepResearchReportNode:
         mock_get_model.return_value = mock_model
 
         # Create state with artifacts but no intermediate results
-        artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
+        artifacts: list[ToolArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
         state = DeepResearchState(
             messages=[AssistantToolCallMessage(content="Complete", tool_call_id="tool_1")],
             tool_results=[
                 ToolResult(
                     id="task_1",
-                    description="Task 1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result",
                     artifacts=artifacts,
                     status=ToolExecutionStatus.COMPLETED,
@@ -491,7 +495,7 @@ class TestDeepResearchReportNode:
         context = call_args[1]["context"]
         assert isinstance(context, NotebookContext)
 
-    def test_collect_all_artifacts_multiple_task_results(self):
+    def test_collect_all_artifacts_multiple_tool_results(self):
         """Test that artifacts from multiple task results are collected correctly."""
         artifact1 = self.create_sample_artifact("artifact_1", "trends")
         artifact2 = self.create_sample_artifact("artifact_2", "funnels")
@@ -501,14 +505,16 @@ class TestDeepResearchReportNode:
             tool_results=[
                 ToolResult(
                     id="task_1",
-                    description="Task 1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result 1",
                     artifacts=[artifact1, artifact2],
                     status=ToolExecutionStatus.COMPLETED,
                 ),
                 ToolResult(
                     id="task_2",
-                    description="Task 2",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Result 2",
                     artifacts=[artifact3],
                     status=ToolExecutionStatus.COMPLETED,
@@ -524,7 +530,7 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 3
-        artifact_ids = [artifact.tool_id for artifact in artifacts]
+        artifact_ids = [artifact.tool_call_id for artifact in artifacts]
         assert "artifact_1" in artifact_ids
         assert "artifact_2" in artifact_ids
         assert "artifact_3" in artifact_ids
@@ -584,7 +590,8 @@ class TestDeepResearchReportNode:
             tool_results=[
                 ToolResult(
                     id="task_1",
-                    description="Test task",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
                     content="Test result",
                     artifacts=[self.create_sample_artifact()],
                     status=ToolExecutionStatus.COMPLETED,
@@ -610,7 +617,7 @@ class TestDeepResearchReportNode:
             mock_executor.run_and_format_query.return_value = ("Results", False)
             mock_executor_class.return_value = mock_executor
 
-            artifacts: list[TaskArtifact] = [
+            artifacts: list[ToolArtifact] = [
                 self.create_sample_artifact("artifact_1", "trends"),
                 self.create_sample_artifact("artifact_2", "funnels"),
                 self.create_sample_artifact("artifact_3", "retention"),

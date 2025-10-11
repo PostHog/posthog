@@ -140,8 +140,10 @@ class CreateInsightTool(MaxTool):
                 if is_value_update(update):
                     _, content = update
                     node_name = next(iter(content.keys()))
-                    messages = content[node_name]["messages"]
-                    subgraph_result_messages.extend(messages)
+                    node_content = content[node_name]
+                    if node_content and "messages" in node_content:
+                        messages = node_content["messages"]
+                        subgraph_result_messages.extend(messages)
                 elif is_task_started_update(update):
                     _, task_update = update
                     node_name = task_update["payload"]["name"]  # type: ignore

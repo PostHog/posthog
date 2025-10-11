@@ -54,14 +54,14 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         self,
         messages: list[Any] | None = None,
         todos: list[TodoItem] | None = None,
-        task_results: list[ToolResult] | None = None,
+        tool_results: list[ToolResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         current_run_notebooks: list[DeepResearchNotebook] | None = None,
     ) -> DeepResearchState:
         return DeepResearchState(
             messages=messages or [],
             todos=todos,
-            tool_results=task_results or [],
+            tool_results=tool_results or [],
             intermediate_results=intermediate_results or [],
             conversation_notebooks=[],
             current_run_notebooks=current_run_notebooks
@@ -116,9 +116,13 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
             for i in range(1, num_todos + 1)
         ]
 
-        task_results = [
+        tool_results = [
             ToolResult(
-                id=f"result_{i}", description=f"Result {i}", content="Success", status=ToolExecutionStatus.COMPLETED
+                id=f"result_{i}",
+                tool_name="test_tool",
+                send_result_to_frontend=False,
+                content="Success",
+                status=ToolExecutionStatus.COMPLETED,
             )
             for i in range(num_results)
         ]
@@ -126,7 +130,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         state = self._create_mock_state(
             messages=[HumanMessage(content=query)],
             todos=todos,
-            task_results=task_results,
+            tool_results=tool_results,
         )
 
         serialized = state.model_dump()
@@ -260,7 +264,11 @@ class TestDeepResearchE2E(APIBaseTest):
             todos=[TodoItem(id=1, description="Test todo", status=PlanningStepStatus.PENDING, priority="high")],
             tool_results=[
                 ToolResult(
-                    id="task_1", description="Test task", content="Test result", status=ToolExecutionStatus.COMPLETED
+                    id="task_1",
+                    tool_name="Test tool",
+                    send_result_to_frontend=False,
+                    content="Test result",
+                    status=ToolExecutionStatus.COMPLETED,
                 )
             ],
         )

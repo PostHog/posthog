@@ -96,11 +96,15 @@ class TestTaskResult(BaseTest):
     def test_task_result_with_default_artifacts(self):
         """Should create task result with empty artifacts list by default."""
         result = ToolResult(
-            id="task-1", description="Test task", content="Task completed successfully", status="completed"
+            id="task-1",
+            tool_name="test_tool",
+            send_result_to_frontend=False,
+            content="Task completed successfully",
+            status="completed",
         )
 
         self.assertEqual(result.id, "task-1")
-        self.assertEqual(result.description, "Test task")
+        self.assertEqual(result.tool_name, "test_tool")
         self.assertEqual(result.content, "Task completed successfully")
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.artifacts, [])
@@ -112,7 +116,8 @@ class TestTaskResult(BaseTest):
 
         result = ToolResult(
             id="task-1",
-            description="Test task",
+            tool_name="test_tool",
+            send_result_to_frontend=False,
             content="Task completed",
             status=ToolExecutionStatus.COMPLETED,
             artifacts=[artifact],
@@ -131,19 +136,28 @@ class TestTaskResult(BaseTest):
     )
     def test_task_result_valid_statuses(self, status):
         """Should accept all valid TaskExecutionStatus values."""
-        result = ToolResult(id="task-1", description="Test", content="Result", status=status)
+        result = ToolResult(
+            id="task-1", tool_name="test_tool", send_result_to_frontend=False, content="Result", status=status
+        )
         self.assertEqual(result.status, status)
 
     def test_task_result_invalid_status(self):
         """Should raise ValidationError for invalid status."""
         with self.assertRaises(ValidationError):
-            ToolResult(id="task-1", description="Test", content="Result", status="invalid_status")
+            ToolResult(
+                id="task-1",
+                tool_name="test_tool",
+                send_result_to_frontend=False,
+                content="Result",
+                status="invalid_status",
+            )
 
     def test_task_result_serialization(self):
         """Should serialize and deserialize correctly."""
         original = ToolResult(
             id="task-complex-123",
-            description="Complex task description",
+            tool_name="test_tool",
+            send_result_to_frontend=False,
             content="Multi-line\nresult with\nspecial chars: !@#$%",
             status="failed",
             artifacts=[],
@@ -153,7 +167,7 @@ class TestTaskResult(BaseTest):
         deserialized = ToolResult.model_validate(serialized)
 
         self.assertEqual(original.id, deserialized.id)
-        self.assertEqual(original.description, deserialized.description)
+        self.assertEqual(original.tool_name, deserialized.tool_name)
         self.assertEqual(original.content, deserialized.content)
         self.assertEqual(original.status, deserialized.status)
         self.assertEqual(original.artifacts, deserialized.artifacts)
@@ -203,12 +217,11 @@ class TestDeepResearchStates(BaseTest):
         state = _SharedDeepResearchState()
 
         self.assertIsNone(state.todos)
-        self.assertIsNone(state.tasks)
+        # NOTE: 'tasks' field was removed in the ParallelToolExecution refactoring
         self.assertEqual(state.tool_results, [])
         self.assertEqual(state.intermediate_results, [])
         self.assertIsNone(state.previous_response_id)
-        self.assertIsNone(state.start_id)
-        self.assertIsNone(state.graph_status)
+        # NOTE: 'start_id' and 'graph_status' fields don't exist in _SharedDeepResearchState
 
     def test_deep_research_state_initialization(self):
         """Should initialize DeepResearchState with default messages."""
@@ -216,7 +229,7 @@ class TestDeepResearchStates(BaseTest):
 
         self.assertEqual(state.messages, [])
         self.assertIsNone(state.todos)
-        self.assertIsNone(state.tasks)
+        self.assertEqual(state.tool_results, [])
 
     def test_partial_deep_research_state_initialization(self):
         """Should initialize PartialDeepResearchState with default messages."""
@@ -225,7 +238,7 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(state.messages, [])
         # Should inherit all shared state defaults
         self.assertIsNone(state.todos)
-        self.assertIsNone(state.tasks)
+        self.assertEqual(state.tool_results, [])
 
     def test_state_with_all_fields_populated(self):
         """Should create state with all fields populated."""
@@ -234,8 +247,14 @@ class TestDeepResearchStates(BaseTest):
             TodoItem(id=2, description="Task 2", status="completed", priority="medium"),
         ]
 
-        task_results = [
-            ToolResult(id="result-1", description="Analysis result", content="Analysis completed", status="completed")
+        tool_results = [
+            ToolResult(
+                id="result-1",
+                tool_name="test_tool",
+                send_result_to_frontend=False,
+                content="Analysis completed",
+                status="completed",
+            )
         ]
 
         intermediate_results = [DeepResearchIntermediateResult(content="Intermediate findings", artifact_ids=["art-1"])]
@@ -247,7 +266,7 @@ class TestDeepResearchStates(BaseTest):
         )
         state = DeepResearchState(
             todos=todos,
-            tool_results=task_results,
+            tool_results=tool_results,
             intermediate_results=intermediate_results,
             messages=messages,
             previous_response_id="resp-123",
@@ -300,7 +319,15 @@ class TestDeepResearchStates(BaseTest):
         )
         original_state = DeepResearchState(
             todos=[TodoItem(id=1, description="Test todo", status="pending", priority="high")],
-            tool_results=[ToolResult(id="task-1", description="Test result", content="Success", status="completed")],
+            tool_results=[
+                ToolResult(
+                    id="task-1",
+                    tool_name="test_tool",
+                    send_result_to_frontend=False,
+                    content="Success",
+                    status="completed",
+                )
+            ],
             intermediate_results=[
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
             ],

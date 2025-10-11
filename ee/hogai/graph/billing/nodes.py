@@ -62,6 +62,8 @@ class BillingNode(AssistantNode):
 
     async def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
         """Format billing context into a readable prompt section."""
+        teams_map = await database_sync_to_async(self._get_teams_map)()
+
         # Convert billing context to a format suitable for the mustache template
         template_data: dict[str, Any] = {
             "subscription_level": (
@@ -70,7 +72,7 @@ class BillingNode(AssistantNode):
             "billing_plan": billing_context.billing_plan,
             "has_active_subscription": billing_context.has_active_subscription,
             "is_deactivated": billing_context.is_deactivated,
-            "organization_teams_count": len(self._get_teams_map().keys()),
+            "organization_teams_count": len(teams_map.keys()),
             "current_team_name": self._team.name,
             "current_team_id": self._team.id,
         }

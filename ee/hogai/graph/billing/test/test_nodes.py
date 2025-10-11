@@ -32,15 +32,15 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         self.tool_call_id = str(uuid4())
         self.state = AssistantState(messages=[], root_tool_call_id=self.tool_call_id)
 
-    def test_run_with_no_billing_context(self):
+    async def test_run_with_no_billing_context(self):
         with patch.object(self.node.context_manager, "get_billing_context", return_value=None):
-            result = self.node.run(self.state, {})
+            result = await self.node.arun(self.state, {})
             self.assertEqual(len(result.messages), 1)
             message = result.messages[0]
             self.assertIsInstance(message, AssistantToolCallMessage)
             self.assertEqual(cast(AssistantToolCallMessage, message).content, "No billing information available")
 
-    def test_run_with_billing_context(self):
+    async def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
@@ -49,18 +49,22 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
             products=[],
         )
+        from unittest.mock import AsyncMock
+
         with (
             patch.object(self.node.context_manager, "get_billing_context", return_value=billing_context),
-            patch.object(self.node, "_format_billing_context", return_value="Formatted Context"),
+            patch.object(
+                self.node, "_format_billing_context", new_callable=AsyncMock, return_value="Formatted Context"
+            ),
         ):
-            result = self.node.run(self.state, {})
+            result = await self.node.arun(self.state, {})
             self.assertEqual(len(result.messages), 1)
             message = result.messages[0]
             self.assertIsInstance(message, AssistantToolCallMessage)
             self.assertEqual(cast(AssistantToolCallMessage, message).content, "Formatted Context")
             self.assertEqual(cast(AssistantToolCallMessage, message).tool_call_id, self.tool_call_id)
 
-    def test_format_billing_context(self):
+    async def test_format_billing_context(self):
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
@@ -90,7 +94,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         )
 
         with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.node._format_billing_context(billing_context)
             self.assertIn("(paid)", formatted_string)
             self.assertIn("Period: 2023-01-01 to 2023-01-31", formatted_string)
 
@@ -156,7 +160,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(top_events, [])
             mock_sync_execute.assert_called_once()
 
-    def test_format_billing_context_with_addons(self):
+    async def test_format_billing_context_with_addons(self):
         """Test that addons are properly nested within products in the formatted output"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
@@ -237,7 +241,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                 {"event": "$autocapture", "count": 30000, "formatted_count": "30,000"},
             ],
         ):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.node._format_billing_context(billing_context)
 
             # Check basic info
             self.assertIn("paid subscription (startup)", formatted_string)
@@ -274,7 +278,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("$pageview", formatted_string)
             self.assertIn("50,000 events", formatted_string)
 
-    def test_format_billing_context_no_subscription(self):
+    async def test_format_billing_context_no_subscription(self):
         """Test formatting when user has no active subscription (free plan)"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.FREE,
@@ -287,7 +291,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         )
 
         with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.node._format_billing_context(billing_context)
 
             self.assertIn("free subscription", formatted_string)
             self.assertIn("Active subscription: No (Free plan)", formatted_string)
@@ -349,7 +353,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         self.assertIn("| Recordings | 100.00 | 200.00 |", table)
         self.assertIn("| Feature Flag Requests | 50.00 | 100.00 |", table)
 
-    def test_format_billing_context_edge_cases(self):
+    async def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.CUSTOM,
@@ -375,7 +379,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         )
 
         with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.node._format_billing_context(billing_context)
 
             # Check deactivated status
             self.assertIn("Status: Account is deactivated", formatted_string)
@@ -393,7 +397,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             # Check exceeded limit warning
             self.assertIn("⚠️ Usage limit exceeded", formatted_string)
 
-    def test_format_billing_context_complete_template_coverage(self):
+    async def test_format_billing_context_complete_template_coverage(self):
         """Test all possible template variables are covered"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
@@ -479,7 +483,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             "_get_top_events_by_usage",
             return_value=[{"event": "$identify", "count": 10000, "formatted_count": "10,000"}],
         ):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.node._format_billing_context(billing_context)
 
             # Verify all template sections are present
             self.assertIn("<billing_context>", formatted_string)

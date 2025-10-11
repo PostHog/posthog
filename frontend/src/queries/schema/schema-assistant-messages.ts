@@ -95,6 +95,7 @@ export interface AssistantMessage extends BaseAssistantMessage {
     content: string
     meta?: AssistantMessageMetadata
     tool_calls?: AssistantToolCall[]
+    reasoning?: Record<string, unknown>
 }
 
 export interface ProgressState {
