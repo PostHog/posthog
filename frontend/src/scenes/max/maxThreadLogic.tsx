@@ -72,6 +72,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 }
 
 export interface MaxThreadLogicProps {
+    tabId: string // used to refer back to MaxLogic
     conversationId: string
     conversation?: ConversationDetail | null
 }
@@ -79,7 +80,12 @@ export interface MaxThreadLogicProps {
 export const maxThreadLogic = kea<maxThreadLogicType>([
     path(['scenes', 'max', 'maxThreadLogic']),
 
-    key((props) => props.conversationId),
+    key((props) => {
+        if (!props.tabId) {
+            throw new Error('Max thread logic must have a tabId prop')
+        }
+        return `${props.conversationId}-${props.tabId}`
+    }),
 
     props({} as MaxThreadLogicProps),
 
@@ -101,12 +107,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(() => ({
+    connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools'],
-            maxLogic,
-            ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            maxLogic({ tabId }),
+            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
@@ -115,11 +121,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
         ],
         actions: [
-            maxLogic,
+            maxLogic({ tabId }),
             [
+                'askMax',
                 'setQuestion',
                 'loadConversationHistory',
-                'setThreadKey',
                 'prependOrReplaceConversation as updateGlobalConversationCache',
                 'incrActiveStreamingThreads',
                 'decrActiveStreamingThreads',
@@ -132,7 +138,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     actions({
         // null prompt means resuming streaming or continuing previous generation
-        askMax: (prompt: string | null) => ({ prompt }),
         reconnectToStream: true,
         streamConversation: (
             streamData: {
@@ -650,10 +655,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
 
     afterMount((logic) => {
-        const { actions, values, cache, mount } = logic as BuiltLogic<maxThreadLogicType>
+        const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
         // Prevent unmounting of the logic until the streaming finishes.
         // Increment a counter of active logics by one and then decrement it when the logic unmounts or finishes
         cache.unmount = mount()
+
+        for (const l of maxThreadLogic.findAllMounted()) {
+            if (l !== logic && l.props.conversationId === props.conversationId) {
+                // We found a logic with the same conversationId, but a different tabId
+                if (l.values.conversation) {
+                    actions.setConversation(l.values.conversation)
+                }
+                if (l.values.threadRaw) {
+                    actions.setThread(l.values.threadRaw)
+                }
+                break
+            }
+        }
 
         if (values.autoRun && values.question) {
             actions.askMax(values.question)

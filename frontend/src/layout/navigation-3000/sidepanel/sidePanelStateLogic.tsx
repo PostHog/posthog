@@ -8,8 +8,6 @@ import { SidePanelTab } from '~/types'
 
 import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
-export const WithinSidePanelContext = React.createContext<boolean>(false)
-
 // The side panel imports a lot of other components so this allows us to avoid circular dependencies
 
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([

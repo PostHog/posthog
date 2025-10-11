@@ -1,7 +1,7 @@
 import './Link.scss'
 
 import { router } from 'kea-router'
-import React, { useContext } from 'react'
+import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
@@ -13,7 +13,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -128,14 +128,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const externalLink = isExternalLink(to)
-        const withinSidePanel = useContext(WithinSidePanelContext)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
-
-        if (withinSidePanel && target === '_blank' && !externalLink) {
-            target = undefined // Within side panels, treat target="_blank" as "open in main scene"
-        }
 
         const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
 

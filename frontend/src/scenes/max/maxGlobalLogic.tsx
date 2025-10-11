@@ -10,6 +10,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
@@ -34,7 +35,11 @@ export const STATIC_TOOLS: ToolRegistration[] = [
             const url = urls[pageKey as keyof typeof urls]()
             // Include the conversation ID and panel to ensure the side panel is open
             // (esp. when the navigate tool is used from the full-page Max)
-            router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
+
+            // TODO: validate this
+            router.actions.push(url) //, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
+            maxGlobalLogic.findMounted()?.actions.openSidePanelMax()
+
             // First wait for navigation to complete
             await new Promise<void>((resolve, reject) => {
                 const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
@@ -88,13 +93,20 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
+            sidePanelStateLogic,
+            ['sidePanelOpen', 'selectedTab'],
         ],
-        actions: [router, ['locationChanged']],
+        actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
+        openSidePanelMax: (conversationId?: string) => ({ conversationId }),
+        askSidePanelMax: (prompt: string) => ({ prompt }),
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        registerTab: (tabId: string) => ({ tabId }),
+        deregisterTab: (tabId: string) => ({ tabId }),
+        setSidePanelTab: (tabId: string | null) => ({ tabId }),
     }),
     reducers({
         registeredToolMap: [
@@ -111,19 +123,86 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
+        registeredTabs: [
+            {} as Record<string, { sidebar?: boolean }>,
+            {
+                registerTab: (state, { tabId }) => ({
+                    ...state,
+                    [tabId]: {},
+                }),
+                deregisterTab: (state, { tabId }) => {
+                    const newState = { ...state }
+                    delete newState[tabId]
+                    return newState
+                },
+                setSidePanelTab: (state, { tabId }) => {
+                    const newState = { ...state }
+                    for (const key of Object.keys(newState)) {
+                        if (key === tabId && newState[key].sidebar) {
+                            continue // No change
+                        }
+                        if (key !== tabId && !newState[key].sidebar) {
+                            continue // No change
+                        }
+                        newState[key] = { ...newState[key], sidebar: key === tabId }
+                    }
+                    return newState
+                },
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
             })
         },
         locationChanged: ({ pathname }) => {
+            if (
+                values.registeredToolMap.navigate &&
+                pathname === values.registeredToolMap.navigate.context?.current_page
+            ) {
+                return // No change to path
+            }
             // Update navigation tool with the current page
             actions.registerTool({
                 ...values.toolMap.navigate,
                 context: { current_page: pathname, scene_descriptions: buildSceneDescriptionsContext() },
             })
+        },
+        registerTab: ({ tabId }) => {
+            if (!cache.tabUnmounts) {
+                cache.tabUnmounts = {}
+            }
+            cache.tabUnmounts[tabId] = maxLogic({ tabId }).mount()
+        },
+        deregisterTab: ({ tabId }) => {
+            if (cache.tabUnmounts?.[tabId]) {
+                cache.tabUnmounts[tabId]()
+                delete cache.tabUnmounts[tabId]
+            }
+        },
+        askSidePanelMax: ({ prompt }) => {
+            let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+            if (!logic) {
+                logic = maxLogic({ tabId: 'sidepanel' })
+                logic.mount() // we're never unmounting this
+            }
+            actions.openSidePanelMax()
+            logic.actions.askMax(prompt)
+        },
+        openSidePanelMax: ({ conversationId }) => {
+            if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
+                actions.openSidePanel(SidePanelTab.Max)
+            }
+            if (conversationId) {
+                let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+                if (!logic) {
+                    logic = maxLogic({ tabId: 'sidepanel' })
+                    logic.mount() // we're never unmounting this
+                }
+                logic.actions.openConversation(conversationId)
+            }
         },
     })),
     selectors({
@@ -170,6 +249,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 }
                 return suggestions
+            },
+        ],
+        sidePanelTabId: [
+            (s) => [s.registeredTabs],
+            (registeredTabs): string | null => {
+                const sidebarTab = Object.entries(registeredTabs).find(([_, v]) => v.sidebar)
+                return sidebarTab ? sidebarTab[0] : null
             },
         ],
     }),

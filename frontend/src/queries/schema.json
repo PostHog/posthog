@@ -12967,7 +12967,8 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "home"
+                "home",
+                "chat"
             ],
             "type": "string"
         },
