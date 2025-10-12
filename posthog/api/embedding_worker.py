@@ -25,7 +25,7 @@ class EmbeddingResponse:
 
 
 def generate_embedding(
-    team: Team, content: str, model: str | None = None, no_truncate: bool = False
+    team: Team, content: str, model: str | None = None, no_truncate: bool = True
 ) -> EmbeddingResponse:
     logger.info(f"Generating ad-hoc embedding for team {team.pk}")
     payload = {

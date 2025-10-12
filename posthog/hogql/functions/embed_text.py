@@ -6,8 +6,10 @@ from posthog.models.team.team import Team
 
 # Takes an embed text call, calls out to the embedding worker,
 # and then returns an embedding.
-def resolve_embed_text(team_id: int, node: ast.Call) -> ast.Constant:
+def resolve_embed_text(team_id: int | None, node: ast.Call) -> ast.Constant:
     args = node.args
+    if team_id is None:
+        raise ValueError("embed_text() requires a team ID")
     if len(args) < 1:
         raise ValueError("embed_text() takes at least one argument")
     if len(args) > 2:

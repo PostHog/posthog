@@ -1,4 +1,5 @@
 import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -294,7 +295,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
     @property
     def order_by(self):
-        order_direction = "ASC" if self.query.order_direction == "asc" else "DESC"
+        order_direction: Literal["ASC", "DESC"] = "ASC" if self.query.order_direction == "asc" else "DESC"
         if self.query.order_by == "distance":
             return [ast.OrderExpr(expr=ast.Field(chain=["distance"]), order=order_direction)]
         elif self.query.order_by == "timestamp":
