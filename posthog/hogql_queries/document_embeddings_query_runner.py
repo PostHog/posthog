@@ -101,7 +101,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             args=[expr, self.distance_expr(universe("embedding"), origin("embedding"))],
         )
 
-        cols = [
+        cols: list[ast.Expr] = [
             ast.Alias(alias="result_product", expr=universe("product")),
             ast.Alias(alias="result_document_type", expr=universe("document_type")),
             ast.Alias(alias="result_model_name", expr=nearest(universe("model_name"))),
@@ -122,14 +122,14 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             ),
         ]
 
-        group_by = [
+        group_by: list[ast.Expr] = [
             universe("product"),
             universe("document_type"),
             universe("document_id"),
             universe("timestamp"),
         ]
 
-        where_exprs = [
+        where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq, left=universe("timestamp"), right=ast.Constant(value=self.date_from)
             ),
@@ -238,7 +238,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             name="argMax",
             args=[expr, col("timestamp")],
         )
-        select_cols = [
+        select_cols: list[ast.Expr] = [
             ast.Alias(alias="product", expr=most_recent(col("product"))),
             ast.Alias(alias="document_type", expr=most_recent(col("document_type"))),
             ast.Alias(alias="document_id", expr=most_recent(col("document_id"))),
@@ -277,7 +277,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             timestamp_fuzzy_match(col("timestamp"), self.origin.timestamp, datetime.timedelta(hours=1)),
         ]
 
-        group_by = [
+        group_by: list[ast.Expr] = [
             col("product"),
             col("document_type"),
             col("document_id"),
