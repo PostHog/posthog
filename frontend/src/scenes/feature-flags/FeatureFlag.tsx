@@ -913,6 +913,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         hasExperiment,
         isDraftExperiment,
         properties,
+        variantErrors,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1146,6 +1147,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>
@@ -1464,6 +1466,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>

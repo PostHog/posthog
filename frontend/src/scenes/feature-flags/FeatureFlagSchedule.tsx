@@ -28,7 +28,7 @@ import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
 import { groupFilters } from './FeatureFlags'
-import { featureFlagLogic, variantKeyToIndexFeatureFlagPayloads } from './featureFlagLogic'
+import { featureFlagLogic, validateFeatureFlagKey, variantKeyToIndexFeatureFlagPayloads } from './featureFlagLogic'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -326,6 +326,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                                 }
                                                 setSchedulePayload(null, null, null, currentVariants, newPayloads)
                                             }}
+                                            variantErrors={displayVariants.map(({ key: variantKey }) => ({
+                                                key: validateFeatureFlagKey(variantKey),
+                                            }))}
                                         />
                                     </div>
                                 )

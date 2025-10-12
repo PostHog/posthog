@@ -4,11 +4,14 @@ import { IconBalance, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 
 import { FeatureFlagGroupType, MultivariateFlagVariant } from '~/types'
+
+import { VariantError } from './featureFlagLogic'
 
 export interface FeatureFlagVariantsFormProps {
     variants: MultivariateFlagVariant[]
@@ -24,6 +27,7 @@ export interface FeatureFlagVariantsFormProps {
     onViewRecordings?: (variantKey: string) => void
     onVariantChange?: (index: number, field: 'key' | 'name' | 'rollout_percentage', value: any) => void
     onPayloadChange?: (index: number, value: any) => void
+    variantErrors: VariantError[]
 }
 
 export function focusVariantKeyField(index: number): void {
@@ -47,6 +51,7 @@ export function FeatureFlagVariantsForm({
     onViewRecordings,
     onVariantChange,
     onPayloadChange,
+    variantErrors,
 }: FeatureFlagVariantsFormProps): JSX.Element {
     const variantRolloutSum = variants.reduce((sum, variant) => sum + (variant.rollout_percentage || 0), 0)
     const areVariantRolloutsValid = variantRolloutSum === 100
@@ -147,19 +152,21 @@ export function FeatureFlagVariantsForm({
                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                     </div>
                     <div className="col-span-4">
-                        <LemonInput
-                            data-attr="feature-flag-variant-key"
-                            data-key-index={index.toString()}
-                            className="ph-ignore-input"
-                            placeholder={`example-variant-${index + 1}`}
-                            autoComplete="off"
-                            autoCapitalize="off"
-                            autoCorrect="off"
-                            spellCheck={false}
-                            disabled={!canEditVariant(index)}
-                            value={variant.key}
-                            onChange={(value) => onVariantChange?.(index, 'key', value)}
-                        />
+                        <LemonField.Pure error={variantErrors[index]?.key}>
+                            <LemonInput
+                                data-attr="feature-flag-variant-key"
+                                data-key-index={index.toString()}
+                                className="ph-ignore-input"
+                                placeholder={`example-variant-${index + 1}`}
+                                autoComplete="off"
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                disabled={!canEditVariant(index)}
+                                value={variant.key}
+                                onChange={(value) => onVariantChange?.(index, 'key', value)}
+                            />
+                        </LemonField.Pure>
                     </div>
                     <div className="col-span-6">
                         <LemonInput
