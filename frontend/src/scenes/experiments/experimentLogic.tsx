@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -28,6 +29,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -53,6 +55,7 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
+    ActivityScope,
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
@@ -344,6 +347,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
+                'openStopExperimentModal',
                 'closeStopExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
@@ -885,6 +889,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
+                    // Make experiment eligible for timeseries
+                    const statsConfig = {
+                        ...values.experiment?.stats_config,
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                    }
+
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -903,6 +913,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        stats_config: statsConfig,
                     })
 
                     if (response) {
@@ -1055,8 +1066,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()
             }
-            actions.loadExperiment()
             actions.reportExperimentVariantShipped(values.experiment)
+
+            actions.openStopExperimentModal()
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
@@ -1525,6 +1537,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         iconType: 'experiment',
                     },
                 ]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.experimentId],
+            (experimentId: Experiment['id']): SidePanelSceneContext | null => {
+                return experimentId && experimentId !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.EXPERIMENT,
+                          activity_item_id: `${experimentId}`,
+                      }
+                    : null
             },
         ],
         projectTreeRef: [
