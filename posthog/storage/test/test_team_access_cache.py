@@ -1133,7 +1133,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         assert not PersonalAPIKey.objects.filter(user_id=user_to_delete.id).exists(), "User's keys should be deleted"
         assert PersonalAPIKey.objects.filter(user_id=user_to_keep.id).exists(), "Other user's keys should remain"
 
-    @pytest.mark(skip="Flaky in CI, works fine locally")
+    @pytest.mark.skip(reason="Flaky in CI, works fine locally")
     def test_update_user_authentication_cache_handles_warm_cache_failures(self):
         """Test function handles individual cache warming failures gracefully."""
         import logging
@@ -1687,7 +1687,7 @@ class TestSignalHandlerCacheWarming(TestCase):
         except Exception as e:
             raise AssertionError(f"Should handle orphaned team references gracefully, but raised: {e}")
 
-    @pytest.mark(skip="Flaky in CI, works fine locally")
+    @pytest.mark.skip(reason="Flaky in CI, works fine locally")
     def test_signal_handlers_handle_cache_warming_failures(self):
         """Test that signal handlers handle cache warming failures gracefully."""
         import logging
