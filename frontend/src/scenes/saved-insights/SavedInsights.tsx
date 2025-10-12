@@ -480,6 +480,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAI,
         inMenu: false,
     },
+    [NodeKind.DocumentSimilarityQuery]: {
+        name: 'Document Similarity',
+        description: 'Find documents similar to a given query.',
+        icon: IconAI,
+        inMenu: false,
+    },
     [NodeKind.VectorSearchQuery]: {
         name: 'Vector Search',
         icon: IconHogQL,
