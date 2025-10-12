@@ -149,13 +149,16 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <Link
                             to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
                             buttonProps={{
-                                className: 'flex items-center gap-2',
+                                className: 'flex items-center gap-2 h-fit',
                                 menuItem: true,
                                 truncate: true,
                             }}
                         >
                             <ProfilePicture user={user} size="xs" />
-                            {user?.first_name ? <span>{user?.first_name}</span> : <span>{user?.email}</span>}
+                            <span className="flex flex-col truncate">
+                                <span className="font-semibold truncate">{user?.first_name}</span>
+                                <span className="text-tertiary text-xs truncate">{user?.email}</span>
+                            </span>
                         </Link>
                     </DropdownMenuItem>
                     {isCloudOrDev ? (
