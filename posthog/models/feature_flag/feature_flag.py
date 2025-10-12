@@ -639,3 +639,22 @@ class FeatureFlagEvaluationTag(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
+
+
+class TeamDefaultEvaluationTag(models.Model):
+    """
+    Defines default evaluation tags that will be automatically applied to new feature flags in a team.
+    These tags serve as default evaluation environments that can be configured at the team/organization level.
+    When a new feature flag is created and the team has default_evaluation_environments_enabled=True,
+    these tags will be automatically added as evaluation tags for the new flag.
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["team", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.team.name} - {self.tag.name}"

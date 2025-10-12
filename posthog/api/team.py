@@ -161,6 +161,7 @@ TEAM_CONFIG_FIELDS = (
     "flags_persistence_default",
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
+    "default_evaluation_environments_enabled",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -922,6 +923,73 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["GET", "POST", "DELETE"],
+        detail=True,
+        permission_classes=[IsAuthenticated],
+    )
+    def default_evaluation_tags(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default evaluation tags for a team"""
+        from django.db import transaction
+
+        from posthog.models.feature_flag import TeamDefaultEvaluationTag
+        from posthog.models.tag import Tag
+
+        team = self.get_object()
+
+        if request.method == "GET":
+            # Return list of default evaluation tags
+            default_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
+            tags_data = [{"id": dt.id, "name": dt.tag.name} for dt in default_tags]
+            return response.Response(
+                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_environments_enabled}
+            )
+
+        elif request.method == "POST":
+            # Add a default evaluation tag
+            tag_name = request.data.get("tag_name", "").strip().lower()
+            if not tag_name:
+                return response.Response({"error": "tag_name is required"}, status=400)
+
+            with transaction.atomic():
+                # Limit to 10 default tags - check within transaction to prevent race condition
+                current_count = TeamDefaultEvaluationTag.objects.filter(team=team).count()
+                if current_count >= 10:
+                    return response.Response({"error": "Maximum of 10 default evaluation tags allowed"}, status=400)
+
+                # Get or create the tag
+                tag, _ = Tag.objects.get_or_create(name=tag_name, team=team)
+
+                # Create the default evaluation tag link
+                default_tag, created = TeamDefaultEvaluationTag.objects.get_or_create(team=team, tag=tag)
+
+                if created:
+                    report_user_action(
+                        request.user, "default evaluation tag added", {"team_id": team.id, "tag_name": tag_name}
+                    )
+
+            return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
+
+        elif request.method == "DELETE":
+            # Remove a default evaluation tag
+            tag_name = request.data.get("tag_name", "").strip().lower()
+            if not tag_name:
+                return response.Response({"error": "tag_name is required"}, status=400)
+
+            with transaction.atomic():
+                try:
+                    tag = Tag.objects.get(name=tag_name, team=team)
+                    deleted_count, _ = TeamDefaultEvaluationTag.objects.filter(team=team, tag=tag).delete()
+
+                    if deleted_count > 0:
+                        report_user_action(
+                            request.user, "default evaluation tag removed", {"team_id": team.id, "tag_name": tag_name}
+                        )
+
+                    return response.Response({"success": True})
+                except Tag.DoesNotExist:
+                    return response.Response({"error": "Tag not found"}, status=404)
 
     @action(
         methods=["GET"],

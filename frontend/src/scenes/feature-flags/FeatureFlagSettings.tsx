@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -22,6 +23,8 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
 
     return (
         <div className="space-y-8">
+            <DefaultEvaluationEnvironments />
+
             <div className="space-y-2">
                 <h3 className="min-w-[25rem]">Flag Persistence</h3>
 
