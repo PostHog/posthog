@@ -176,10 +176,10 @@ export const personsLogic = kea<personsLogicType>([
                             SELECT
                                 pdi2.distinct_id,
                                 argMax(pdi2.person_id, pdi2.version) AS person_id
-                            FROM person_distinct_id2 pdi2
+                            FROM raw_person_distinct_ids pdi2
                             WHERE pdi2.distinct_id IN (
                                     SELECT distinct_id
-                                    FROM person_distinct_id2
+                                    FROM raw_person_distinct_ids
                                     WHERE person_id = {id}
                                 )
                             GROUP BY pdi2.distinct_id
