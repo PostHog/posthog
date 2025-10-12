@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccountPopover } from 'lib/components/AccountPopover/AccountPopover'
+import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -35,13 +35,13 @@ import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
+import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
-import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
-import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -264,15 +264,24 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div
                         className={`flex justify-between p-1 pl-[5px] items-center ${isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'}`}
                     >
-                        <div className={cn('flex gap-1 rounded-md w-full', isLayoutNavCollapsed && 'flex-col')}>
+                        <div
+                            className={cn(
+                                'flex gap-1 rounded-md w-full',
+                                isLayoutNavCollapsed && 'flex-col items-center'
+                            )}
+                        >
                             <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
                                 <div>
-                                    <OrganizationDropdownMenu showName={false} buttonProps={{ variant: 'panel' }} />
+                                    <OrganizationMenu
+                                        showName={false}
+                                        buttonProps={{ variant: 'panel' }}
+                                        iconOnly={isLayoutNavCollapsed}
+                                    />
                                 </div>
                             </Tooltip>
                             <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
                                 <div>
-                                    <ProjectDropdownMenu
+                                    <ProjectMenu
                                         buttonProps={{ className: 'max-w-[175px]', variant: 'panel' }}
                                         iconOnly={isLayoutNavCollapsed}
                                     />
@@ -462,7 +471,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Settings'}
                             </Link>
 
-                            <AccountPopover
+                            <AccountMenu
                                 align="end"
                                 side="right"
                                 alignOffset={10}

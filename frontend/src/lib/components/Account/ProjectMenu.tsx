@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
-import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
+import { EnvironmentSwitcherOverlay } from '../../../layout/navigation/EnvironmentSwitcher'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -37,7 +37,7 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function ProjectDropdownMenu({
+export function ProjectMenu({
     buttonProps = { className: 'font-semibold' },
     iconOnly = false,
 }: {
@@ -82,33 +82,7 @@ export function ProjectDropdownMenu({
                 <Combobox>
                     <Combobox.Search placeholder="Filter projects..." />
                     <Combobox.Content>
-                        {preflight?.can_create_org && (
-                            <Combobox.Item
-                                asChild
-                                onClick={() =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        showCreateProjectModal,
-                                        {
-                                            currentUsage: currentOrganization?.teams?.length,
-                                        }
-                                    )
-                                }
-                            >
-                                <ButtonPrimitive
-                                    menuItem
-                                    data-attr="new-project-button"
-                                    tooltip="Create a new project"
-                                    tooltipPlacement="right"
-                                    className="shrink-0"
-                                    disabled={!!projectCreationForbiddenReason}
-                                >
-                                    <IconPlusSmall className="text-tertiary" />
-                                    New project
-                                </ButtonPrimitive>
-                            </Combobox.Item>
-                        )}
-                        <Label intent="menu" className="px-2 mt-2">
+                        <Label intent="menu" className="px-2">
                             Current project
                         </Label>
                         <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
@@ -208,6 +182,33 @@ export function ProjectDropdownMenu({
                                     </Combobox.Group>
                                 )
                             })}
+                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        {preflight?.can_create_org && (
+                            <Combobox.Item
+                                asChild
+                                onClick={() =>
+                                    guardAvailableFeature(
+                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                        showCreateProjectModal,
+                                        {
+                                            currentUsage: currentOrganization?.teams?.length,
+                                        }
+                                    )
+                                }
+                            >
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr="new-project-button"
+                                    tooltip="Create a new project"
+                                    tooltipPlacement="right"
+                                    className="shrink-0"
+                                    disabled={!!projectCreationForbiddenReason}
+                                >
+                                    <IconPlusSmall className="text-tertiary" />
+                                    New project
+                                </ButtonPrimitive>
+                            </Combobox.Item>
+                        )}
                     </Combobox.Content>
                 </Combobox>
             </PopoverPrimitiveContent>

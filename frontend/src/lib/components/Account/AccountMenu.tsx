@@ -1,4 +1,4 @@
-import { DropdownMenuContentProps, DropdownMenuGroup, DropdownMenuSubTrigger } from '@radix-ui/react-dropdown-menu'
+import { DropdownMenuContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
 
 import {
@@ -22,17 +22,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { IconBlank } from 'lib/lemon-ui/icons/icons'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuOpenIndicator,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -45,16 +47,15 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { AvailableFeature, SidePanelTab, UserTheme } from '~/types'
+import { SidePanelTab, UserTheme } from '~/types'
 
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { OrgCombobox } from './OrgCombobox'
 
-interface AccountPopoverProps extends DropdownMenuContentProps {
+interface AccountMenuProps extends DropdownMenuContentProps {
     trigger: JSX.Element
 }
 
@@ -77,50 +78,55 @@ function ThemeDropdown(): JSX.Element {
                 </ButtonPrimitive>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-                <DropdownMenuItem asChild>
-                    <ButtonPrimitive active={themeMode === 'light'} onClick={() => handleThemeChange('light')} menuItem>
-                        <IconDay />
-                        Light mode
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <ButtonPrimitive active={themeMode === 'dark'} onClick={() => handleThemeChange('dark')} menuItem>
-                        <IconNight />
-                        Dark mode
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <ButtonPrimitive
-                        active={themeMode === 'system'}
-                        onClick={() => handleThemeChange('system')}
-                        menuItem
-                    >
-                        <IconLaptop />
-                        Sync with system
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                {customCssEnabled && (
+                <DropdownMenuGroup>
                     <DropdownMenuItem asChild>
-                        <Link to={urls.customCss()}>
-                            <IconPalette />
-                            Edit custom CSS
-                        </Link>
+                        <ButtonPrimitive
+                            active={themeMode === 'light'}
+                            onClick={() => handleThemeChange('light')}
+                            menuItem
+                        >
+                            <IconDay />
+                            Light mode
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
-                )}
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            active={themeMode === 'dark'}
+                            onClick={() => handleThemeChange('dark')}
+                            menuItem
+                        >
+                            <IconNight />
+                            Dark mode
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            active={themeMode === 'system'}
+                            onClick={() => handleThemeChange('system')}
+                            menuItem
+                        >
+                            <IconLaptop />
+                            Sync with system
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    {customCssEnabled && (
+                        <DropdownMenuItem asChild>
+                            <Link to={urls.customCss()}>
+                                <IconPalette />
+                                Edit custom CSS
+                            </Link>
+                        </DropdownMenuItem>
+                    )}
+                </DropdownMenuGroup>
             </DropdownMenuSubContent>
         </DropdownMenuSub>
     )
 }
 
-export function AccountPopover({ trigger, ...props }: AccountPopoverProps): JSX.Element {
+export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { closeAccountPopover } = useActions(navigationLogic)
-    const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const { otherOrganizations } = useValues(userLogic)
-    const { updateCurrentOrganization } = useActions(userLogic)
+    const { isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -133,7 +139,7 @@ export function AccountPopover({ trigger, ...props }: AccountPopoverProps): JSX.
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-            <DropdownMenuContent {...props}>
+            <DropdownMenuContent {...props} collisionPadding={{ bottom: 0 }} alignOffset={2}>
                 <DropdownMenuGroup>
                     <Label intent="menu" className="px-2">
                         Signed in as
@@ -187,7 +193,7 @@ export function AccountPopover({ trigger, ...props }: AccountPopoverProps): JSX.
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <Label intent="menu" className="px-2 mt-2">
-                        Current organization
+                        Organizations
                     </Label>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
@@ -220,6 +226,22 @@ export function AccountPopover({ trigger, ...props }: AccountPopoverProps): JSX.
                             )}
                         </Link>
                     </DropdownMenuItem>
+
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                            <ButtonPrimitive menuItem>
+                                <IconBlank />
+                                Other organizations
+                                <DropdownMenuOpenIndicator intent="sub" />
+                            </ButtonPrimitive>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                            <OrgCombobox />
+                        </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuSeparator />
+
                     {billing?.account_owner?.email && billing?.account_owner?.name && (
                         <>
                             <Label intent="menu" className="px-2 mt-2">
@@ -251,62 +273,9 @@ export function AccountPopover({ trigger, ...props }: AccountPopoverProps): JSX.
                                     </div>
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                         </>
                     )}
-                    <Label intent="menu" className="px-2 mt-2">
-                        Other organizations
-                    </Label>
-                    <DropdownMenuSeparator />
-                    {otherOrganizations.map((otherOrganization) => (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                tooltipPlacement="right"
-                                data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                            >
-                                <IconBlank />
-                                <UploadedLogo
-                                    size="xsmall"
-                                    name={otherOrganization.name}
-                                    entityId={otherOrganization.id}
-                                    mediaId={otherOrganization.logo_media_id}
-                                />
-                                <span className="truncate max-w-full">{otherOrganization.name}</span>
-                                <div className="ml-auto">
-                                    <AccessLevelIndicator organization={otherOrganization} />
-                                </div>
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuItem asChild>
-                        {preflight?.can_create_org && (
-                            <ButtonPrimitive
-                                menuItem
-                                data-attr="new-organization-button"
-                                onClick={() =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        () => {
-                                            closeAccountPopover()
-                                            showCreateOrganizationModal()
-                                        },
-                                        {
-                                            guardOnCloud: false,
-                                        }
-                                    )
-                                }
-                                tooltip="Create a new organization"
-                                tooltipPlacement="right"
-                            >
-                                <IconPlusSmall className="size-4" />
-                                New organization
-                            </ButtonPrimitive>
-                        )}
-                    </DropdownMenuItem>
-
-                    <DropdownMenuSeparator />
 
                     <ThemeDropdown />
 
