@@ -489,6 +489,31 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
+        # Truncate results for "all time" date range to remove leading zeros
+        # (keeps at most 3 leading zeros before the first non-zero data point)
+        truncation_index = self._get_truncation_index_for_all_time(final_result)
+        resolved_date_from = self.query_date_range.date_from()
+
+        if truncation_index is not None and truncation_index > 0:
+            for series in final_result:
+                if "data" in series and series["data"] is not None:
+                    series["data"] = series["data"][truncation_index:]
+                if "days" in series and series["days"] is not None:
+                    series["days"] = series["days"][truncation_index:]
+                if "labels" in series and series["labels"] is not None:
+                    series["labels"] = series["labels"][truncation_index:]
+                if "action" in series and series["action"] is not None and "days" in series["action"]:
+                    action_days = series["action"]["days"]
+                    if isinstance(action_days, list) and len(action_days) > truncation_index:
+                        series["action"]["days"] = action_days[truncation_index:]
+
+            # Update resolved_date_from to reflect the truncated start date
+            first_series_with_days = next((s for s in final_result if s.get("days")), None)
+            if first_series_with_days and len(first_series_with_days["days"]) > 0:
+                from dateutil import parser as date_parser
+
+                resolved_date_from = date_parser.parse(first_series_with_days["days"][0])
+
         return TrendsQueryResponse(
             results=final_result,
             hasMore=has_more,
@@ -497,7 +522,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             modifiers=self.modifiers,
             error=". ".join(debug_errors),
             resolved_date_range=ResolvedDateRangeResponse(
-                date_from=self.query_date_range.date_from(),
+                date_from=resolved_date_from,
                 date_to=self.query_date_range.date_to(),
             ),
         )
@@ -1173,3 +1198,34 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             or isinstance(breakdown, list)
             and BREAKDOWN_OTHER_STRING_LABEL in breakdown
         )
+
+    def _get_truncation_index_for_all_time(self, final_result: list[dict[str, Any]]) -> Optional[int]:
+        """
+        When date_from is 'all', find the first non-zero data point across all series,
+        then go back 3 positions to allow for some leading context.
+        """
+        if not self.query.dateRange or self.query.dateRange.date_from != "all":
+            return None
+
+        if not final_result or len(final_result) == 0:
+            return None
+
+        first_nonzero_index: Optional[int] = None
+
+        for series in final_result:
+            data = series.get("data")
+
+            if not data or len(data) == 0:
+                continue
+
+            for idx, value in enumerate(data):
+                if value != 0 and value is not None:
+                    if first_nonzero_index is None or idx < first_nonzero_index:
+                        first_nonzero_index = idx
+                    break
+
+        if first_nonzero_index is None:
+            return None
+
+        # Go back 3 positions from the first non-zero, but don't go below 0
+        return max(0, first_nonzero_index - 3)
