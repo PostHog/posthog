@@ -2,6 +2,7 @@ import { DropdownMenuContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
 
 import {
+    IconCake,
     IconCheck,
     IconConfetti,
     IconCopy,
@@ -51,6 +52,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { getTreeItemsGames } from '~/products'
 import { SidePanelTab, UserTheme } from '~/types'
 
 import { OrgCombobox } from './OrgCombobox'
@@ -314,6 +316,31 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             Feature previews
                         </Link>
                     </DropdownMenuItem>
+
+                    {featureFlags[FEATURE_FLAGS.GAME_CENTER] && (
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                                <ButtonPrimitive menuItem>
+                                    <IconCake />
+                                    Game center
+                                    <div className="ml-auto">
+                                        <DropdownMenuOpenIndicator intent="sub" />
+                                    </div>
+                                </ButtonPrimitive>
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent>
+                                <DropdownMenuGroup>
+                                    {getTreeItemsGames().map((game) => (
+                                        <DropdownMenuItem asChild>
+                                            <Link to={game.href} buttonProps={{ menuItem: true }}>
+                                                {game.path}
+                                            </Link>
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuGroup>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
                     {user?.is_staff && (
                         <>
                             <DropdownMenuItem asChild>
