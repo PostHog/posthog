@@ -1197,7 +1197,11 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             "%Y-%m-%d_%H-%M-%S"
         )
         attempt = activity.info().attempt
-        stage_table_name = f"stage_{inputs.table.name}_{data_interval_end_str}_{inputs.batch_export.team_id}_{attempt}"
+        stage_table_name = (
+            f"stage_{inputs.table.name}_{data_interval_end_str}_{inputs.batch_export.team_id}_{attempt}"
+            if merge_settings.requires_merge
+            else inputs.table.name
+        )
 
         result = await run_consumer_from_stage(
             queue=queue,
@@ -1226,8 +1230,6 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     inputs.table.schema_name,
                     inputs.table.name,
                     table_fields,
-                    create=True,
-                    exists_ok=True,
                     delete=False,
                     primary_key=primary_key,
                 ) as redshift_table,
@@ -1235,8 +1237,8 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     inputs.table.schema_name,
                     stage_table_name,
                     table_schemas.stage_table_schema,
-                    create=True,
-                    delete=False,
+                    create=merge_settings.requires_merge,
+                    delete=merge_settings.requires_merge,
                     primary_key=primary_key,
                 ) as redshift_stage_table,
             ):
@@ -1258,7 +1260,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     manifest_key=manifest_key if isinstance(manifest_key, str) else manifest_key.decode("utf-8"),
                 )
 
-                external_logger.info(f"Copying file/s {len(consumer.files_uploaded)} into Redshift")
+                external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
 
                 await redshift_client.acopy_from_s3_bucket(
                     table_name=redshift_stage_table,
@@ -1280,7 +1282,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                         stage_fields_cast_to_json=json_columns if use_super else (),
                     )
 
-                external_logger.info(f"Finished copying file/s {len(consumer.files_uploaded)} into Redshift")
+                external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
 
         return result
 
