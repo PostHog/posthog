@@ -87,10 +87,10 @@ class SandboxAgent:
         return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
     def _get_task_command(self, task_id: str, workflow_id: str, repo_path: str) -> str:
-        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
+        return f"ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 3"  # TODO: Increase max turns after testing
+        return f"ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} IS_SANDBOX=True claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 3"  # TODO: Increase max turns after testing
 
     async def destroy(self) -> None:
         await self.sandbox.destroy()
