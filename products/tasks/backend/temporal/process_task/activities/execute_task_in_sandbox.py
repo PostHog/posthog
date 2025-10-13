@@ -3,8 +3,6 @@ from typing import Optional
 
 from temporalio import activity
 
-from posthog.temporal.common.logger import get_logger
-
 from products.tasks.backend.services.sandbox_agent import SandboxAgent
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskExecutionFailedError
@@ -26,9 +24,6 @@ class ExecuteTaskOutput:
     stderr: str
     exit_code: int
     error: Optional[str] = None
-
-
-logger = get_logger(__name__)
 
 
 @activity.defn
