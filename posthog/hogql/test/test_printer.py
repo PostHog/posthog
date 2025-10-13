@@ -941,7 +941,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
         self._assert_expr_error("a -> { print(2) }", "You can not use placeholders here")
 
-    def test_logical_and_optimization(self):
+    def test_boolean_and_optimization(self):
         self.assertEqual(
             self._expr("team_id=1 AND 1 AND event='name'"),
             "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
@@ -961,6 +961,28 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("team_id=1 AND (0=1 AND event='name')"),
             "0",
+        )
+
+    def test_boolean_or_optimization(self):
+        self.assertEqual(
+            self._expr("team_id=1 OR 0 OR event='name'"),
+            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR 0"),
+            "equals(events.team_id, 1)",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR 1"),
+            "1",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR (1=1 OR event='name')"),
+            "1",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR (0=1 OR event='name')"),
+            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
         )
 
     def test_logic(self):
