@@ -113,6 +113,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
+    @property
+    def midnight_thirty_days_from_now(self):
+        return (now() + relativedelta(days=30)).replace(microsecond=0, second=0, minute=0, hour=0)
+
     def _two_sessions_two_persons(
         self, label: str, session_one_person_properties: dict, session_two_person_properties: dict
     ) -> tuple[str, str]:
@@ -210,11 +214,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 1188.0,
                 "start_time": self.an_hour_ago + relativedelta(seconds=20),
                 "end_time": self.an_hour_ago + relativedelta(seconds=2000),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "recording_ttl": 30,
+                "retention_period_days": 30,
             },
             {
                 "session_id": session_id_one,
@@ -229,11 +236,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 25.0,
                 "start_time": self.an_hour_ago,
                 "end_time": self.an_hour_ago + relativedelta(seconds=50),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "recording_ttl": 30,
+                "retention_period_days": 30,
             },
         ]
 
@@ -439,11 +449,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 1188.0,
                 "start_time": self.an_hour_ago + relativedelta(seconds=20),
                 "end_time": self.an_hour_ago + relativedelta(seconds=2000),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             }
         ]
 
@@ -465,11 +478,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 25.0,
                 "start_time": self.an_hour_ago,
                 "end_time": self.an_hour_ago + relativedelta(seconds=50),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             },
         ]
 
@@ -1463,6 +1479,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "duration": 60,
                 "start_time": self.an_hour_ago,
                 "end_time": self.an_hour_ago + relativedelta(seconds=60),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "active_seconds": 0.0,
                 "click_count": 0,
                 "first_url": "https://recieved-out-of-order.com/first",
@@ -1474,6 +1491,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             }
         ]
 

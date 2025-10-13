@@ -59,7 +59,7 @@ class SessionReplayEvents:
                 count(),
                 min(min_first_timestamp) as start_time,
                 max(retention_period_days) as retention_period_days,
-                addDays(dateTrunc('DAY', start_time), 1) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
             FROM
                 session_replay_events
             PREWHERE
@@ -115,7 +115,7 @@ class SessionReplayEvents:
                 min(min_first_timestamp) as min_timestamp,
                 max(max_last_timestamp) as max_timestamp,
                 max(retention_period_days) as retention_period_days,
-                addDays(dateTrunc('DAY', min_timestamp), 1) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
             FROM
                 session_replay_events
             PREWHERE
@@ -166,7 +166,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
-                addDays(dateTrunc('DAY', start_time), 1) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
@@ -203,7 +203,7 @@ class SessionReplayEvents:
                     groupArrayArray(block_last_timestamps) as block_last_timestamps,
                     groupArrayArray(block_urls) as block_urls,
                     max(retention_period_days) as retention_period_days,
-                    addDays(dateTrunc('DAY', start_time), 1) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
@@ -316,7 +316,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days),
-                addDays(dateTrunc('DAY', start_time), 1) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
             FROM
                 session_replay_events
@@ -470,7 +470,7 @@ class SessionReplayEvents:
                 SELECT
                     session_id,
                     max(retention_period_days),
-                    addDays(dateTrunc('DAY', start_time), 1) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
                 FROM
                     session_replay_events
                 PREWHERE

@@ -60,7 +60,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
             max(s.retention_period_days) as retention_period_days,
-            addDays(dateTrunc('DAY', start_time), 1) + toIntervalDay(coalesce(retention_period_days, {ttl_days})) as expiry_time,
+            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, {ttl_days})) as expiry_time,
             date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
             round((
