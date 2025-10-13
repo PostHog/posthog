@@ -44,7 +44,7 @@ export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.
     return (
         <div className="StepLegend">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
-                <span title={step.name}>{step.custom_name || step.name}</span>
+                <span title={step.custom_name || step.name}>{step.custom_name || step.name}</span>
             </LemonRow>
             <LemonRow icon={<IconTrendingFlat />} status="success" style={{ color: 'unset' }}>
                 <Tooltip

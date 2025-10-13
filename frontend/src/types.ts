@@ -308,6 +308,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Experiment = 'experiment',
+    WebAnalytics = 'web_analytics',
 }
 
 interface UserBaseType {
@@ -4543,6 +4544,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'web_analytics'
     | 'webhook'
     | 'warehouse_view'
     | 'warehouse_table'
