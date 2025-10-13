@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function PreAggregatedTablesSetting(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -25,20 +28,30 @@ export function PreAggregatedTablesSetting(): JSX.Element {
                 significantly improve query performance, but like sampling, may have slight differences in results
                 compared to querying raw event data.
             </p>
-            <LemonSwitch
-                checked={useWebAnalyticsPreAggregatedTables}
-                onChange={(newValue) => setUseWebAnalyticsPreAggregatedTables(newValue)}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.WebAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonSwitch
+                    checked={useWebAnalyticsPreAggregatedTables}
+                    onChange={(newValue) => setUseWebAnalyticsPreAggregatedTables(newValue)}
+                />
+            </AccessControlAction>
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    onClick={() => handleChange(useWebAnalyticsPreAggregatedTables)}
-                    disabledReason={
-                        useWebAnalyticsPreAggregatedTables === savedSetting ? 'No changes to save' : undefined
-                    }
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.WebAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Save
-                </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => handleChange(useWebAnalyticsPreAggregatedTables)}
+                        disabledReason={
+                            useWebAnalyticsPreAggregatedTables === savedSetting ? 'No changes to save' : undefined
+                        }
+                    >
+                        Save
+                    </LemonButton>
+                </AccessControlAction>
             </div>
         </>
     )

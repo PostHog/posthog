@@ -40,6 +40,9 @@ export class HogFunctionHandler implements ActionHandler {
             })
         })
 
+        // Collect captured PostHog events
+        result.capturedPostHogEvents = [...result.capturedPostHogEvents, ...functionResult.capturedPostHogEvents]
+
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state

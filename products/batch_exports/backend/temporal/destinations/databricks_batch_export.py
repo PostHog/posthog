@@ -4,7 +4,6 @@ import time
 import typing as t
 import asyncio
 import datetime as dt
-import threading
 import contextlib
 import dataclasses
 import collections.abc
@@ -13,10 +12,18 @@ from collections.abc import AsyncGenerator
 from django.conf import settings
 
 import pyarrow as pa
+import urllib3.exceptions
 from databricks import sql
-from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sdk._base_client import _BaseClient
+from databricks.sdk.core import Config, ConfigAttribute, oauth_service_principal
+from databricks.sdk.oauth import (
+    OidcEndpoints,
+    get_account_endpoints,
+    get_azure_entra_id_workspace_endpoints,
+    get_workspace_endpoints,
+)
 from databricks.sql.client import Connection
-from databricks.sql.exc import OperationalError, ServerOperationError
+from databricks.sql.exc import DatabaseError, OperationalError, ServerOperationError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -32,7 +39,7 @@ from posthog.batch_exports.service import (
 from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -43,12 +50,17 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
@@ -92,6 +104,20 @@ class DatabricksIntegrationNotFoundError(Exception):
     pass
 
 
+class DatabricksCatalogNotFoundError(Exception):
+    """Error raised when the Databricks catalog is not found."""
+
+    def __init__(self, catalog: str):
+        super().__init__(f"Catalog '{catalog}' not found")
+
+
+class DatabricksSchemaNotFoundError(Exception):
+    """Error raised when the Databricks schema is not found."""
+
+    def __init__(self, schema: str):
+        super().__init__(f"Schema '{schema}' not found")
+
+
 @dataclasses.dataclass(kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
@@ -110,6 +136,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         evolution](https://docs.databricks.com/aws/en/delta/update-schema#automatic-schema-evolution-for-delta-lake-merge).
         This means the target table will automatically be updated with the schema of the source table (however, no
         columns will be dropped from the target table).
+        NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
     table_partition_field: the field to partition the table by.
         If None, we will use the default partition by field for the model (if exists)
     """
@@ -124,12 +151,52 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     table_partition_field: str | None = None
 
 
+class DatabricksConfig(Config):
+    """Config for Databricks.
+
+    We need to override the oidc_endpoints method to use a custom client with a custom timeout since the default
+    implementation uses an unconfigurable timeout of 5 minutes. This means our code just hangs if the user provides
+    invalid connection parameters.
+
+    I have opened an issue with Databricks to make this timeout configurable:
+    https://github.com/databricks/databricks-sdk-py/issues/1046
+
+    Subclassing Config has a few issues however:
+
+    The Databricks SDK's attributes() method has bugs with subclassing:
+    1. It only looks at cls.__dict__, not inherited attributes
+    2. It caches results in _attributes, which subclasses inherit
+
+    We work around this by copying parent ConfigAttribute descriptors into our __dict__.
+    """
+
+    locals().update({k: v for k, v in Config.__dict__.items() if isinstance(v, ConfigAttribute)})
+
+    @classmethod
+    def attributes(cls):
+        if "_attributes" not in cls.__dict__:
+            try:
+                delattr(cls, "_attributes")
+            except AttributeError:
+                pass
+        return super().attributes()
+
+    @property
+    def oidc_endpoints(self) -> OidcEndpoints | None:
+        self._fix_host_if_needed()
+        if not self.host:
+            return None
+        if self.is_azure and self.azure_client_id:
+            return get_azure_entra_id_workspace_endpoints(self.host)
+        if self.is_account_client and self.account_id:
+            return get_account_endpoints(self.host, self.account_id)
+        return get_workspace_endpoints(self.host, client=_BaseClient(retry_timeout_seconds=5))
+
+
 class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
-    # Timeout to use for initializing the Databricks connection.
-    CONNECT_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -179,74 +246,79 @@ class DatabricksClient:
         return self._connection
 
     async def _connect(self):
-        """Establish a raw Databricks connection in a separate thread.
-
-        NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace.
-        When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end
-        up waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
-        https://github.com/databricks/databricks-sdk-py/issues/1046
-
-        As a result, we try to establish the connection using a separate thread with a timeout, ensuring that we
-        terminate the thread if it takes too long.
-        """
+        """Establish a raw Databricks connection in a separate thread."""
 
         def get_credential_provider():
-            config = Config(
+            config = DatabricksConfig(
                 host=f"https://{self.server_hostname}",
                 client_id=self.client_id,
                 client_secret=self.client_secret,
+                auth_type="oauth-m2m",
+                disable_async_token_refresh=True,
             )
             return oauth_service_principal(config)
 
-        result: Connection | Exception | None = None
-        done = asyncio.Event()
-        loop = asyncio.get_event_loop()
-
-        def connect_thread():
-            nonlocal result
-            try:
-                result = sql.connect(
-                    server_hostname=self.server_hostname,
-                    http_path=self.http_path,
-                    credentials_provider=get_credential_provider,
-                    user_agent_entry="PostHog batch exports",
-                    enable_telemetry=False,
-                    _socket_timeout=60,
-                )
-            except Exception as e:
-                result = e
-            finally:
-                loop.call_soon_threadsafe(done.set)
-
-        threading.Thread(target=connect_thread, daemon=True).start()
-
         try:
-            await asyncio.wait_for(done.wait(), timeout=self.CONNECT_TIMEOUT)
-            if isinstance(result, Exception):
-                if isinstance(result, OperationalError):
-                    raise DatabricksConnectionError(f"Failed to connect to Databricks: {result}") from result
-                raise result
-            return result
+            result = await asyncio.to_thread(
+                sql.connect,
+                server_hostname=self.server_hostname,
+                http_path=self.http_path,
+                credentials_provider=get_credential_provider,
+                # user agent can be used for usage tracking
+                user_agent_entry="PostHog batch exports",
+                enable_telemetry=False,
+                _socket_timeout=5,
+                _retry_stop_after_attempts_count=2,
+                _retry_delay_max=1,
+            )
         except TimeoutError:
+            self.logger.info(
+                "Timed out while trying to connect to Databricks. server_hostname: %s, http_path: %s",
+                self.server_hostname,
+                self.http_path,
+            )
             raise DatabricksConnectionError(
                 f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
+        # for some reason, Databricks reports some connection failures as a ValueError
+        except (ValueError, urllib3.exceptions.HTTPError, urllib3.exceptions.MaxRetryError) as err:
+            self.logger.info(
+                "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
+                err,
+                self.server_hostname,
+                self.http_path,
+            )
+            raise DatabricksConnectionError(
+                "Failed to connect to Databricks. Please check that your connection details are valid."
+            )
+        except OperationalError as err:
+            self.logger.info(
+                "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
+                err,
+                self.server_hostname,
+                self.http_path,
+            )
+            raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
+
+        return result
 
     @contextlib.asynccontextmanager
-    async def connect(self):
+    async def connect(self, set_context: bool = True):
         """Manage a Databricks connection.
 
         Methods that require a connection should be ran within this block.
 
-        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        If set_context is `True`, we call `use_catalog` and `use_schema` to ensure that all queries are run in the
+        correct catalog and schema.
         """
-        self.logger.debug("Initializing Databricks connection")
+        self.logger.info("Initializing Databricks connection")
 
         self._connection = await self._connect()
-        self.logger.debug("Connected to Databricks")
+        self.logger.info("Connected to Databricks")
 
-        await self.use_catalog(self.catalog)
-        await self.use_schema(self.schema)
+        if set_context is True:
+            await self.use_catalog(self.catalog)
+            await self.use_schema(self.schema)
 
         try:
             yield self
@@ -339,10 +411,20 @@ class DatabricksClient:
             return results
 
     async def use_catalog(self, catalog: str):
-        await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
+        try:
+            await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
+        except ServerOperationError as err:
+            if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
+                raise DatabricksCatalogNotFoundError(catalog)
+            raise
 
     async def use_schema(self, schema: str):
-        await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+        try:
+            await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+        except ServerOperationError as err:
+            if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
+                raise DatabricksSchemaNotFoundError(schema)
+            raise
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -382,14 +464,18 @@ class DatabricksClient:
                 """
             await self.execute_query(query, fetch_results=False)
         except ServerOperationError as err:
-            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to create table: %s", err.message)  # noqa: TRY400
+            if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
             raise
 
     async def adelete_table(self, table_name: str):
         """Asynchronously delete the Databricks delta table if it exists."""
-        await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
+        try:
+            await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to delete table: {err.message}")
+            raise
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
@@ -398,25 +484,32 @@ class DatabricksClient:
             query_kwargs={"input_stream": file},
         )
 
-    async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
+    async def acopy_into_table_from_volume(
+        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
+    ):
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
+        self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
-            table_name=table_name, volume_path=volume_path, fields=fields
+            table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
         try:
             await self.execute_async_query(query, fetch_results=False)
         except ServerOperationError as err:
-            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to copy data from volume into table: %s", err.message)  # noqa: TRY400
+            if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(
                     f"Failed to copy data from volume into table: {err.message}"
                 )
             raise
 
     def _get_copy_into_table_from_volume_query(
-        self, table_name: str, volume_path: str, fields: list[DatabricksField]
+        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
     ) -> str:
         """Get the query to copy data from a Databricks volume into a Databricks table.
+
+        We use the following COPY_OPTIONS:
+        - force=true to ensure we always load in data from the files in the volume even if they have already been loaded
+            previously
+        - mergeSchema: whether to merge the schema of the source table with the schema of the target table
 
         Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
         Therefore, we need to cast the data to the correct type, otherwise the request will fail.
@@ -435,12 +528,15 @@ class DatabricksClient:
                 select_fields.append(f"`{field[0]}`")
         select_fields_str = ", ".join(select_fields)
 
+        merge_schema = f"true" if with_schema_evolution else "false"
+
         return f"""
         COPY INTO `{table_name}`
         FROM (
             SELECT {select_fields_str} FROM '{volume_path}'
         )
         FILEFORMAT = PARQUET
+        COPY_OPTIONS ('force' = 'true', 'mergeSchema' = '{merge_schema}')
         """
 
     @contextlib.asynccontextmanager
@@ -454,17 +550,27 @@ class DatabricksClient:
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
-        await self.execute_query(
-            f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
-            fetch_results=False,
-        )
+        try:
+            await self.execute_query(
+                f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
+                fetch_results=False,
+            )
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to create volume: {err.message}")
+            raise
 
     async def adelete_volume(self, volume: str):
         """Asynchronously delete a Databricks volume."""
-        await self.execute_query(
-            f"DROP VOLUME IF EXISTS `{volume}`",
-            fetch_results=False,
-        )
+        try:
+            await self.execute_query(
+                f"DROP VOLUME IF EXISTS `{volume}`",
+                fetch_results=False,
+            )
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to delete volume: {err.message}")
+            raise
 
     async def aget_table_columns(self, table_name: str) -> list[str]:
         """Asynchronously get the columns of a Databricks table.
@@ -472,13 +578,20 @@ class DatabricksClient:
         The Databricks connector has dedicated methods for retrieving metadata.
         """
         with self.connection.cursor() as cursor:
-            await asyncio.to_thread(cursor.columns, table_name=table_name)
-            results = await asyncio.to_thread(cursor.fetchall)
             try:
-                column_names = [row.name for row in results]
-            except AttributeError:
-                # depending on the table column mapping mode, this could also be returned via a different attribute
-                column_names = [row.COLUMN_NAME for row in results]
+                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                results = await asyncio.to_thread(cursor.fetchall)
+                try:
+                    column_names = [row.name for row in results]
+                except AttributeError:
+                    # depending on the table column mapping mode, this could also be returned via a different attribute
+                    column_names = [row.COLUMN_NAME for row in results]
+            except DatabaseError as err:
+                if "Expected field named: DataAccessConfigID" in str(err):
+                    raise DatabricksInsufficientPermissionsError(
+                        f"Failed to get table columns: {err}. Please check that you have SELECT permissions on the table."
+                    )
+                raise
             return column_names
 
     async def amerge_tables(
@@ -505,6 +618,9 @@ class DatabricksClient:
         assert update_key, "Update key must be defined"
 
         if with_schema_evolution is True:
+            self.logger.info(
+                "Merging source table '%s' into target table '%s' with schema evolution", source_table, target_table
+            )
             merge_query = self._get_merge_query_with_schema_evolution(
                 target_table=target_table,
                 source_table=source_table,
@@ -515,6 +631,9 @@ class DatabricksClient:
             assert source_table_fields, "source_table_fields must be defined"
             # first we need to get the column names from the target table
             target_table_field_names = await self.aget_table_columns(target_table)
+            self.logger.info(
+                "Merging source table '%s' into target table '%s' without schema evolution", source_table, target_table
+            )
             merge_query = self._get_merge_query_without_schema_evolution(
                 target_table=target_table,
                 source_table=source_table,
@@ -761,6 +880,13 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
+def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+    """Check if the error is an insufficient permissions error."""
+    if err.message is None:
+        return False
+    return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -912,10 +1038,13 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        # include attempt in the stage table & volume names to avoid collisions if multiple attempts are running at the
+        # same time (ideally this should never happen but it has in the past)
+        attempt = activity.info().attempt
         stage_table_name: str | None = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}" if requires_merge else None
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}" if requires_merge else None
         )
-        volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+        volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
         async with DatabricksClient.from_inputs_and_integration(
@@ -934,14 +1063,20 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                 )
 
+                transformer: TransformerProtocol = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                    include_inserted_at=False,
+                )
+
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
-                    include_inserted_at=False,
+                    transformer=transformer,
                     max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )
@@ -952,6 +1087,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     table_name=stage_table_name if stage_table_name else inputs.table_name,
                     volume_path=volume_path,
                     fields=table_fields,
+                    with_schema_evolution=inputs.use_automatic_schema_evolution,
                 )
 
                 if requires_merge and stage_table_name is not None:

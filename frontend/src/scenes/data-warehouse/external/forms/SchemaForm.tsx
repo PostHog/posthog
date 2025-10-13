@@ -1,19 +1,32 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Tooltip,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { SyncTypeLabelMap, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExternalDataSourceSyncSchema } from '~/types'
+import { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime } =
+    const containerRef = useFloatingContainer()
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, updateSchemaSyncType } =
         useActions(sourceWizardLogic)
     const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -25,6 +38,74 @@ export default function SchemaForm(): JSX.Element {
         }
         toggleSchemaShouldSync(schema, checked)
     }
+
+    const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
+        // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
+        const updatedAt = fields.find((field) => {
+            const regex = /^updated/i
+            return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        })
+        if (updatedAt) {
+            return updatedAt
+        }
+        // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
+        const createdAt = fields.find((field) => {
+            const regex = /^created/i
+            return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        })
+        if (createdAt) {
+            return createdAt
+        }
+        // fallback to any timestamp or datetime field
+        const timestamp = fields.find((field) => {
+            return field.field_type === 'timestamp' || field.type === 'datetime'
+        })
+        if (timestamp) {
+            return timestamp
+        }
+        // fallback to numeric fields matching "id" or "uuid" case insensitive
+        const id = fields.find((field) => {
+            const idRegex = /^id/i
+            const uuidRegex = /^uuid/i
+            return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
+        })
+        if (id) {
+            return id
+        }
+        // leave unset and require user configuration
+        return undefined
+    }
+
+    const smartConfigureTables = (databaseSchema: ExternalDataSourceSyncSchema[]): void => {
+        databaseSchema.forEach((schema) => {
+            if (schema.sync_type === null) {
+                // Use incremental if available
+                if (schema.incremental_available || schema.append_available) {
+                    const method = schema.incremental_available ? 'incremental' : 'append'
+                    const field = resolveIncrementalField(schema.incremental_fields)
+                    if (field) {
+                        updateSchemaSyncType(schema, method, field.field, field.field_type)
+                        toggleSchemaShouldSync(schema, true)
+                    }
+                } else {
+                    updateSchemaSyncType(schema, 'full_refresh', null, null)
+                    toggleSchemaShouldSync(schema, true)
+                }
+            }
+        })
+        lemonToast.info(
+            "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
+        )
+    }
+
+    useEffect(() => {
+        smartConfigureTables(databaseSchema)
+    }, [smartConfigureTables, databaseSchema])
+
+    // scroll to top of container
+    useEffect(() => {
+        containerRef?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
+    }, [containerRef])
 
     return (
         <>
@@ -121,6 +202,32 @@ export default function SchemaForm(): JSX.Element {
                                             }
                                         />
                                     )
+                                },
+                            },
+                            {
+                                key: 'sync_field',
+                                title: 'Sync field',
+                                align: 'right',
+                                tooltip:
+                                    'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
+                                isHidden: !databaseSchema.some((schema) => schema.sync_type),
+                                render: function RenderSyncType(_, schema) {
+                                    if (schema.sync_type !== null && schema.incremental_field) {
+                                        const field =
+                                            schema.incremental_fields.find(
+                                                (f) => f.field == schema.incremental_field
+                                            ) ?? null
+                                        if (field) {
+                                            return (
+                                                <>
+                                                    <span className="leading-5">{field.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {field.type}
+                                                    </LemonTag>
+                                                </>
+                                            )
+                                        }
+                                    }
                                 },
                             },
                             {

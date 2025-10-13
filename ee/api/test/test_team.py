@@ -25,7 +25,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 
 
-def team_enterprise_api_test_factory():  # type: ignore
+def team_enterprise_api_test_factory():
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
 
@@ -75,13 +75,13 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(response.status_code, 201, response.json())
             self.assertEqual(Team.objects.count(), 2)
             response_data = response.json()
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "name": "Hedgebox",
                     "access_control": False,
                     "effective_membership_level": OrganizationMembership.Level.ADMIN,
-                },
-                response_data,
+                }.items(),
+                response_data.items(),
             )
             self.assertEqual(self.organization.teams.count(), 2)
 
@@ -95,13 +95,13 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(Team.objects.count(), 2)
 
             response_data = response.json()
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "name": "Hedgebox",
                     "access_control": False,
                     "effective_membership_level": OrganizationMembership.Level.ADMIN,
-                },
-                response_data,
+                }.items(),
+                response_data.items(),
             )
             response_2 = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
             self.assertEqual(Team.objects.count(), 2, response_2.json())
@@ -173,9 +173,9 @@ def team_enterprise_api_test_factory():  # type: ignore
 
             response_data = response.json()
 
-            self.assertDictContainsSubset(
-                {"correlation_config": {"excluded_person_property_names": ["$os"]}},
-                response_data,
+            self.assertLessEqual(
+                {"correlation_config": {"excluded_person_property_names": ["$os"]}}.items(),
+                response_data.items(),
             )
 
         # Fetching projects
@@ -188,13 +188,13 @@ def team_enterprise_api_test_factory():  # type: ignore
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "name": "Default project",
                     "access_control": False,
                     "effective_membership_level": OrganizationMembership.Level.ADMIN,
-                },
-                response_data,
+                }.items(),
+                response_data.items(),
             )
 
         def test_fetch_team_as_org_member_works(self):
@@ -205,13 +205,13 @@ def team_enterprise_api_test_factory():  # type: ignore
             response_data = response.json()
 
             self.assertEqual(response.status_code, HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "name": "Default project",
                     "access_control": False,
                     "effective_membership_level": OrganizationMembership.Level.MEMBER,
-                },
-                response_data,
+                }.items(),
+                response_data.items(),
             )
 
         def test_fetch_team_as_org_outsider(self):
@@ -323,13 +323,13 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 1)  # Created under the same project, not a new one!
         response_data = response.json()
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Test",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
@@ -410,7 +410,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
-                    "project_id": self.team.project.id,  # type: ignore
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,
@@ -430,7 +430,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
-                    "project_id": self.team.project.id,  # type: ignore
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,

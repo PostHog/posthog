@@ -34,7 +34,9 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    NodeKind,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -52,6 +54,7 @@ from posthog.schema import (
     TraceQuery,
     TracesQuery,
     TrendsQuery,
+    UsageMetricsQuery,
     VectorSearchQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -73,7 +76,7 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
-    get_api_personal_rate_limiter,
+    get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
     get_app_org_rate_limiter,
     get_org_app_concurrency_limit,
@@ -173,7 +176,9 @@ RunnableQueryNode = Union[
     WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
+    UsageMetricsQuery,
 ]
 
 
@@ -651,15 +656,28 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "TracesQuery":
-        from .ai.traces_query_runner import TracesQueryRunner
+        from .legacy_compatibility.feature_flag import llm_analytics_traces_query_v2
 
-        return TracesQueryRunner(
-            query=cast(TracesQuery | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-        )
+        if llm_analytics_traces_query_v2(team):
+            from .ai.traces_query_runner_v2 import TracesQueryRunnerV2
+
+            return TracesQueryRunnerV2(
+                query=cast(TracesQuery | dict[str, Any], query),
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
+        else:
+            from .ai.traces_query_runner import TracesQueryRunner
+
+            return TracesQueryRunner(
+                query=cast(TracesQuery | dict[str, Any], query),
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
@@ -681,12 +699,36 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "MarketingAnalyticsTableQuery":
+    if kind == NodeKind.MARKETING_ANALYTICS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
             MarketingAnalyticsTableQueryRunner,
         )
 
         return MarketingAnalyticsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_analytics_aggregated_query_runner import (
+            MarketingAnalyticsAggregatedQueryRunner,
+        )
+
+        return MarketingAnalyticsAggregatedQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "UsageMetricsQuery":
+        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+
+        return UsageMetricsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -786,7 +828,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        return isinstance(data, self.query_type)
+        query_type = self.query_type
+        # Resolve type alias if present
+        if hasattr(query_type, "__value__"):
+            query_type = query_type.__value__
+        # Handle both UnionType and typing._UnionGenericAlias
+        if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
+            return any(isinstance(data, t) for t in get_args(query_type))
+        if not isinstance(query_type, type):
+            raise TypeError(f"query_type must be a type, got {type(query_type)}: {query_type}")
+        return isinstance(data, query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
@@ -835,6 +886,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
+            cache_key=cache_manager.cache_key,
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
         )
@@ -1048,10 +1100,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers.useMaterializedViews = True
 
             concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_personal_rate_limiter().run(
+            with get_api_team_rate_limiter().run(
                 is_api=self.is_query_service,
                 team_id=self.team.pk,
-                org_id=self.team.organization_id,
                 task_id=self.query_id,
                 limit=concurrency_limit,
             ):

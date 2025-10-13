@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import patch
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -171,24 +170,24 @@ async def test_get_copy_into_table_from_volume_query():
             SELECT `uuid`, `event`, PARSE_JSON(`properties`) as `properties`, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
         )
         FILEFORMAT = PARQUET
+        COPY_OPTIONS ('force' = 'true', 'mergeSchema' = 'true')
         """
     )
 
 
 async def test_connect_when_invalid_host():
     """Test that we raise an error when the host is invalid."""
-    with patch.object(DatabricksClient, "CONNECT_TIMEOUT", 0.5):
-        client = DatabricksClient(
-            server_hostname="invalid",
-            http_path="test",
-            client_id="test",
-            client_secret="test",
-            catalog="test",
-            schema="test",
-        )
-        with pytest.raises(
-            DatabricksConnectionError,
-            match="Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid.",
-        ):
-            async with client.connect():
-                pass
+    client = DatabricksClient(
+        server_hostname="invalid",
+        http_path="test",
+        client_id="test",
+        client_secret="test",
+        catalog="test",
+        schema="test",
+    )
+    with pytest.raises(
+        DatabricksConnectionError,
+        match="Failed to connect to Databricks. Please check that your connection details are valid.",
+    ):
+        async with client.connect():
+            pass

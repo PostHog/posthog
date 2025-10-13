@@ -98,13 +98,13 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         // we have seen in production that we managed to get `value = {}`
         // so even though this is typed as a string
         // it might not be!
-        type = exceptionList?.[0]?.type ? String(exceptionList?.[0]?.type) : undefined
+        type = exceptionList?.[0]?.type ? stringify(exceptionList?.[0]?.type) : undefined
     }
     if (!value) {
         // we have seen in production that we managed to get `value = {}`
         // so even though this is typed as a string
         // it might not be!
-        value = exceptionList?.[0]?.value ? String(exceptionList?.[0]?.value) : undefined
+        value = exceptionList?.[0]?.value ? stringify(exceptionList?.[0]?.value) : undefined
     }
     if (synthetic == undefined) {
         synthetic = exceptionList?.[0]?.mechanism?.synthetic
@@ -134,7 +134,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
 export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
-    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
+
+    let exceptionList: ErrorTrackingException[] | undefined = ensureStringExceptionValues(properties.$exception_list)
     // exception autocapture sets $exception_list for all exceptions.
     // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
     if (!exceptionList?.length && $sentry_exception) {
@@ -167,4 +168,32 @@ export function getSessionId(properties: ErrorEventProperties): string | undefin
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
     return properties['$recording_status'] as string | undefined
+}
+
+// we had a bug where SDK was sending non-string values for exception value
+export function ensureStringExceptionValues(exceptionList?: ErrorTrackingException[]): ErrorTrackingException[] {
+    if (!Array.isArray(exceptionList)) {
+        return []
+    }
+
+    return exceptionList.map((exception) => ({
+        ...exception,
+        value: stringify(exception.value),
+    }))
+}
+
+export function stringify(value: any): string {
+    if (typeof value === 'string') {
+        return value
+    }
+
+    try {
+        return JSON.stringify(value)
+    } catch {}
+
+    try {
+        return value.toString()
+    } catch {}
+
+    return ''
 }

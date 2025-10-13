@@ -1,11 +1,12 @@
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::{Context, ContextLine, Frame, FrameId},
+    frames::{Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
+use common_types::error_tracking::FrameId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -163,6 +164,7 @@ impl From<&RawNodeFrame> for Frame {
             context: raw.get_context(),
             release: None,
             synthetic: raw.meta.synthetic,
+            suspicious: false,
         }
     }
 }
@@ -204,6 +206,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             context: get_sourcelocation_context(&location),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -246,6 +249,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             context: raw_frame.get_context(),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
