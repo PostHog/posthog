@@ -41,11 +41,6 @@ export const retentionOptionDescriptions = {
         "Users are only counted if their very first occurrence of this event ever matches your filters. If their first-ever event doesn't match, they're excluded entirely.",
 }
 
-export const RETENTION_MEAN_CALCULATION_OPTIONS: LemonSelectOptions<RetentionFilter['meanRetentionCalculation']> = [
-    { value: 'simple', label: 'Simple' },
-    { value: 'weighted', label: 'Weighted' },
-]
-
 export const RETENTION_TIME_WINDOW_MODE_OPTIONS: LemonSelectOptions<RetentionFilter['timeWindowMode']> = [
     {
         value: 'strict_calendar_dates',

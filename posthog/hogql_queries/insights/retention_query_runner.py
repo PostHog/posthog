@@ -374,11 +374,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         interval = self.query_date_range.interval_name
-        if interval == "Hour":
+        if interval == "hour":
             unit, count = "hour", 1
-        elif interval == "Week":
+        elif interval == "week":
             unit, count = "day", 7
-        elif interval == "Month":
+        elif interval == "month":
             unit, count = "day", 30
         else:  # Day
             unit, count = "hour", 24
