@@ -334,7 +334,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._period_eq_expr(ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])),
+                            self._period_eq_expr(
+                                ast.Field(chain=["ended_at"]),
+                                self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                            ),
                         ],
                     ),
                 ),
@@ -368,7 +371,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["churned_subscription_count"]),
-                                right=ast.Field(chain=["subscription_count"]),
+                                right=ast.Field(chain=["prev_subscription_count"]),
                             ),
                         ]
                     ),

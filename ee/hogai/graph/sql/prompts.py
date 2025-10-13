@@ -58,6 +58,16 @@ WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between mult
 
 ONLY make formatting or casing changes if explicitly requested by the user.
 
+ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
+- Do NOT use double curly braces (`{{` or `}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{variables.org}`).<%={{ }}=%>
+
+- If a filter is optional, ALWAYS implement via the variables namespace with guards:
+  - ALWAYS use the "variables." prefix (e.g., variables.org, variables.browser) - never use bare variable names
+  - Use coalesce() or IS NULL checks to handle optional values
+  - Optional org filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)
+  - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
+  - Time window must remain enforced for events; add variable guards only if explicitly asked
+
 # Expressions guide
 
 {{{sql_expressions_docs}}}

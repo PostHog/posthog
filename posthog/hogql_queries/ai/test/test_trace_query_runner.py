@@ -230,7 +230,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 for i, event in enumerate(value):
                     self.assertEventEqual(trace.events[i], event)
             elif field == "person":
-                self.assertDictContainsSubset(value, trace.person.model_dump(mode="json", exclude={"uuid"}))
+                self.assertLess(value.items(), trace.person.model_dump(mode="json", exclude={"uuid"}).items())
             else:
                 self.assertEqual(getattr(trace, field), value, f"Field {field} does not match")
 
@@ -332,15 +332,15 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].totalLatency, 10.5)
-        self.assertDictContainsSubset(
+        self.assertLess(
             {
                 "$ai_latency": 10.5,
                 "$ai_provider": "posthog",
                 "$ai_model": "hog-destroyer",
                 "$ai_http_status": 200,
                 "$ai_base_url": "https://us.posthog.com",
-            },
-            response.results[0].events[0].properties,
+            }.items(),
+            response.results[0].events[0].properties.items(),
         )
 
     @freeze_time("2025-01-01T00:00:00Z")

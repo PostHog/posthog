@@ -306,7 +306,9 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Survey = 'survey',
     Experiment = 'experiment',
+    WebAnalytics = 'web_analytics',
 }
 
 interface UserBaseType {
@@ -343,6 +345,8 @@ export interface UserType extends UserBaseType {
         plugin_disabled: boolean
         project_weekly_digest_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
+        error_tracking_issue_assigned: boolean
+        discussions_mentioned: boolean
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -405,6 +409,8 @@ export interface NotificationSettings {
     plugin_disabled: boolean
     project_weekly_digest_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
+    error_tracking_issue_assigned: boolean
+    discussions_mentioned: boolean
 }
 
 export interface PluginAccess {
@@ -3177,7 +3183,7 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
-export interface Survey {
+export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
     name: string
@@ -4538,6 +4544,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'web_analytics'
     | 'webhook'
     | 'warehouse_view'
     | 'warehouse_table'
@@ -4683,6 +4690,8 @@ export type CommentType = {
     deleted?: boolean
 }
 
+export type CommentCreationParams = { mentions?: number[]; slug?: string }
+
 export interface DataWarehouseCredential {
     access_key: string
     access_secret: string
@@ -4807,11 +4816,14 @@ export type SchemaIncrementalFieldsResponse = {
     full_refresh_available: boolean
 }
 
+// numeric is snowflake specific and objectid is mongodb specific
+export type IncrementalFieldType = 'integer' | 'numeric' | 'datetime' | 'date' | 'timestamp' | 'objectid'
+
 export interface IncrementalField {
-    label: string
-    type: string
-    field: string
-    field_type: string
+    label: string // the field name shown in the UI
+    type: IncrementalFieldType // the field type shown in the UI
+    field: string // the actual database field name
+    field_type: IncrementalFieldType // the actual database field type
 }
 
 export interface ExternalDataSourceSyncSchema {
@@ -5257,6 +5269,13 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string | ReactNode
     subrows: ProductPricingTierSubrows
+}
+
+export type BillingInvoiceItemRow = {
+    description: string
+    dateRange?: string
+    amount: string
+    isBold?: boolean
 }
 
 export type AvailableOnboardingProducts = Record<

@@ -179,22 +179,22 @@ def team_api_test_factory():
             get_geoip_properties_mock.return_value = {}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test World", "week_start_day": None}, response.json())
+            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test US", "week_start_day": 0}, response.json())
+            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test PL", "week_start_day": 1}, response.json())
+            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test IR", "week_start_day": 0}, response.json())
+            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
 
         def test_cant_create_team_without_license_on_selfhosted(self):
             with self.is_cloud(False):
