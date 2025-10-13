@@ -54,7 +54,7 @@ class ConversationSummarizer:
 class AnthropicConversationSummarizer(ConversationSummarizer):
     def _get_model(self):
         return MaxChatAnthropic(
-            model="claude-sonnet-4-0",
+            model="claude-sonnet-4-5",
             streaming=False,
             stream_usage=False,
             max_tokens=8192,
