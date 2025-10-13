@@ -18,6 +18,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
@@ -50,7 +51,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         shouldLoadSampleGlobals,
         nextActionId,
     } = useValues(hogFlowEditorTestLogic(logicProps))
-    const { submitTestInvocation, setTestResult, loadSampleGlobals } = useActions(hogFlowEditorTestLogic(logicProps))
+    const { submitTestInvocation, setTestResult, loadSampleGlobals, setSampleGlobals } = useActions(
+        hogFlowEditorTestLogic(logicProps)
+    )
 
     const display = asDisplay(sampleGlobals?.person)
     const url = urls.personByDistinctId(sampleGlobals?.event?.distinct_id || '')
@@ -213,21 +216,19 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                             </div>
 
                                             {/* Event Properties */}
-                                            {sampleGlobals?.event.properties &&
-                                                Object.keys(sampleGlobals.event.properties).length > 0 && (
-                                                    <div className="mt-3">
-                                                        <div className="mb-2 text-sm">Event properties</div>
-                                                        <div className="overflow-auto max-h-32 rounded border bg-surface-primary">
-                                                            <pre className="p-2 text-xs whitespace-pre-wrap text-muted">
-                                                                {JSON.stringify(
-                                                                    sampleGlobals.event.properties,
-                                                                    null,
-                                                                    2
-                                                                )}
-                                                            </pre>
-                                                        </div>
+                                            {sampleGlobals && (
+                                                <>
+                                                    <div className="text-sm">
+                                                        Here are all the global variables you can use in your campaign:
                                                     </div>
-                                                )}
+                                                    <div className="flex-col gap-2 my-3 max-h-48 overflow-auto">
+                                                        <HogFunctionTestEditor
+                                                            value={JSON.stringify(sampleGlobals, null, 2)}
+                                                            onChange={setSampleGlobals}
+                                                        />
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 ),

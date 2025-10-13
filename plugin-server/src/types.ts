@@ -81,6 +81,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
@@ -279,6 +280,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    BEHAVIORAL_COHORTS_DATABASE_URL: string // Optional read-write Postgres database for behavioral cohorts
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
     PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
@@ -289,9 +291,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    POSTGRES_COUNTERS_HOST: string
-    POSTGRES_COUNTERS_USER: string
-    POSTGRES_COUNTERS_PASSWORD: string
+    POSTGRES_BEHAVIORAL_COHORTS_HOST: string
+    POSTGRES_BEHAVIORAL_COHORTS_USER: string
+    POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -299,12 +301,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Redis params for the ingestion services
     INGESTION_REDIS_HOST: string
     INGESTION_REDIS_PORT: number
-    // Deduplication redis params
-    DEDUPLICATION_REDIS_HOST: string
-    DEDUPLICATION_REDIS_PORT: number
-    DEDUPLICATION_REDIS_PASSWORD: string
-    DEDUPLICATION_REDIS_PREFIX: string
-    DEDUPLICATION_TTL_SECONDS: number
     // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -370,6 +366,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_CONNECTIONS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
@@ -381,8 +379,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    LAZY_LOADER_TTL_MS: number
-    LAZY_LOADER_EVICTION_ENABLED: boolean
     LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
@@ -447,6 +443,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
+    SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
     // New: switchover flag for v2 session recording metadata
     SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
@@ -480,6 +477,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     HEAP_DUMP_S3_PREFIX: string
     HEAP_DUMP_S3_ENDPOINT: string
     HEAP_DUMP_S3_REGION: string
+
+    // Pod termination
+    POD_TERMINATION_ENABLED: boolean
+    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
+    POD_TERMINATION_JITTER_MINUTES: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -547,6 +549,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
     cdpBehaviouralEvents?: boolean
+    cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }
@@ -1357,6 +1360,7 @@ export interface EventHeaders {
     timestamp?: string
     event?: string
     uuid?: string
+    force_disable_person_processing: boolean
 }
 
 export interface IncomingEvent {

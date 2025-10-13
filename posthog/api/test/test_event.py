@@ -425,8 +425,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             ).json()
             assert response == []
 
-    @freeze_time("2020-01-20 20:00:00")
     @also_test_with_materialized_columns(["test_prop"])
+    @freeze_time("2020-01-20 20:00:00")
     @snapshot_clickhouse_queries
     def test_event_property_values_without_hidden_properties(self):
         # Create events with properties first
@@ -458,8 +458,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert "another_visible" in keys
         assert len(response) == 3
 
-    @freeze_time("2020-01-20 20:00:00")
     @also_test_with_materialized_columns(["hidden_prop", "visible_prop"])
+    @freeze_time("2020-01-20 20:00:00")
     @snapshot_clickhouse_queries
     def test_event_property_values_with_hidden_properties(self):
         # Create events with both hidden and visible properties

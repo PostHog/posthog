@@ -1,5 +1,5 @@
 import { Hub, IncomingEventWithTeam } from '../../types'
-import { PipelineResultType } from '../pipelines/results'
+import { drop, ok } from '../pipelines/results'
 import { createValidateEventPropertiesStep } from './validate-event-properties'
 
 // Mock the dependencies
@@ -55,10 +55,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.DROP,
-                reason: 'Group key too long',
-            })
+            expect(result).toEqual(drop('Group key too long'))
         })
 
         it('should allow $groupidentify events with group_key shorter than 400 characters', async () => {
@@ -88,10 +85,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow $groupidentify events with group_key exactly 400 characters', async () => {
@@ -121,10 +115,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow $groupidentify events without group_key', async () => {
@@ -151,10 +142,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
     })
 
@@ -182,10 +170,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
 
         it('should allow regular events', async () => {
@@ -211,10 +196,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual({
-                type: PipelineResultType.OK,
-                value: input,
-            })
+            expect(result).toEqual(ok(input))
         })
     })
 })

@@ -16,6 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from posthog.schema import PropertyOperator
@@ -616,6 +617,7 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
         project_id = self.context["project_id"]
 
         # Skip validation for flags with flag dependencies since the evaluation
@@ -626,7 +628,7 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -1686,3 +1688,22 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+class CanEditFeatureFlag(BasePermission):
+    """
+    Permission class to check if a user can edit a specific feature flag.
+    This leverages PostHog's existing access control system for feature flags.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        # Get the team from the object (feature flag)
+        team = obj.team if hasattr(obj, "team") else obj
+
+        # Get user access control for this team
+        user_access_control = UserAccessControl(user=request.user, team=team)
+
+        # Check if user has editor or higher access to feature flags for this team
+        return user_access_control.check_access_level_for_object(obj, "editor")

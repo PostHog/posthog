@@ -25,11 +25,15 @@ from .serializers import (
     AgentDefinitionSerializer,
     AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskAttachPullRequestRequestSerializer,
     TaskBulkReorderRequestSerializer,
     TaskBulkReorderResponseSerializer,
+    TaskProgressDetailSerializer,
     TaskProgressResponseSerializer,
     TaskProgressStreamResponseSerializer,
+    TaskProgressTaskRequestSerializer,
     TaskSerializer,
+    TaskSetBranchRequestSerializer,
     TaskUpdatePositionRequestSerializer,
     TaskUpdateStageRequestSerializer,
     TaskWorkflowSerializer,
@@ -66,11 +70,58 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "bulk_reorder",
             "progress",
             "progress_stream",
+            "progress_task",
+            "set_branch",
+            "attach_pr",
         ]
     }
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team).order_by("position")
+        qs = queryset.filter(team=self.team).order_by("position")
+
+        params = self.request.query_params if hasattr(self, "request") else {}
+
+        # Filter by origin product
+        origin_product = params.get("origin_product")
+        if origin_product:
+            qs = qs.filter(origin_product=origin_product)
+
+        # Filter by workflow id
+        workflow_id = params.get("workflow")
+        if workflow_id:
+            qs = qs.filter(workflow_id=workflow_id)
+
+        # Filter by current stage id
+        stage_id = params.get("current_stage")
+        if stage_id:
+            qs = qs.filter(current_stage_id=stage_id)
+
+        # Filter by repository or organization inside repository_config JSON
+        organization = params.get("organization")
+        repository = params.get("repository")
+
+        if repository:
+            repo_str = repository.strip()
+            if "/" in repo_str:
+                org_part, repo_part = repo_str.split("/", 1)
+                org_part = org_part.strip()
+                repo_part = repo_part.strip()
+                if org_part and repo_part:
+                    qs = qs.filter(
+                        repository_config__organization__iexact=org_part,
+                        repository_config__repository__iexact=repo_part,
+                    )
+                elif repo_part:
+                    qs = qs.filter(repository_config__repository__iexact=repo_part)
+                elif org_part:
+                    qs = qs.filter(repository_config__organization__iexact=org_part)
+            else:
+                qs = qs.filter(repository_config__repository__iexact=repo_str)
+
+        if organization:
+            qs = qs.filter(repository_config__organization__iexact=organization.strip())
+
+        return qs
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
@@ -437,6 +488,130 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         return Response(TaskProgressStreamResponseSerializer(response_data).data)
 
+    @extend_schema(
+        summary="Progress task to next stage",
+        description=(
+            "Advance a task to the next workflow stage, or to a specified stage. "
+            "If 'next_stage_id' is provided, the task will move to that stage. "
+            "Otherwise, the task will be moved to the next stage in its workflow."
+        ),
+        request=TaskProgressTaskRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task progressed to next stage"),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer, description="No next stage available or invalid stage"
+            ),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
+    def progress_task(self, request, pk=None, **kwargs):
+        task = cast(Task, self.get_object())
+
+        payload = TaskProgressTaskRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        provided_stage_id = payload.validated_data.get("next_stage_id")
+        auto = bool(payload.validated_data.get("auto", False))
+
+        new_stage = None
+        if provided_stage_id:
+            try:
+                candidate = WorkflowStage.objects.get(id=provided_stage_id)
+            except WorkflowStage.DoesNotExist:
+                return Response(
+                    ErrorResponseSerializer({"error": "Invalid next_stage_id"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Ensure stage is usable and not archived
+            if candidate.is_archived:
+                return Response(
+                    ErrorResponseSerializer({"error": "Stage is archived"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            new_stage = candidate
+        else:
+            # Determine next stage automatically
+            new_stage = task.get_next_stage()
+
+        if not new_stage:
+            return Response(
+                ErrorResponseSerializer({"error": "No next stage available for this task"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        previous_status = task.current_stage.key if task.current_stage else "backlog"
+
+        task.current_stage = new_stage
+        # Keep workflow aligned with stage if needed
+        task.workflow = new_stage.workflow
+        task.save(update_fields=["current_stage", "workflow", "updated_at"])
+
+        new_status = task.current_stage.key if task.current_stage else "backlog"
+
+        # Trigger background processing for the new stage
+        if previous_status != new_status or auto:
+            self._trigger_workflow(task)
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        summary="Set Git branch for task",
+        description="Persist the branch associated with this task's implementation work.",
+        request=TaskSetBranchRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated branch"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid branch name"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="set_branch", required_scopes=["task:write"])
+    def set_branch(self, request, pk=None, **kwargs):
+        branch = request.data.get("branch")
+
+        if not branch or not isinstance(branch, str):
+            return Response(
+                ErrorResponseSerializer({"error": "branch is required"}).data, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        task = cast(Task, self.get_object())
+        task.github_branch = branch
+        task.save(update_fields=["github_branch", "updated_at"])
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        summary="Attach pull request to task",
+        description="Persist the PR URL (and optionally branch) associated with this task.",
+        request=TaskAttachPullRequestRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated PR metadata"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid payload"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="attach_pr", required_scopes=["task:write"])
+    def attach_pr(self, request, pk=None, **kwargs):
+        payload = TaskAttachPullRequestRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        data = payload.validated_data
+
+        task = cast(Task, self.get_object())
+        task.github_pr_url = data["pr_url"]
+
+        update_fields = ["github_pr_url", "updated_at"]
+
+        branch = data.get("branch")
+        if branch:
+            task.github_branch = branch
+            update_fields.append("github_branch")
+
+        task.save(update_fields=update_fields)
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
 
 @extend_schema(tags=["workflows"])
 class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -585,6 +760,27 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(WorkflowStageArchiveResponseSerializer({"message": "Stage archived successfully"}).data)
 
 
+@extend_schema(tags=["task-progress"])
+class TaskProgressViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    API for recording task progress so clients can poll for updates without relying on streaming hooks.
+    """
+
+    serializer_class = TaskProgressDetailSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    scope_object = "task"
+    queryset = TaskProgress.objects.select_related("task").all()
+    posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update"]}
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
+
+
 @extend_schema(tags=["agents"])
 class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
@@ -594,6 +790,7 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     serializer_class = AgentDefinitionSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     queryset = None  # No model queryset since we're using hardcoded agents
+    scope_object = "task"
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
     @extend_schema(

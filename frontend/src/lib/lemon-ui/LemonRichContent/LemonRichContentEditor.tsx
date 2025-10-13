@@ -25,6 +25,7 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export type LemonRichContentEditorProps = {
@@ -42,12 +43,7 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
     content: [
         {
             type: 'paragraph',
-            content: [
-                {
-                    type: 'text',
-                    text: '',
-                },
-            ],
+            content: [],
         },
     ],
 }
@@ -80,6 +76,22 @@ export const DEFAULT_EXTENSIONS = [
 
 export const serializationOptions: { textSerializers?: Record<string, TextSerializer> } = {
     textSerializers: { [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}` },
+}
+
+export function RichContentPreview({
+    content,
+    className,
+}: {
+    content: JSONContent | null
+    className?: string
+}): JSX.Element {
+    const editor = useRichContentEditor({
+        extensions: [...DEFAULT_EXTENSIONS],
+        // preview isn't editable
+        disabled: true,
+        initialContent: content ?? DEFAULT_INITIAL_CONTENT,
+    })
+    return <RichContent editor={editor} className={className} />
 }
 
 export function LemonRichContentEditor({
@@ -133,7 +145,7 @@ export function LemonRichContentEditor({
     return (
         <div ref={dropRef} className="LemonRichContentEditor flex flex-col border rounded divide-y mt-4">
             {isPreviewShown && ttEditor ? (
-                <RichContent editor={ttEditor} />
+                <RichContent editor={ttEditor} className="bg-fill-input" />
             ) : (
                 <EditorContent editor={editor} className="RichContentEditor p-2" autoFocus />
             )}
@@ -197,13 +209,13 @@ export function LemonRichContentEditor({
     )
 }
 
-const RichContent = ({ editor }: { editor: TTEditor }): JSX.Element => {
+const RichContent = ({ editor, className }: { editor: TTEditor; className?: string }): JSX.Element => {
     const text = editor?.getText(serializationOptions)
 
     return (
         <TextContent
             text={text && text.length != 0 ? text : '_Nothing to preview_'}
-            className="p-2 rounded-t bg-fill-input"
+            className={cn('p-2 rounded-t', className)}
         />
     )
 }

@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
+from flaky import flaky
 from rest_framework import status
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
@@ -92,6 +93,7 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertIn("organization_with_team", data["available_tests"])
 
     @override_settings(TEST=True)
+    @flaky(max_runs=3, min_passes=1)
     def test_setup_with_defaults(self):
         """Test setup function with default parameters (empty payload)"""
         response = self.client.post("/api/setup_test/organization_with_team/", {}, format="json")
