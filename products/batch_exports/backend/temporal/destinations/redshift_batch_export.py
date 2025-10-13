@@ -957,7 +957,8 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             model=model, record_batch_schema=record_batch_schema, properties_data_type=inputs.table.properties_data_type
         )
 
-        merge_settings = _get_merge_settings(model=model)
+        use_super = inputs.table.properties_data_type != "varchar"
+        merge_settings = _get_merge_settings(model=model, use_super=use_super)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -1020,6 +1021,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                         schema=inputs.table.schema_name,
                         merge_key=merge_settings.merge_key,
                         update_key=merge_settings.update_key,
+                        stage_fields_cast_to_json=("properties", "person_properties", "set", "set_once")
+                        if use_super
+                        else (),
                     )
 
                 return result
