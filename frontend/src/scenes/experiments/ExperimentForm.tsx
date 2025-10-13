@@ -38,7 +38,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
-import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
     const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
@@ -500,13 +499,7 @@ const SelectExistingFeatureFlagModal = ({
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlagModalFeatureFlags.results.filter((featureFlag) => {
-                        try {
-                            return featureFlagEligibleForExperiment(featureFlag)
-                        } catch {
-                            return false
-                        }
-                    })}
+                    dataSource={featureFlagModalFeatureFlags.results}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

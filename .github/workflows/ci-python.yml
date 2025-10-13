@@ -58,7 +58,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.13
+                  python-version: 3.12.11
 
             - name: Install uv
               id: setup-uv
@@ -98,9 +98,9 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
                   restore-keys: |
-                      mypy-cache-${{ runner.os }}-
+                      mypy-cache-${{ runner.os }}-3.12-
 
             - name: Check static typing
               shell: bash -e {0}

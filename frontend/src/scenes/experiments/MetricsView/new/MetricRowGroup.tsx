@@ -373,7 +373,6 @@ export function MetricRowGroup({
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
-                                isSecondary={isSecondary}
                             />
                         </>
                     )}
