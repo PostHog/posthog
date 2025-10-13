@@ -4,7 +4,7 @@ import math
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
-from typing import Any, LiteralString, Optional, cast
+from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
@@ -15,7 +15,11 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
+from posthog.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+    ENHANCED_CHUNK_SIZE,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -180,6 +184,7 @@ def _build_query(
     schema: str,
     table_name: str,
     should_use_incremental_field: bool,
+    table_type: Literal["table", "view", "materialized_view"] | None,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
@@ -187,7 +192,10 @@ def _build_query(
 ) -> sql.Composed:
     if not should_use_incremental_field:
         if add_sampling:
-            query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
+            if table_type == "view":
+                query = sql.SQL("SELECT * FROM {} WHERE random() < 0.01").format(sql.Identifier(schema, table_name))
+            else:
+                query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
         else:
             query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
@@ -204,14 +212,24 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     if add_sampling:
-        query = sql.SQL(
-            "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
-        ).format(
-            schema=sql.Identifier(schema),
-            table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            last_value=sql.Literal(db_incremental_field_last_value),
-        )
+        if table_type == "view":
+            query = sql.SQL(
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} AND random() < 0.01"
+            ).format(
+                schema=sql.Identifier(schema),
+                table=sql.Identifier(table_name),
+                incremental_field=sql.Identifier(incremental_field),
+                last_value=sql.Literal(db_incremental_field_last_value),
+            )
+        else:
+            query = sql.SQL(
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+            ).format(
+                schema=sql.Identifier(schema),
+                table=sql.Identifier(table_name),
+                incremental_field=sql.Identifier(incremental_field),
+                last_value=sql.Literal(db_incremental_field_last_value),
+            )
     else:
         query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
             schema=sql.Identifier(schema),
@@ -325,7 +343,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
 
-        min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+        min_chunk_size = min(chunk_size, ENHANCED_CHUNK_SIZE)
 
         logger.debug(
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
@@ -503,8 +521,16 @@ def _get_table(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
     is_mat_view_res = cursor.execute(is_mat_view_query).fetchone()
+    is_mat_view = is_mat_view_res is not None and is_mat_view_res[0] is True
+    is_view = False
+    if not is_mat_view:
+        is_view_query = sql.SQL(
+            "select {table} in (select viewname from pg_views where schemaname = {schema}) as res"
+        ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        is_view_res = cursor.execute(is_view_query).fetchone()
+        is_view = is_view_res is not None and is_view_res[0] is True
 
-    if is_mat_view_res is not None and is_mat_view_res[0] is True:
+    if is_mat_view:
         # Table is a materialised view, column info doesn't exist in information_schema.columns
         query = sql.SQL("""
             SELECT
@@ -573,11 +599,13 @@ def _get_table(
             )
         )
 
-    return Table(
-        name=table_name,
-        parents=(schema,),
-        columns=columns,
-    )
+    table_type: Literal["materialized_view", "view", "table"] = "table"
+    if is_mat_view:
+        table_type = "materialized_view"
+    elif is_view:
+        table_type = "view"
+
+    return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
 def postgres_source(
@@ -613,10 +641,14 @@ def postgres_source(
             sslkey="/tmp/no.txt",
         ) as connection:
             with connection.cursor() as cursor:
+                logger.debug("Getting table types...")
+                table = _get_table(cursor, schema, table_name, logger)
+
                 inner_query_with_limit = _build_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
+                    table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
@@ -627,6 +659,7 @@ def postgres_source(
                     schema,
                     table_name,
                     should_use_incremental_field,
+                    table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
@@ -639,8 +672,6 @@ def postgres_source(
                 try:
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
-                    logger.debug("Getting table types...")
-                    table = _get_table(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
                     chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
@@ -699,6 +730,7 @@ def postgres_source(
                         schema,
                         table_name,
                         should_use_incremental_field,
+                        None,
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
