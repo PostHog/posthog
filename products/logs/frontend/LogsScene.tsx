@@ -198,7 +198,7 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 
 const Filters = (): JSX.Element => {
     const { logsLoading } = useValues(logsLogic)
-    const { runQuery } = useActions(logsLogic)
+    const { runQuery, zoomDateRange } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -209,6 +209,18 @@ const Filters = (): JSX.Element => {
                     <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
+                    <LemonButton
+                        size="small"
+                        icon={<IconMinusSquare />}
+                        type="secondary"
+                        onClick={() => zoomDateRange(2)}
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlusSquare />}
+                        type="secondary"
+                        onClick={() => zoomDateRange(0.5)}
+                    />
                     <DateRangeFilter />
                     <LemonButton
                         size="small"
