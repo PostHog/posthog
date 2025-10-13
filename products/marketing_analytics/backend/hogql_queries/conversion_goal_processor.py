@@ -144,7 +144,7 @@ class ConversionGoalProcessor:
 
     def _generate_array_based_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
-        if self.config.max_attribution_window_days > 0:
+        if self.config.attribution_window_days > 0:
             return self._generate_funnel_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
@@ -158,7 +158,7 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Build nested query structure for attribution
-        attribution_window_seconds = self.config.max_attribution_window_days * DAY_IN_SECONDS
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
         array_join = self._build_array_join_subquery(array_collection, attribution_window_seconds)
         attribution = self._build_attribution_logic_subquery(array_join)
@@ -238,7 +238,7 @@ class ConversionGoalProcessor:
                         self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
                     ]
                 )
-        elif self.goal.kind == "ActionsNode" and self.config.max_attribution_window_days > 0:
+        elif self.goal.kind == "ActionsNode" and self.config.attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
             action_conditions = self.get_base_where_conditions()
             action_filter = self._build_action_event_filter(action_conditions, date_conditions)
@@ -312,7 +312,7 @@ class ConversionGoalProcessor:
         ]
 
         # Apply extended date conditions for pageviews (attribution window)
-        attribution_window_seconds = self.config.max_attribution_window_days * DAY_IN_SECONDS
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         for date_condition in date_conditions:
             if isinstance(date_condition, ast.CompareOperation):
                 if date_condition.op == ast.CompareOperationOp.GtEq:
@@ -632,7 +632,7 @@ class ConversionGoalProcessor:
         return ast.Alias(
             alias="last_utm_timestamp",
             expr=ast.Call(
-                name=self.config.default_attribution_mode,
+                name=self.config.attribution_mode_operator,
                 args=[
                     ast.Call(
                         name="arrayFilter",
