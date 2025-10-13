@@ -195,7 +195,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
-    [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
+    [Scene.Heatmaps]: {
+        projectBased: true,
+        name: 'Heatmaps',
+        iconType: 'heatmap',
+    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -308,6 +312,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
         layout: 'app-full-scene-height',
+        iconType: 'session_replay',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -328,6 +333,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
+        iconType: 'product_analytics',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -350,6 +356,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Surveys',
         defaultDocsPath: '/docs/surveys',
         activityScope: ActivityScope.SURVEY,
+        description: 'Create surveys to collect feedback from your users',
+        iconType: 'survey',
     },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
@@ -378,6 +386,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+        description: 'Analyze your web analytics data to understand website performance and user behavior.',
+        iconType: 'web_analytics',
     },
     [Scene.EmbeddedAnalytics]: {
         projectBased: true,
