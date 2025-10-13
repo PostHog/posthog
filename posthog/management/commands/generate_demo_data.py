@@ -167,21 +167,6 @@ class Command(BaseCommand):
                         gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
-            else:
-                print(
-                    "\nMaster project reset!\n"
-                    if existing_team_id == 0
-                    else (
-                        f"\nDemo data ready for project {team.name}!\n"
-                        if existing_team_id is not None
-                        else f"\nDemo data ready for {user.email}!\n\n"
-                        "Pre-fill the login form with this link:\n"
-                        f"http://localhost:8000/login?email={user.email}\n"
-                        f"The password is:\n{password}\n\n"
-                        "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={user.email}\n"
-                    )
-                )
             if not options.get("skip_materialization"):
                 print("Materializing common columns...")
                 self.materialize_common_columns(options["days_past"])
@@ -203,6 +188,20 @@ class Command(BaseCommand):
                     print("Continuing anyway...")
             else:
                 print("Skipping feature flag sync.")
+            print(
+                "\nMaster project reset!\n"
+                if existing_team_id == 0
+                else (
+                    f"\nDemo data ready for project {team.name}!\n"
+                    if existing_team_id is not None
+                    else f"\nDemo data ready for {user.email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
+                    f"http://localhost:8000/login?email={user.email}\n"
+                    f"The password is:\n{password}\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={user.email}\n"
+                )
+            )
         else:
             print("Dry run - not saving results.")
 

@@ -176,7 +176,7 @@ export interface Params {
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
-    /** Custom description for the scene, used in the scene title section and tooltips for app */
+    /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
@@ -244,6 +244,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+
+    // Web Analytics
+    [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

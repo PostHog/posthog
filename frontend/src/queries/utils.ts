@@ -31,6 +31,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
     Node,
@@ -203,6 +204,12 @@ export function isMarketingAnalyticsTableQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsTableQuery {
     return node?.kind === NodeKind.MarketingAnalyticsTableQuery
+}
+
+export function isMarketingAnalyticsAggregatedQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsAggregatedQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
