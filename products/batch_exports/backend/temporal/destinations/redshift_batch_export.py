@@ -782,7 +782,7 @@ def _get_table_schemas(
     properties_data_type: str,
 ) -> TableSchemas:
     """Return the schemas used for main and stage tables."""
-    known_super_columns = {"properties", "set", "set_once", "person_properties"}
+    known_super_columns = {"properties", "set", "set_once", "person_properties", "urls"}
     if properties_data_type != "varchar":
         properties_type = "SUPER"
 
@@ -1177,7 +1177,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
-        json_columns = ("properties", "person_properties", "set", "set_once")
+        json_columns = ("properties", "person_properties", "set", "set_once", "urls")
         transformer = ParquetStreamTransformer(
             schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=json_columns),
             compression="zstd",
