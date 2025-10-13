@@ -51,7 +51,7 @@ from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
-from products.batch_exports.backend.api.destination_tests.destination_tests import get_destination_test
+from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
 
 logger = structlog.get_logger(__name__)
