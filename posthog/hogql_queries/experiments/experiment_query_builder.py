@@ -94,18 +94,22 @@ class ExperimentQueryBuilder:
         else:
             join_time_constraint = "AND metric_events.timestamp >= exposures.first_exposure_time"
 
+        # Build exposure conditions list (for WHERE clause)
+        exposure_conditions = self._build_exposure_conditions_list()
+
         # Build the query with placeholders
+        # Note: We use a placeholder for exposure_predicate in SELECT but will replace WHERE manually
         query = parse_select(
             f"""
             WITH exposures AS (
                 SELECT
                     {{entity_key}} AS entity_id,
                     {{variant_expr}} AS variant,
-                    minIf(timestamp, {{exposure_predicate}}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {{exposure_predicate}}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {{exposure_predicate}}) AS exposure_session_id
+                    minIf(timestamp, {{exposure_check}}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {{exposure_check}}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {{exposure_check}}) AS exposure_session_id
                 FROM events
-                WHERE {{exposure_predicate}}
+                WHERE TRUE
                 GROUP BY entity_id
             ),
 
@@ -140,7 +144,7 @@ class ExperimentQueryBuilder:
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
                 "variant_expr": self._build_variant_expr(),
-                "exposure_predicate": self._build_exposure_predicate(),
+                "exposure_check": self._build_exposure_check(),
                 "metric_predicate": self._build_metric_predicate(),
                 "value_expr": self._build_value_expr(),
                 "value_agg": self._build_value_aggregation_expr(math_type),
@@ -149,7 +153,87 @@ class ExperimentQueryBuilder:
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Manually replace the WHERE clause in the exposures CTE with proper conditions
+        if query.ctes and "exposures" in query.ctes:
+            exposures_cte = query.ctes["exposures"]
+            if isinstance(exposures_cte, ast.CTE) and isinstance(exposures_cte.expr, ast.SelectQuery):
+                exposures_cte.expr.where = ast.And(exprs=exposure_conditions)
+
         return query
+
+    def _build_exposure_conditions_list(self) -> list[ast.Expr]:
+        """
+        Builds a list of conditions for the exposure WHERE clause.
+        Returns a list of AST expressions that will be AND'd together.
+        """
+        conditions = []
+
+        # Date range conditions
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.date_range_query.date_from_as_hogql(),
+            )
+        )
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.date_range_query.date_to_as_hogql(),
+            )
+        )
+
+        # Event/action filter
+        event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
+
+        if (
+            isinstance(self.exposure_config, ExperimentEventExposureConfig)
+            and self.exposure_config.event == "$feature_flag_called"
+        ):
+            flag_property = "$feature_flag"
+            event_predicate = ast.And(
+                exprs=[
+                    event_predicate,
+                    parse_expr(
+                        "{flag_property} = {feature_flag_key}",
+                        placeholders={
+                            "flag_property": ast.Field(chain=["properties", flag_property]),
+                            "feature_flag_key": ast.Constant(value=self.feature_flag_key),
+                        },
+                    ),
+                ]
+            )
+
+        conditions.append(event_predicate)
+
+        # Variant filter
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["properties", self.variant_property]),
+                right=ast.Constant(value=self.variants),
+            )
+        )
+
+        # Test accounts filter
+        if (
+            self.filter_test_accounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            for property_filter in self.team.test_account_filters:
+                conditions.append(property_to_expr(property_filter, self.team))
+
+        return conditions
+
+    def _build_exposure_check(self) -> ast.Expr:
+        """
+        Builds a simplified exposure check condition for use in minIf/argMinIf.
+        This is the same as exposure conditions but as a single AND expression.
+        """
+        return ast.And(exprs=self._build_exposure_conditions_list())
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
@@ -164,21 +248,20 @@ class ExperimentQueryBuilder:
         """
         Builds the variant selection expression based on multiple variant handling.
         """
+        # For variant selection, we use a simpler check (no need for all conditions)
+        # We just need to check which variant the entity saw
+        variant_property_field = ast.Field(chain=["properties", self.variant_property])
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
-            return parse_expr(
-                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
-                placeholders={
-                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
-                    "exposure_predicate": self._build_exposure_predicate(),
-                },
+            return ast.Call(
+                name="argMin",
+                args=[variant_property_field, ast.Field(chain=["timestamp"])],
             )
         else:
             return parse_expr(
-                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
                 placeholders={
-                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
-                    "exposure_predicate": self._build_exposure_predicate(),
+                    "variant_property": variant_property_field,
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )
@@ -334,6 +417,9 @@ class ExperimentQueryBuilder:
         else:
             join_time_constraint = "AND metric_events.timestamp >= exposures.first_exposure_time"
 
+        # Build exposure conditions list (for WHERE clause)
+        exposure_conditions = self._build_exposure_conditions_list()
+
         # Build the base query using parse_select
         query = parse_select(
             f"""
@@ -341,11 +427,11 @@ class ExperimentQueryBuilder:
                 SELECT
                     {{entity_key}} AS entity_id,
                     {{variant_expr}} AS variant,
-                    minIf(timestamp, {{exposure_predicate}}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {{exposure_predicate}}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {{exposure_predicate}}) AS exposure_session_id
+                    minIf(timestamp, {{exposure_check}}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {{exposure_check}}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {{exposure_check}}) AS exposure_session_id
                 FROM events
-                WHERE {{exposure_predicate}}
+                WHERE TRUE
                 GROUP BY entity_id
             ),
 
@@ -384,7 +470,7 @@ class ExperimentQueryBuilder:
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
                 "variant_expr": self._build_variant_expr(),
-                "exposure_predicate": self._build_exposure_predicate(),
+                "exposure_check": self._build_exposure_check(),
                 "funnel_steps_filter": self._build_funnel_steps_filter(),
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
@@ -394,6 +480,12 @@ class ExperimentQueryBuilder:
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Manually replace the WHERE clause in the exposures CTE with proper conditions
+        if query.ctes and "exposures" in query.ctes:
+            exposures_cte = query.ctes["exposures"]
+            if isinstance(exposures_cte, ast.CTE) and isinstance(exposures_cte.expr, ast.SelectQuery):
+                exposures_cte.expr.where = ast.And(exprs=exposure_conditions)
 
         # Now manually inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
