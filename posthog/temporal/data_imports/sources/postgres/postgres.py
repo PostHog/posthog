@@ -749,8 +749,7 @@ def postgres_source(
 
                                 yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
                     except psycopg.errors.SerializationFailure as e:
-                        # This error happens when the read replica is out of sync with the primary.
-                        # We log it and retry the chunk
+                        # This error happens when the read replica is out of sync with the primary
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
                         continue
             else:
