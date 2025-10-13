@@ -146,45 +146,53 @@ The acceptance test suite is implemented in Python using pytest to test against 
 
 #### Prerequisites
 
-- **Local PostHog Instance**: Full PostHog deployment running locally
-- **Local S3 Storage**: S3-compatible storage (configured via PostHog local setup)
+- **Local PostHog Instance**: Full PostHog deployment running locally with all services (Django, capture, Kafka, ClickHouse, PostgreSQL)
 - **Capture Service**: Running with `/i/v0/ai` endpoint enabled
-- **Test Configuration**: Environment variables for service endpoints and credentials
+- **Personal API Key**: PostHog personal API key for creating test organizations/projects
 
 #### Environment Configuration
 
 ```bash
-# PostHog Local Instance
-export POSTHOG_HOST="http://localhost:8000"
-export POSTHOG_API_KEY="test_api_key_123"
-export POSTHOG_PROJECT_ID="1"
+# PostHog Instance (defaults to http://localhost:8010 if not set)
+export POSTHOG_TEST_BASE_URL="http://localhost:8010"
 
-# Local S3 Configuration
-export AWS_ENDPOINT_URL="http://localhost:9000"  # Local S3-compatible endpoint
-export AWS_ACCESS_KEY_ID="minioadmin"
-export AWS_SECRET_ACCESS_KEY="minioadmin"
-export AWS_DEFAULT_REGION="us-east-1"
-export LLMA_S3_BUCKET="posthog-llma-test"
-
-# Capture Service
-export CAPTURE_ENDPOINT="http://localhost:3000"
-export LLMA_TEST_MODE="local"
+# Personal API Key (required - no default)
+export POSTHOG_PERSONAL_API_KEY="your_personal_api_key_here"
 ```
+
+**Creating a Personal API Key:**
+
+1. Navigate to your PostHog instance (e.g., `http://localhost:8010`)
+2. Go to **Settings** (sidebar) → **Account** → **Personal API Keys**
+3. Click **Create personal API key**
+4. Configure the key:
+   - **Organization & project access**: Set to **All** (to avoid permission issues)
+   - **Scopes**: Set to **All access** (required for creating/deleting test organizations and projects)
+5. Copy the generated key and set it as `POSTHOG_PERSONAL_API_KEY`
+
+**Note**: The test suite automatically creates temporary organizations and projects for each test class and cleans them up after tests complete. S3 configuration is handled by the PostHog instance itself.
 
 ### Test Execution
 
 #### Running Tests
 
 ```bash
-# Run all LLMA acceptance tests
-pytest common/ingestion/acceptance_tests/test_llm_analytics.py -v
+# Run all acceptance tests using the test runner
+cd common/ingestion/acceptance_tests
+python run_tests.py
 
-# Run specific test
-pytest common/ingestion/acceptance_tests/test_llm_analytics.py::test_basic_ai_generation_event -v
+# Or run pytest directly for specific tests
+pytest test_llm_analytics.py::TestLLMAnalytics::test_basic_ai_generation_event -v
 
-# Run with detailed output
-pytest common/ingestion/acceptance_tests/test_llm_analytics.py -v -s
+# Run specific test class
+pytest test_llm_analytics.py::TestLLMAnalytics -v
 ```
+
+The `run_tests.py` script automatically:
+
+- Configures pytest with appropriate logging and verbosity settings
+- Runs tests in parallel using `--numprocesses=auto` for faster execution
+- Shows detailed debug logs during test execution
 
 #### Test Utilities
 
@@ -208,100 +216,3 @@ Each test phase will include common utilities for:
 - **Mandatory Testing**: All acceptance tests for a phase must pass before proceeding to implementation of the next phase
 - **Regression Prevention**: Previous phase tests continue to run to ensure no regression
 - **Incremental Validation**: Each phase builds upon validated functionality from previous phases
-
-## Production Testing
-
-### Overview
-
-For validating the LLM Analytics capture pipeline in production environments, the test suite can be configured to run against live PostHog instances with real AWS S3 storage.
-
-### Configuration Requirements
-
-#### PostHog Credentials
-
-- **Project API Key**: PostHog project private API key for authentication
-- **PostHog URL**: PostHog instance URL (cloud or self-hosted)
-- **Project ID**: PostHog project identifier for query API access
-
-#### AWS S3 Credentials
-
-- **AWS Access Key ID**: Limited IAM user with read-only S3 access
-- **AWS Secret Access Key**: Corresponding secret key
-- **S3 Bucket Name**: Production S3 bucket name
-- **Region**: AWS region for S3 bucket
-
-### IAM Policy for S3 Read Access
-
-The following IAM policy provides minimal read-only access for a specific team prefix:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject",
-                "s3:GetObjectMetadata",
-                "s3:ListBucket"
-            ],
-            "Resource": [
-                "arn:aws:s3:::your-llma-bucket/llma/TEAM_ID/*",
-                "arn:aws:s3:::your-llma-bucket"
-            ],
-            "Condition": {
-                "StringLike": {
-                    "s3:prefix": "llma/TEAM_ID/*"
-                }
-            }
-        }
-    ]
-}
-```
-
-### AWS CLI Script for S3 Key Generation
-
-A separate script (`generate-s3-test-keys.sh`) will be implemented to generate limited S3 read-only credentials for LLMA testing. The script will create IAM users with team-specific permissions and output the necessary environment variables for testing.
-
-### Production Test Configuration
-
-#### Environment Variables
-
-```bash
-# PostHog Configuration
-export POSTHOG_PROJECT_API_KEY="your_posthog_api_key"
-export POSTHOG_HOST="https://app.posthog.com"  # or your self-hosted URL
-export POSTHOG_PROJECT_ID="12345"
-
-# AWS S3 Configuration
-export AWS_ACCESS_KEY_ID="your_limited_access_key"
-export AWS_SECRET_ACCESS_KEY="your_limited_secret_key"
-export AWS_DEFAULT_REGION="us-east-1"
-export LLMA_S3_BUCKET="your-llma-bucket"
-export LLMA_TEAM_ID="123"
-
-# Test Configuration
-export LLMA_TEST_MODE="production"
-```
-
-### Production Test Execution
-
-#### Safety Measures
-
-- **Read-Only Operations**: Production tests only read data, never write or modify
-- **Team Isolation**: Tests only access data for the specified team ID
-- **Rate Limiting**: Production tests include delays to avoid overwhelming services
-- **Data Validation**: Verify S3 objects exist and are accessible without downloading large payloads
-
-#### Usage Example
-
-```bash
-# Generate S3 test credentials (script to be implemented)
-./generate-s3-test-keys.sh 123 posthog-llm-analytics
-
-# Configure environment
-source production-test.env
-
-# Run production validation tests
-pytest tests/integration/production/ -v --tb=short
-```
