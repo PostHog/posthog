@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.274.2
-        version: 1.274.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.275.1
+        version: 1.275.1(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -526,14 +526,14 @@ importers:
         specifier: workspace:*
         version: link:../products/web_analytics
       '@posthog/rrweb':
-        specifier: 0.0.25
-        version: 0.0.25
+        specifier: 0.0.26
+        version: 0.0.26
       '@posthog/rrweb-plugin-console-record':
-        specifier: 0.0.25
-        version: 0.0.25(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.25)
+        specifier: 0.0.26
+        version: 0.0.26(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.26)
       '@posthog/rrweb-types':
-        specifier: 0.0.25
-        version: 0.0.25
+        specifier: 0.0.26
+        version: 0.0.26
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -826,8 +826,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.274.2
-        version: 1.274.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.275.1
+        version: 1.275.1(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1795,8 +1795,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.274.2
-        version: 1.274.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.275.1
+        version: 1.275.1(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2214,8 +2214,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.274.2
-        version: 1.274.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.275.1
+        version: 1.275.1(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2461,8 +2461,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.274.2
-        version: 1.274.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.275.1
+        version: 1.275.1(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -6414,8 +6414,8 @@ packages:
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
 
-  '@posthog/rrweb-plugin-console-record@0.0.25':
-    resolution: {integrity: sha512-b4K33UOhBr4ypTSve5ONRCN5Tm2D4O8kvw6dL6jLYApo7poNcaUPCQrbcx3P1REGZWC1LQtmdx8X3rOaCGs0lg==}
+  '@posthog/rrweb-plugin-console-record@0.0.26':
+    resolution: {integrity: sha512-x1pcNVQ5yNRgNObrvMcXOui3d82Ulqils2fYkF87NFQpPCCoLKTb4BIFn9IYIaqkzrUmAdq2zU5bjPlAakzM2A==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
@@ -6423,8 +6423,8 @@ packages:
   '@posthog/rrweb-snapshot@0.0.4':
     resolution: {integrity: sha512-ifZH6T0FYjHtiCcqQOdrLn8YH9I7OOIWu2GSZMCzFd8F8oX1gtX4Tk/yX0sA6qAIWtfwDC0dKXgHWS2/EqGjgg==}
 
-  '@posthog/rrweb-types@0.0.25':
-    resolution: {integrity: sha512-e4ZIyTFLKoAWxpAOh+HA7eysaRtiR3Rhdw9KW+ytpNL8s/A/vpn9exTZSStWUfz8o9w2x7n2lRGZsA12xU5kxA==}
+  '@posthog/rrweb-types@0.0.26':
+    resolution: {integrity: sha512-aMQ8zcW1xWH7k2Pk2LcS0ZMev5Jah8JrN43prYNk4t960Fr0NjINP1eeF7vTvDtoQyEBJ6zNg7xa0D0nn4atzA==}
 
   '@posthog/rrweb-types@0.0.8':
     resolution: {integrity: sha512-CdZkKgr6VhCNJZLRdw7TC1J4iI/H+nEt5NZSBjV8vglQ4o31kl0KUfo2g0r6EvAm3mX3p5/mGrqub+LxABwzQQ==}
@@ -6432,8 +6432,8 @@ packages:
   '@posthog/rrweb-utils@0.0.4':
     resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
 
-  '@posthog/rrweb@0.0.25':
-    resolution: {integrity: sha512-f9JdlcRE6LqaHuzkZBJVW1z6AkO/NxUQU1hFrzocmkCP3vJGW6uxGl0/pFUH9OB9p3paj08tS+S+c2qSZJMoSw==}
+  '@posthog/rrweb@0.0.26':
+    resolution: {integrity: sha512-UvH8ki2poxIInMbySlTLHWstiY8mhm5pCFFelUf5fe8ke5IYTpDVH6/JrLJbcmxlpad/nhwHH4UU4mx4nnY46Q==}
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
@@ -16271,8 +16271,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.274.2:
-    resolution: {integrity: sha512-mAVrSgmG++lVoALQLiIWKEc/txr/kXmSHLMG/lzlRJS4vP5IsxXCBjJrHWbVyXqC5UGBIuwU4E7N4ZhZ0IFmQQ==}
+  posthog-js@1.275.1:
+    resolution: {integrity: sha512-ILglAzeUQl7h7rB3axr5rn5j2wBp53XedzJoUha5IC594BsrScdOD9NjLpkDAqV/Q5IsRKXbYOkr+HKaxgb4FA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -25471,26 +25471,26 @@ snapshots:
     dependencies:
       '@posthog/rrweb-snapshot': 0.0.4
 
-  '@posthog/rrweb-plugin-console-record@0.0.25(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.25)':
+  '@posthog/rrweb-plugin-console-record@0.0.26(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.26)':
     dependencies:
-      '@posthog/rrweb': 0.0.25
+      '@posthog/rrweb': 0.0.26
       '@posthog/rrweb-utils': 0.0.4
 
   '@posthog/rrweb-snapshot@0.0.4':
     dependencies:
       postcss: 8.5.6
 
-  '@posthog/rrweb-types@0.0.25': {}
+  '@posthog/rrweb-types@0.0.26': {}
 
   '@posthog/rrweb-types@0.0.8': {}
 
   '@posthog/rrweb-utils@0.0.4': {}
 
-  '@posthog/rrweb@0.0.25':
+  '@posthog/rrweb@0.0.26':
     dependencies:
       '@posthog/rrdom': 0.0.4
       '@posthog/rrweb-snapshot': 0.0.4
-      '@posthog/rrweb-types': 0.0.25
+      '@posthog/rrweb-types': 0.0.26
       '@posthog/rrweb-utils': 0.0.4
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
@@ -28135,7 +28135,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -34750,7 +34750,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -35030,7 +35030,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -38008,7 +38008,7 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.274.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.275.1(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       '@posthog/core': 1.2.4
       core-js: 3.46.0

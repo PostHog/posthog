@@ -30,6 +30,7 @@ exports[`queries errorTrackingQuery usage in web analytics should return a query
     "limit": 4,
     "orderBy": "users",
     "orderDirection": undefined,
+    "personId": undefined,
     "searchQuery": undefined,
     "status": undefined,
     "tags": {
