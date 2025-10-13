@@ -248,7 +248,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 
 [tool.black]
 line-length = 120
-target-version = ['py311']
+target-version = ['py312']
 
 [tool.isort]
 profile = "black"
@@ -336,7 +336,7 @@ section-order = [
 "products" = ["products"]
 
 [tool.dagster]
-python_version = "3.11"
+python_version = "3.12"
 
 [tool.mypy-baseline]
 sort_baseline = true
