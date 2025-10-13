@@ -221,7 +221,10 @@ fn remove_mp_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
     props
 }
 
-fn add_source_data(mut props: HashMap<String, Value>, job_id: uuid::Uuid) -> HashMap<String, Value> {
+fn add_source_data(
+    mut props: HashMap<String, Value>,
+    job_id: uuid::Uuid,
+) -> HashMap<String, Value> {
     props.insert("historical_migration".to_string(), Value::Bool(true));
     props.insert(
         "analytics_source".to_string(),
