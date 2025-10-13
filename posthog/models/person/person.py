@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from django.db import connections, models, transaction
+from django.db import connections, models, router, transaction
 from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
@@ -100,8 +100,8 @@ class Person(models.Model):
 
         for distinct_id in distinct_ids:
             if not distinct_id == main_distinct_id:
-                # Use the same database as the Person model (handles persons_db_writer routing in production)
-                with transaction.atomic(using=self._state.db or "default"):
+                db_alias = router.db_for_write(PersonDistinctId) or "default"
+                with transaction.atomic(using=db_alias):
                     pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
                     person, _ = Person.objects.get_or_create(
                         uuid=uuidFromDistinctId(self.team_id, distinct_id),
