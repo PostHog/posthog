@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import contextlib
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -28,6 +29,10 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+
+def is_supabase_read_replica(host: str) -> bool:
+    return host.endswith(".supabase.co") and "-rr-" in host
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -306,7 +311,9 @@ def _has_duplicate_primary_keys(
         return False
 
 
-def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _get_table_chunk_size(
+    cursor: psycopg.Cursor, inner_query: sql.Composed, host: str, logger: FilteringBoundLogger
+) -> int:
     try:
         query = sql.SQL("""
             SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
@@ -326,6 +333,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
 
         min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+
+        if is_supabase_read_replica(host):
+            sb_chunk = min(min_chunk_size, 5000)
+            logger.debug(f"_get_table_chunk_size: Using supabase read replica, capping chunk size to {sb_chunk}")
+            return sb_chunk
 
         logger.debug(
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
@@ -642,7 +654,7 @@ def postgres_source(
                     logger.debug("Getting table types...")
                     table = _get_table(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, host, logger)
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                     logger.debug("Getting partition settings...")
@@ -672,49 +684,98 @@ def postgres_source(
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
         with tunnel() as (host, port):
-            with psycopg.connect(
-                host=host,
-                port=port,
-                dbname=database,
-                user=user,
-                password=password,
-                sslmode=sslmode,
-                connect_timeout=5,
-                sslrootcert="/tmp/no.txt",
-                sslcert="/tmp/no.txt",
-                sslkey="/tmp/no.txt",
-                cursor_factory=psycopg.ServerCursor,
-            ) as connection:
-                connection.adapters.register_loader("json", JsonAsStringLoader)
-                connection.adapters.register_loader("jsonb", JsonAsStringLoader)
-                connection.adapters.register_loader("int4range", RangeAsStringLoader)
-                connection.adapters.register_loader("int8range", RangeAsStringLoader)
-                connection.adapters.register_loader("numrange", RangeAsStringLoader)
-                connection.adapters.register_loader("tsrange", RangeAsStringLoader)
-                connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
-                connection.adapters.register_loader("daterange", RangeAsStringLoader)
+            using_sb_read_replica = is_supabase_read_replica(host)
+            cursor_factory = psycopg.ServerCursor if not using_sb_read_replica else None
 
-                with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
-                    query = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                    )
-                    logger.debug(f"Postgres query: {query.as_string()}")
+            @contextlib.contextmanager
+            def get_connection():
+                with psycopg.connect(
+                    host=host,
+                    port=port,
+                    dbname=database,
+                    user=user,
+                    password=password,
+                    sslmode=sslmode,
+                    connect_timeout=5,
+                    sslrootcert="/tmp/no.txt",
+                    sslcert="/tmp/no.txt",
+                    sslkey="/tmp/no.txt",
+                    cursor_factory=cursor_factory,
+                ) as connection:
+                    connection.adapters.register_loader("json", JsonAsStringLoader)
+                    connection.adapters.register_loader("jsonb", JsonAsStringLoader)
+                    connection.adapters.register_loader("int4range", RangeAsStringLoader)
+                    connection.adapters.register_loader("int8range", RangeAsStringLoader)
+                    connection.adapters.register_loader("numrange", RangeAsStringLoader)
+                    connection.adapters.register_loader("tsrange", RangeAsStringLoader)
+                    connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
+                    connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                    yield connection
 
-                    cursor.execute(query)
+            if using_sb_read_replica:
+                # If the db is a read replica, we create a new query for each chunk.
+                # This is due to how the primary replicates over, we often run into
+                # errors when vacuums are happening
+                logger.debug("Using a supabase read replica. Querying each chunk separately")
+                query = _build_query(
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                )
 
-                    column_names = [column.name for column in cursor.description or []]
+                offset = 0
+                while True:
+                    try:
+                        with get_connection() as connection:
+                            with connection.cursor() as cursor:
+                                query_with_limit = cast(
+                                    LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
+                                )
+                                query_with_limit_sql = sql.SQL(query_with_limit).format()
 
-                    while True:
-                        rows = cursor.fetchmany(chunk_size)
-                        if not rows:
-                            break
+                                logger.debug(f"Postgres query: {query_with_limit}")
+                                cursor.execute(query_with_limit_sql)
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                                column_names = [column.name for column in cursor.description or []]
+                                rows = cursor.fetchall()
+
+                                if not rows or len(rows) == 0:
+                                    break
+
+                                offset += len(rows)
+
+                                yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                    except psycopg.errors.SerializationFailure as e:
+                        # This error happens when the read replica is out of sync with the primary.
+                        # We log it and retry the chunk
+                        logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
+                        continue
+            else:
+                with get_connection() as connection:
+                    with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
+                        query = _build_query(
+                            schema,
+                            table_name,
+                            should_use_incremental_field,
+                            incremental_field,
+                            incremental_field_type,
+                            db_incremental_field_last_value,
+                        )
+                        logger.debug(f"Postgres query: {query.as_string()}")
+
+                        cursor.execute(query)
+
+                        column_names = [column.name for column in cursor.description or []]
+
+                        while True:
+                            rows = cursor.fetchmany(chunk_size)
+                            if not rows:
+                                break
+
+                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
     name = NamingConvention().normalize_identifier(table_name)
 
