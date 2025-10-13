@@ -977,7 +977,7 @@
         FROM
           (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
            FROM events
-           WHERE and(equals(events.team_id, 99999), 1))
+           WHERE equals(events.team_id, 99999))
         ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_product.name, 'Product C'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
@@ -1130,7 +1130,7 @@
         FROM
           (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
            FROM events
-           WHERE and(equals(events.team_id, 99999), 1))
+           WHERE equals(events.team_id, 99999))
         ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_product.name, 'Product D'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
@@ -1322,7 +1322,7 @@
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-           WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+           WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
         ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_customer.country, 'US'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
@@ -1493,7 +1493,7 @@
         FROM
           (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
            FROM events
-           WHERE and(equals(events.team_id, 99999), 1))
+           WHERE equals(events.team_id, 99999))
         ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), in(revenue_analytics_product.name, tuple('Product A', 'Product D')))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
