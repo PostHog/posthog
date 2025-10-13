@@ -4,7 +4,14 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.test import override_settings
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    SessionTableVersion,
+)
 
 from posthog.hogql.metadata import get_hogql_metadata
 
@@ -28,9 +35,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-    def _select(self, query: str) -> HogQLMetadataResponse:
+    def _select(self, query: str, modifiers: Optional[HogQLQueryModifiers]) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None),
+            query=HogQLMetadata(
+                kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None, modifiers=modifiers
+            ),
             team=self.team,
         )
 
@@ -540,8 +549,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])
 
     def test_collects_tables_from_lazy_joins(self):
-        metadata = self._select("""
+        metadata = self._select(
+            """
         SELECT events.session.id FROM events
-        """)
+        """,
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
+        )
         self.assertEqual(metadata.isValid, True)
-        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "sessions"]))
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events"]))
+        self.assertEqual(sorted(metadata.ch_table_names or []), sorted(["events", "raw_sessions_v3"]))

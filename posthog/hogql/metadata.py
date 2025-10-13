@@ -37,7 +37,7 @@ def get_hogql_metadata(
         table_names=[],
     )
 
-    query_modifiers = create_default_modifiers_for_team(team)
+    query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
 
     try:
         context = HogQLContext(
