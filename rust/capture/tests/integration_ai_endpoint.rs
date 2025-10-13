@@ -19,7 +19,7 @@ use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use futures::StreamExt;
 use reqwest::multipart::{Form, Part};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -77,6 +77,28 @@ async fn send_multipart_request(
     }
 
     request.send().await
+}
+
+/// Helper to create a basic AI event with properties in separate parts
+fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) -> Form {
+    let event_data = json!({
+        "event": event_name,
+        "distinct_id": distinct_id
+    });
+
+    Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
 }
 
 // Helper to setup test router
@@ -175,21 +197,11 @@ async fn test_ai_endpoint_no_auth_returns_401() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
-    let event_data = json!({
-        "event": "$ai_generation",
-        "distinct_id": "test_user",
-        "properties": {
-            "$ai_model": "test"
-        }
+    let properties = json!({
+        "$ai_model": "test"
     });
 
-    let form = Form::new().part(
-        "event",
-        Part::bytes(serde_json::to_vec(&event_data).unwrap())
-            .file_name("event.json")
-            .mime_str("application/json")
-            .unwrap(),
-    );
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
 
     let response = send_multipart_request(&test_client, form, None).await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -206,10 +218,7 @@ async fn test_ai_endpoint_wrong_content_type_returns_400() {
 
     let event_data = json!({
         "event": "$ai_generation",
-        "distinct_id": "test_user",
-        "properties": {
-            "$ai_model": "test"
-        }
+        "distinct_id": "test_user"
     });
 
     let response = test_client
@@ -249,10 +258,11 @@ async fn test_multipart_parsing_with_multiple_blobs() {
 
     let event_data = json!({
         "event": "$ai_generation",
-        "distinct_id": "test_user",
-        "properties": {
-            "$ai_model": "test-multi-blob"
-        }
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-multi-blob"
     });
 
     let input_blob = json!({"messages": [{"role": "user", "content": "Hello"}]});
@@ -263,28 +273,30 @@ async fn test_multipart_parsing_with_multiple_blobs() {
         .part(
             "event",
             Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .file_name("event.json")
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
                 .mime_str("application/json")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_input",
             Part::bytes(serde_json::to_vec(&input_blob).unwrap())
-                .file_name("input.json")
                 .mime_str("application/json")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_output",
             Part::bytes(serde_json::to_vec(&output_blob).unwrap())
-                .file_name("output.json")
                 .mime_str("application/json")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_metadata",
             Part::bytes(serde_json::to_vec(&metadata_blob).unwrap())
-                .file_name("metadata.json")
                 .mime_str("application/json")
                 .unwrap(),
         );
@@ -294,11 +306,17 @@ async fn test_multipart_parsing_with_multiple_blobs() {
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts.len(), 4);
+    assert_eq!(accepted_parts.len(), 5);
     assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[1]["name"], "event.properties.$ai_input");
-    assert_eq!(accepted_parts[2]["name"], "event.properties.$ai_output");
-    assert_eq!(accepted_parts[3]["name"], "event.properties.$ai_metadata");
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[1]["name"], "event.properties");
+    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 31);
+    assert_eq!(accepted_parts[2]["name"], "event.properties.$ai_input");
+    assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 48);
+    assert_eq!(accepted_parts[3]["name"], "event.properties.$ai_output");
+    assert_eq!(accepted_parts[3]["length"].as_u64().unwrap(), 48);
+    assert_eq!(accepted_parts[4]["name"], "event.properties.$ai_metadata");
+    assert_eq!(accepted_parts[4]["length"].as_u64().unwrap(), 41);
 }
 
 #[tokio::test]
@@ -308,38 +326,41 @@ async fn test_multipart_parsing_with_mixed_content_types() {
 
     let event_data = json!({
         "event": "$ai_generation",
-        "distinct_id": "test_user",
-        "properties": {
-            "$ai_model": "test-mixed-types"
-        }
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-mixed-types"
     });
 
     let form = Form::new()
         .part(
             "event",
             Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .file_name("event.json")
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
                 .mime_str("application/json")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_json_blob",
             Part::bytes(serde_json::to_vec(&json!({"type": "json"})).unwrap())
-                .file_name("data.json")
                 .mime_str("application/json")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_text_blob",
             Part::bytes(b"This is plain text content".to_vec())
-                .file_name("data.txt")
                 .mime_str("text/plain")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_binary_blob",
             Part::bytes(vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05])
-                .file_name("data.bin")
                 .mime_str("application/octet-stream")
                 .unwrap(),
         );
@@ -349,10 +370,15 @@ async fn test_multipart_parsing_with_mixed_content_types() {
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts.len(), 4);
-    assert_eq!(accepted_parts[1]["content-type"], "application/json");
-    assert_eq!(accepted_parts[2]["content-type"], "text/plain");
-    assert_eq!(accepted_parts[3]["content-type"], "application/octet-stream");
+    assert_eq!(accepted_parts.len(), 5);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 32);
+    assert_eq!(accepted_parts[2]["content-type"], "application/json");
+    assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 15);
+    assert_eq!(accepted_parts[3]["content-type"], "text/plain");
+    assert_eq!(accepted_parts[3]["length"].as_u64().unwrap(), 26);
+    assert_eq!(accepted_parts[4]["content-type"], "application/octet-stream");
+    assert_eq!(accepted_parts[4]["length"].as_u64().unwrap(), 6);
 }
 
 #[tokio::test]
@@ -362,10 +388,11 @@ async fn test_multipart_parsing_with_large_blob() {
 
     let event_data = json!({
         "event": "$ai_generation",
-        "distinct_id": "test_user",
-        "properties": {
-            "$ai_model": "test-large"
-        }
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-large"
     });
 
     // Create a large JSON blob (100KB)
@@ -377,47 +404,18 @@ async fn test_multipart_parsing_with_large_blob() {
         .part(
             "event",
             Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .file_name("event.json")
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
                 .mime_str("application/json")
                 .unwrap(),
         )
         .part(
             "event.properties.$ai_large_input",
             Part::bytes(serde_json::to_vec(&large_blob).unwrap())
-                .file_name("large.json")
-                .mime_str("application/json")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_multipart_parsing_with_empty_blob() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let event_data = json!({
-        "event": "$ai_generation",
-        "distinct_id": "test_user",
-        "properties": {
-            "$ai_model": "test-empty"
-        }
-    });
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .file_name("event.json")
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_empty",
-            Part::bytes(Vec::new())
-                .file_name("empty.json")
                 .mime_str("application/json")
                 .unwrap(),
         );
@@ -427,7 +425,52 @@ async fn test_multipart_parsing_with_empty_blob() {
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts[1]["length"], 0);
+    assert_eq!(accepted_parts.len(), 3);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 26);
+    assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 102914);
+}
+
+#[tokio::test]
+async fn test_multipart_parsing_with_empty_blob() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-empty"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_empty",
+            Part::bytes(Vec::new())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
+    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
+    assert_eq!(accepted_parts[2]["length"], 0);
 }
 
 // ----------------------------------------------------------------------------
@@ -701,18 +744,48 @@ async fn test_ai_endpoint_returns_200_for_valid_request() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
+    assert!(response_json["accepted_parts"].is_array());
+    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
+    assert_eq!(accepted_parts.len(), 2);
+    assert_eq!(accepted_parts[0]["name"], "event");
+    assert_eq!(accepted_parts[0]["content-type"], "application/json");
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[1]["name"], "event.properties");
+    assert_eq!(accepted_parts[1]["content-type"], "application/json");
+    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 20);
+}
+
+// ----------------------------------------------------------------------------
+// Properties Handling Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_properties_in_event_part_only() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
     let event_data = json!({
         "event": "$ai_generation",
         "distinct_id": "test_user",
         "properties": {
-            "$ai_model": "test"
+            "$ai_model": "embedded-model",
+            "custom_field": "embedded-value"
         }
     });
 
     let form = Form::new().part(
         "event",
         Part::bytes(serde_json::to_vec(&event_data).unwrap())
-            .file_name("event.json")
             .mime_str("application/json")
             .unwrap(),
     );
@@ -721,9 +794,86 @@ async fn test_ai_endpoint_returns_200_for_valid_request() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
-    assert!(response_json["accepted_parts"].is_array());
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 1);
     assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[0]["content-type"], "application/json");
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 128);
+}
+
+#[tokio::test]
+async fn test_properties_in_separate_part_only() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "separate-model",
+        "custom_field": "separate-value"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
+    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
+    assert_eq!(accepted_parts.len(), 2);
+    assert_eq!(accepted_parts[0]["name"], "event");
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[1]["name"], "event.properties");
+    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 62);
+}
+
+#[tokio::test]
+async fn test_properties_both_embedded_and_separate_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "properties": {
+            "$ai_model": "embedded-model",
+            "custom_field": "embedded-value"
+        }
+    });
+
+    let properties = json!({
+        "$ai_model": "override-model",
+        "custom_field": "override-value"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

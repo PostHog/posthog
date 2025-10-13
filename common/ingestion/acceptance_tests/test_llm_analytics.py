@@ -72,6 +72,7 @@ class TestLLMAnalytics:
         event_data = {
             "event": "$ai_generation",
             "distinct_id": distinct_id,
+            "timestamp": "2024-01-15T10:30:00Z",
             "properties": {
                 "$ai_model": "gpt-4",
                 "$ai_provider": "openai",
@@ -79,7 +80,6 @@ class TestLLMAnalytics:
                 "$ai_prompt_tokens": 50,
                 "custom_property": "test_value",
             },
-            "timestamp": "2024-01-15T10:30:00Z",
         }
 
         # Prepare blob data
@@ -111,7 +111,7 @@ class TestLLMAnalytics:
         boundary = f"----WebKitFormBoundary{uuid.uuid4().hex[:16]}"
 
         fields = {
-            "event": ("event.json", json.dumps(event_data), "application/json"),
+            "event": ("event", json.dumps(event_data), "application/json"),
             "event.properties.$ai_input": (
                 f"blob_{uuid.uuid4().hex[:8]}",
                 json.dumps(input_blob),
@@ -195,6 +195,122 @@ class TestLLMAnalytics:
         logger.info("Test completed successfully")
         logger.info("=" * 60)
 
+    def test_ai_generation_event_with_separate_properties(self, shared_org_project):
+        """Test $ai_generation event with properties in a separate multipart part."""
+        logger.info("\n" + "=" * 60)
+        logger.info("STARTING TEST: $ai_generation Event with Separate Properties")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_id = shared_org_project["project_id"]
+        project_api_key = shared_org_project["api_key"]
+
+        logger.info("Step 1: Using shared organization and project")
+
+        logger.info("Step 2: Preparing $ai_generation event with separate properties")
+        distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": distinct_id,
+            "timestamp": "2024-01-15T10:30:00Z",
+        }
+
+        properties_data = {
+            "$ai_model": "gpt-3.5-turbo",
+            "$ai_provider": "openai",
+            "$ai_completion_tokens": 100,
+            "$ai_prompt_tokens": 25,
+            "custom_property": "separate_test",
+        }
+
+        input_blob = {
+            "messages": [
+                {"role": "user", "content": "Tell me a joke."},
+            ],
+            "temperature": 0.9,
+        }
+
+        output_blob = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Why did the chicken cross the road? To get to the other side!",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        logger.info("Step 3: Creating multipart request with separate properties part")
+        boundary = f"----WebKitFormBoundary{uuid.uuid4().hex[:16]}"
+
+        fields = {
+            "event": ("event", json.dumps(event_data), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data), "application/json"),
+            "event.properties.$ai_input": (
+                f"blob_{uuid.uuid4().hex[:8]}",
+                json.dumps(input_blob),
+                "application/json",
+            ),
+            "event.properties.$ai_output_choices": (
+                f"blob_{uuid.uuid4().hex[:8]}",
+                json.dumps(output_blob),
+                "application/json",
+            ),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields, boundary=boundary)
+
+        logger.info("Step 4: Sending multipart request to /i/v0/ai endpoint")
+        capture_url = f"{client.base_url}/i/v0/ai"
+        headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project_api_key}"}
+
+        response = requests.post(capture_url, data=multipart_data, headers=headers)
+        response.raise_for_status()
+        logger.info("Multipart request sent successfully")
+
+        logger.info("Step 5: Waiting for event to be processed")
+        event = client.wait_for_event(
+            project_id=project_id, event_name="$ai_generation", distinct_id=distinct_id, timeout=30
+        )
+
+        assert event is not None, "$ai_generation event not found after 30 seconds"
+        logger.info("Event found in query API")
+
+        logger.info("Step 6: Verifying event properties")
+        assert event.get("event") == "$ai_generation"
+        assert event.get("distinct_id") == distinct_id
+
+        event_properties = event.get("properties", {})
+
+        assert event_properties.get("$ai_model") == "gpt-3.5-turbo"
+        assert event_properties.get("$ai_provider") == "openai"
+        assert event_properties.get("$ai_completion_tokens") == 100
+        assert event_properties.get("$ai_prompt_tokens") == 25
+        assert event_properties.get("custom_property") == "separate_test"
+
+        assert "$ai_input" in event_properties
+        assert "$ai_output_choices" in event_properties
+
+        ai_input_url = event_properties["$ai_input"]
+        ai_output_url = event_properties["$ai_output_choices"]
+
+        assert ai_input_url.startswith("s3://")
+        assert ai_output_url.startswith("s3://")
+        assert "range=" in ai_input_url
+        assert "range=" in ai_output_url
+
+        input_base = ai_input_url.split("?")[0]
+        output_base = ai_output_url.split("?")[0]
+        assert input_base == output_base
+
+        logger.info("All event properties verified successfully")
+        logger.info("Separate properties part handled correctly")
+        logger.info("Test completed successfully")
+        logger.info("=" * 60)
+
     # ----------------------------------------------------------------------------
     # Scenario 1.1: Authentication Validation
     # ----------------------------------------------------------------------------
@@ -206,11 +322,13 @@ class TestLLMAnalytics:
         event_data = {
             "event": "$ai_generation",
             "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
-            "properties": {"$ai_model": "test"},
         }
 
+        properties_data = {"$ai_model": "test"}
+
         fields = {
-            "event": ("event.json", json.dumps(event_data), "application/json"),
+            "event": ("event", json.dumps(event_data), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data), "application/json"),
         }
 
         multipart_data = MultipartEncoder(fields=fields)

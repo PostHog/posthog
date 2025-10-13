@@ -114,6 +114,8 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
     let mut first_part_processed = false;
     let mut accepted_parts = Vec::new();
     let mut seen_property_names = HashSet::new();
+    let mut event_json: Option<Value> = None;
+    let mut properties_json: Option<Value> = None;
 
     // Parse each part
     while let Some(field) = multipart.next_field().await.map_err(|e| {
@@ -166,21 +168,31 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
         if field_name == "event" {
             has_event_part = true;
 
-            // Parse and validate the event JSON
+            // Parse the event JSON (without validating properties yet)
             let event_json_str = std::str::from_utf8(&field_data).map_err(|e| {
                 warn!("Event part is not valid UTF-8: {}", e);
                 CaptureError::RequestDecodingError("Event part must be valid UTF-8".to_string())
             })?;
 
-            let event_json: Value = serde_json::from_str(event_json_str).map_err(|e| {
+            event_json = Some(serde_json::from_str(event_json_str).map_err(|e| {
                 warn!("Event part is not valid JSON: {}", e);
                 CaptureError::RequestDecodingError("Event part must be valid JSON".to_string())
+            })?);
+
+            debug!("Event part parsed successfully");
+        } else if field_name == "event.properties" {
+            // Parse the properties JSON
+            let properties_json_str = std::str::from_utf8(&field_data).map_err(|e| {
+                warn!("Properties part is not valid UTF-8: {}", e);
+                CaptureError::RequestDecodingError("Properties part must be valid UTF-8".to_string())
             })?;
 
-            // Validate event structure
-            validate_event_structure(&event_json)?;
+            properties_json = Some(serde_json::from_str(properties_json_str).map_err(|e| {
+                warn!("Properties part is not valid JSON: {}", e);
+                CaptureError::RequestDecodingError("Properties part must be valid JSON".to_string())
+            })?);
 
-            debug!("Event part processed and validated successfully");
+            debug!("Properties part parsed successfully");
         } else if field_name.starts_with("event.properties.") {
             // This is a blob part - check for duplicates
             if !seen_property_names.insert(field_name.clone()) {
@@ -200,6 +212,47 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
             "Missing required 'event' part in multipart data".to_string(),
         ));
     }
+
+    // Merge properties into the event
+    let mut event = event_json.unwrap();
+
+    // Check for conflicting properties sources
+    let has_embedded_properties = event.as_object()
+        .and_then(|obj| obj.get("properties"))
+        .is_some();
+
+    if has_embedded_properties && properties_json.is_some() {
+        return Err(CaptureError::RequestDecodingError(
+            "Event cannot have both embedded properties and a separate 'event.properties' part".to_string(),
+        ));
+    }
+
+    // Determine which properties to use:
+    // - If there's a separate event.properties part, use it
+    // - If there's no separate part, use embedded properties from the event (if any)
+    // - If neither exists, use empty object
+    let properties = if let Some(props) = properties_json {
+        props
+    } else {
+        // No separate part - check for embedded properties
+        if let Some(event_obj) = event.as_object() {
+            event_obj.get("properties").cloned().unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        }
+    };
+
+    // Insert/replace properties in the event object
+    if let Some(event_obj) = event.as_object_mut() {
+        event_obj.insert("properties".to_string(), properties);
+    } else {
+        return Err(CaptureError::RequestDecodingError(
+            "Event must be a JSON object".to_string(),
+        ));
+    }
+
+    // Now validate the complete event structure
+    validate_event_structure(&event)?;
 
     debug!("Multipart parsing completed: {} parts processed", part_count);
     Ok(accepted_parts)
