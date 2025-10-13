@@ -431,27 +431,26 @@ export function DashboardHeader(): JSX.Element | null {
                                                 Add text card
                                             </LemonButton>
                                         </AccessControlAction>
-
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.Dashboard}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={dashboard.user_access_level}
+                                        <MaxTool
+                                            identifier="edit_current_dashboard"
+                                            context={{
+                                                current_dashboard: dashboard
+                                                    ? {
+                                                          id: dashboard.id,
+                                                          name: dashboard.name,
+                                                          description: dashboard.description,
+                                                          tags: dashboard.tags,
+                                                      }
+                                                    : undefined,
+                                            }}
+                                            active={!!dashboard && canEditDashboard}
+                                            callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
+                                            position="top-right"
                                         >
-                                            <MaxTool
-                                                identifier="edit_current_dashboard"
-                                                context={{
-                                                    current_dashboard: dashboard
-                                                        ? {
-                                                              id: dashboard.id,
-                                                              name: dashboard.name,
-                                                              description: dashboard.description,
-                                                              tags: dashboard.tags,
-                                                          }
-                                                        : undefined,
-                                                }}
-                                                active={!!dashboard && canEditDashboard}
-                                                callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
-                                                position="top-right"
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.Dashboard}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={dashboard.user_access_level}
                                             >
                                                 <LemonButton
                                                     onClick={showAddInsightToDashboardModal}
@@ -460,8 +459,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                 >
                                                     Add insight
                                                 </LemonButton>
-                                            </MaxTool>
-                                        </AccessControlAction>
+                                            </AccessControlAction>
+                                        </MaxTool>
                                     </>
                                 ) : null}
                             </div>
