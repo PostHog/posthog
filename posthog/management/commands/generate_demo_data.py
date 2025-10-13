@@ -104,7 +104,6 @@ class Command(BaseCommand):
             help="Skip syncing feature flags from API after data generation",
         )
         parser.add_argument(
-
             "--say-on-complete",
             action="store_true",
             default=False,
