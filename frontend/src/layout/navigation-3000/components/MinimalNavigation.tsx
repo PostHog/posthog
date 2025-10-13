@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconLogomark } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
@@ -9,12 +9,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { toggleAccountPopover } = useActions(navigationLogic)
 
     return (
         <nav className="flex items-center gap-2 p-2 border-b">
@@ -33,11 +30,7 @@ export function MinimalNavigation(): JSX.Element {
                     side="bottom"
                     alignOffset={10}
                     trigger={
-                        <LemonButton
-                            type="tertiary"
-                            icon={<ProfilePicture user={user} size="md" />}
-                            onClick={toggleAccountPopover}
-                        >
+                        <LemonButton type="tertiary" icon={<ProfilePicture user={user} size="md" />}>
                             {user?.first_name || user?.email}
                         </LemonButton>
                     }

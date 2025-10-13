@@ -155,6 +155,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 menuItem: true,
                                 truncate: true,
                             }}
+                            data-attr="top-menu-account-owner"
                         >
                             <ProfilePicture user={user} size="xs" />
                             <span className="flex flex-col truncate">
@@ -264,6 +265,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                         })
                                     }}
                                     tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
+                                    tooltipPlacement="right"
+                                    data-attr="top-menu-account-owner"
                                 >
                                     <ProfilePicture
                                         user={{
@@ -291,7 +294,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 menuItem: true,
                             }}
                             onClick={(e) => {
-                                e.preventDefault()
                                 if (!mobileLayout) {
                                     e.preventDefault()
                                     openSidePanel(SidePanelTab.Docs, '/changelog')
