@@ -138,6 +138,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team,
             properties={"$host": "us.posthog.com"},
         )
+        await self.flush_persons_and_events()
 
     async def _run_assistant_graph(
         self,
