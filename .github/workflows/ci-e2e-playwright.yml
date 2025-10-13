@@ -313,7 +313,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.12.11
+                  python-version: 3.13.7
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -321,7 +321,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Determine if hogql-parser has changed compared to master
               shell: bash

@@ -1,7 +1,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.12.11" # Leave patch version so that we don't accidentally upgrade minor versions
+requires-python = "==3.13.7" # Leave patch version so that we don't accidentally upgrade minor versions
 dependencies = [
     "aioboto3==12.0.0",
     "aiohttp==3.11.10",
@@ -97,7 +97,7 @@ dependencies = [
     "pymssql==2.3.5",
     "pymysql==1.1.1",
     "pymongo==4.13.2",
-    "pyodbc==5.1.0",
+    "pyodbc==5.2.0",
     "python-dateutil>=2.8.2",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
@@ -248,7 +248,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 
 [tool.black]
 line-length = 120
-target-version = ['py312']
+target-version = ['py313']
 
 [tool.isort]
 profile = "black"
@@ -336,7 +336,7 @@ section-order = [
 "products" = ["products"]
 
 [tool.dagster]
-python_version = "3.12"
+python_version = "3.13"
 
 [tool.mypy-baseline]
 sort_baseline = true

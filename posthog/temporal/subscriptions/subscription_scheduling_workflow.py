@@ -43,7 +43,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     logger = LOGGER.bind()
     await logger.ainfo("Starting subscription fetch activity")
 
-    now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
+    now_with_buffer = dt.datetime.now(datetime.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await logger.ainfo(f"Looking for subscriptions due before {now_with_buffer}")
 
     @database_sync_to_async(thread_sensitive=False)

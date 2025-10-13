@@ -1,6 +1,6 @@
 import platform
 
-from setuptools import Extension, setup
+from setuptools import Extension, find_packages, setup
 
 system = platform.system()
 if system not in ("Darwin", "Linux"):
@@ -42,7 +42,6 @@ setup(
     maintainer_email="hey@posthog.com",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    packages=["hogql_parser-stubs"],
     include_package_data=True,
     ext_modules=[module],
     python_requires=">=3.10",
@@ -55,5 +54,6 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
 )

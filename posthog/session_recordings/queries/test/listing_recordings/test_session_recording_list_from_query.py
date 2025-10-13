@@ -347,7 +347,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=59000,
-            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=6)),
+            kafka_timestamp=(datetime.now(datetime.UTC) - relativedelta(minutes=6)),
         )
 
         produce_replay_summary(
@@ -361,7 +361,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=61000,
-            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
+            kafka_timestamp=(datetime.now(datetime.UTC) - relativedelta(minutes=3)),
         )
 
         (session_recordings, _, _) = self._filter_recordings_by({})
