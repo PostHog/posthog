@@ -12726,7 +12726,8 @@
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
-                "person",
+                "persons",
+                "user",
                 "cohort",
                 "group",
                 "insight/funnels",
@@ -12737,7 +12738,9 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "home"
+                "home",
+                "apps",
+                "live"
             ],
             "type": "string"
         },

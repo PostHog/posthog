@@ -1356,7 +1356,8 @@ class FileSystemIconType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
-    PERSON = "person"
+    PERSONS = "persons"
+    USER = "user"
     COHORT = "cohort"
     GROUP = "group"
     INSIGHT_FUNNELS = "insight/funnels"
@@ -1368,6 +1369,8 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
+    APPS = "apps"
+    LIVE = "live"
 
 
 class FileSystemImport(BaseModel):
