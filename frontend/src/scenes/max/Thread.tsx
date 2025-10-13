@@ -37,7 +37,6 @@ import {
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -255,11 +254,17 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
-                                    <span className="font-medium">{message.content}…</span>
+                                    {messageIndex === messages.length - 1 ? (
+                                        <img
+                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                        />
+                                    ) : (
+                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                    )}
+                                    <span className="font-medium">
+                                        {message.content}…{messageIndex < messages.length - 1 ? ' Done.' : ''}
+                                    </span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -992,7 +997,6 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
-    const { submitZendeskTicket } = useActions(supportLogic)
     const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
@@ -1011,24 +1015,11 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId || !user) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
-        // Also create a support ticket for thumbs down feedback, for the support hero to see
-        submitZendeskTicket({
-            name: user.first_name,
-            email: user.email,
-            kind: 'feedback',
-            target_area: 'max-ai',
-            severity_level: 'medium',
-            message: [
-                feedback,
-                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
-            ].join('\n'),
-        })
     }
 
     return (

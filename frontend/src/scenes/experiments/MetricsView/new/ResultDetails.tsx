@@ -8,6 +8,7 @@ import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
+import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
 import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
@@ -73,9 +74,9 @@ function convertExperimentResultToFunnelSteps(
             } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
-                    stepName = series.name || series.event || `Step ${stepIndex}`
+                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
                 } else {
-                    stepName = series.name || `Action ${series.id}`
+                    stepName = series.custom_name || series.name || `Action ${series.id}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`
@@ -124,7 +125,7 @@ export function ResultDetails({
         {
             key: 'variant',
             title: 'Variant',
-            render: (_, item) => <div className="font-semibold">{item.key}</div>,
+            render: (_, item) => <VariantTag experimentId={experiment.id} variantKey={item.key} />,
         },
         {
             key: 'total-users',
@@ -239,7 +240,7 @@ export function ResultDetails({
     ]
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-4">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
             {isExperimentFunnelMetric(metric) &&
                 (useExperimentFunnelChart ? (
@@ -249,6 +250,7 @@ export function ResultDetails({
                         disableBaseline={true}
                         inCardView={true}
                         experimentResult={result}
+                        experiment={experiment}
                     />
                 ) : (
                     <ResultsBreakdown

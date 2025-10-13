@@ -31,17 +31,25 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               : '',
-        PERSONS_READONLY_DATABASE_URL: '',
+        PERSONS_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              : '',
         PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration'
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: '',
+        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -264,6 +272,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
+        SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
         // in both the PostHog cloud environment and development
         // we want this metadata switchover to be in blob ingestion v2 mode
         // hobby installs will set this metadata value to a datetime
@@ -326,12 +335,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
-        SES_REGION: 'us-east-1',
+        SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,
-        POD_TERMINATION_BASE_TIMEOUT_MINUTES: 60, // Default: 1 hour
-        POD_TERMINATION_JITTER_MINUTES: 15, // Default: 15 minutes
+        POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30, // Default: 30 minutes
+        POD_TERMINATION_JITTER_MINUTES: 45, // Default: 45 hour, so timeout is between 30 minutes and 1h15m
     }
 }
 

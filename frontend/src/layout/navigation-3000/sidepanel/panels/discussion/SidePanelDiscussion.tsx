@@ -25,29 +25,6 @@ export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Elem
     )
 }
 
-const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
-    const { selectedTabOptions } = useValues(sidePanelStateLogic)
-    const { setReplyingComment } = useActions(commentsLogic(logicProps))
-
-    useEffect(() => {
-        if (selectedTabOptions) {
-            setReplyingComment(selectedTabOptions)
-        }
-    }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-2">
-                <CommentsList {...logicProps} />
-            </div>
-
-            <div className="border-t px-3 pb-3">
-                <CommentComposer {...logicProps} />
-            </div>
-        </div>
-    )
-}
-
 export const SidePanelDiscussion = (): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
 
@@ -87,6 +64,30 @@ export const SidePanelDiscussion = (): JSX.Element => {
                     </p>
                 </div>
             )}
+        </div>
+    )
+}
+
+const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
+    const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const { setReplyingComment } = useActions(commentsLogic(logicProps))
+    const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
+
+    useEffect(() => {
+        if (selectedTabOptions) {
+            setReplyingComment(selectedTabOptions)
+        }
+    }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    return (
+        <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-2" ref={setCommentsListRef}>
+                <CommentsList {...logicProps} />
+            </div>
+
+            <div className="border-t px-3 pb-3">
+                <CommentComposer {...logicProps} />
+            </div>
         </div>
     )
 }

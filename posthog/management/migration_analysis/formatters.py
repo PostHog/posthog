@@ -90,6 +90,10 @@ class ConsoleTreeFormatter(RiskFormatter):
         for idx, op_risk in enumerate(risk.operations):
             lines.extend(self._format_operation(idx, op_risk, risk))
 
+        # Format info messages
+        if risk.info_messages:
+            lines.extend(self._format_info_messages(risk.info_messages))
+
         # Format policy violations
         if risk.policy_violations:
             lines.extend(self._format_policy_violations(risk.policy_violations))
@@ -136,6 +140,18 @@ class ConsoleTreeFormatter(RiskFormatter):
             lines.append(f"{prefix}   {details_str}")
         else:
             lines.append(f"{prefix}└─ {op_number} {icon} {op_risk.type}: {op_risk.reason}")
+
+        return lines
+
+    def _format_info_messages(self, messages: list[str]) -> list[str]:
+        """Format informational messages."""
+        lines = []
+        lines.append("  │")
+        lines.append("  └──> ℹ️  INFO:")
+
+        for message in messages:
+            wrapped = textwrap.fill(message, width=72, initial_indent="       ", subsequent_indent="       ")
+            lines.append(wrapped)
 
         return lines
 

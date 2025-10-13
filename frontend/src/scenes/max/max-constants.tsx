@@ -54,13 +54,8 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
 
 export const TOOL_DEFINITIONS: Omit<
     Record<AssistantContextualTool, ToolDefinition>,
-    'fix_hogql_query' | 'search_insights' | 'read_taxonomy' | 'todo_write'
+    'fix_hogql_query' | 'search_insights' | 'read_data' | 'read_taxonomy' | 'todo_write'
 > = {
-    read_data: {
-        name: 'Read',
-        description: 'Read your data in PostHog',
-        product: null,
-    },
     search: {
         name: 'Search',
         description: 'Search documentation and your data in PostHog',

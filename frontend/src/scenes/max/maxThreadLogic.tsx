@@ -121,7 +121,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'loadConversationHistory',
                 'setThreadKey',
                 'prependOrReplaceConversation as updateGlobalConversationCache',
-                'setActiveStreamingThreads',
+                'incrActiveStreamingThreads',
+                'decrActiveStreamingThreads',
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
@@ -184,8 +185,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                resetThread: (state) => filterOutReasoningMessages(state),
-                completeThreadGeneration: (state) => filterOutReasoningMessages(state),
                 setThread: (_, { thread }) => thread,
             },
         ],
@@ -267,7 +266,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
             // Set active streaming threads, so we know streaming is active
-            actions.setActiveStreamingThreads(1)
+            actions.incrActiveStreamingThreads()
 
             if (generationAttempt === 0 && streamData.content) {
                 const message: ThreadMessage = {
@@ -366,13 +365,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
+            actions.decrActiveStreamingThreads()
             if (values.isAnotherAgenticIterationScheduled) {
                 // Continue generation after applying tool - null message in askMax "just resume generation with current context"
                 actions.askMax(null)
             } else {
                 // Otherwise wrap things up
                 actions.completeThreadGeneration()
-                actions.setActiveStreamingThreads(-1)
             }
             cache.generationController = undefined
         },
@@ -773,15 +772,6 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
-}
-
-/**
- * Filter out reasoning messages from the thread.
- * @param thread
- * @returns
- */
-function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
-    return thread.filter((message) => !isReasoningMessage(message))
 }
 
 /**

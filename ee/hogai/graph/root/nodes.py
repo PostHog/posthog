@@ -12,7 +12,6 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
@@ -482,15 +481,6 @@ class RootNodeTools(AssistantNode):
             visible=tool_class.show_tool_call_message,
         )
 
-        # If this is a navigation tool call, pause the graph execution
-        # so that the frontend can re-initialise Max with a new set of contextual tools.
-        if tool_call.name == "navigate":
-            # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-            # surfaces the navigation confirmation to the client. The next user
-            # interaction will resume the graph with potentially different
-            # contextual tools.
-            raise NodeInterrupt(tool_message)
-
         return PartialAssistantState(
             messages=[tool_message],
             root_tool_calls_count=tool_call_count + 1,
@@ -498,9 +488,6 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
-
-        if isinstance(last_message, AssistantToolCallMessage):
-            return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
             if tool_calls and len(tool_calls) > 0:
@@ -518,7 +505,7 @@ class RootNodeTools(AssistantNode):
                 return "session_summarization"
             else:
                 return "search_documentation"
-        return "end"
+        return "end"  # If last message is an AssistantToolCallMessage, frontend will restart after tool applied
 
 
 ToolClass = TypeVar("ToolClass", bound="MaxTool")
