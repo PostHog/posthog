@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Literal, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -91,7 +91,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
-    return print_ast(
+    return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
@@ -100,20 +100,20 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
             modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
-    )
+    )[0]
 
 
-def print_ast(
+def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
-) -> str:
+) -> tuple[str, Optional[_T_AST]]:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
-        return ""
+        return "", None
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -121,7 +121,7 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
-    )
+    ), prepared_ast
 
 
 def prepare_ast_for_printing(

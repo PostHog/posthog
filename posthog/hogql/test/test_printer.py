@@ -26,7 +26,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast, to_printed_hogql
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -69,11 +69,11 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         placeholders: Optional[dict[str, ast.Expr]] = None,
     ) -> str:
-        return print_ast(
+        return prepare_and_print_ast(
             parse_select(query, placeholders=placeholders),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
-        )
+        )[0]
 
     def _assert_expr_error(
         self,
@@ -95,11 +95,28 @@ class TestPrinter(BaseTest):
         self.assertTrue(expected_error in str(context.exception))
 
     def _pretty(self, query: str):
-        printed = print_ast(
+        printed, _ = prepare_and_print_ast(
             parse_select(query),
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "hogql",
             pretty=True,
+        )
+        return printed
+
+    def _print(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+        settings: Optional[HogQLGlobalSettings] = None,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+    ) -> str:
+        parsed = parse_select(query, placeholders=placeholders)
+        printed, _ = prepare_and_print_ast(
+            parsed,
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect=dialect,
+            settings=settings,
         )
         return printed
 
@@ -814,7 +831,7 @@ class TestPrinter(BaseTest):
             )
 
         parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")
-        printed = print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")
+        printed, _ = prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")
         assert printed == (
             "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
             "FROM events "
@@ -827,8 +844,9 @@ class TestPrinter(BaseTest):
         # the condition can be optimized (and possibly just inline the aliased value to make things easier for the
         # analyzer.) Until then, this should just use the direct (simple) property group access method.
         parsed = parse_select("SELECT properties.file_type AS ft, 'image/svg' as ft2 FROM events WHERE ft = ft2")
-        assert print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse") == print_ast(
-            parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse"
+        assert (
+            prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")[0]
+            == prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse")[0]
         )
 
     def test_methods(self):
@@ -1925,13 +1943,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_global_settings(self):
-        query = parse_select("SELECT 1 FROM events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
+        printed = self._print("SELECT 1 FROM events", settings=HogQLGlobalSettings(max_execution_time=10))
         self.assertEqual(
             printed,
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
@@ -1941,7 +1953,7 @@ class TestPrinter(BaseTest):
         query = parse_select("SELECT 1 FROM events")
         assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        printed = print_ast(
+        printed, _ = prepare_and_print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
@@ -1955,7 +1967,7 @@ class TestPrinter(BaseTest):
         query = parse_select("SELECT 1 FROM events")
         assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        printed = print_ast(
+        printed, _ = prepare_and_print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
@@ -2055,11 +2067,8 @@ class TestPrinter(BaseTest):
         assert printed == self.snapshot  # type: ignore
 
     def test_print_hidden_aliases_timestamp(self):
-        query = parse_select("select * from (SELECT timestamp, timestamp FROM events)")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select * from (SELECT timestamp, timestamp FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
@@ -2070,11 +2079,8 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_hidden_aliases_column_override(self):
-        query = parse_select("select * from (SELECT timestamp as event, event FROM events)")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select * from (SELECT timestamp as event, event FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
@@ -2093,11 +2099,8 @@ class TestPrinter(BaseTest):
             return
         materialize("events", "$browser")
 
-        query = parse_select("select * from (SELECT properties.$browser FROM events)")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select * from (SELECT properties.$browser FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
@@ -2116,11 +2119,8 @@ class TestPrinter(BaseTest):
             return
         materialize("events", "$browser")
 
-        query = parse_select("select * from (SELECT properties.$browser, properties.$browser FROM events)")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select * from (SELECT properties.$browser, properties.$browser FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
@@ -2132,11 +2132,8 @@ class TestPrinter(BaseTest):
         )
 
     def test_lookup_domain_type(self):
-        query = parse_select("select hogql_lookupDomainType('www.google.com') as domain from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select hogql_lookupDomainType('www.google.com') as domain from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2151,11 +2148,8 @@ class TestPrinter(BaseTest):
         ) == printed
 
     def test_lookup_paid_source_type(self):
-        query = parse_select("select hogql_lookupPaidSourceType('google') as source from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select hogql_lookupPaidSourceType('google') as source from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2170,11 +2164,8 @@ class TestPrinter(BaseTest):
         ) == printed
 
     def test_lookup_paid_medium_type(self):
-        query = parse_select("select hogql_lookupPaidMediumType('social') as medium from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select hogql_lookupPaidMediumType('social') as medium from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2185,11 +2176,8 @@ class TestPrinter(BaseTest):
         ) == printed
 
     def test_lookup_organic_source_type(self):
-        query = parse_select("select hogql_lookupOrganicSourceType('google') as source  from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select hogql_lookupOrganicSourceType('google') as source  from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2204,11 +2192,8 @@ class TestPrinter(BaseTest):
         ) == printed
 
     def test_lookup_organic_medium_type(self):
-        query = parse_select("select hogql_lookupOrganicMediumType('social') as medium from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select hogql_lookupOrganicMediumType('social') as medium from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2219,11 +2204,8 @@ class TestPrinter(BaseTest):
         ) == printed
 
     def test_currency_conversion(self):
-        query = parse_select("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
@@ -2235,11 +2217,8 @@ class TestPrinter(BaseTest):
         )
 
     def test_currency_conversion_without_date(self):
-        query = parse_select("select convertCurrency('USD', 'EUR', 100) as currency")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select convertCurrency('USD', 'EUR', 100) as currency",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
@@ -2283,11 +2262,8 @@ class TestPrinter(BaseTest):
         with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
             mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
 
-            query = parse_select("select getSurveyResponse(0) from events")
-            printed = print_ast(
-                query,
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                dialect="clickhouse",
+            printed = self._print(
+                "select getSurveyResponse(0) from events",
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
 
@@ -2301,11 +2277,8 @@ class TestPrinter(BaseTest):
         with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
             mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
 
-            query = parse_select("select getSurveyResponse(1, 'question123') from events")
-            printed = print_ast(
-                query,
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                dialect="clickhouse",
+            printed = self._print(
+                "select getSurveyResponse(1, 'question123') from events",
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
 
@@ -2319,11 +2292,8 @@ class TestPrinter(BaseTest):
         with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
             mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
 
-            query = parse_select("select getSurveyResponse(2, 'abc123', true) from events")
-            printed = print_ast(
-                query,
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                dialect="clickhouse",
+            printed = self._print(
+                "select getSurveyResponse(2, 'abc123', true) from events",
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
 
@@ -2337,11 +2307,8 @@ class TestPrinter(BaseTest):
             mock_filter_survey_sent_events_by_unique_submission.return_value = (
                 "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
             )
-            query = parse_select("select uuid from events where uniqueSurveySubmissionsFilter('survey123')")
-            printed = print_ast(
-                query,
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                dialect="clickhouse",
+            printed = self._print(
+                "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
             mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123")
@@ -2382,26 +2349,16 @@ class TestPrinter(BaseTest):
         )
 
     def test_trim_leading_trailing_both(self):
-        query = parse_select(
-            "select trim(LEADING 'xy' FROM 'media') as a, trim(TRAILING 'xy' FROM 'media') as b, trim(BOTH 'xy' FROM 'media') as c"
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select trim(LEADING 'xy' FROM 'media') as a, trim(TRAILING 'xy' FROM 'media') as b, trim(BOTH 'xy' FROM 'media') as c",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert printed == (
             f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s) AS a, trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s) AS b, trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) AS c LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
         )
-        query2 = parse_select(
-            "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c"
-        )
-        printed2 = print_ast(
-            query2,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed2 = self._print(
+            "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert printed2 == printed
@@ -2418,73 +2375,48 @@ class TestPrinter(BaseTest):
         )
 
     def test_inline_persons(self):
-        query = parse_select(
-            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id in (1,2,3)"
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id in (1,2,3)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_dont_inline_persons(self):
-        query = parse_select(
-            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id = 1"
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+        printed = self._print(
+            "select persons.id as person_id from events join persons on persons.id = events.person_id and persons.id = 1",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE equals(person.team_id, {self.team.pk})" in printed
 
     def test_inline_persons_alias(self):
-        query = parse_select(
+        printed = self._print(
             """
             select p1.id as p1_id from events
             join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+            """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_two_joins(self):
-        query = parse_select(
+        printed = self._print(
             """
             select p1.id as p1_id, p2.id as p2_id from events
             join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
             join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+            """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
 
     def test_two_clauses(self):
-        query = parse_select(
+        printed = self._print(
             """
             select p1.id as p1_id, p2.id as p2_id from events
             join persons as p1 on p1.id in (7,8,9) and p1.id = events.person_id and p1.id in (1,2,3)
             join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+            """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2495,14 +2427,11 @@ class TestPrinter(BaseTest):
 
     def test_print_hogql_aggregation_function_uses_hogql_function_names(self):
         query = parse_expr("avgArray([1, 2, 3])")
-        printed = print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
+        printed, _ = prepare_and_print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
         assert printed == "avgArray([1, 2, 3])"
 
     def test_print_percentage_call_alias(self):
-        select = parse_select("SELECT concat('%', 'word', '%') LIMIT 1")
-        printed = print_ast(
-            select, HogQLContext(team_id=self.team.pk, enable_select_queries=True), dialect="clickhouse"
-        )
+        printed = self._print("SELECT concat('%', 'word', '%') LIMIT 1")
 
         assert (
             printed
@@ -2510,38 +2439,31 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_hogql_output_format(self):
-        query = parse_select("select 1 limit 1")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+        printed = self._print(
+            "select 1 limit 1",
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
             dialect="hogql",
         )
         assert printed == "SELECT 1 LIMIT 1"
 
     def test_print_clickhouse_output_format(self):
-        query = parse_select("select 1 limit 1")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
-            dialect="clickhouse",
+        printed = self._print(
+            "select 1 limit 1",
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
         )
         assert printed == "SELECT 1 LIMIT 1 FORMAT ArrowStream"
 
     def test_print_clickhouse_output_format_union(self):
-        query = parse_select("select 1 limit 1 union all select 2 limit 1")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
-            dialect="clickhouse",
+        printed = self._print(
+            "select 1 limit 1 union all select 2 limit 1",
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
         )
         assert printed == "SELECT 1 LIMIT 1 UNION ALL SELECT 2 LIMIT 1 FORMAT ArrowStream"
 
     def test_print_clickhouse_output_format_union_with_nested_union_subquery(self):
-        query = parse_select("select * from (select 1 as num union all select 2 as num) limit 2")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
-            dialect="clickhouse",
+        printed = self._print(
+            "select * from (select 1 as num union all select 2 as num) limit 2",
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
         )
         assert (
             printed == "SELECT num AS num FROM (SELECT 1 AS num UNION ALL SELECT 2 AS num) LIMIT 2 FORMAT ArrowStream"
@@ -2578,23 +2500,13 @@ class TestPrinter(BaseTest):
         )
 
     def test_can_call_parametric_function(self):
-        query = parse_select("SELECT arrayReduce('sum', [1, 2, 3])")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-        )
+        printed = self._print("SELECT arrayReduce('sum', [1, 2, 3])")
         assert printed == (
             "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
 
     def test_can_call_parametric_function_from_placeholder(self):
-        query = parse_select("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-        )
+        printed = self._print("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
         assert printed == (
             "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
         )
@@ -2602,7 +2514,7 @@ class TestPrinter(BaseTest):
     def test_fails_on_parametric_function_with_no_arguments(self):
         query = parse_select("SELECT arrayReduce()")
         with pytest.raises(QueryError, match="Missing arguments in function 'arrayReduce'"):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
@@ -2613,7 +2525,7 @@ class TestPrinter(BaseTest):
         with pytest.raises(
             QueryError, match="Expected constant string as first arg in function 'arrayReduce', got IntegerType '1'"
         ):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
@@ -2624,7 +2536,7 @@ class TestPrinter(BaseTest):
         with pytest.raises(
             QueryError, match="Expected constant string as first arg in function 'arrayReduce', got Lambda"
         ):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
@@ -2635,7 +2547,7 @@ class TestPrinter(BaseTest):
         with pytest.raises(
             QueryError, match="Expected constant string as first arg in function 'arrayReduce', got ArithmeticOperation"
         ):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
@@ -2644,7 +2556,7 @@ class TestPrinter(BaseTest):
     def test_fails_on_parametric_function_missing(self):
         query = parse_select("SELECT arrayReduce('evil', [1, 2, 3])")
         with pytest.raises(QueryError, match="Invalid parametric function in 'arrayReduce', 'evil' is not supported."):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
@@ -2655,7 +2567,7 @@ class TestPrinter(BaseTest):
         with pytest.raises(
             QueryError, match="Invalid parametric function in 'arrayReduce', 'array_agg' is not supported."
         ):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
@@ -2664,7 +2576,7 @@ class TestPrinter(BaseTest):
     def test_fails_on_parametric_function_with_evil_placeholder(self):
         query = parse_select("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="evil")})
         with pytest.raises(QueryError, match="Invalid parametric function in 'arrayReduce', 'evil' is not supported."):
-            print_ast(
+            prepare_and_print_ast(
                 query,
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",

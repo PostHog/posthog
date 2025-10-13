@@ -538,3 +538,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         # Doesn't include `name` because it's a property access and not a field
         # TODO: Should *probably* update the code to resolve that type as well
         self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])
+
+    def test_collects_tables_from_lazy_joins(self):
+        metadata = self._select("""
+        SELECT events.session.id FROM events
+        """)
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "sessions"]))

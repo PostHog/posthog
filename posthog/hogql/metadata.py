@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Optional, Union, cast
 
 from django.conf import settings
 
@@ -11,7 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -24,6 +24,9 @@ from posthog.models import Team
 def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
+    hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
+    clickhouse_prepared_ast: Optional[ast.AST] = None,
+    clickhouse_sql: Optional[str] = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -58,23 +61,28 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
-            select_ast = parse_select(query.query)
-            finder = find_placeholders(select_ast)
-            if finder.has_filters:
-                select_ast = replace_filters(select_ast, query.filters, team)
-            if query.variables:
-                select_ast = replace_variables(select_ast, list(query.variables.values()), team)
-            if finder.placeholder_fields or finder.placeholder_expressions:
-                select_ast = cast(ast.SelectQuery, replace_placeholders(select_ast, query.globals))
+            if not hogql_ast:
+                hogql_ast = parse_select(query.query)
+                finder = find_placeholders(hogql_ast)
+                if finder.has_filters:
+                    hogql_ast = replace_filters(hogql_ast, query.filters, team)
+                if query.variables:
+                    hogql_ast = replace_variables(hogql_ast, list(query.variables.values()), team)
+                if finder.placeholder_fields or finder.placeholder_expressions:
+                    hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            table_names = get_table_names(select_ast)
-            response.table_names = table_names
+            if not clickhouse_sql or not clickhouse_prepared_ast:
+                clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+                    hogql_ast,
+                    context=context,
+                    dialect="clickhouse",
+                )
 
-            clickhouse_sql = print_ast(
-                select_ast,
-                context=context,
-                dialect="clickhouse",
-            )
+            hogql_table_names = get_table_names(hogql_ast)
+            response.table_names = hogql_table_names
+
+            ch_table_names = get_table_names(clickhouse_prepared_ast)
+            response.ch_table_names = ch_table_names
 
             if context.errors:
                 response.isUsingIndices = QueryIndexUsage.UNDECISIVE
@@ -126,7 +134,7 @@ def process_expr_on_table(
             select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
         # Nothing to return, we just make sure it doesn't throw
-        print_ast(select_query, context, "clickhouse")
+        prepare_and_print_ast(select_query, context, "clickhouse")
     except (NotImplementedError, SyntaxError):
         raise
 
@@ -146,6 +154,19 @@ class TableCollector(TraversingVisitor):
     def visit_cte(self, node: ast.CTE):
         self.ctes.add(node.name)
         super().visit(node.expr)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if isinstance(node.table, ast.Field):
+            self.table_names.add(".".join([str(x) for x in node.table.chain]))
+        else:
+            self.visit(node.table)
+
+        self.visit(node.next_join)
+
+
+class LintingVisitor(TraversingVisitor):
+    def __init__(self):
+        self.warnings = []
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if isinstance(node.table, ast.Field):

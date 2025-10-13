@@ -7,7 +7,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 
@@ -37,7 +37,7 @@ class TestPostgresTable(BaseTest):
         )
 
     def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect=dialect)
+        return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_postgres_table_select(self):
         self._init_database()

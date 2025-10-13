@@ -10,7 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.warehouse.models import Database
 
@@ -249,7 +249,7 @@ The newly updated query gave us this error:
         assert result.query is not None
         try:
             result.query = result.query.rstrip(";").strip()
-            print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
+            prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

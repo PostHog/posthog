@@ -10,7 +10,7 @@ from posthoganalytics.ai.openai import OpenAI
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.event_usage import report_user_action
 from posthog.utils import get_instance_region
@@ -171,7 +171,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             break
         candidate_sql = content
         try:
-            print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
+            prepare_and_print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
         except ExposedHogQLError as e:
             messages.append({"role": "assistant", "content": candidate_sql})
             messages.append(

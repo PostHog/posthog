@@ -15,7 +15,7 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.sync import database_sync_to_async
 
@@ -96,7 +96,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
 
-            print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
+            prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

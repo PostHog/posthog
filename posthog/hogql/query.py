@@ -21,7 +21,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
@@ -55,6 +55,8 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
+    clickhouse_sql: Optional[str] = None
+    clickhouse_prepared_ast: Optional[ast.AST] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -204,8 +206,8 @@ class HogQLQueryExecutor:
                 # and if we don't we end up creating the virtual DB twice per query
                 database=self.hogql_context.database if self.hogql_context else None,
             )
-            with self.timings.measure("print_ast"):
-                self.clickhouse_sql = print_ast(
+            with self.timings.measure("prepare_and_print_ast"):
+                self.clickhouse_sql, self.clickhouse_prepared_ast = prepare_and_print_ast(
                     self.select_query,
                     context=self.clickhouse_context,
                     dialect="clickhouse",
@@ -271,7 +273,11 @@ class HogQLQueryExecutor:
                 from posthog.hogql.metadata import get_hogql_metadata
 
                 self.metadata = get_hogql_metadata(
-                    HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True), self.team
+                    HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True),
+                    self.team,
+                    self.select_query,
+                    self.clickhouse_prepared_ast,
+                    self.clickhouse_sql,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")

@@ -31,7 +31,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -474,14 +474,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         sql = "select number, double, expression + number from numbers(2)"
-        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
             == f"SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT {MAX_SELECT_RETURNED_ROWS}"
         ), query
 
         sql = "select double from (select double from numbers(2))"
-        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
             == f"SELECT double AS double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT {MAX_SELECT_RETURNED_ROWS}"
@@ -489,7 +489,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # expression fields are not included in select *
         sql = "select * from (select * from numbers(2))"
-        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
             == f"SELECT number AS number, expression AS expression, double AS double FROM (SELECT numbers.number AS number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT {MAX_SELECT_RETURNED_ROWS}"
@@ -513,7 +513,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         sql = "select some_field.key from events"
-        print_ast(parse_select(sql), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_deleted_join(self):
         DataWarehouseJoin.objects.create(
@@ -535,7 +535,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         sql = "select some_field.key from events"
         with pytest.raises(ExposedHogQLError):
-            print_ast(parse_select(sql), context, dialect="clickhouse")
+            prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_other_team(self):
         other_organization = Organization.objects.create(name="some_other_org")
@@ -559,7 +559,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         sql = "select some_field.key from events"
         with pytest.raises(ExposedHogQLError):
-            print_ast(parse_select(sql), context, dialect="clickhouse")
+            prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_bad_key_expression(self):
         DataWarehouseJoin.objects.create(
@@ -597,7 +597,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert pdi_table.fields["some_field"] is not None
 
-        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_poe_v1(self):
@@ -621,7 +621,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert poe.fields["some_field"] is not None
 
-        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -646,7 +646,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert poe.fields["some_field"] is not None
 
-        printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        printed, _ = prepare_and_print_ast(
+            parse_select("select person.some_field.key from events"), context, dialect="clickhouse"
+        )
 
         assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
@@ -673,7 +675,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert poe.fields["some_field"] is not None
 
-        printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        printed, _ = prepare_and_print_ast(
+            parse_select("select person.some_field.key from events"), context, dialect="clickhouse"
+        )
 
         assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
@@ -701,13 +705,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         sql = "select event_view.some_field.key from event_view"
-        print_ast(parse_select(sql), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
         sql = "select some_field.key from event_view"
-        print_ast(parse_select(sql), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
         sql = "select e.some_field.key from event_view as e"
-        print_ast(parse_select(sql), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_selecting_from_persons_ignores_future_persons(self):
         db = create_hogql_database(team=self.team)
@@ -718,7 +722,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
         sql = "select id from persons"
-        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
@@ -736,7 +740,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ),
         )
         sql = "select person.id from events"
-        query = print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
@@ -822,7 +826,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         person_on_event_table = cast(LazyJoin, db.events.fields["person"])
         assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
 
-        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
     def test_database_warehouse_person_id_field_with_events_join(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -868,7 +872,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(person_id_field, FieldTraverser)
         assert person_id_field.chain == ["events_data", "person_id"]
 
-        print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
+        prepare_and_print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
 
     def test_data_warehouse_events_modifiers_with_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -914,7 +918,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         # Doesn't throw
-        print_ast(parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse")
+        prepare_and_print_ast(
+            parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse"
+        )
 
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -972,7 +978,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        print_ast(parse_select("SELECT customer.events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+        prepare_and_print_ast(
+            parse_select("SELECT customer.events.distinct_id FROM subscriptions"), context, dialect="clickhouse"
+        )
 
     def test_database_warehouse_resolve_field_through_nested_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -1030,7 +1038,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+        prepare_and_print_ast(
+            parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse"
+        )
 
     def test_database_warehouse_resolve_field_through_nested_joins_experiments_optimized_events_join(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -1089,7 +1099,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+        prepare_and_print_ast(
+            parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse"
+        )
 
     def test_team_id_on_all_tables(self):
         db = create_hogql_database(team=self.team)
