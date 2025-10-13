@@ -278,6 +278,12 @@ ignore = [
     "F601",
     "UP007",
     "UP032",
+    # Temporarily ignored after ruff 0.14.0 upgrade - require careful review/testing
+    "DJ012",  # Django model method ordering - style preference
+    "RUF005", # List concatenation to unpacking - minor perf optimization
+    "UP045",  # Type annotation simplification - needs mypy verification
+    "UP046",  # PEP 695 type parameters for classes - may affect mypy
+    "UP047",  # PEP 695 type parameters for functions - may affect mypy
 ]
 select = [
     "B",
