@@ -24136,6 +24136,7 @@
                     "type": "string"
                 },
                 "expiry_time": {
+                    "description": "When the recordings expires, in ISO format.",
                     "type": "string"
                 },
                 "id": {
@@ -24170,6 +24171,7 @@
                     "type": "number"
                 },
                 "recording_ttl": {
+                    "description": "Number of whole days left until the recording expires.",
                     "type": "number"
                 },
                 "retention_period_days": {
@@ -24207,17 +24209,7 @@
                     "type": "array"
                 }
             },
-            "required": [
-                "id",
-                "viewed",
-                "viewers",
-                "recording_duration",
-                "start_time",
-                "end_time",
-                "snapshot_source",
-                "expiry_time",
-                "recording_ttl"
-            ],
+            "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
         "SessionsTimelineQuery": {
