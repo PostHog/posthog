@@ -26,7 +26,6 @@ from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
-from posthog.models.plugin import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage

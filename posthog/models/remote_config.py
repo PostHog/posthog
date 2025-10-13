@@ -125,11 +125,12 @@ class RemoteConfig(UUIDTModel):
         )
 
     def build_config(self):
-        from posthog.api.error_tracking import get_suppression_rules
         from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
+
+        from products.error_tracking.backend.api.error_tracking import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
