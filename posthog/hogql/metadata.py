@@ -71,18 +71,19 @@ def get_hogql_metadata(
                 if finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
+            hogql_table_names = get_table_names(hogql_ast)
+            response.table_names = hogql_table_names
+
             if not clickhouse_sql or not clickhouse_prepared_ast:
                 clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
-                    hogql_ast,
+                    clone_expr(hogql_ast),
                     context=context,
                     dialect="clickhouse",
                 )
 
-            hogql_table_names = get_table_names(hogql_ast)
-            response.table_names = hogql_table_names
-
-            ch_table_names = get_table_names(clickhouse_prepared_ast)
-            response.ch_table_names = ch_table_names
+            if clickhouse_prepared_ast:
+                ch_table_names = get_table_names(clickhouse_prepared_ast)
+                response.ch_table_names = ch_table_names
 
             if context.errors:
                 response.isUsingIndices = QueryIndexUsage.UNDECISIVE
