@@ -29,13 +29,13 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 2)
         response_data = response.json()
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Test",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
