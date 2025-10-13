@@ -180,7 +180,7 @@ class Database(BaseModel):
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV1()
     raw_sessions_v3: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV3()
     raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
-    raw_posthog_document_embeddings: RawDocumentEmbeddingsTable = RawDocumentEmbeddingsTable()
+    raw_document_embeddings: RawDocumentEmbeddingsTable = RawDocumentEmbeddingsTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
     # logs table for logs product
     logs: LogsTable = LogsTable()
