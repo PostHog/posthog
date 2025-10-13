@@ -1222,8 +1222,11 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
+                stage_table_fields = [field for field in table_schemas.stage_table_schema if field[0] in columns]
+
             except psycopg.errors.UndefinedTable:
                 table_fields = list(table_schemas.table_schema)
+                stage_table_fields = list(table_schemas.stage_table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
             async with (
@@ -1237,7 +1240,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                 redshift_client.managed_table(
                     inputs.table.schema_name,
                     stage_table_name,
-                    table_schemas.stage_table_schema,
+                    stage_table_fields,
                     create=merge_settings.requires_merge,
                     delete=merge_settings.requires_merge,
                     primary_key=primary_key,
