@@ -119,7 +119,7 @@ mod test {
         let mut exception = Exception {
             exception_id: None,
             exception_type: "TypeError".to_string(),
-            exception_message: "Cannot read property 'foo' of undefined".to_string(),
+            exception_message: Some("Cannot read property 'foo' of undefined".to_string()),
             mechanism: Default::default(),
             module: Default::default(),
             thread_id: None,
@@ -204,7 +204,7 @@ mod test {
         let mut exception = Exception {
             exception_id: None,
             exception_type: "TypeError".to_string(),
-            exception_message: "Cannot read property 'foo' of undefined".to_string(),
+            exception_message: Some("Cannot read property 'foo' of undefined".to_string()),
             mechanism: Default::default(),
             module: Default::default(),
             thread_id: None,
@@ -282,7 +282,7 @@ mod test {
         let mut exception = Exception {
             exception_id: Some(Uuid::now_v7().to_string()),
             exception_type: "TypeError".to_string(),
-            exception_message: "Cannot read property 'foo' of undefined".to_string(),
+            exception_message: Some("Cannot read property 'foo' of undefined".to_string()),
             mechanism: Default::default(),
             module: Default::default(),
             thread_id: None,

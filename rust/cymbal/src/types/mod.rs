@@ -42,8 +42,8 @@ pub struct Exception {
     pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
-    #[serde(rename = "value")]
-    pub exception_message: String,
+    #[serde(rename = "value", skip_serializing_if = "Option::is_none")]
+    pub exception_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -79,7 +79,7 @@ impl ExceptionList {
     }
 
     pub fn get_unique_messages(&self) -> Vec<String> {
-        unique_by(self.iter(), |e| Some(e.exception_message.clone()))
+        unique_by(self.iter(), |e| e.exception_message.clone())
     }
 
     pub fn get_unique_types(&self) -> Vec<String> {
@@ -112,7 +112,7 @@ impl From<&ExceptionList> for Vec<ExceptionData> {
             .iter()
             .map(|exception| ExceptionData {
                 exception_type: exception.exception_type.clone(),
-                exception_value: exception.exception_message.clone(),
+                exception_value: exception.exception_message.clone().unwrap_or_default(),
                 frames: exception
                     .stack
                     .as_ref()
@@ -200,8 +200,10 @@ impl FingerprintComponent for Exception {
         fp.update(self.exception_type.as_bytes());
         pieces.push("Exception Type".to_string());
         if !matches!(self.stack, Some(Stacktrace::Resolved { frames: _ })) {
-            fp.update(self.exception_message.as_bytes());
-            pieces.push("Exception Message".to_string());
+            if let Some(ref message) = self.exception_message {
+                fp.update(message.as_bytes());
+                pieces.push("Exception Message".to_string());
+            }
         };
         fp.add_part(FingerprintRecordPart::Exception {
             id: self.exception_id.clone(),
@@ -354,6 +356,8 @@ impl OutputErrProps {
                 exception.exception_type,
                 exception
                     .exception_message
+                    .as_deref()
+                    .unwrap_or("")
                     .chars()
                     .take(300)
                     .collect::<String>()
@@ -464,7 +468,7 @@ mod test {
         );
         assert_eq!(
             exception_list[0].exception_message,
-            "Unexpected usage".to_string()
+            Some("Unexpected usage".to_string())
         );
         let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
