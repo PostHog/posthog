@@ -81,6 +81,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
@@ -279,6 +280,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    BEHAVIORAL_COHORTS_DATABASE_URL: string // Optional read-write Postgres database for behavioral cohorts
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
     PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
@@ -289,9 +291,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    POSTGRES_COUNTERS_HOST: string
-    POSTGRES_COUNTERS_USER: string
-    POSTGRES_COUNTERS_PASSWORD: string
+    POSTGRES_BEHAVIORAL_COHORTS_HOST: string
+    POSTGRES_BEHAVIORAL_COHORTS_USER: string
+    POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -547,6 +549,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
     cdpBehaviouralEvents?: boolean
+    cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }
