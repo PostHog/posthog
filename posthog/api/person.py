@@ -4,7 +4,7 @@ import asyncio
 import builtins
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
+from typing import Any, List, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
@@ -296,7 +296,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # If the undocumented include_total param is set to true, we'll return the total count of people
         # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
         # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-        total_count: Optional[int] = None
+        total_count: int | None = None
         if "include_total" in request.GET:
             total_query, total_params = person_query.get_query(paginate=False, filter_future_persons=True)
             total_query_aggregated = f"SELECT count() FROM ({total_query})"
@@ -713,7 +713,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
     def _respond_with_cached_results(
-        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
+        self, results_package: dict[str, tuple[builtins.list, str | None, str | None, int]]
     ):  # noqa: UP006
         if not results_package:
             return response.Response(data=[])
@@ -743,7 +743,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
+    ) -> dict[str, tuple[List, str | None, str | None, int]]:  # noqa: UP006
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
         funnel_actor_class = get_funnel_actor_class(filter)
@@ -774,7 +774,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
+    ) -> dict[str, tuple[List, str | None, str | None, int]]:  # noqa: UP006
         filter = Filter(request=request, team=self.team)
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)
@@ -951,7 +951,7 @@ def paginated_result(
     count: int,
     offset: int = 0,
     limit: int = DEFAULT_PAGE_LIMIT,
-) -> Optional[str]:
+) -> str | None:
     return format_paginated_url(request, offset, limit) if count >= limit else None
 
 

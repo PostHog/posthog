@@ -1,7 +1,7 @@
 import json
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
@@ -524,7 +524,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
-    def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
+    def get_tiles(self, dashboard: Dashboard) -> list[ReturnDict] | None:
         if self.context["view"].action == "list":
             return None
 

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from django.http import HttpRequest, JsonResponse
 
@@ -90,7 +90,7 @@ def get_stats_for_timerange(
     base_end_time: str,
     target_start_time: str,
     target_end_time: str,
-    tags: Optional[dict[str, str]] = None,
+    tags: dict[str, str] | None = None,
 ) -> tuple[int, int]:
     base_counts, base_total_count = get_sentry_stats(base_start_time, base_end_time)
     target_counts, target_total_count = get_sentry_stats(target_start_time, target_end_time)

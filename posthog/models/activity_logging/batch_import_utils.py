@@ -1,9 +1,8 @@
-from typing import Optional
 
 from posthog.models.user import User
 
 
-def extract_batch_import_info(batch_import) -> tuple[str, str, Optional[str], Optional[str]]:
+def extract_batch_import_info(batch_import) -> tuple[str, str, str | None, str | None]:
     """Extract source type, content type, start date, and end date from BatchImport"""
     source_type = "unknown"
     content_type = "unknown"
@@ -23,7 +22,7 @@ def extract_batch_import_info(batch_import) -> tuple[str, str, Optional[str], Op
     return source_type, content_type, start_date, end_date
 
 
-def get_batch_import_created_by_info(batch_import) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def get_batch_import_created_by_info(batch_import) -> tuple[str | None, str | None, str | None]:
     """Get created by user information from BatchImport"""
     created_by_user_id = None
     created_by_user_email = None

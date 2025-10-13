@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Literal, Optional, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -97,7 +97,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
-    correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
+    correlation_actors_query: FunnelCorrelationActorsQuery | None
 
     _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
 
@@ -105,9 +105,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         self,
         query: FunnelCorrelationQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.actors_query = self.query.source

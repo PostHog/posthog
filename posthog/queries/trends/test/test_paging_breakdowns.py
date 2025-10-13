@@ -1,4 +1,3 @@
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -39,7 +38,7 @@ class TestPagingBreakdowns(APIBaseTest):
                 create_people=True,
             )
 
-    def _run(self, extra: Optional[dict] = None, run_at: Optional[str] = None):
+    def _run(self, extra: dict | None = None, run_at: str | None = None):
         if extra is None:
             extra = {}
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):

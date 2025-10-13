@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -16,7 +16,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 def resolve_lazy_tables(
     node: _T_AST,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]],
+    stack: list[ast.SelectQuery] | None,
     context: HogQLContext,
 ):
     LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
@@ -80,7 +80,7 @@ class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[ast.SelectQuery]],
+        stack: list[ast.SelectQuery] | None,
         context: HogQLContext,
     ):
         super().__init__()

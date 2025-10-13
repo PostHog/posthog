@@ -95,7 +95,7 @@ class License(models.Model):
     __repr__ = sane_repr("key", "plan", "valid_until")
 
 
-def get_licensed_users_available() -> Optional[int]:
+def get_licensed_users_available() -> int | None:
     """
     Returns the number of user slots available that can be created based on the instance's current license.
     Not relevant for cloud users.

@@ -1,7 +1,7 @@
 import typing
 from datetime import datetime
 from functools import cached_property
-from typing import Optional, cast
+from typing import cast
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -45,10 +45,10 @@ class TrendsActorsQueryBuilder:
     limit_context: LimitContext
 
     entity: EventsNode | ActionsNode
-    time_frame: Optional[datetime]
-    breakdown_value: Optional[str | int | list[str]] = None
-    compare_value: Optional[Compare] = None
-    include_recordings: Optional[bool] = None
+    time_frame: datetime | None
+    breakdown_value: str | int | list[str] | None = None
+    compare_value: Compare | None = None
+    include_recordings: bool | None = None
 
     def __init__(
         self,
@@ -57,10 +57,10 @@ class TrendsActorsQueryBuilder:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         series_index: int,
-        time_frame: Optional[str | datetime],
-        breakdown_value: Optional[str | int | list[str]] = None,
-        compare_value: Optional[Compare] = None,
-        include_recordings: Optional[bool] = None,
+        time_frame: str | datetime | None,
+        breakdown_value: str | int | list[str] | None = None,
+        compare_value: Compare | None = None,
+        include_recordings: bool | None = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.trends_query = trends_query

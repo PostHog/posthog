@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlencode
 
 import dlt
@@ -374,7 +374,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         )
         return f"<SalesforceEndpointPaginator at {hex(id(self))}: {', '.join(pairs)}>"
 
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
         if not res or not res["records"]:
@@ -417,7 +417,7 @@ def salesforce_source(
     endpoint: str,
     team_id: int,
     job_id: str,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {

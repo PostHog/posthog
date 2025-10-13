@@ -1,6 +1,6 @@
 import random
 import string
-from typing import Optional, cast
+from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -63,7 +63,7 @@ class WhereClauseExtractor(CloningVisitor):
 
     def handle_timestamp_comparison(
         self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool
-    ) -> Optional[ast.Expr]:
+    ) -> ast.Expr | None:
         raise NotImplementedError(
             message=f"handle_timestamp_comparison not implemented"
         )  # handle this in a subclass if setting capture_timestamp_comparisons to True
@@ -77,7 +77,7 @@ class WhereClauseExtractor(CloningVisitor):
             if join_or_table.lazy_table not in self.tracked_tables:
                 self.tracked_tables.append(join_or_table.lazy_table)
 
-    def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
+    def get_inner_where(self, select_query: ast.SelectQuery) -> ast.Expr | None:
         """Return the where clause that should be applied to the inner table. If None is returned, no pre-filtering is possible."""
         if not select_query.where and not select_query.prewhere:
             return None
@@ -260,7 +260,7 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
 
     def handle_timestamp_comparison(
         self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool
-    ) -> Optional[ast.Expr]:
+    ) -> ast.Expr | None:
         is_left_timestamp_field = is_simple_timestamp_field_expression(node.left, self.context, self.tombstone_string)
         is_right_timestamp_field = is_simple_timestamp_field_expression(node.right, self.context, self.tombstone_string)
 
@@ -352,7 +352,7 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
 
         return None
 
-    def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> Optional[ast.Expr]:
+    def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> ast.Expr | None:
         return None
 
 
@@ -370,7 +370,7 @@ class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseEx
     timestamp_field = ast.Field(chain=["raw_sessions_v3", "session_timestamp"])
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
-    def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> Optional[ast.Expr]:
+    def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> ast.Expr | None:
         # this is a roundabout way of doing it, but we want to match the logic in the clickhouse table definition
         timestamp_expr = uuid_uint128_expr_to_timestamp_expr_v3(
             ast.Call(name="_toUInt128", args=[ast.Call(name="toUUID", args=[session_id_str_expr])])

@@ -1,4 +1,3 @@
-from typing import Optional
 
 from rest_framework import filters, response, serializers, viewsets
 
@@ -100,7 +99,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if field is not None:
             raise serializers.ValidationError(f'Field name "{field_name}" already exists on table "{table_name}"')
 
-    def _validate_join_key(self, join_key: Optional[str], table: Optional[str], team_id: int) -> None:
+    def _validate_join_key(self, join_key: str | None, table: str | None, team_id: int) -> None:
         if not join_key:
             raise serializers.ValidationError("View column must have a join key.")
 

@@ -101,7 +101,7 @@ def clickhouse_at_least_228() -> bool:
     return is_ch_version_228_or_above
 
 
-def validated_client_query_id() -> Optional[str]:
+def validated_client_query_id() -> str | None:
     client_query_id = get_query_tag_value("client_query_id")
     client_query_team_id = get_query_tag_value("team_id")
 
@@ -124,9 +124,9 @@ def sync_execute(
     flush=True,
     *,
     workload: Workload = Workload.DEFAULT,
-    team_id: Optional[int] = None,
+    team_id: int | None = None,
     readonly=False,
-    sync_client: Optional[SyncClient] = None,
+    sync_client: SyncClient | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     if not workload:
@@ -262,12 +262,12 @@ def sync_execute(
 
 def query_with_columns(
     query: str,
-    args: Optional[QueryArgs] = None,
-    columns_to_remove: Optional[Sequence[str]] = None,
-    columns_to_rename: Optional[dict[str, str]] = None,
+    args: QueryArgs | None = None,
+    columns_to_remove: Sequence[str] | None = None,
+    columns_to_rename: dict[str, str] | None = None,
     *,
     workload: Workload = Workload.DEFAULT,
-    team_id: Optional[int] = None,
+    team_id: int | None = None,
 ) -> list[dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -292,7 +292,7 @@ def _prepare_query(
     query: str,
     args: QueryArgs,
     workload: Workload = Workload.DEFAULT,
-) -> tuple[str, Optional[QueryArgs], QueryTags]:
+) -> tuple[str, QueryArgs | None, QueryTags]:
     """
     Given a string query with placeholders we do one of two things:
 
@@ -314,7 +314,7 @@ def _prepare_query(
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
-    prepared_args: Optional[QueryArgs] = None
+    prepared_args: QueryArgs | None = None
     if isinstance(args, list | tuple | types.GeneratorType):
         # If we get one of these it means we have an insert, let the clickhouse
         # client handle substitution here.

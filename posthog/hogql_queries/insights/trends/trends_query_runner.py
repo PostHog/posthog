@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from math import ceil
 from operator import itemgetter
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from django.conf import settings
 from django.db import models
@@ -88,9 +88,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         self,
         query: TrendsQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 
@@ -125,7 +125,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
@@ -193,11 +193,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def _get_trends_actors_query_builder(
         self,
-        time_frame: Optional[str],
+        time_frame: str | None,
         series_index: int,
-        breakdown_value: Optional[str | int | list[str]] = None,
-        compare_value: Optional[Compare] = None,
-        include_recordings: Optional[bool] = None,
+        breakdown_value: str | int | list[str] | None = None,
+        compare_value: Compare | None = None,
+        include_recordings: bool | None = None,
     ) -> TrendsActorsQueryBuilder:
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
             if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
@@ -228,7 +228,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         res_compare: list[CompareItem] | None = None
 
         # Days
-        res_days: Optional[list[DayItem]] = (
+        res_days: list[DayItem] | None = (
             None
             if self._trends_display.is_total_value()
             else [
@@ -363,7 +363,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[QueryTags] = None,
+            query_tags: QueryTags | None = None,
         ):
             try:
                 if query_tags:
@@ -877,7 +877,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     else single_or_multiple_breakdown_value
                 )
 
-                any_result: Optional[dict[str, Any]] = None
+                any_result: dict[str, Any] | None = None
                 for result in results:
                     matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
                     if matching_result:
@@ -943,7 +943,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         formula_node: TrendsFormulaNode,
         *,
         breakdown_value: Any = None,
-        aggregate_values: Optional[bool] = False,
+        aggregate_values: bool | None = False,
     ) -> dict[str, Any]:
         """
         Applies the formula to a list of results, resulting in a single, computed result.
@@ -1041,7 +1041,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         self,
         field: str,
         field_type: PropertyDefinition.Type,
-        group_type_index: Optional[int],
+        group_type_index: int | None,
     ) -> str:
         try:
             return (

@@ -1,6 +1,6 @@
 from datetime import datetime
 from io import BytesIO
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -102,7 +102,7 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
             yield patched_request
 
-    def _create_asset(self, extra_context: Optional[dict] = None) -> ExportedAsset:
+    def _create_asset(self, extra_context: dict | None = None) -> ExportedAsset:
         if extra_context is None:
             extra_context = {}
 

@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from typing import Optional
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.parser import parse_expr
@@ -10,8 +9,8 @@ def argmax_select(
     select_fields: dict[str, list[str | int]],
     group_fields: list[str],
     argmax_field: str,
-    deleted_field: Optional[str] = None,
-    timestamp_field_to_clamp: Optional[str] = None,
+    deleted_field: str | None = None,
+    timestamp_field_to_clamp: str | None = None,
 ) -> "SelectQuery":
     from posthog.hogql import ast
 

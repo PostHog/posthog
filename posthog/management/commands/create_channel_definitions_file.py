@@ -5,7 +5,6 @@ import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Optional
 
 from django.core.management.base import BaseCommand
 
@@ -50,10 +49,10 @@ class EntryKind(StrEnum):
 
 @dataclass()
 class SourceEntry:
-    hostname_type: Optional[str]
-    type_if_paid: Optional[str]
-    type_if_organic: Optional[str]
-    is_reverse_dns: Optional[bool] = False
+    hostname_type: str | None
+    type_if_paid: str | None
+    type_if_organic: str | None
+    is_reverse_dns: bool | None = False
 
 
 class Command(BaseCommand):

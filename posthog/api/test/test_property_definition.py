@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Union
+from typing import Union
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
@@ -12,7 +12,7 @@ from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySeri
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
-    EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, Optional[int], bool]]] = [
+    EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, int | None, bool]]] = [
         {"name": "$browser", "is_numerical": False},
         {"name": "$current_url", "is_numerical": False},
         {"name": "$lib", "is_numerical": False},
@@ -415,7 +415,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             },
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(
+        activity_log: ActivityLog | None = ActivityLog.objects.filter(
             scope="PropertyDefinition", activity="deleted"
         ).first()
         assert activity_log is not None

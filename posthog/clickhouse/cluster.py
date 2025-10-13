@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar
 
 import dagster
 from clickhouse_driver import Client
@@ -448,7 +448,7 @@ class Query:
 @dataclass
 class ExponentialBackoff:
     delay: float
-    max_delay: Optional[float] = None
+    max_delay: float | None = None
     exp: float = 2.0
 
     def __call__(self, attempt: int) -> float:
@@ -661,7 +661,7 @@ class MutationRunner(abc.ABC):
         hosts within the affected shards.
         """
         if shards is not None:
-            shard_host_mutation_waiters = cluster.map_any_host_in_shards({shard: self for shard in shards})
+            shard_host_mutation_waiters = cluster.map_any_host_in_shards(dict.fromkeys(shards, self))
         else:
             shard_host_mutation_waiters = cluster.map_one_host_per_shard(self)
 

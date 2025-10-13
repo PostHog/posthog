@@ -2,7 +2,7 @@ import re
 import hashlib
 import datetime
 from collections.abc import Callable
-from typing import Any, Optional, TypeVar, Union, cast
+from typing import Any, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
 
 from django.db.models import Exists, OuterRef, Q, Value
@@ -240,7 +240,7 @@ def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datet
 def empty_or_null_with_value_q(
     column: str,
     key: str,
-    operator: Optional[OperatorType],
+    operator: OperatorType | None,
     value: ValueT,
     negated: bool = False,
 ) -> Q:
@@ -301,8 +301,8 @@ def lookup_q(key: str, value: Any) -> Q:
 def property_to_Q(
     project_id: int,
     property: Property,
-    override_property_values: Optional[dict[str, Any]] = None,
-    cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    override_property_values: dict[str, Any] | None = None,
+    cohorts_cache: dict[int, CohortOrEmpty] | None = None,
     using_database: str = "default",
 ) -> Q:
     if override_property_values is None:
@@ -421,8 +421,8 @@ def property_to_Q(
 def property_group_to_Q(
     project_id: int,
     property_group: PropertyGroup,
-    override_property_values: Optional[dict[str, Any]] = None,
-    cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    override_property_values: dict[str, Any] | None = None,
+    cohorts_cache: dict[int, CohortOrEmpty] | None = None,
     using_database: str = "default",
 ) -> Q:
     if override_property_values is None:
@@ -468,8 +468,8 @@ def property_group_to_Q(
 def properties_to_Q(
     project_id: int,
     properties: list[Property],
-    override_property_values: Optional[dict[str, Any]] = None,
-    cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    override_property_values: dict[str, Any] | None = None,
+    cohorts_cache: dict[int, CohortOrEmpty] | None = None,
     using_database: str = "default",
 ) -> Q:
     """
@@ -503,7 +503,7 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
 
 # Note: Any changes to this function need to be reflected in the rust version
 # rust/feature-flags/src/properties/relative_date.rs
-def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
+def relative_date_parse_for_feature_flag_matching(value: str) -> datetime.datetime | None:
     regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))

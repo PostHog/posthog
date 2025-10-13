@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -19,10 +18,10 @@ def reload_migration_definitions():
 
 ALL_ASYNC_MIGRATIONS: dict[str, AsyncMigrationDefinition] = {}
 
-ASYNC_MIGRATION_TO_DEPENDENCY: dict[str, Optional[str]] = {}
+ASYNC_MIGRATION_TO_DEPENDENCY: dict[str, str | None] = {}
 
 # inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
-DEPENDENCY_TO_ASYNC_MIGRATION: dict[Optional[str], str] = {}
+DEPENDENCY_TO_ASYNC_MIGRATION: dict[str | None, str] = {}
 
 ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
@@ -100,7 +99,7 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
         raise LookupError(f"Async migration definition for {migration_name} not available")
 
 
-def get_async_migration_dependency(migration_name: str) -> Optional[str]:
+def get_async_migration_dependency(migration_name: str) -> str | None:
     if TEST:
         return None
 

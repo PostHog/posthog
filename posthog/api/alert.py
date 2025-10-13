@@ -1,5 +1,4 @@
 import dataclasses
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from django.db.models import QuerySet
@@ -333,17 +332,17 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
 @dataclasses.dataclass(frozen=True)
 class AlertConfigurationContext(ActivityContextBase):
-    insight_id: Optional[int] = None
-    insight_short_id: Optional[str] = None
-    insight_name: Optional[str] = "Insight"
-    alert_id: Optional[int] = None
-    alert_name: Optional[str] = "Alert"
+    insight_id: int | None = None
+    insight_short_id: str | None = None
+    insight_name: str | None = "Insight"
+    alert_id: int | None = None
+    alert_name: str | None = "Alert"
 
 
 @dataclasses.dataclass(frozen=True)
 class AlertSubscriptionContext(AlertConfigurationContext):
-    subscriber_name: Optional[str] = None
-    subscriber_email: Optional[str] = None
+    subscriber_name: str | None = None
+    subscriber_email: str | None = None
 
 
 @receiver(model_activity_signal, sender=AlertConfiguration)

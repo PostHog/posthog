@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.contrib.gis.geoip2 import GeoIP2
 
@@ -9,7 +8,7 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 try:
-    geoip: Optional[GeoIP2] = GeoIP2(cache=8)
+    geoip: GeoIP2 | None = GeoIP2(cache=8)
     # Cache setting corresponds to MODE_MEMORY: Load database into memory. Pure Python.
     # Provides faster performance but uses more memory.
 except Exception as e:
@@ -31,7 +30,7 @@ VALID_GEOIP_PROPERTIES = [
 GEOIP_KEY_MAPPING = {"city": "city_name"}
 
 
-def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
+def get_geoip_properties(ip_address: str | None) -> dict[str, str]:
     """
     Returns a dictionary of geoip properties for the given ip address.
 

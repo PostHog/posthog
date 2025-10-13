@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
@@ -15,7 +14,7 @@ def get_external_data_source_detail_name(external_data_source: ExternalDataSourc
 
 def get_external_data_source_created_by_info(
     external_data_source: ExternalDataSource,
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None, str | None]:
     """Get created by user information from ExternalDataSource"""
     created_by_user_id = None
     created_by_user_email = None

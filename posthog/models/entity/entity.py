@@ -1,6 +1,6 @@
 import inspect
 from collections import Counter
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from django.conf import settings
 
@@ -53,16 +53,16 @@ class Entity(PropertyMixin):
     This class just allows for stronger typing of this object.
     """
 
-    id: Optional[int | str]
+    id: int | str | None
     type: Literal["events", "actions", "data_warehouse"]
-    order: Optional[int]
-    name: Optional[str]
-    custom_name: Optional[str]
-    math: Optional[MathType]
-    math_property: Optional[str]
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig]
-    math_hogql: Optional[str]
-    math_group_type_index: Optional[GroupTypeIndex]
+    order: int | None
+    name: str | None
+    custom_name: str | None
+    math: MathType | None
+    math_property: str | None
+    math_property_revenue_currency: RevenueCurrencyPropertyConfig | None
+    math_hogql: str | None
+    math_group_type_index: GroupTypeIndex | None
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
     # Used for identifying entities within a single query during query building,
     # which generally uses Entity objects processed by EntitiesMixin
@@ -70,10 +70,10 @@ class Entity(PropertyMixin):
     index: int
 
     # data warehouse fields
-    id_field: Optional[str]
-    timestamp_field: Optional[str]
-    distinct_id_field: Optional[str]
-    table_name: Optional[str]
+    id_field: str | None
+    timestamp_field: str | None
+    distinct_id_field: str | None
+    table_name: str | None
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.id = data.get("id")
@@ -107,7 +107,7 @@ class Entity(PropertyMixin):
         self.distinct_id_field = data.get("distinct_id_field")
         self.table_name = data.get("table_name")
 
-        self._action: Optional[Action] = None
+        self._action: Action | None = None
         self._data = data  # push data to instance object so mixins are handled properly
 
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:

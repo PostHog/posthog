@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 from urllib.parse import urlencode
 
 from django import forms
@@ -229,7 +229,7 @@ class InviteSignupSerializer(serializers.Serializer):
         if "view" not in self.context or not self.context["view"].kwargs.get("invite_id"):
             raise serializers.ValidationError("Please provide an invite ID to continue.")
 
-        user: Optional[User] = None
+        user: User | None = None
         is_new_user: bool = False
 
         role_at_organization = validated_data.pop("role_at_organization", "")
@@ -413,7 +413,7 @@ class CompanyNameForm(forms.Form):
     emailOptIn = forms.BooleanField(required=False)
 
 
-def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
+def lookup_invite_for_saml(email: str, organization_domain_id: str) -> OrganizationInvite | None:
     organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
     if not organization_domain:
         return None
@@ -425,7 +425,7 @@ def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[
 
 
 def process_social_invite_signup(
-    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: User | None = None
 ) -> User:
     try:
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
@@ -460,8 +460,8 @@ def process_social_invite_signup(
 
 
 def process_social_domain_jit_provisioning_signup(
-    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None
-) -> Optional[User]:
+    strategy: DjangoStrategy, email: str, full_name: str, user: User | None = None
+) -> User | None:
     # Check if the user is on an allowed domain
     domain = email.split("@")[-1]
     try:

@@ -1,4 +1,3 @@
-from typing import Optional
 
 
 def get_batch_export_destination_type(batch_export) -> str:
@@ -12,7 +11,7 @@ def get_batch_export_destination_type(batch_export) -> str:
     return destination_type
 
 
-def get_batch_export_created_by_info(batch_export) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def get_batch_export_created_by_info(batch_export) -> tuple[str | None, str | None, str | None]:
     """Get created by user information from BatchExport"""
     created_by_user_id = None
     created_by_user_email = None

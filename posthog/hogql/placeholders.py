@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -33,7 +32,7 @@ def find_placeholders(node: ast.Expr) -> FindPlaceholders:
 
 
 class ReplacePlaceholders(CloningVisitor):
-    def __init__(self, placeholders: Optional[dict[str, ast.Expr]]):
+    def __init__(self, placeholders: dict[str, ast.Expr] | None):
         super().__init__()
         self.placeholders = placeholders
 
@@ -67,5 +66,5 @@ class ReplacePlaceholders(CloningVisitor):
         )
 
 
-def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
+def replace_placeholders(node: ast.Expr, placeholders: dict[str, ast.Expr] | None) -> ast.Expr:
     return ReplacePlaceholders(placeholders).visit(node)

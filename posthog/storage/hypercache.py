@@ -1,6 +1,5 @@
 import json
 from collections.abc import Callable
-from typing import Optional
 
 from django.core.cache import cache
 
@@ -140,7 +139,7 @@ class HyperCache:
         self._set_cache_value_redis(key, data)
         self._set_cache_value_s3(key, data)
 
-    def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
+    def clear_cache(self, key: KeyType, kinds: list[str] | None = None):
         """
         Only meant for use in tests
         """

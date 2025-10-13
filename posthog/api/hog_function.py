@@ -1,5 +1,5 @@
 import json
-from typing import Optional, cast
+from typing import cast
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -158,7 +158,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        instance = cast(HogFunction | None, self.context.get("instance", self.instance))
 
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
@@ -211,7 +211,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if self.context.get("view") and self.context["view"].action == "create":
             return value
 
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        instance = cast(HogFunction | None, self.context.get("instance", self.instance))
         if instance and instance.type != value:
             raise serializers.ValidationError("Cannot modify the type of an existing function")
         return value

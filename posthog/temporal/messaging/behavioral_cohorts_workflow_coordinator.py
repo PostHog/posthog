@@ -1,7 +1,7 @@
 import math
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 import temporalio.common
 import temporalio.activity
@@ -22,12 +22,12 @@ LOGGER = get_logger(__name__)
 class CoordinatorWorkflowInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
-    team_id: Optional[int] = None
-    cohort_id: Optional[int] = None
-    condition: Optional[str] = None
+    team_id: int | None = None
+    cohort_id: int | None = None
+    condition: str | None = None
     min_matches: int = 3
     days: int = 30
-    limit: Optional[int] = None
+    limit: int | None = None
     parallelism: int = 10  # Number of child workflows to spawn
     conditions_per_workflow: int = 5000  # Max conditions per child workflow
 

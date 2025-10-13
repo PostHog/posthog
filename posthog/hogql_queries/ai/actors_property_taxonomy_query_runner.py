@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
@@ -90,7 +89,7 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner
             return "persons"
         return "groups"
 
-    def _subquery_filter(self, *, field_name: str = "prop") -> Optional[ast.Expr]:
+    def _subquery_filter(self, *, field_name: str = "prop") -> ast.Expr | None:
         field_filter = ast.Call(
             name="isNotNull",
             args=[ast.Field(chain=[field_name])],

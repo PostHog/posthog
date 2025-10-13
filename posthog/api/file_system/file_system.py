@@ -1,6 +1,6 @@
 import re
 import shlex
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -482,7 +482,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
-    def _assure_parent_folders(self, path: str, created_by: User, team: Optional[Team] = None) -> None:
+    def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:
         """
         Ensure that all parent folders for the given path exist for the provided team.
         For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"

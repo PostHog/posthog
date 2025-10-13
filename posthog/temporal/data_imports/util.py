@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.conf import settings
 
@@ -13,7 +12,7 @@ def prepare_s3_files_for_querying(
     folder_path: str,
     table_name: str,
     file_uris: list[str],
-    preserve_table_name_casing: Optional[bool] = False,
+    preserve_table_name_casing: bool | None = False,
     delete_existing: bool = True,
 ):
     s3 = get_s3_client()

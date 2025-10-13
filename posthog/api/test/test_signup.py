@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -473,7 +473,7 @@ class TestSignupAPI(APIBaseTest):
         required_attributes = ["first_name", "email"]
 
         for attribute in required_attributes:
-            body: dict[str, Optional[str]] = {
+            body: dict[str, str | None] = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
                 "password": VALID_TEST_PASSWORD,

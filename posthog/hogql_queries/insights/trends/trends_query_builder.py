@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from posthog.schema import (
     ActionsNode,
@@ -142,7 +142,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_events_subquery(
         self,
-        no_modifications: Optional[bool],
+        no_modifications: bool | None,
         breakdown: Breakdown,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(

@@ -5,7 +5,7 @@ import json
 import time
 import logging
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -369,7 +369,7 @@ class FeatureFlagSerializer(
         return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
-    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
+    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> int | None:
         if self.get_is_simple_flag(feature_flag):
             return feature_flag.conditions[0].get("rollout_percentage")
         else:
@@ -1451,7 +1451,7 @@ class FeatureFlagViewSet(
                 status=500,
             )
 
-    def _handle_cached_response(self, cached_response: Optional[dict]) -> Optional[Response]:
+    def _handle_cached_response(self, cached_response: dict | None) -> Response | None:
         """Handle cached response including analytics tracking."""
         if cached_response is None:
             return None

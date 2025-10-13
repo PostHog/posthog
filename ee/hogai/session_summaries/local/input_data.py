@@ -2,7 +2,7 @@ import os
 import re
 import datetime
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any
 
 import pytz
 from clickhouse_driver import Client
@@ -34,7 +34,7 @@ def _get_production_session_metadata_locally(
     events_obj: SessionReplayEvents,
     session_id: str,
     team_id: int,
-    recording_start_time: Optional[datetime.datetime] = None,
+    recording_start_time: datetime.datetime | None = None,
 ) -> RecordingMetadata | None:
     query = events_obj.get_metadata_query(recording_start_time)
     with _ch_client_local_reads_prod() as client:

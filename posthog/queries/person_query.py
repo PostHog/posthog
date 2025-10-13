@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Union
 from uuid import UUID
 
 from posthog.clickhouse.materialized_columns import ColumnName
@@ -40,23 +40,23 @@ class PersonQuery:
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _extra_fields: set[ColumnName]
-    _inner_person_properties: Optional[PropertyGroup]
-    _cohort: Optional[Cohort]
-    _include_distinct_ids: Optional[bool] = False
+    _inner_person_properties: PropertyGroup | None
+    _cohort: Cohort | None
+    _include_distinct_ids: bool | None = False
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
-        column_optimizer: Optional[ColumnOptimizer] = None,
-        cohort: Optional[Cohort] = None,
+        column_optimizer: ColumnOptimizer | None = None,
+        cohort: Cohort | None = None,
         *,
-        entity: Optional[Entity] = None,
-        extra_fields: Optional[list[ColumnName]] = None,
+        entity: Entity | None = None,
+        extra_fields: list[ColumnName] | None = None,
         # A sub-optimal version of the `cohort` parameter above, the difference being that
         # this supports multiple cohort filters, but is not as performant as the above.
-        cohort_filters: Optional[list[Property]] = None,
-        include_distinct_ids: Optional[bool] = False,
+        cohort_filters: list[Property] | None = None,
+        include_distinct_ids: bool | None = False,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -81,7 +81,7 @@ class PersonQuery:
 
     def get_query(
         self,
-        prepend: Optional[Union[str, int]] = None,
+        prepend: Union[str, int] | None = None,
         paginate: bool = False,
         filter_future_persons: bool = False,
     ) -> tuple[str, dict]:

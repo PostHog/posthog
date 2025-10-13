@@ -1,5 +1,4 @@
 import secrets
-from typing import Optional
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
@@ -52,7 +51,7 @@ class SharePassword(models.Model):
 
     @classmethod
     def create_password(
-        cls, sharing_configuration, created_by: User, raw_password: Optional[str] = None, note: Optional[str] = None
+        cls, sharing_configuration, created_by: User, raw_password: str | None = None, note: str | None = None
     ) -> tuple["SharePassword", str]:
         """
         Create a new share password entry.

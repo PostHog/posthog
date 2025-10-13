@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -59,9 +59,9 @@ def fetch_app_metrics_trends(
     before: datetime,
     breakdown_by: str = "kind",
     interval: str = "day",
-    instance_id: Optional[str] = None,
-    name: Optional[list[str]] = None,
-    kind: Optional[list[str]] = None,
+    instance_id: str | None = None,
+    name: list[str] | None = None,
+    kind: list[str] | None = None,
 ) -> AppMetricsResponse:
     """Fetch a list of batch export log entries from ClickHouse."""
 
@@ -156,11 +156,11 @@ def fetch_app_metric_totals(
     app_source: str,
     app_source_id: str,
     breakdown_by: str = "kind",
-    after: Optional[datetime] = None,
-    before: Optional[datetime] = None,
-    instance_id: Optional[str] = None,
-    name: Optional[list[str]] = None,
-    kind: Optional[list[str]] = None,
+    after: datetime | None = None,
+    before: datetime | None = None,
+    instance_id: str | None = None,
+    name: list[str] | None = None,
+    kind: list[str] | None = None,
 ) -> AppMetricsTotalsResponse:
     """
     Calculate the totals for the app metrics over the given period.
@@ -205,7 +205,7 @@ def fetch_app_metric_totals(
 class AppMetricsMixin(viewsets.GenericViewSet):
     app_source: str  # Should be set by the inheriting class
 
-    def get_app_metrics_instance_id(self) -> Optional[str]:
+    def get_app_metrics_instance_id(self) -> str | None:
         """
         Can be used overridden to help with getting the instance_id for the app metrics.
         Otherwise it defaults to null or the query param if given

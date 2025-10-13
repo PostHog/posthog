@@ -1,7 +1,7 @@
 import time
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Union, cast
 
 from django.conf import settings
 from django.db import connection, models, transaction
@@ -58,15 +58,15 @@ DEFAULT_COHORT_INSERT_BATCH_SIZE = 1000
 class Group:
     def __init__(
         self,
-        properties: Optional[dict[str, Any]] = None,
-        action_id: Optional[int] = None,
-        event_id: Optional[str] = None,
-        days: Optional[int] = None,
-        count: Optional[int] = None,
-        count_operator: Optional[Literal["eq", "lte", "gte"]] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        label: Optional[str] = None,
+        properties: dict[str, Any] | None = None,
+        action_id: int | None = None,
+        event_id: str | None = None,
+        days: int | None = None,
+        count: int | None = None,
+        count_operator: Literal["eq", "lte", "gte"] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        label: str | None = None,
     ):
         if not properties and not action_id and not event_id:
             raise ValueError("Cohort group needs properties or action_id or event_id")
@@ -280,7 +280,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
+    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: int | None = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
         logger.warn(
@@ -369,7 +369,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return uuids
 
     def insert_users_by_list(
-        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
+        self, items: list[str], *, team_id: int | None = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
     ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -426,7 +426,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_by_email(
-        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
+        self, items: list[str], *, team_id: int | None = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.

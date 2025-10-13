@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
@@ -45,7 +45,7 @@ class TestPrinter(BaseTest):
     def _expr(
         self,
         query: str,
-        context: Optional[HogQLContext] = None,
+        context: HogQLContext | None = None,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
         node = parse_expr(query)
@@ -66,8 +66,8 @@ class TestPrinter(BaseTest):
     def _select(
         self,
         query: str,
-        context: Optional[HogQLContext] = None,
-        placeholders: Optional[dict[str, ast.Expr]] = None,
+        context: HogQLContext | None = None,
+        placeholders: dict[str, ast.Expr] | None = None,
     ) -> str:
         return print_ast(
             parse_select(query, placeholders=placeholders),

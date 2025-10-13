@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Optional, cast
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -40,10 +40,10 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
     def _get_builder(
         self,
-        time_frame: Optional[str] = None,
+        time_frame: str | None = None,
         series_index: int = 0,
         trends_query: TrendsQuery = default_query,
-        compare_value: Optional[Compare] = None,
+        compare_value: Compare | None = None,
     ) -> TrendsActorsQueryBuilder:
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)

@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from django.conf import settings
 from django.db import connections
@@ -22,7 +21,7 @@ class DatabaseHealthcheck:
 
     def __init__(self, time_interval: int = 20) -> None:
         self.connected: bool = True
-        self.last_check: Optional[int] = None
+        self.last_check: int | None = None
         self.time_interval = time_interval
         self.hits = 0
         self.misses = 0

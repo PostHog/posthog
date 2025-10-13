@@ -1,6 +1,6 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, Union
+from typing import Union
 
 from django.utils.timezone import now
 
@@ -31,7 +31,7 @@ class RelatedActorsQuery:
     def __init__(
         self,
         team: Team,
-        group_type_index: Optional[Union[GroupTypeIndex, str]],
+        group_type_index: Union[GroupTypeIndex, str] | None,
         id: str,
     ):
         self.team = team

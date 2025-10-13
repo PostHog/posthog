@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Literal, Optional, Union
+from typing import Literal, Union
 
 from django.utils import timezone
 
@@ -133,7 +133,7 @@ class EntitiesDerivedMixin(EntitiesMixin):
     def target_entity_to_dict(self):
         return {"target_entity": self.target_entity.to_dict()} if self.target_entity else {}
 
-    def _parse_entity(self, entity_data) -> Optional[Entity]:
+    def _parse_entity(self, entity_data) -> Entity | None:
         if entity_data:
             if isinstance(entity_data, str):
                 _data = json.loads(entity_data)

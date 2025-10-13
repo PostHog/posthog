@@ -2,7 +2,7 @@ import typing
 from abc import ABC
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Optional, Union
+from typing import Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -147,7 +147,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         )
 
     @cached_property
-    def pathname_property_filter(self) -> Optional[EventPropertyFilter]:
+    def pathname_property_filter(self) -> EventPropertyFilter | None:
         for p in self.query.properties:
             if isinstance(p, EventPropertyFilter) and p.key == "$pathname":
                 return p
@@ -160,7 +160,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     @cached_property
-    def conversion_goal_expr(self) -> Optional[ast.Expr]:
+    def conversion_goal_expr(self) -> ast.Expr | None:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
             action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
             return action_to_expr(action)
@@ -174,14 +174,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             return None
 
     @cached_property
-    def conversion_count_expr(self) -> Optional[ast.Expr]:
+    def conversion_count_expr(self) -> ast.Expr | None:
         if self.conversion_goal_expr:
             return ast.Call(name="countIf", args=[self.conversion_goal_expr])
         else:
             return None
 
     @cached_property
-    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
+    def conversion_person_id_expr(self) -> ast.Expr | None:
         if self.conversion_goal_expr:
             return ast.Call(
                 name="any",
@@ -267,8 +267,8 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         column_name: str,
         start: ast.Expr,
         end: ast.Expr,
-        alias: Optional[str] = None,
-        params: Optional[list[ast.Expr]] = None,
+        alias: str | None = None,
+        params: list[ast.Expr] | None = None,
     ):
         expr = ast.Call(
             name=function_name + "If",
@@ -298,7 +298,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         return expr
 
-    def session_where(self, include_previous_period: Optional[bool] = None):
+    def session_where(self, include_previous_period: bool | None = None):
         properties = [
             parse_expr(
                 "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
@@ -319,7 +319,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             self.team,
         )
 
-    def session_having(self, include_previous_period: Optional[bool] = None):
+    def session_having(self, include_previous_period: bool | None = None):
         properties: list[Union[ast.Expr, EventPropertyFilter]] = [
             parse_expr(
                 "min_timestamp >= {date_from}",
@@ -347,7 +347,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             self.team,
         )
 
-    def sessions_table_properties(self, include_previous_period: Optional[bool] = None):
+    def sessions_table_properties(self, include_previous_period: bool | None = None):
         properties = [
             parse_expr(
                 "sessions.min_timestamp >= {date_from}",
@@ -402,7 +402,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
@@ -487,7 +487,7 @@ WHERE
 
         return apply_path_cleaning(path_expr, self.team)
 
-    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
+    def _unsample(self, n: int | float | None, _row: list[int | float] | None = None):
         if n is None:
             return None
 

@@ -1,6 +1,6 @@
 import json
 import datetime
-from typing import Optional, Union
+from typing import Union
 from zoneinfo import ZoneInfo
 
 from django.utils.timezone import now
@@ -20,7 +20,7 @@ def raw_create_group_ch(
     group_key: str,
     properties: dict,
     created_at: datetime.datetime,
-    timestamp: Optional[datetime.datetime] = None,
+    timestamp: datetime.datetime | None = None,
     sync: bool = False,
 ):
     """Create ClickHouse-only Group record.
@@ -45,8 +45,8 @@ def create_group(
     team_id: int,
     group_type_index: GroupTypeIndex,
     group_key: str,
-    properties: Optional[dict] = None,
-    timestamp: Optional[Union[datetime.datetime, str]] = None,
+    properties: dict | None = None,
+    timestamp: Union[datetime.datetime, str] | None = None,
     sync: bool = False,
 ) -> Group:
     """Create proper Group record (ClickHouse + Postgres)."""
@@ -82,7 +82,7 @@ def create_group(
 
 
 def get_aggregation_target_field(
-    aggregation_group_type_index: Optional[GroupTypeIndex],
+    aggregation_group_type_index: GroupTypeIndex | None,
     event_table_alias: str,
     default: str,
 ) -> str:

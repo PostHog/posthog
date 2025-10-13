@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, Union
+from typing import Union
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -19,7 +19,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @staticmethod
-    def _serialised_user(user: Optional[User]) -> Optional[dict[str, Optional[Union[int, str]]]]:
+    def _serialised_user(user: User | None) -> dict[str, Union[int, str] | None] | None:
         if user is None:
             return None
 
@@ -38,9 +38,9 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     def _expected_text(
         self,
         body: str,
-        created_by: Optional[User] = None,
-        last_modified_by: Optional[User] = None,
-        text_id: Optional[int] = None,
+        created_by: User | None = None,
+        last_modified_by: User | None = None,
+        text_id: int | None = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
     ) -> dict:
         if not created_by:
@@ -61,11 +61,11 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     def _expected_tile_with_text(
         self,
         body: str,
-        tile_id: Optional[int] = None,
-        created_by: Optional[User] = None,
-        last_modified_by: Optional[User] = None,
-        text_id: Optional[int] = None,
-        color: Optional[str] = None,
+        tile_id: int | None = None,
+        created_by: User | None = None,
+        last_modified_by: User | None = None,
+        text_id: int | None = None,
+        color: str | None = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
     ) -> dict:
         if not tile_id:
@@ -89,7 +89,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         }
 
     @staticmethod
-    def _tile_layout(lg: Optional[dict] = None) -> dict:
+    def _tile_layout(lg: dict | None = None) -> dict:
         if lg is None:
             lg = {"x": "0", "y": "0", "w": "6", "h": "5"}
 

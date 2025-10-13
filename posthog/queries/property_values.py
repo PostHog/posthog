@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.utils import timezone
 
@@ -13,8 +12,8 @@ from posthog.utils import relative_date_parse
 def get_property_values_for_key(
     key: str,
     team: Team,
-    event_names: Optional[list[str]] = None,
-    value: Optional[str] = None,
+    event_names: list[str] | None = None,
+    value: str | None = None,
 ):
     property_field, mat_column_exists = get_property_string_expr("events", key, "%(key)s", "properties")
     parsed_date_from = "AND timestamp >= '{}'".format(
@@ -64,7 +63,7 @@ def get_property_values_for_key(
     )
 
 
-def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+def get_person_property_values_for_key(key: str, team: Team, value: str | None = None):
     property_field, _ = get_property_string_expr("person", key, "%(key)s", "properties")
 
     if value:

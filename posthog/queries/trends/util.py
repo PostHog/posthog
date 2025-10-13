@@ -1,6 +1,6 @@
 import datetime
 from datetime import timedelta
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -56,7 +56,7 @@ def process_math(
     entity: Entity,
     team: Team,
     filter: Filter,
-    event_table_alias: Optional[str] = None,
+    event_table_alias: str | None = None,
     person_id_alias: str = "person_id",
 ) -> tuple[str, str, dict[str, Any]]:
     aggregate_operation = "count(*)"
@@ -100,8 +100,8 @@ def process_math(
 def parse_response(
     stats: dict,
     filter: Filter,
-    additional_values: Optional[dict] = None,
-    entity: Optional[Entity] = None,
+    additional_values: dict | None = None,
+    entity: Entity | None = None,
 ) -> dict[str, Any]:
     if additional_values is None:
         additional_values = {}

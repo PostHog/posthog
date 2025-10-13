@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import uuid4
 
 import pytest
@@ -162,7 +161,7 @@ Assess topic coverage and question specificity for this context:
 def call_deep_research_onboarding():
     """Fixture to call DeepResearchOnboardingNode with a parametrized input."""
 
-    async def callable(input: str) -> Optional[AssistantMessage]:
+    async def callable(input: str) -> AssistantMessage | None:
         _, team, user = await database_sync_to_async(User.objects.bootstrap)(
             organization_name="TestOrg", email=f"{uuid4()}@example.com", password=None
         )

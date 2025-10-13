@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.conf import settings
 
@@ -18,7 +18,7 @@ from posthog.utils import get_machine_id
 logger = structlog.get_logger(__name__)
 
 
-def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
+def get_org_owner_or_first_user(organization_id: str) -> User | None:
     # Find the membership object for the org owner
     user = None
     membership = OrganizationMembership.objects.filter(
@@ -42,11 +42,11 @@ def capture_event(
     *,
     pha_client: Client,
     name: str,
-    organization_id: Optional[str] = None,
-    team_id: Optional[int] = None,
+    organization_id: str | None = None,
+    team_id: int | None = None,
     properties: dict[str, Any],
-    timestamp: Optional[Union[datetime, str]] = None,
-    distinct_id: Optional[str] = None,
+    timestamp: Union[datetime, str] | None = None,
+    distinct_id: str | None = None,
 ) -> None:
     """
     Captures a single event.

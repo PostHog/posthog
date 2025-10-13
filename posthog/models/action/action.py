@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Literal, Optional, Union, get_args
+from typing import TYPE_CHECKING, Literal, Union, get_args
 
 from django.db import models
 from django.db.models import QuerySet
@@ -26,16 +26,16 @@ ACTION_STEP_MATCHING_OPTIONS: tuple[ActionStepMatching, ...] = get_args(ActionSt
 
 @dataclass
 class ActionStepJSON:
-    tag_name: Optional[str] = None
-    text: Optional[str] = None
-    text_matching: Optional[ActionStepMatching] = None
-    href: Optional[str] = None
-    href_matching: Optional[ActionStepMatching] = None
-    selector: Optional[str] = None
-    url: Optional[str] = None
-    url_matching: Optional[ActionStepMatching] = "contains"
-    event: Optional[str] = None
-    properties: Optional[list[dict]] = None
+    tag_name: str | None = None
+    text: str | None = None
+    text_matching: ActionStepMatching | None = None
+    href: str | None = None
+    href_matching: ActionStepMatching | None = None
+    selector: str | None = None
+    url: str | None = None
+    url_matching: ActionStepMatching | None = "contains"
+    event: str | None = None
+    properties: list[dict] | None = None
 
 
 class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):

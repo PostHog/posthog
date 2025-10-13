@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from posthog.test.base import APIBaseTest, also_test_with_materialized_columns, snapshot_clickhouse_queries
 
@@ -19,10 +19,10 @@ class FunnelStepResult:
     name: str
     count: int
     breakdown: Union[list[str], str]
-    average_conversion_time: Optional[float] = None
-    median_conversion_time: Optional[float] = None
+    average_conversion_time: float | None = None
+    median_conversion_time: float | None = None
     type: Literal["events", "actions"] = "events"
-    action_id: Optional[str] = None
+    action_id: str | None = None
 
 
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):

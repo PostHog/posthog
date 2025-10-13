@@ -2,7 +2,6 @@ import json
 import time
 import base64
 import random
-from typing import Optional
 
 import pytest
 from freezegun import freeze_time
@@ -49,7 +48,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
-def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:
+def make_session_recording_decide_response(overrides: dict | None = None) -> dict:
     if overrides is None:
         overrides = {}
 
@@ -107,8 +106,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
-        user_agent: Optional[str] = None,
-        assert_num_queries: Optional[int] = None,
+        user_agent: str | None = None,
+        assert_num_queries: int | None = None,
         simulate_database_timeout: bool = False,
         only_evaluate_survey_feature_flags: bool = False,
     ):
@@ -495,7 +494,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ]
     )
     def test_session_recording_masking_config(
-        self, _name: str, config: Optional[dict], expected: Optional[dict], *args
+        self, _name: str, config: dict | None, expected: dict | None, *args
     ):
         self._update_team(
             {

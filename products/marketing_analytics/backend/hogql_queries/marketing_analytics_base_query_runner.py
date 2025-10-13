@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 import structlog
 
@@ -293,7 +293,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Build the complete query with CTEs using AST
             return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
 
-    def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
+    def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> ast.CTE | None:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""
         try:
             # Get the processors

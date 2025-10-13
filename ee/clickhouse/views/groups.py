@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Optional, cast
+from typing import cast
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -171,7 +171,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         except GroupTypeMapping.DoesNotExist:
             raise NotFound()
 
-    def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
+    def trigger_group_identify(self, group: Group, operation: str, group_properties: dict | None = None):
         group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
         properties = {
             "$group_type": group_type_mapping.group_type,

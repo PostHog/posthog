@@ -1,5 +1,4 @@
 import dataclasses
-from typing import Optional
 
 from django.db.models import Prefetch, Q, QuerySet
 from django.dispatch import receiver
@@ -141,9 +140,9 @@ class TaggedItemContext(ActivityContextBase):
     tag_name: str
     tag_id: str
     team_id: int
-    related_object_type: Optional[str] = None
-    related_object_id: Optional[str] = None
-    related_object_name: Optional[str] = None
+    related_object_type: str | None = None
+    related_object_id: str | None = None
+    related_object_name: str | None = None
 
 
 @receiver(model_activity_signal, sender=Tag)

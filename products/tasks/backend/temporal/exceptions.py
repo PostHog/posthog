@@ -1,10 +1,9 @@
-from typing import Optional
 
 from temporalio.exceptions import ApplicationError
 
 
 class ProcessTaskError(ApplicationError):
-    def __init__(self, message: str, context: Optional[dict] = None, **kwargs):
+    def __init__(self, message: str, context: dict | None = None, **kwargs):
         self.context = context or {}
         super().__init__(message, self.context, **kwargs)
 
@@ -12,14 +11,14 @@ class ProcessTaskError(ApplicationError):
 class ProcessTaskFatalError(ProcessTaskError):
     """Fatal errors that should not be retried."""
 
-    def __init__(self, message: str, context: Optional[dict] = None):
+    def __init__(self, message: str, context: dict | None = None):
         super().__init__(message, context, non_retryable=True)
 
 
 class ProcessTaskTransientError(ProcessTaskError):
     """Transient errors that may succeed on retry."""
 
-    def __init__(self, message: str, context: Optional[dict] = None):
+    def __init__(self, message: str, context: dict | None = None):
         super().__init__(message, context, non_retryable=False)
 
 
@@ -118,7 +117,7 @@ class TaskExecutionFailedError(ProcessTaskError):
         exit_code: int,
         stdout: str = "",
         stderr: str = "",
-        context: Optional[dict] = None,
+        context: dict | None = None,
         non_retryable: bool = False,
     ):
         self.exit_code = exit_code

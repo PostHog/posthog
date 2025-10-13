@@ -1,4 +1,4 @@
-from typing import NotRequired, Optional, TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 from posthog.schema import (
     AlertCondition,
@@ -346,7 +346,7 @@ def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
 
 
-def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:
+def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> dict | None:
     """
     Resulting filter overrides don't set 'date_to' so we always get value for current interval.
     last_x_intervals controls how many intervals to look back to

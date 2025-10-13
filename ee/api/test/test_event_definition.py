@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -192,7 +192,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             {"official", "internal"},
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
+        activity_log: ActivityLog | None = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
         self.assertEqual(activity_log.scope, "EventDefinition")
         self.assertEqual(activity_log.activity, "changed")

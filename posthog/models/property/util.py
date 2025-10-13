@@ -4,7 +4,7 @@ from collections import (
     Counter as TCounter,
 )
 from collections.abc import Callable, Iterable
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 from django.db.models import QuerySet
 
@@ -68,7 +68,7 @@ StringMatching = Literal["selector", "tag_name", "href", "text"]
 # which is parsed and sent to this function ->
 def parse_prop_grouped_clauses(
     team_id: int,
-    property_group: Optional[PropertyGroup],
+    property_group: PropertyGroup | None,
     *,
     hogql_context: HogQLContext,
     prepend: str = "global",
@@ -144,7 +144,7 @@ def parse_prop_clauses(
     team_id: int,
     filters: list[Property],
     *,
-    hogql_context: Optional[HogQLContext],
+    hogql_context: HogQLContext | None,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -383,10 +383,10 @@ def prop_filter_json_extract(
     prepend: str = "",
     prop_var: str = "properties",
     allow_denormalized_props: bool = True,
-    transform_expression: Optional[Callable[[str], str]] = None,
+    transform_expression: Callable[[str], str] | None = None,
     property_operator: str = PropertyOperatorType.AND,
-    table_name: Optional[str] = None,
-    use_event_column: Optional[str] = None,
+    table_name: str | None = None,
+    use_event_column: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
@@ -693,7 +693,7 @@ def get_property_string_expr(
     var: str,
     column: str,
     allow_denormalized_props: bool = True,
-    table_alias: Optional[str] = None,
+    table_alias: str | None = None,
     materialised_table_column: str = "properties",
 ) -> tuple[str, bool]:
     """
@@ -739,7 +739,7 @@ def filter_element(
     key: StringMatching,
     value: ValueT,
     *,
-    operator: Optional[OperatorType] = None,
+    operator: OperatorType | None = None,
     prepend: str = "",
 ) -> tuple[str, dict]:
     if operator is None:
@@ -923,7 +923,7 @@ def extract_tables_and_properties(props: list[Property]) -> TCounter[PropertyIde
 
 
 def count_hogql_properties(
-    expr: str, counter: Optional[TCounter[PropertyIdentifier]] = None
+    expr: str, counter: TCounter[PropertyIdentifier] | None = None
 ) -> TCounter[PropertyIdentifier]:
     if not counter:
         counter = Counter()

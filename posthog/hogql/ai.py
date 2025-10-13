@@ -1,5 +1,5 @@
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -114,7 +114,7 @@ class PromptUnclear(Exception):
     pass
 
 
-def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
+def write_sql_from_prompt(prompt: str, *, current_query: str | None = None, team: "Team", user: "User") -> str:
     database = create_hogql_database(team=team)
     context = HogQLContext(
         team_id=team.pk,
@@ -155,8 +155,8 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             },
         )
 
-    candidate_sql: Optional[str] = None
-    error: Optional[str] = None
+    candidate_sql: str | None = None
+    error: str | None = None
 
     generated_valid_hogql = False
     attempt_count = 0

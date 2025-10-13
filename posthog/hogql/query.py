@@ -1,5 +1,5 @@
 import dataclasses
-from typing import ClassVar, Optional, Union, cast
+from typing import ClassVar, Union, cast
 
 from opentelemetry import trace
 
@@ -44,17 +44,17 @@ class HogQLQueryExecutor:
     team: Team
     _: dataclasses.KW_ONLY
     query_type: str = "hogql_query"
-    filters: Optional[HogQLFilters] = None
-    placeholders: Optional[dict[str, ast.Expr]] = None
-    variables: Optional[dict[str, HogQLVariable]] = None
+    filters: HogQLFilters | None = None
+    placeholders: dict[str, ast.Expr] | None = None
+    variables: dict[str, HogQLVariable] | None = None
     workload: Workload = Workload.DEFAULT
-    settings: Optional[HogQLGlobalSettings] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-    limit_context: Optional[LimitContext] = LimitContext.QUERY
+    settings: HogQLGlobalSettings | None = None
+    modifiers: HogQLQueryModifiers | None = None
+    limit_context: LimitContext | None = LimitContext.QUERY
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
-    pretty: Optional[bool] = True
+    pretty: bool | None = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
-    hogql_context: Optional[HogQLContext] = None
+    hogql_context: HogQLContext | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -65,11 +65,11 @@ class HogQLQueryExecutor:
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
-        self.error: Optional[str] = None
-        self.explain: Optional[list[str]] = None
+        self.error: str | None = None
+        self.explain: list[str] | None = None
         self.results = None
         self.types = None
-        self.metadata: Optional[HogQLMetadataResponse] = None
+        self.metadata: HogQLMetadataResponse | None = None
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):

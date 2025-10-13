@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
@@ -20,12 +20,12 @@ from posthog.models.signals import model_activity_signal
 @dataclasses.dataclass(frozen=True)
 class AnnotationContext(ActivityContextBase):
     scope: str
-    dashboard_id: Optional[int] = None
-    dashboard_name: Optional[str] = None
-    dashboard_item_id: Optional[int] = None
-    dashboard_item_short_id: Optional[str] = None
-    dashboard_item_name: Optional[str] = None
-    recording_id: Optional[str] = None
+    dashboard_id: int | None = None
+    dashboard_name: str | None = None
+    dashboard_item_id: int | None = None
+    dashboard_item_short_id: str | None = None
+    dashboard_item_name: str | None = None
+    recording_id: str | None = None
 
 
 class AnnotationSerializer(serializers.ModelSerializer):

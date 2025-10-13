@@ -388,7 +388,7 @@ class Task(models.Model):
         if not workflow:
             return None
 
-        current_stage = cast(Optional[WorkflowStage], self.current_stage)
+        current_stage = cast(WorkflowStage | None, self.current_stage)
 
         if not current_stage:
             return workflow.stages.filter(is_archived=False).order_by("position").first()

@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -193,7 +193,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             capture_exception(e)
 
     def dashboard_filters(
-        self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None
+        self, dashboard: Dashboard | None = None, dashboard_filters_override: dict | None = None
     ):
         # query date range is set in a different function, see dashboard_query
         if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
@@ -258,10 +258,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def get_effective_query(
         self,
         *,
-        dashboard: Optional[Dashboard],
-        dashboard_filters_override: Optional[dict] = None,
-        dashboard_variables_override: Optional[dict[str, dict]] = None,
-    ) -> Optional[dict]:
+        dashboard: Dashboard | None,
+        dashboard_filters_override: dict | None = None,
+        dashboard_variables_override: dict[str, dict] | None = None,
+    ) -> dict | None:
         from posthog.hogql_queries.apply_dashboard_filters import (
             apply_dashboard_filters_to_dict,
             apply_dashboard_variables_to_dict,
@@ -317,7 +317,7 @@ class InsightViewed(models.Model):
 
 
 @timed("generate_insight_cache_key")
-def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
+def generate_insight_filters_hash(insight: Insight, dashboard: Dashboard | None) -> str:
     try:
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))

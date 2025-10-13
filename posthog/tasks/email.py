@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal
 
 from django.conf import settings
 from django.db.models import OuterRef, Subquery
@@ -81,7 +81,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
 def should_send_notification(
     user: User,
     notification_type: NotificationSettingType,
-    team_id: Optional[int] = None,
+    team_id: int | None = None,
 ) -> bool:
     """
     Determines if a notification should be sent to a user based on their notification settings.
@@ -244,7 +244,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_fatal_plugin_error(
     plugin_config_id: int,
-    plugin_config_updated_at: Optional[str],
+    plugin_config_updated_at: str | None,
     error: str,
     is_system_error: bool,
 ) -> None:

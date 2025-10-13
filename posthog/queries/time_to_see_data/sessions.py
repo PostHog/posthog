@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.clickhouse.client import query_with_columns
 from posthog.queries.time_to_see_data.hierarchy import construct_hierarchy
@@ -58,7 +57,7 @@ def get_sessions(query: SessionsQuerySerializer) -> SessionResponseSerializer:
     return response_serializer
 
 
-def get_session_events(query: SessionEventsQuerySerializer) -> Optional[dict]:
+def get_session_events(query: SessionEventsQuerySerializer) -> dict | None:
     params = {
         "team_id": query.validated_data["team_id"],
         "session_id": query.validated_data["session_id"],

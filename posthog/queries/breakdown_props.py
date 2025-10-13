@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.forms import ValidationError
 
@@ -40,7 +40,7 @@ def get_breakdown_prop_values(
     aggregate_operation: str,
     team: Team,
     extra_params=None,
-    column_optimizer: Optional[ColumnOptimizer] = None,
+    column_optimizer: ColumnOptimizer | None = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
 ) -> tuple[list[Any], bool]:
@@ -85,7 +85,7 @@ def get_breakdown_prop_values(
     )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
-        outer_properties: Optional[PropertyGroup] = props_to_filter
+        outer_properties: PropertyGroup | None = props_to_filter
         person_id_joined_alias = "e.person_id"
 
         groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
@@ -241,9 +241,9 @@ def get_breakdown_prop_values(
 
 
 def _to_value_expression(
-    breakdown_type: Optional[BREAKDOWN_TYPES],
+    breakdown_type: BREAKDOWN_TYPES | None,
     breakdown: Union[str, list[Union[str, int]], None],
-    breakdown_group_type_index: Optional[GroupTypeIndex],
+    breakdown_group_type_index: GroupTypeIndex | None,
     hogql_context: HogQLContext,
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,

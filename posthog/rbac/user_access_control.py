@@ -1,7 +1,7 @@
 import json
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
@@ -71,9 +71,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
 class UserAccessControlError(Exception):
     resource: APIScopeObject
     required_level: AccessControlLevel
-    resource_id: Optional[str]
+    resource_id: str | None
 
-    def __init__(self, resource: APIScopeObject, required_level: AccessControlLevel, resource_id: Optional[str] = None):
+    def __init__(self, resource: APIScopeObject, required_level: AccessControlLevel, resource_id: str | None = None):
         super().__init__(
             f"Access control failure. You don't have `{required_level}` access to the `{resource}` resource."
         )
@@ -140,7 +140,7 @@ def access_level_satisfied_for_resource(
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
-def model_to_resource(model: Model) -> Optional[APIScopeObject]:
+def model_to_resource(model: Model) -> APIScopeObject | None:
     """
     Given a model, return the resource type it represents
     """
@@ -173,7 +173,7 @@ class UserAccessControl:
     Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
+    def __init__(self, user: User, team: Team | None = None, organization_id: str | None = None):
         self._user = user
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
@@ -193,7 +193,7 @@ class UserAccessControl:
             delattr(self, "_user_role_ids")
 
     @cached_property
-    def _organization_membership(self) -> Optional[OrganizationMembership]:
+    def _organization_membership(self) -> OrganizationMembership | None:
         # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
         try:
             if not self._organization_id:
@@ -205,7 +205,7 @@ class UserAccessControl:
             return None
 
     @cached_property
-    def _organization(self) -> Optional[Organization]:
+    def _organization(self) -> Organization | None:
         if self._organization_membership:
             return self._organization_membership.organization
         return None
@@ -345,7 +345,7 @@ class UserAccessControl:
         access_controls = list(AccessControl.objects.filter(q))
         self._fill_filters_cache(filter_groups, access_controls)
 
-    def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
+    def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: str | None = None) -> None:
         """
         Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
         As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
@@ -375,8 +375,8 @@ class UserAccessControl:
     # ------------------------------------------------------------
 
     def access_level_for_object(
-        self, obj: Model, resource: Optional[APIScopeObject] = None, explicit=False, specific_only=False
-    ) -> Optional[AccessControlLevel]:
+        self, obj: Model, resource: APIScopeObject | None = None, explicit=False, specific_only=False
+    ) -> AccessControlLevel | None:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
@@ -485,8 +485,8 @@ class UserAccessControl:
         return project_admin_check
 
     def get_access_source_for_object(
-        self, obj: Model, resource: Optional[APIScopeObject] = None
-    ) -> Optional[AccessSource]:
+        self, obj: Model, resource: APIScopeObject | None = None
+    ) -> AccessSource | None:
         """
         Determine how the user got access to an object.
         Returns None if the user has no access context.
@@ -540,7 +540,7 @@ class UserAccessControl:
     # Object level (specific) - checking conditions for specific items with a member or role
     # ------------------------------------------------------------
 
-    def specific_access_level_for_object(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+    def specific_access_level_for_object(self, obj: Model, explicit=False) -> AccessControlLevel | None:
         """
         This is different than access_level_for_object, it's only looking at access levels that have
         a role or member for the object. It will fallback to access_level_for_object if none is found.
@@ -551,7 +551,7 @@ class UserAccessControl:
     # Resource level - checking conditions for the resource type
     # ------------------------------------------------------------
 
-    def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
+    def access_level_for_resource(self, resource: APIScopeObject) -> AccessControlLevel | None:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
@@ -661,7 +661,7 @@ class UserAccessControl:
 
         return False
 
-    def effective_access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
+    def effective_access_level_for_resource(self, resource: APIScopeObject) -> AccessControlLevel | None:
         """
         Get the effective access level for a resource, considering both resource-level
         and specific object-level access.
@@ -838,7 +838,7 @@ class UserAccessControl:
     # User access level
     # ------------------------------------------------------------
 
-    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+    def get_user_access_level(self, obj: Model, explicit=False) -> AccessControlLevel | None:
         resource = model_to_resource(obj)
         specific_access_level_for_object = None
         access_level_for_resource = None
@@ -876,7 +876,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
     )
 
     @property
-    def user_access_control(self) -> Optional[UserAccessControl]:
+    def user_access_control(self) -> UserAccessControl | None:
         # NOTE: The user_access_control is typically on the view but in specific cases,
         # such as rendering HTML (`render_template()`), it is set at the context level
         if "user_access_control" in self.context:
@@ -898,7 +898,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
         return None
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model) -> str | None:
         if not self.user_access_control:
             return None
 

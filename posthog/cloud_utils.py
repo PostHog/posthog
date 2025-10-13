@@ -11,8 +11,8 @@ from posthog.exceptions_capture import capture_exception
 if TYPE_CHECKING:
     from ee.models.license import License
 
-is_cloud_cached: Optional[bool] = None
-is_instance_licensed_cached: Optional[bool] = None
+is_cloud_cached: bool | None = None
+is_instance_licensed_cached: bool | None = None
 instance_license_cached: Optional["License"] = None
 
 
@@ -74,7 +74,7 @@ def get_cached_instance_license() -> Optional["License"]:
 
 # NOTE: This is purely for testing purposes
 def TEST_clear_instance_license_cache(
-    is_instance_licensed: Optional[bool] = None, instance_license: Optional[Any] = None
+    is_instance_licensed: bool | None = None, instance_license: Any | None = None
 ):
     global instance_license_cached
     instance_license_cached = instance_license

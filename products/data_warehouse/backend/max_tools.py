@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
@@ -145,7 +145,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
         }
 
         final_result: SchemaGeneratorOutput[AssistantHogQLQuery] | None = None
-        final_error: Optional[PydanticOutputParserException] = None
+        final_error: PydanticOutputParserException | None = None
         for _ in range(GENERATION_ATTEMPTS_ALLOWED):
             try:
                 result_so_far = await graph.ainvoke(graph_context)

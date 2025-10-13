@@ -1,4 +1,3 @@
-from typing import Optional
 
 import structlog
 from semantic_version.base import SimpleSpec
@@ -35,7 +34,7 @@ logger = structlog.get_logger(__name__)
 def start_async_migration(
     migration_name: str,
     ignore_posthog_version=False,
-    migration_definition: Optional[AsyncMigrationDefinition] = None,
+    migration_definition: AsyncMigrationDefinition | None = None,
 ) -> bool:
     """
     Performs some basic checks to ensure the migration can indeed run, and then kickstarts the chain of operations
@@ -130,14 +129,14 @@ def start_async_migration(
     return run_async_migration_operations(migration_name, migration_instance)
 
 
-def run_async_migration_operations(migration_name: str, migration_instance: Optional[AsyncMigration] = None) -> bool:
+def run_async_migration_operations(migration_name: str, migration_instance: AsyncMigration | None = None) -> bool:
     while True:
         run_next, success = run_async_migration_next_op(migration_name, migration_instance)
         if not run_next:
             return success
 
 
-def run_async_migration_next_op(migration_name: str, migration_instance: Optional[AsyncMigration] = None):
+def run_async_migration_next_op(migration_name: str, migration_instance: AsyncMigration | None = None):
     """
     Runs the next operation specified by the currently running migration
     We run the next operation of the migration which needs attention

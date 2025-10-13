@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, TrendsQuery
 
@@ -6,17 +6,17 @@ from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, TrendsQue
 class SeriesWithExtras:
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     series_order: int
-    is_previous_period_series: Optional[bool]
-    overriden_query: Optional[TrendsQuery]
-    aggregate_values: Optional[bool]
+    is_previous_period_series: bool | None
+    overriden_query: TrendsQuery | None
+    aggregate_values: bool | None
 
     def __init__(
         self,
         series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         series_order: int,
-        is_previous_period_series: Optional[bool],
-        overriden_query: Optional[TrendsQuery],
-        aggregate_values: Optional[bool],
+        is_previous_period_series: bool | None,
+        overriden_query: TrendsQuery | None,
+        aggregate_values: bool | None,
     ):
         self.series = series
         self.series_order = series_order

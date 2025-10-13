@@ -1,5 +1,4 @@
 import json
-from typing import Optional
 
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
@@ -20,7 +19,7 @@ from posthog.queries.util import PersonPropertiesMode
 from posthog.test.test_journeys import journeys_for
 
 
-def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
+def _filter_events(filter: Filter, team: Team, order_by: str | None = None):
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         property_group=filter.property_groups,
         team_id=team.pk,

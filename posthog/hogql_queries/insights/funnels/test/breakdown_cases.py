@@ -3,7 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 from posthog.test.base import (
     APIBaseTest,
@@ -34,10 +34,10 @@ class FunnelStepResult:
     name: str
     count: int
     breakdown: Union[list[str], str]
-    average_conversion_time: Optional[float] = None
-    median_conversion_time: Optional[float] = None
+    average_conversion_time: float | None = None
+    median_conversion_time: float | None = None
     type: Literal["events", "actions"] = "events"
-    action_id: Optional[str] = None
+    action_id: str | None = None
 
 
 def funnel_breakdown_test_factory(

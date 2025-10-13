@@ -1,7 +1,6 @@
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -49,8 +48,8 @@ def _create_action(**kwargs):
 def get_person_ids_by_cohort_id(
     team_id: int,
     cohort_id: int,
-    limit: Optional[int] = None,
-    offset: Optional[int] = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ):
     from posthog.models.property.util import parse_prop_grouped_clauses
 
@@ -119,7 +118,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # Return the latest version
         return version_with_hogql
 
-    def _get_cohortpeople(self, cohort: Cohort, *, team_id: Optional[int] = None):
+    def _get_cohortpeople(self, cohort: Cohort, *, team_id: int | None = None):
         team_id = team_id or cohort.team_id
         return sync_execute(
             GET_COHORTPEOPLE_BY_COHORT_ID,

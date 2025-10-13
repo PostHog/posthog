@@ -2,7 +2,7 @@ import uuid
 import itertools
 from abc import ABC
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -346,8 +346,8 @@ class FunnelBase(ABC):
         step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
-        people: Optional[list[uuid.UUID]] = None,
-        sampling_factor: Optional[float] = None,
+        people: list[uuid.UUID] | None = None,
+        sampling_factor: float | None = None,
     ) -> dict[str, Any]:
         if isinstance(step, DataWarehouseNode):
             raise ValidationError(
@@ -365,7 +365,7 @@ class FunnelBase(ABC):
                 "type": "events" if isinstance(step, EventsNode) else "actions",
             }
 
-        action_id: Optional[str | int]
+        action_id: str | int | None
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
@@ -391,7 +391,7 @@ class FunnelBase(ABC):
         return self._extra_event_fields + self._extra_event_properties
 
     @property
-    def _absolute_actors_step(self) -> Optional[int]:
+    def _absolute_actors_step(self) -> int | None:
         """The actor query's 1-indexed target step converted to our 0-indexed SQL form. Never a negative integer."""
         if self.context.actorsQuery is None or self.context.actorsQuery.funnelStep is None:
             return None
@@ -1218,7 +1218,7 @@ class FunnelBase(ABC):
 
     def actor_query(
         self,
-        extra_fields: Optional[list[str]] = None,
+        extra_fields: list[str] | None = None,
     ) -> ast.SelectQuery:
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),

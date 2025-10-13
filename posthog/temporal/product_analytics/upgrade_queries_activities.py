@@ -1,6 +1,5 @@
 import textwrap
 import dataclasses
-from typing import Optional
 
 from django.db import connection
 
@@ -28,7 +27,7 @@ class GetInsightsToMigrateActivityInputs:
     """Inputs for the get insights to migrate activity."""
 
     batch_size: int = dataclasses.field(default=100)
-    after_id: Optional[int] = dataclasses.field(default=None)
+    after_id: int | None = dataclasses.field(default=None)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -36,7 +35,7 @@ class GetInsightsToMigrateActivityResult:
     """Result of the get insights to migrate activity."""
 
     insight_ids: list[int]
-    last_id: Optional[int]
+    last_id: int | None
 
 
 @activity.defn

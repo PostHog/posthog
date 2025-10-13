@@ -1,9 +1,8 @@
-from typing import Optional
 
 from posthog.models.tagged_item import RELATED_OBJECTS
 
 
-def get_tagged_item_related_object_info(tagged_item) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def get_tagged_item_related_object_info(tagged_item) -> tuple[str | None, str | None, str | None]:
     related_object_type = None
     related_object_id = None
     related_object_name = None

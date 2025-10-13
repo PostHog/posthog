@@ -1,6 +1,6 @@
 import dataclasses
 import urllib.parse
-from typing import Any, Literal, Optional, TypedDict, Union, cast
+from typing import Any, Literal, TypedDict, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -44,10 +44,10 @@ class EventOddsRatioSerialized(TypedDict):
     event: EventDefinition
 
     success_count: int
-    success_people_url: Optional[str]
+    success_people_url: str | None
 
     failure_count: int
-    failure_people_url: Optional[str]
+    failure_people_url: str | None
 
     odds_ratio: float
     correlation_type: Literal["success", "failure"]
@@ -669,7 +669,7 @@ class FunnelCorrelation:
         success: bool,
         event_definition: EventDefinition,
         cache_invalidation_key: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Given an event_definition and success/failure flag, returns a url that
         get be used to GET the associated people for the event/sucess pair. The

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import (
@@ -22,7 +21,7 @@ from posthog.hogql.errors import QueryError
 def validate_function_args(
     args: list[ast.Expr],
     min_args: int,
-    max_args: Optional[int],
+    max_args: int | None,
     function_name: str,
     *,
     function_term="function",
@@ -65,20 +64,20 @@ AnyConstantType = (
 class HogQLFunctionMeta:
     clickhouse_name: str
     min_args: int = 0
-    max_args: Optional[int] = 0
+    max_args: int | None = 0
     min_params: int = 0
-    max_params: Optional[int] = 0
+    max_params: int | None = 0
     passthrough_suffix_args_count: int = 0
     aggregate: bool = False
-    overloads: Optional[list[Overload]] = None
+    overloads: list[Overload] | None = None
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
     case_sensitive: bool = True
     """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
-    signatures: Optional[list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]] = None
+    signatures: list[tuple[tuple[AnyConstantType, ...], AnyConstantType]] | None = None
     """Signatures allow for specifying the types of the arguments and the return type of the function."""
-    suffix_args: Optional[list[ast.Constant]] = None
+    suffix_args: list[ast.Constant] | None = None
     """Additional arguments that are added to the end of the arguments provided by the caller"""
     using_placeholder_arguments: bool = False
     using_positional_arguments: bool = False

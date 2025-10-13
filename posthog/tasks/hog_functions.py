@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.core.management import call_command
 from django.utils import timezone
@@ -16,7 +15,7 @@ logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Optional[int] = None) -> int:
+def refresh_affected_hog_functions(team_id: int | None = None, action_id: int | None = None) -> int:
     from posthog.models.hog_functions.hog_function import HogFunction
 
     affected_hog_functions: list[HogFunction] = []

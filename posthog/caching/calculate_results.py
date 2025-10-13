@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Union
 
 import structlog
 from pydantic import BaseModel
@@ -22,9 +22,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
-    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
+def calculate_cache_key(target: Union[DashboardTile, Insight]) -> str | None:
+    insight: Insight | None = target if isinstance(target, Insight) else target.insight
+    dashboard: Dashboard | None = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
         with upgrade_query(insight):
@@ -46,12 +46,12 @@ def calculate_for_query_based_insight(
     insight: Insight,
     *,
     team: Team,
-    dashboard: Optional[Dashboard] = None,
+    dashboard: Dashboard | None = None,
     execution_mode: ExecutionMode,
-    user: Optional[User],
-    filters_override: Optional[dict] = None,
-    variables_override: Optional[dict] = None,
-    tile_filters_override: Optional[dict] = None,
+    user: User | None,
+    filters_override: dict | None = None,
+    variables_override: dict | None = None,
+    tile_filters_override: dict | None = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state

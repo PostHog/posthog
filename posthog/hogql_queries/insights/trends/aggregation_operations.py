@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
 
@@ -161,7 +161,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         else:
             return ["properties", self.series.math_property]
 
-    def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
+    def _math_func(self, method: str, override_chain: list[str | int] | None = None) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
 
@@ -256,7 +256,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ],
         )
 
-    def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]] = None) -> ast.Call:
+    def _math_quantile(self, percentile: float, override_chain: list[str | int] | None = None) -> ast.Call:
         chain = override_chain or self._get_math_chain()
 
         # Apply math_multiplier if present

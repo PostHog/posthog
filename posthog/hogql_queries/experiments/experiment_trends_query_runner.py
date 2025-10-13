@@ -1,7 +1,7 @@
 import json
 import threading
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -247,7 +247,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             experiment_feature_flag_key=self.feature_flag.key,
         )
 
-        shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}
+        shared_results: dict[str, Any | None] = {"count_result": None, "exposure_result": None}
         errors = []
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
@@ -324,7 +324,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _get_variants_with_base_stats(
         self, count_results: TrendsQueryResponse, exposure_results: TrendsQueryResponse
     ) -> tuple[ExperimentVariantTrendsBaseStats, list[ExperimentVariantTrendsBaseStats]]:
-        control_variant: Optional[ExperimentVariantTrendsBaseStats] = None
+        control_variant: ExperimentVariantTrendsBaseStats | None = None
         test_variants = []
         exposure_counts = {}
         exposure_ratios = {}
@@ -408,12 +408,12 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
 
     # Cache results for 24 hours
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
         if not last_refresh:
             return True
         return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

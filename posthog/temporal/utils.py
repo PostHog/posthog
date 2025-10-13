@@ -1,7 +1,6 @@
 import uuid
 import typing
 import dataclasses
-from typing import Optional
 
 
 # Dataclass living here to avoid circular reference
@@ -11,7 +10,7 @@ class ExternalDataWorkflowInputs:
     external_data_source_id: uuid.UUID
     external_data_schema_id: uuid.UUID | None = None
     billable: bool = True
-    reset_pipeline: Optional[bool] = None
+    reset_pipeline: bool | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:

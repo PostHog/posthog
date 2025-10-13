@@ -1,6 +1,5 @@
 import re
 import json
-from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -65,7 +64,7 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
         user_content = f"Update the error tracking issue list filters to: {change}"
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Exception | None = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)

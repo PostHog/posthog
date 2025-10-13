@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, cast
+from typing import cast
 from warnings import warn
 
 from django.db import models
@@ -55,7 +55,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         self.save()
 
     def join_function(
-        self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
+        self, override_source_table_key: str | None = None, override_joining_table_key: str | None = None
     ):
         def _join_function(
             join_to_add: LazyJoinToAdd,

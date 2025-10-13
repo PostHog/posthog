@@ -8,7 +8,7 @@ import threading
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import pytest
 import unittest
@@ -515,7 +515,7 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
-    def not_found_response(self, message: str = "Not found.") -> dict[str, Optional[str]]:
+    def not_found_response(self, message: str = "Not found.") -> dict[str, str | None]:
         return {
             "type": "invalid_request",
             "code": "not_found",
@@ -525,7 +525,7 @@ class ErrorResponsesMixin:
 
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action."
-    ) -> dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         return {
             "type": "authentication_error",
             "code": "permission_denied",
@@ -533,7 +533,7 @@ class ErrorResponsesMixin:
             "attr": None,
         }
 
-    def method_not_allowed_response(self, method: str) -> dict[str, Optional[str]]:
+    def method_not_allowed_response(self, method: str) -> dict[str, str | None]:
         return {
             "type": "invalid_request",
             "code": "method_not_allowed",
@@ -545,7 +545,7 @@ class ErrorResponsesMixin:
         self,
         message: str = "Authentication credentials were not provided.",
         code: str = "not_authenticated",
-    ) -> dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         return {
             "type": "authentication_error",
             "code": code,
@@ -557,8 +557,8 @@ class ErrorResponsesMixin:
         self,
         message: str = "Malformed request",
         code: str = "invalid_input",
-        attr: Optional[str] = None,
-    ) -> dict[str, Optional[str]]:
+        attr: str | None = None,
+    ) -> dict[str, str | None]:
         return {
             "type": "validation_error",
             "code": code,
@@ -569,8 +569,8 @@ class ErrorResponsesMixin:
 
 class PostHogTestCase(SimpleTestCase):
     CONFIG_ORGANIZATION_NAME: str = "Test"
-    CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
-    CONFIG_PASSWORD: Optional[str] = "testpassword12345"
+    CONFIG_EMAIL: str | None = "user1@posthog.com"
+    CONFIG_PASSWORD: str | None = "testpassword12345"
     CONFIG_API_TOKEN: str = "token123"
     CONFIG_AUTO_LOGIN: bool = True
     # Most test cases can run with class data level setup. This means that test data gets set up once per class,
@@ -585,7 +585,7 @@ class PostHogTestCase(SimpleTestCase):
     user: User = None
     organization_membership: OrganizationMembership = None
 
-    def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
+    def _create_user(self, email: str, password: str | None = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     @classmethod
@@ -814,7 +814,7 @@ def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
     verify_no_jsonextract=True,
-    is_nullable: Optional[list] = None,
+    is_nullable: list | None = None,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -900,7 +900,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
-    custom_query_matcher: Optional[Callable] = None,
+    custom_query_matcher: Callable | None = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -978,7 +978,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps: Optional[any] = None
+    apps: any | None = None
     assert_snapshots = False
 
     def setUp(self):

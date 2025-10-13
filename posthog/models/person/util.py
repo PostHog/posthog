@@ -1,7 +1,7 @@
 import json
 import datetime
 from contextlib import ExitStack
-from typing import Optional, Union
+from typing import Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -123,13 +123,13 @@ def create_person(
     *,
     team_id: int,
     version: int,
-    uuid: Optional[str] = None,
-    properties: Optional[dict] = None,
+    uuid: str | None = None,
+    properties: dict | None = None,
     sync: bool = False,
     is_identified: bool = False,
     is_deleted: bool = False,
-    timestamp: Optional[Union[datetime.datetime, str]] = None,
-    created_at: Optional[datetime.datetime] = None,
+    timestamp: Union[datetime.datetime, str] | None = None,
+    created_at: datetime.datetime | None = None,
 ) -> str:
     if properties is None:
         properties = {}
@@ -213,7 +213,7 @@ def _delete_person(
     team_id: int,
     uuid: UUID,
     version: int,
-    created_at: Optional[datetime.datetime] = None,
+    created_at: datetime.datetime | None = None,
     sync: bool = False,
 ) -> None:
     create_person(

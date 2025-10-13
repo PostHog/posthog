@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.utils.timezone import now
 
@@ -36,13 +36,13 @@ from posthog.models.filters.mixins.utils import cached_property
 class SeriesWithExtras:
     series: EventsNode | ActionsNode | DataWarehouseNode
     series_order: int
-    is_previous_period_series: Optional[bool]
+    is_previous_period_series: bool | None
 
     def __init__(
         self,
         series: EventsNode | ActionsNode | DataWarehouseNode,
         series_order: int,
-        is_previous_period_series: Optional[bool],
+        is_previous_period_series: bool | None,
     ):
         self.series = series
         self.series_order = series_order
@@ -58,9 +58,9 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         self,
         query: StickinessQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()
@@ -70,7 +70,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
@@ -211,7 +211,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         return queries
 
     def to_actors_query(
-        self, interval_num: Optional[int] = None, operator: Optional[str] = None
+        self, interval_num: int | None = None, operator: str | None = None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         queries: list[ast.SelectQuery] = []
 

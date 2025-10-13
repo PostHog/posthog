@@ -1,4 +1,4 @@
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
@@ -125,7 +125,7 @@ class PropertyFinder(TraversingVisitor):
                                 self.group_properties[group_id] = set()
                             self.group_properties[group_id].add(property_name)
                     elif isinstance(table_type, ast.LazyTableType):
-                        global_group_id: Optional[int] = (
+                        global_group_id: int | None = (
                             self.context.globals.get("group_id") if self.context.globals else None
                         )
                         if isinstance(global_group_id, int):
@@ -218,7 +218,7 @@ class PropertySwapper(CloningVisitor):
                                     node, "group", f"{group_id}_{property_name}"
                                 )
                     elif isinstance(table_type, ast.LazyTableType):
-                        global_group_id: Optional[int] = (
+                        global_group_id: int | None = (
                             self.context.globals.get("group_id") if self.context.globals else None
                         )
                         if isinstance(global_group_id, int):

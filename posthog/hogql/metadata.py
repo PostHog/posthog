@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from django.conf import settings
 
@@ -116,7 +116,7 @@ def get_hogql_metadata(
 def process_expr_on_table(
     node: ast.Expr,
     context: HogQLContext,
-    source_query: Optional[ast.SelectQuery | ast.SelectSetQuery] = None,
+    source_query: ast.SelectQuery | ast.SelectSetQuery | None = None,
 ):
     try:
         if source_query is not None:

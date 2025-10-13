@@ -4,7 +4,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from django.conf import settings
 
@@ -43,7 +43,7 @@ class PostgresToClickHouseETLConfig(Config):
 class ETLState:
     """Track the state of the ETL process."""
 
-    last_sync_timestamp: Optional[datetime] = None
+    last_sync_timestamp: datetime | None = None
     rows_synced: int = 0
     errors: list[str] = None
 
@@ -205,7 +205,7 @@ def get_team_table_sql() -> str:
     """
 
 
-def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
+def create_database_if_not_exists(context: Union[OpExecutionContext, AssetExecutionContext] | None = None) -> None:
     """Create the models database in ClickHouse if it doesn't exist on all nodes."""
     if context:
         context.log.info("Creating database 'models' if it doesn't exist...")
@@ -224,7 +224,7 @@ def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, As
 
 
 def create_clickhouse_tables(
-    context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None, force_recreate: bool = False
+    context: Union[OpExecutionContext, AssetExecutionContext] | None = None, force_recreate: bool = False
 ) -> None:
     """Create the organization and team tables in ClickHouse on all nodes.
 
@@ -277,7 +277,7 @@ def create_clickhouse_tables(
         raise
 
 
-def fetch_organizations_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
+def fetch_organizations_in_batches(conn, last_sync: datetime | None = None, batch_size: int = 10000):
     """Fetch organizations from Postgres in batches to avoid memory issues.
 
     Yields batches of organization records.
@@ -337,7 +337,7 @@ def fetch_organizations_in_batches(conn, last_sync: Optional[datetime] = None, b
         cursor.close()
 
 
-def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
+def fetch_organizations(conn, last_sync: datetime | None = None, batch_size: int = 10000) -> list[dict]:
     """Fetch all organizations from Postgres (legacy function for compatibility)."""
     rows = []
     for batch in fetch_organizations_in_batches(conn, last_sync, batch_size):
@@ -345,7 +345,7 @@ def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: 
     return rows
 
 
-def fetch_teams_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
+def fetch_teams_in_batches(conn, last_sync: datetime | None = None, batch_size: int = 10000):
     """Fetch teams from Postgres in batches to avoid memory issues.
 
     Yields batches of team records.
@@ -458,7 +458,7 @@ def fetch_teams_in_batches(conn, last_sync: Optional[datetime] = None, batch_siz
         cursor.close()
 
 
-def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
+def fetch_teams(conn, last_sync: datetime | None = None, batch_size: int = 10000) -> list[dict]:
     """Fetch all teams from Postgres (legacy function for compatibility)."""
     rows = []
     for batch in fetch_teams_in_batches(conn, last_sync, batch_size):

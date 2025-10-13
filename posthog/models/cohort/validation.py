@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from rest_framework import serializers
@@ -123,7 +123,7 @@ class CohortTypeValidationSerializer(serializers.Serializer):
 
         return False
 
-    def _analyze_property_group_type(self, properties: dict, visited: set[int]) -> Optional[CohortType]:
+    def _analyze_property_group_type(self, properties: dict, visited: set[int]) -> CohortType | None:
         """Analyze a property group to determine its cohort type"""
 
         if not properties:
@@ -202,8 +202,8 @@ class CohortTypeValidationSerializer(serializers.Serializer):
         return self._determine_type_recursive(referenced_data, visited | {cohort_id})
 
     def _highest_priority_cohort_type(
-        self, current: Optional[CohortType], new: Optional[CohortType]
-    ) -> Optional[CohortType]:
+        self, current: CohortType | None, new: CohortType | None
+    ) -> CohortType | None:
         """Return the higher priority cohort type based on complexity hierarchy"""
         if current is None:
             return new

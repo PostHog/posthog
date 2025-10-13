@@ -1,7 +1,7 @@
 import dataclasses
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q, QuerySet
@@ -283,8 +283,8 @@ def _get_all_org_digest_reports(period_start: datetime, period_end: datetime) ->
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def send_all_periodic_digest_reports(
     dry_run: bool = False,
-    end_date: Optional[str] = None,
-    begin_date: Optional[str] = None,
+    end_date: str | None = None,
+    begin_date: str | None = None,
 ) -> None:
     period_end = (
         parser.parse(end_date)
@@ -368,7 +368,7 @@ def send_digest_notifications(
     event_name: str,
     properties: dict[str, Any],
     notification_type: NotificationSettingType,
-    timestamp: Optional[datetime] = None,
+    timestamp: datetime | None = None,
     distinct_id: str,
 ) -> None:
     """

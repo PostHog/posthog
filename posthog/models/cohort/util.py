@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.conf import settings
 from django.utils import timezone
@@ -92,7 +92,7 @@ def run_cohort_query(fn, *args, cohort_id: int, history_id: str | None = None, q
         reset_query_tags()
 
 
-def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: datetime, team_id: int) -> Optional[dict]:
+def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: datetime, team_id: int) -> dict | None:
     """
     Retrieve query statistics from ClickHouse query_log_archive using query tags.
     Similar to approach in ee/benchmarks/helpers.py but adapted for cohort calculations.
@@ -244,7 +244,7 @@ def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str =
     )
 
 
-def get_count_operator(count_operator: Optional[str]) -> str:
+def get_count_operator(count_operator: str | None) -> str:
     if count_operator == "gte":
         return ">="
     elif count_operator == "lte":
@@ -259,7 +259,7 @@ def get_count_operator(count_operator: Optional[str]) -> str:
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
-def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperationOp:
+def get_count_operator_ast(count_operator: str | None) -> ast.CompareOperationOp:
     if count_operator == "gte":
         return ast.CompareOperationOp.GtEq
     elif count_operator == "lte":
@@ -275,12 +275,12 @@ def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperatio
 
 
 def get_entity_query(
-    event_id: Optional[str],
-    action_id: Optional[int],
+    event_id: str | None,
+    action_id: int | None,
     team_id: int,
     group_idx: Union[int, str],
     hogql_context: HogQLContext,
-    person_properties_mode: Optional[PersonPropertiesMode] = None,
+    person_properties_mode: PersonPropertiesMode | None = None,
 ) -> tuple[str, dict[str, str]]:
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
@@ -301,7 +301,7 @@ def get_entity_query(
 
 
 def get_date_query(
-    days: Optional[str], start_time: Optional[str], end_time: Optional[str]
+    days: str | None, start_time: str | None, end_time: str | None
 ) -> tuple[str, dict[str, str]]:
     date_query: str = ""
     date_params: dict[str, str] = {}
@@ -326,7 +326,7 @@ def parse_entity_timestamps_in_days(days: int) -> tuple[str, dict[str, str]]:
     )
 
 
-def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> tuple[str, dict[str, str]]:
+def parse_cohort_timestamps(start_time: str | None, end_time: str | None) -> tuple[str, dict[str, str]]:
     clause = "AND "
     params: dict[str, str] = {}
 
@@ -386,7 +386,7 @@ def format_cohort_subquery(
     return person_query, params
 
 
-def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+def insert_static_cohort(person_uuids: list[uuid.UUID | None], cohort_id: int, *, team_id: int):
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
     persons = [
         {
@@ -426,8 +426,8 @@ def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
 
 
 def recalculate_cohortpeople(
-    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
-) -> Optional[int]:
+    cohort: Cohort, pending_version: int, *, initiating_user_id: int | None
+) -> int | None:
     """
     Recalculate cohort people for all environments of the project.
     NOTE: Currently, this only returns the count for the team where the cohort was created. Instead, it should return for all teams.
@@ -447,7 +447,7 @@ def recalculate_cohortpeople(
 
 
 def _recalculate_cohortpeople_for_team_hogql(
-    cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
+    cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: int | None
 ) -> int:
     tag_queries(name="recalculate_cohortpeople_for_team_hogql")
 
@@ -533,7 +533,7 @@ def _recalculate_cohortpeople_for_team_hogql(
     return result
 
 
-def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
+def get_cohort_size(cohort: Cohort, override_version: int | None = None, *, team_id: int) -> int | None:
     tag_queries(name="get_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
@@ -656,7 +656,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
 def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
-    seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    seen_cohorts_cache: dict[int, CohortOrEmpty] | None = None,
 ) -> list[Cohort]:
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}

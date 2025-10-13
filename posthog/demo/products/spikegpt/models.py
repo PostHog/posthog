@@ -1,6 +1,6 @@
 import datetime as dt
 from enum import auto
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import pytz
@@ -30,7 +30,7 @@ class SpikeGPTPerson(SimPerson):
     affinity: float  # 0 roughly means they won't like SpikeGPT, 1 means they will - affects need/satisfaction deltas
 
     # Internal state - plain
-    active_session_intent: Optional[SpikeGPTSessionIntent]
+    active_session_intent: SpikeGPTSessionIntent | None
 
     # Internal state - bounded
     _need: float  # 0 means no need, 1 means desperate
@@ -120,7 +120,7 @@ class SpikeGPTPerson(SimPerson):
             if self.cluster.random.random() < time_appropriateness:
                 return next_session_datetime  # If the time is right, let's act - otherwise, let's advance further
 
-    def determine_session_intent(self) -> Optional[SpikeGPTSessionIntent]:
+    def determine_session_intent(self) -> SpikeGPTSessionIntent | None:
         if not self.all_time_pageview_counts:
             return SpikeGPTSessionIntent.CONSIDER_PRODUCT
         return SpikeGPTSessionIntent.CHAT

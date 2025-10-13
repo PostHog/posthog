@@ -1,6 +1,5 @@
 from datetime import datetime
 from itertools import groupby
-from typing import Optional
 
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
@@ -63,7 +62,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return self._summarize_data(super()._exec_query())
 
     def get_step_counts_without_aggregation_query(
-        self, *, specific_entrance_period_start: Optional[datetime] = None
+        self, *, specific_entrance_period_start: datetime | None = None
     ) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 

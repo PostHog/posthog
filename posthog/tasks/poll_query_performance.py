@@ -1,7 +1,7 @@
 import re
 import math
 from itertools import groupby
-from typing import Any, Optional
+from typing import Any
 
 from structlog import get_logger
 
@@ -14,7 +14,7 @@ from posthog.utils import UUID_REGEX
 logger = get_logger(__name__)
 
 
-def query_manager_from_initial_query_id(initial_query_id: str) -> Optional[QueryStatusManager]:
+def query_manager_from_initial_query_id(initial_query_id: str) -> QueryStatusManager | None:
     # extract team_id and uuid from initial_query_id
     m = re.match(rf"(\d+)_({UUID_REGEX})", initial_query_id, re.I)
     if m is None:

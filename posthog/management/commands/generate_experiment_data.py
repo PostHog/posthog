@@ -458,7 +458,7 @@ class Command(BaseCommand):
             experiment_config = get_default_config(experiment_type)
 
         variants = list(experiment_config.variants.keys())
-        variant_counts = {variant: 0 for variant in variants}
+        variant_counts = dict.fromkeys(variants, 0)
 
         generate_replays = options.get("generate_session_replays", False)
         replay_probability = options.get("replay_probability", 0.3)

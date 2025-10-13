@@ -93,17 +93,17 @@ class BackupStatus:
     hostname: str
     status: str
     event_time_microseconds: datetime
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class Backup:
     database: str
     date: str
-    table: Optional[str] = None
-    id: Optional[str] = None
+    table: str | None = None
+    id: str | None = None
     base_backup: Optional["Backup"] = None
-    shard: Optional[int] = None
+    shard: int | None = None
 
     def __post_init__(self):
         datetime.strptime(self.date, "%Y-%m-%dT%H:%M:%SZ")  # It will fail if the date is invalid
@@ -235,7 +235,7 @@ class BackupConfig(dagster.Config):
     workload: Workload = Workload.OFFLINE
 
 
-def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatus]:
+def get_most_recent_status(statuses: list[BackupStatus]) -> BackupStatus | None:
     """
     Since we can retry backups and we only can identify them by their name (or path to S3),
     in case we retry several times, we can have the same backup failed in one node and
@@ -258,8 +258,8 @@ def get_shards(cluster: dagster.ResourceParam[ClickhouseCluster]):
 def get_latest_backup(
     config: BackupConfig,
     s3: S3Resource,
-    shard: Optional[int] = None,
-) -> Optional[Backup]:
+    shard: int | None = None,
+) -> Backup | None:
     """
     Get the latest backup metadata for a ClickHouse database / table from S3.
     """
@@ -285,9 +285,9 @@ def get_latest_backup(
 def check_latest_backup_status(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
-    latest_backup: Optional[Backup],
+    latest_backup: Backup | None,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> Optional[Backup]:
+) -> Backup | None:
     """
     Check if the latest backup is done.
     """
@@ -336,8 +336,8 @@ def run_backup(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    latest_backup: Optional[Backup],
-    shard: Optional[int] = None,
+    latest_backup: Backup | None,
+    shard: int | None = None,
 ):
     """
     Run the incremental or full backup
@@ -381,7 +381,7 @@ def run_backup(
 def wait_for_backup(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
-    backup: Optional[Backup],
+    backup: Backup | None,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     """

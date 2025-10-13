@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -40,7 +40,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
 class TheTestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
-    other_attr: Optional[list[Any]] = []
+    other_attr: list[Any] | None = []
 
 
 class TestQueryRunner(BaseTest):
@@ -68,7 +68,7 @@ class TestQueryRunner(BaseTest):
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
 
-            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
+            def _is_stale(self, last_refresh: datetime | None, lazy: bool = False, *args, **kwargs) -> bool:
                 if not last_refresh:
                     raise ValueError("Cached results require a last_refresh")
 

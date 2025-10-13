@@ -1,7 +1,7 @@
 import json
 import hashlib
 from datetime import datetime
-from typing import Any, Optional, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -369,8 +369,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def _get_issues_library_data(
         self,
         fingerprints: list[str],
-        earliest_timestamp: Optional[datetime] = None,
-        latest_timestamp: Optional[datetime] = None,
+        earliest_timestamp: datetime | None = None,
+        latest_timestamp: datetime | None = None,
     ) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
         params: dict[str, Any] = {}
@@ -424,7 +424,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
         return issue_to_library
 
-    def _get_timestamp_range(self, issues) -> tuple[Optional[datetime], Optional[datetime]]:
+    def _get_timestamp_range(self, issues) -> tuple[datetime | None, datetime | None]:
         """Calculate timestamp range from issues for query optimization."""
         issue_timestamps = [issue.created_at for issue in issues if issue.created_at is not None]
         if issue_timestamps:
@@ -1276,7 +1276,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
 
 def create_symbol_set(
-    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: str | None = None
 ):
     if release_id:
         objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)

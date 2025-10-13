@@ -2,7 +2,7 @@ import re
 import json
 import dataclasses
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -107,8 +107,8 @@ def _sanitize_identifier(name: str | int) -> str:
 class JavaScriptCompiler(Visitor):
     def __init__(
         self,
-        args: Optional[list[str]] = None,
-        locals: Optional[list[Local]] = None,
+        args: list[str] | None = None,
+        locals: list[Local] | None = None,
     ):
         super().__init__()
         self.locals: list[Local] = locals or []

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -86,7 +86,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         sync_template_to_db(template_slack)
         sync_template_to_db(webhook_template)
 
-    def _create_slack_function(self, data: Optional[dict] = None):
+    def _create_slack_function(self, data: dict | None = None):
         payload = {
             "name": "Slack",
             "template_id": template_slack.id,
@@ -198,7 +198,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def _get_function_activity(
         self,
-        function_id: Optional[int] = None,
+        function_id: int | None = None,
     ) -> list:
         params: dict = {"scope": "HogFunction", "page": 1, "limit": 20}
         if function_id:

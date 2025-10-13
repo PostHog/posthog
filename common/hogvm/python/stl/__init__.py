@@ -35,11 +35,11 @@ if TYPE_CHECKING:
 @dataclasses.dataclass
 class STLFunction:
     fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
-    minArgs: Optional[int] = None
-    maxArgs: Optional[int] = None
+    minArgs: int | None = None
+    maxArgs: int | None = None
 
 
-def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def toString(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     if isinstance(args[0], dict) and is_hog_datetime(args[0]):
         dt = datetime.datetime.fromtimestamp(args[0]["dt"], pytz.timezone(args[0]["zone"] or "UTC"))
         if args[0]["zone"] == "UTC":
@@ -66,7 +66,7 @@ def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
         return str(args[0])
 
 
-def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def toInt(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     try:
         if is_hog_datetime(args[0]):
             return int(args[0]["dt"])
@@ -79,7 +79,7 @@ def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
         return None
 
 
-def toFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def toFloat(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     try:
         if is_hog_datetime(args[0]):
             return float(args[0]["dt"])
@@ -95,32 +95,32 @@ def toFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
 
 
 # ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
-def ifNull(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def ifNull(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     if args[0] is not None:
         return args[0]
     else:
         return args[1]
 
 
-def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def empty(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     if isinstance(args[0], bool) or isinstance(args[0], int) or isinstance(args[0], float):
         return False
     return not bool(args[0])
 
 
-def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def sleep(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     time.sleep(args[0])
     return None
 
 
-def print(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+def print(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float):
     if stdout is not None:
         value = " ".join(map(print_hog_string_output, args))
         stdout.append(value)
     return
 
 
-def run(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list[Any]:
+def run(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list[Any]:
     if team is None:
         return []
     from posthog.hogql.query import execute_hogql_query
@@ -129,11 +129,11 @@ def run(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], ti
     return response.results
 
 
-def jsonParse(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def jsonParse(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return json.loads(args[0])
 
 
-def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def jsonStringify(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     marked = set()
 
     def json_safe(obj):
@@ -162,7 +162,7 @@ def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list
     return json.dumps(json_safe(args[0]))
 
 
-def JSONHas(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def JSONHas(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     obj = args[0]
     path = args[1:]
     current = obj
@@ -196,7 +196,7 @@ def JSONHas(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     return True
 
 
-def isValidJSON(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def isValidJSON(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     try:
         json.loads(args[0])
         return True
@@ -204,7 +204,7 @@ def isValidJSON(args: list[Any], team: Optional["Team"], stdout: Optional[list[s
         return False
 
 
-def JSONLength(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> int:
+def JSONLength(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> int:
     obj = args[0]
     path = args[1:]
     try:
@@ -220,7 +220,7 @@ def JSONLength(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
     return 0
 
 
-def JSONExtractBool(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def JSONExtractBool(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     obj = args[0]
     path = args[1:]
     try:
@@ -235,31 +235,31 @@ def JSONExtractBool(args: list[Any], team: Optional["Team"], stdout: Optional[li
     return False
 
 
-def base64Encode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def base64Encode(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     import base64
 
     return base64.b64encode(args[0].encode()).decode()
 
 
-def base64Decode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def base64Decode(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     import base64
 
     return base64.b64decode(args[0].encode()).decode()
 
 
-def encodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def encodeURLComponent(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     import urllib.parse
 
     return urllib.parse.quote(args[0], safe="")
 
 
-def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     import urllib.parse
 
     return urllib.parse.unquote(args[0])
 
 
-def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def trim(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
         if char is None:
@@ -269,7 +269,7 @@ def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], t
     return args[0].strip(char)
 
 
-def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def trimLeft(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
         if char is None:
@@ -279,7 +279,7 @@ def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
     return args[0].lstrip(char)
 
 
-def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def trimRight(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
         if char is None:
@@ -289,7 +289,7 @@ def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     return args[0].rstrip(char)
 
 
-def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def splitByString(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     separator = args[0]
     string = args[1]
     if len(args) > 2 and args[2] is not None:
@@ -300,13 +300,13 @@ def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list
     return string.split(separator)
 
 
-def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     import uuid
 
     return str(uuid.uuid4())
 
 
-def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def keys(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     obj = args[0]
     if isinstance(obj, dict):
         return list(obj.keys())
@@ -315,7 +315,7 @@ def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], t
     return []
 
 
-def values(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def values(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     obj = args[0]
     if isinstance(obj, dict):
         return list(obj.values())
@@ -324,7 +324,7 @@ def values(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
     return []
 
 
-def arrayPushBack(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arrayPushBack(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     item = args[1]
     if not isinstance(arr, list):
@@ -332,7 +332,7 @@ def arrayPushBack(args: list[Any], team: Optional["Team"], stdout: Optional[list
     return [*arr, item]
 
 
-def arrayPushFront(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arrayPushFront(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     item = args[1]
     if not isinstance(arr, list):
@@ -340,42 +340,42 @@ def arrayPushFront(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     return [item, *arr]
 
 
-def arrayPopBack(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arrayPopBack(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     if not isinstance(arr, list):
         return []
     return arr[:-1]
 
 
-def arrayPopFront(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arrayPopFront(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     if not isinstance(arr, list):
         return []
     return arr[1:]
 
 
-def arraySort(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arraySort(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     if not isinstance(arr, list):
         return []
     return sorted(arr)
 
 
-def arrayReverse(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arrayReverse(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     if not isinstance(arr, list):
         return []
     return arr[::-1]
 
 
-def arrayReverseSort(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def arrayReverseSort(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> list:
     arr = args[0]
     if not isinstance(arr, list):
         return []
     return sorted(arr, reverse=True)
 
 
-def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     arr = args[0]
     sep = args[1] if len(args) > 1 else ""
     if not isinstance(arr, list):
@@ -383,19 +383,19 @@ def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[
     return sep.join([str(s) for s in arr])
 
 
-def has(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def has(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     if len(args) < 2 or not isinstance(args[0], list):
         return False
     return args[1] in args[0]
 
 
-def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     if len(args) < 2:
         raise ValueError("formatDateTime requires at least 2 arguments")
     return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
 
 
-def _typeof(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def _typeof(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> str:
     if args[0] is None:
         return "null"
     elif is_hog_datetime(args[0]):
@@ -484,7 +484,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
         }
 
 
-def date_add(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def date_add(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # dateAdd(unit, amount, datetime)
     # unit: 'second','minute','hour','day','week','month','year'...
     unit = args[0]
@@ -508,7 +508,7 @@ def date_add(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
     return apply_interval_to_datetime(dt, interval)
 
 
-def date_diff(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def date_diff(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # dateDiff(unit, start, end)
     unit = args[0]
     start = args[1]
@@ -549,7 +549,7 @@ def date_diff(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
         raise ValueError(f"Unsupported unit for dateDiff: {unit}")
 
 
-def date_trunc(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def date_trunc(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # dateTrunc(unit, datetime)
     unit = args[0]
     dt = args[1]
@@ -583,80 +583,80 @@ def date_trunc(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
     }
 
 
-def coalesce(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def coalesce(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     for a in args:
         if a is not None:
             return a
     return None
 
 
-def assumeNotNull(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def assumeNotNull(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     if args[0] is None:
         raise ValueError("Value is null in assumeNotNull")
     return args[0]
 
 
-def equals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def equals(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] == args[1]
 
 
-def greater(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def greater(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] > args[1]
 
 
-def greaterOrEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def greaterOrEquals(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] >= args[1]
 
 
-def less(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def less(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] < args[1]
 
 
-def lessOrEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def lessOrEquals(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] <= args[1]
 
 
-def notEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def notEquals(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] != args[1]
 
 
-def not_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def not_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return not bool(args[0])
 
 
-def and_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def and_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return all(args)
 
 
-def or_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def or_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return any(args)
 
 
-def if_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def if_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return args[1] if args[0] else args[2]
 
 
-def in_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def in_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return args[0] in args[1] if isinstance(args[1], list | tuple) else False
 
 
-def min2(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def min2(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return args[0] if args[0] < args[1] else args[1]
 
 
-def max2(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def max2(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return args[0] if args[0] > args[1] else args[1]
 
 
-def plus(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def plus(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return args[0] + args[1]
 
 
-def minus(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def minus(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return args[0] - args[1]
 
 
-def multiIf(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def multiIf(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # multiIf(cond1, val1, cond2, val2, ..., default)
     default = args[-1]
     pairs = args[:-1]
@@ -668,11 +668,11 @@ def multiIf(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     return default
 
 
-def floor_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def floor_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return math.floor(args[0])
 
 
-def extract(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def extract(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # extract(part, datetime)
     # part in { 'year', 'month', 'day', 'hour', 'minute', 'second' }
     part = args[0]
@@ -705,15 +705,15 @@ def extract(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
         raise ValueError(f"Unknown extract part: {part}")
 
 
-def round_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def round_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return round(args[0])
 
 
-def startsWith(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+def startsWith(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> bool:
     return isinstance(args[0], str) and isinstance(args[1], str) and args[0].startswith(args[1])
 
 
-def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def substring(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # substring(str, start, length)
     # start is 1-based.
     s = args[0]
@@ -728,36 +728,36 @@ def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     return s[start_idx:end_idx] if 0 <= start_idx < len(s) else ""
 
 
-def addDays(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def addDays(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     interval = to_hog_interval(args[1], "day")
     return apply_interval_to_datetime(args[0], interval)
 
 
-def toIntervalDay(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toIntervalDay(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return to_hog_interval(args[0], "day")
 
 
-def toIntervalHour(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toIntervalHour(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return to_hog_interval(args[0], "hour")
 
 
-def toIntervalMinute(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toIntervalMinute(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return to_hog_interval(args[0], "minute")
 
 
-def toIntervalMonth(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toIntervalMonth(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return to_hog_interval(args[0], "month")
 
 
-def toYear(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toYear(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return extract(["year", args[0]], team, stdout, timeout)
 
 
-def toMonth_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toMonth_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return extract(["month", args[0]], team, stdout, timeout)
 
 
-def trunc_to_unit(dt: dict, unit: str, team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> dict:
+def trunc_to_unit(dt: dict, unit: str, team: Optional["Team"], stdout: list[str] | None, timeout: float) -> dict:
     # helper for toStartOfDay, etc.
     if not is_hog_datetime(dt):
         if is_hog_date(dt):
@@ -768,19 +768,19 @@ def trunc_to_unit(dt: dict, unit: str, team: Optional["Team"], stdout: Optional[
     return date_trunc([unit, dt], team, stdout, timeout)
 
 
-def toStartOfDay(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toStartOfDay(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return trunc_to_unit(args[0], "day", team, stdout, timeout)
 
 
-def toStartOfHour(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toStartOfHour(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return trunc_to_unit(args[0], "hour", team, stdout, timeout)
 
 
-def toStartOfMonth(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toStartOfMonth(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     return trunc_to_unit(args[0], "month", team, stdout, timeout)
 
 
-def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     dt = args[0]
     if not is_hog_datetime(dt):
         if is_hog_date(dt):
@@ -800,13 +800,13 @@ def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: Optional[list
     }
 
 
-def toYYYYMM(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def toYYYYMM(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     y = toYear([args[0]], team, stdout, timeout)
     m = toMonth_fn([args[0]], team, stdout, timeout)
     return y * 100 + m
 
 
-def today(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def today(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     now_dt = datetime.datetime.now(tz=pytz.UTC)
     return {
         "__hogDate__": True,
@@ -816,7 +816,7 @@ def today(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
     }
 
 
-def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def range_fn(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     # range(a,b) -> [a..b-1], range(x) -> [0..x-1]
     if len(args) == 1:
         return list(range(args[0]))
@@ -826,7 +826,7 @@ def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
         raise ValueError("range function supports 1 or 2 arguments only")
 
 
-def JSONExtractArrayRaw(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def JSONExtractArrayRaw(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     obj = args[0]
     path = args[1:]
     try:
@@ -840,7 +840,7 @@ def JSONExtractArrayRaw(args: list[Any], team: Optional["Team"], stdout: Optiona
     return None
 
 
-def JSONExtractFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def JSONExtractFloat(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     obj = args[0]
     path = args[1:]
     try:
@@ -855,7 +855,7 @@ def JSONExtractFloat(args: list[Any], team: Optional["Team"], stdout: Optional[l
         return None
 
 
-def JSONExtractInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def JSONExtractInt(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     obj = args[0]
     path = args[1:]
     try:
@@ -870,7 +870,7 @@ def JSONExtractInt(args: list[Any], team: Optional["Team"], stdout: Optional[lis
         return None
 
 
-def JSONExtractString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+def JSONExtractString(args: list[Any], team: Optional["Team"], stdout: list[str] | None, timeout: float) -> Any:
     obj = args[0]
     path = args[1:]
     try:

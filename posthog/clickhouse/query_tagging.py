@@ -4,7 +4,7 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
@@ -46,13 +46,13 @@ class TemporalTags(BaseModel):
     Tags for temporalio workflows and activities.
     """
 
-    workflow_namespace: Optional[str] = None
-    workflow_type: Optional[str] = None
-    workflow_id: Optional[str] = None
-    workflow_run_id: Optional[str] = None
-    activity_type: Optional[str] = None
-    activity_id: Optional[str] = None
-    attempt: Optional[int] = None
+    workflow_namespace: str | None = None
+    workflow_type: str | None = None
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
+    activity_type: str | None = None
+    activity_id: str | None = None
+    attempt: int | None = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
@@ -64,105 +64,105 @@ class DagsterTags(BaseModel):
     Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
     """
 
-    job_name: Optional[str] = None
-    run_id: Optional[str] = None
-    tags: Optional[dict[str, str]] = None
-    root_run_id: Optional[str] = None
-    parent_run_id: Optional[str] = None
-    job_snapshot_id: Optional[str] = None
-    execution_plan_snapshot_id: Optional[str] = None
+    job_name: str | None = None
+    run_id: str | None = None
+    tags: dict[str, str] | None = None
+    root_run_id: str | None = None
+    parent_run_id: str | None = None
+    job_snapshot_id: str | None = None
+    execution_plan_snapshot_id: str | None = None
 
-    op_name: Optional[str] = None
-    asset_key: Optional[str] = None
+    op_name: str | None = None
+    asset_key: str | None = None
 
 
 class QueryTags(BaseModel):
-    team_id: Optional[int] = None
-    user_id: Optional[int] = None
-    access_method: Optional[AccessMethod] = None
-    api_key_mask: Optional[str] = None
-    api_key_label: Optional[str] = None
-    org_id: Optional[uuid.UUID] = None
-    product: Optional[Product] = None
+    team_id: int | None = None
+    user_id: int | None = None
+    access_method: AccessMethod | None = None
+    api_key_mask: str | None = None
+    api_key_label: str | None = None
+    org_id: uuid.UUID | None = None
+    product: Product | None = None
 
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
-    kind: Optional[str] = None
-    id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
+    kind: str | None = None
+    id: str | None = None
+    session_id: uuid.UUID | None = None
 
     # temporalio tags
-    temporal: Optional[TemporalTags] = None
+    temporal: TemporalTags | None = None
     # dagster specific tags
-    dagster: Optional[DagsterTags] = None
+    dagster: DagsterTags | None = None
 
-    query: Optional[object] = None
-    query_settings: Optional[object] = None
-    query_time_range_days: Optional[int] = None
-    query_type: Optional[str] = None
+    query: object | None = None
+    query_settings: object | None = None
+    query_time_range_days: int | None = None
+    query_type: str | None = None
 
-    route_id: Optional[str] = None
-    workload: Optional[str] = None  # enum connection.Workload
-    dashboard_id: Optional[int] = None
-    insight_id: Optional[int] = None
-    exported_asset_id: Optional[int] = None
-    export_format: Optional[str] = None
-    chargeable: Optional[int] = None
-    request_name: Optional[str] = None
-    name: Optional[str] = None
+    route_id: str | None = None
+    workload: str | None = None  # enum connection.Workload
+    dashboard_id: int | None = None
+    insight_id: int | None = None
+    exported_asset_id: int | None = None
+    export_format: str | None = None
+    chargeable: int | None = None
+    request_name: str | None = None
+    name: str | None = None
 
-    http_referer: Optional[str] = None
-    http_request_id: Optional[uuid.UUID] = None
-    http_user_agent: Optional[str] = None
+    http_referer: str | None = None
+    http_request_id: uuid.UUID | None = None
+    http_user_agent: str | None = None
 
-    alert_config_id: Optional[uuid.UUID] = None
-    batch_export_id: Optional[uuid.UUID] = None
-    cache_key: Optional[str] = None
-    celery_task_id: Optional[uuid.UUID] = None
-    clickhouse_exception_type: Optional[str] = None
-    client_query_id: Optional[str] = None
-    cohort_id: Optional[int] = None
-    entity_math: Optional[list[str]] = None
+    alert_config_id: uuid.UUID | None = None
+    batch_export_id: uuid.UUID | None = None
+    cache_key: str | None = None
+    celery_task_id: uuid.UUID | None = None
+    clickhouse_exception_type: str | None = None
+    client_query_id: str | None = None
+    cohort_id: int | None = None
+    entity_math: list[str] | None = None
 
     # replays
-    replay_playlist_id: Optional[int] = None
+    replay_playlist_id: int | None = None
 
     # experiments
-    experiment_feature_flag_key: Optional[str] = None
-    experiment_id: Optional[int] = None
-    experiment_name: Optional[str] = None
-    experiment_is_data_warehouse_query: Optional[bool] = None
+    experiment_feature_flag_key: str | None = None
+    experiment_id: int | None = None
+    experiment_name: str | None = None
+    experiment_is_data_warehouse_query: bool | None = None
 
-    feature: Optional[Feature] = None
-    filter: Optional[object] = None
-    filter_by_type: Optional[list[str]] = None
-    breakdown_by: Optional[list[str]] = None
+    feature: Feature | None = None
+    filter: object | None = None
+    filter_by_type: list[str] | None = None
+    breakdown_by: list[str] | None = None
 
     # data warehouse
-    trend_volume_display: Optional[str] = None
-    table_id: Optional[uuid.UUID] = None
-    warehouse_query: Optional[bool] = None
+    trend_volume_display: str | None = None
+    table_id: uuid.UUID | None = None
+    warehouse_query: bool | None = None
 
-    trend_volume_type: Optional[str] = None
+    trend_volume_type: str | None = None
 
-    has_joins: Optional[bool] = None
-    has_json_operations: Optional[bool] = None
+    has_joins: bool | None = None
+    has_json_operations: bool | None = None
 
-    modifiers: Optional[object] = None
-    number_of_entities: Optional[int] = None
-    person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
+    modifiers: object | None = None
+    number_of_entities: int | None = None
+    person_on_events_mode: str | None = None  # PersonsOnEventsMode
 
-    timings: Optional[dict[str, float]] = None
-    trigger: Optional[str] = None
+    timings: dict[str, float] | None = None
+    trigger: str | None = None
 
     # used by billing
-    usage_report: Optional[str] = None
+    usage_report: str | None = None
 
-    user_email: Optional[str] = None
+    user_email: str | None = None
 
     # constant query tags
-    git_commit: Optional[str] = None
-    container_hostname: Optional[str] = None
-    service_name: Optional[str] = None
+    git_commit: str | None = None
+    container_hostname: str | None = None
+    service_name: str | None = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
@@ -216,7 +216,7 @@ def get_query_tags() -> QueryTags:
     return qt
 
 
-def get_query_tag_value(key: str) -> Optional[Any]:
+def get_query_tag_value(key: str) -> Any | None:
     try:
         return getattr(get_query_tags(), key)
     except (AttributeError, KeyError):
@@ -280,7 +280,7 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
         # tags will be restored to original state after context
     ```
     """
-    tags_copy: Optional[QueryTags] = None
+    tags_copy: QueryTags | None = None
     try:
         tags_copy = get_query_tags().model_copy(deep=True)
         if tags_to_set:

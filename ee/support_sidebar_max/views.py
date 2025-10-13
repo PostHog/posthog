@@ -7,7 +7,7 @@ import logging
 import builtins
 from collections.abc import MutableMapping
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 
@@ -182,7 +182,7 @@ class MaxChatViewSet(viewsets.ViewSet):
             ],
         }
 
-    def _handle_rate_limit(self, retry_after: Optional[int], limit_type: Optional[RateLimitType] = None) -> Response:
+    def _handle_rate_limit(self, retry_after: int | None, limit_type: RateLimitType | None = None) -> Response:
         """Handle rate limit with DRF response."""
         capped_retry = min(retry_after if retry_after is not None else self.MAX_BACKOFF, self.MAX_BACKOFF)
         limit_message = f" ({limit_type.replace('_', ' ')})" if limit_type else ""
@@ -336,7 +336,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                     retry_seconds = min(max(reset_times) if reset_times else self.MAX_BACKOFF, self.MAX_BACKOFF)
 
                 # Determine which limit was hit from headers
-                limit_type: Optional[RateLimitType] = None
+                limit_type: RateLimitType | None = None
                 for key in headers:
                     if key.endswith("-remaining"):
                         if headers[key] == "0":

@@ -1,11 +1,11 @@
-from typing import Optional, Union
+from typing import Union
 from uuid import UUID
 
 from posthog.models.organization import Organization
 
 
 def has_plugin_access_level(
-    organization_or_id: Optional[Union[Organization, str, UUID]], min_access_level: int
+    organization_or_id: Union[Organization, str, UUID] | None, min_access_level: int
 ) -> bool:
     if organization_or_id is None:
         return False
@@ -17,13 +17,13 @@ def has_plugin_access_level(
     return organization.plugins_access_level >= min_access_level
 
 
-def can_globally_manage_plugins(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
+def can_globally_manage_plugins(organization_or_id: Union[Organization, str, UUID] | None) -> bool:
     return has_plugin_access_level(organization_or_id, Organization.PluginsAccessLevel.ROOT)
 
 
-def can_install_plugins(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
+def can_install_plugins(organization_or_id: Union[Organization, str, UUID] | None) -> bool:
     return has_plugin_access_level(organization_or_id, Organization.PluginsAccessLevel.INSTALL)
 
 
-def can_configure_plugins(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
+def can_configure_plugins(organization_or_id: Union[Organization, str, UUID] | None) -> bool:
     return has_plugin_access_level(organization_or_id, Organization.PluginsAccessLevel.CONFIG)

@@ -4,7 +4,7 @@ import threading
 import dataclasses
 from enum import StrEnum
 from queue import Queue
-from typing import Any, Optional
+from typing import Any
 
 from temporalio.client import Client
 from temporalio.service import RPCError
@@ -107,7 +107,7 @@ async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
 
 
 async def _get_workflows(
-    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], should_use_incremental_field: bool
+    config: TemporalIOSourceConfig, db_incremental_field_last_value: Any | None, should_use_incremental_field: bool
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -125,7 +125,7 @@ async def _get_workflows(
 
 
 async def _get_workflow_histories(
-    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], should_use_incremental_field: bool
+    config: TemporalIOSourceConfig, db_incremental_field_last_value: Any | None, should_use_incremental_field: bool
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -164,7 +164,7 @@ async def _get_workflow_histories(
 def temporalio_source(
     config: TemporalIOSourceConfig,
     resource: TemporalIOResource,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     if resource == TemporalIOResource.Workflows:

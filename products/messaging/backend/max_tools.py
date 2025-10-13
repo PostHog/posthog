@@ -1,6 +1,6 @@
 import re
 import json
-from typing import Any, Optional
+from typing import Any
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -29,7 +29,7 @@ class ContentModel(BaseModel):
 
 class TemplateOutput(BaseModel):
     name: str
-    description: Optional[str] = ""
+    description: str | None = ""
     content: ContentModel
 
 
@@ -79,7 +79,7 @@ Now, create a template for these instructions: {instructions}
         else:
             messages.append(HumanMessage(content=user_content))
 
-        final_error: Optional[Exception] = None
+        final_error: Exception | None = None
         parsed_result = None
         for _ in range(3):
             try:

@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer
@@ -10,7 +10,7 @@ from posthog.utils import cast_timestamp_or_now
 def log_event_usage(
     event_name: str,
     team_id: int,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
 ) -> None:
     """
     Logs an event usage metric to Kafka.
@@ -40,7 +40,7 @@ def log_event_usage(
 def log_event_usage_from_query_metadata(
     query_metadata: dict[str, Any],
     team_id: int,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
 ):
     """
     Logs event usage from query metadata.

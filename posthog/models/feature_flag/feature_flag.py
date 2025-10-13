@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, cast
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.cache import cache
@@ -92,7 +92,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # modifying the FeatureFlag model schema. The Redis cache stores the serialized
     # JSON including evaluation_tags, and when we deserialize, we store them here
     # temporarily to avoid N+1 queries when accessing evaluation tags.
-    _evaluation_tag_names: Optional[list[str]] = None
+    _evaluation_tag_names: list[str] | None = None
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -155,11 +155,11 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def _payloads(self):
         return self.get_filters().get("payloads", {}) or {}
 
-    def get_payload(self, match_val: str) -> Optional[object]:
+    def get_payload(self, match_val: str) -> object | None:
         return self._payloads.get(match_val, None)
 
     @property
-    def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
+    def aggregation_group_type_index(self) -> GroupTypeIndex | None:
         "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
         return self.get_filters().get("aggregation_group_type_index", None)
 
@@ -220,7 +220,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def transform_cohort_filters_for_easy_evaluation(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+        seen_cohorts_cache: dict[int, CohortOrEmpty] | None = None,
     ):
         """
         Expands cohort filters into person property filters when possible.
@@ -349,7 +349,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def get_cohort_ids(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+        seen_cohorts_cache: dict[int, CohortOrEmpty] | None = None,
         sort_by_topological_order=False,
     ) -> list[int]:
         from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
@@ -394,7 +394,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return list(cohort_ids)
 
     def scheduled_changes_dispatcher(
-        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
+        self, payload, user: AbstractBaseUser | None = None, scheduled_change_id: int | None = None
     ):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
@@ -519,7 +519,7 @@ class FeatureFlagOverride(models.Model):
 
 def set_feature_flags_for_team_in_cache(
     project_id: int,
-    feature_flags: Optional[list[FeatureFlag]] = None,
+    feature_flags: list[FeatureFlag] | None = None,
     using_database: str = "default",
 ) -> list[FeatureFlag]:
     from django.contrib.postgres.aggregates import ArrayAgg
@@ -570,7 +570,7 @@ def set_feature_flags_for_team_in_cache(
     return all_feature_flags
 
 
-def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[FeatureFlag]]:
+def get_feature_flags_for_team_in_cache(project_id: int) -> list[FeatureFlag] | None:
     try:
         flag_data = cache.get(f"team_feature_flags_{project_id}")
     except Exception:

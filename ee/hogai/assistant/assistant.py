@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from posthog.schema import HumanMessage, MaxBillingContext
@@ -21,15 +21,15 @@ class Assistant:
         team: Team,
         conversation: Conversation,
         *,
-        new_message: Optional[HumanMessage] = None,
+        new_message: HumanMessage | None = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         user: User,
-        session_id: Optional[str] = None,
-        contextual_tools: Optional[dict[str, Any]] = None,
+        session_id: str | None = None,
+        contextual_tools: dict[str, Any] | None = None,
         is_new_conversation: bool = False,
-        trace_id: Optional[str | UUID] = None,
-        initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
-        billing_context: Optional[MaxBillingContext] = None,
+        trace_id: str | UUID | None = None,
+        initial_state: AssistantMaxGraphState | AssistantMaxPartialGraphState | None = None,
+        billing_context: MaxBillingContext | None = None,
     ) -> BaseAssistant:
         assistant_class: type[BaseAssistant]
         if mode == AssistantMode.ASSISTANT:

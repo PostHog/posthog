@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.conf import settings
 
@@ -109,7 +108,7 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     return _combine_expressions(final_exprs)
 
 
-def filter_action_ids(filters: Optional[dict]) -> list[int]:
+def filter_action_ids(filters: dict | None) -> list[int]:
     if not filters:
         return []
     try:
@@ -118,7 +117,7 @@ def filter_action_ids(filters: Optional[dict]) -> list[int]:
         return []
 
 
-def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> ast.Expr:
+def compile_filters_expr(filters: dict | None, team: Team, actions: dict[int, Action] | None = None) -> ast.Expr:
     filters = filters or {}
 
     if actions is None:
@@ -148,7 +147,7 @@ class SelectFinder(TraversingVisitor):
         return visitor.found
 
 
-def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+def compile_filters_bytecode(filters: dict | None, team: Team, actions: dict[int, Action] | None = None) -> dict:
     filters = filters or {}
     try:
         expr = compile_filters_expr(filters, team, actions)

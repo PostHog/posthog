@@ -1,5 +1,5 @@
 import math
-from typing import Optional, Union
+from typing import Union
 
 import structlog
 
@@ -225,7 +225,7 @@ HAVING {inside_start_timestamp_period}
             function_name: str,
             column_name: str,
             alias: str,
-            params: Optional[list[ast.Expr]] = None,
+            params: list[ast.Expr] | None = None,
         ):
             if not has_comparison:
                 return ast.Alias(
@@ -245,7 +245,7 @@ HAVING {inside_start_timestamp_period}
             function_name: str,
             column_name: str,
             alias: str,
-            params: Optional[list[ast.Expr]] = None,
+            params: list[ast.Expr] | None = None,
         ):
             if not has_comparison:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
@@ -263,8 +263,8 @@ HAVING {inside_start_timestamp_period}
             function_name: str,
             column_name: str,
             current_alias: str,
-            previous_alias: Optional[str] = None,
-            params: Optional[list[ast.Expr]] = None,
+            previous_alias: str | None = None,
+            params: list[ast.Expr] | None = None,
         ) -> list[ast.Expr]:
             # This could also be done using tuples like the stats_table but I will keep the protocol as close as possible: https://github.com/PostHog/posthog/blob/26588f3689aa505fbf857afcae4e8bd18cf75606/posthog/hogql_queries/web_analytics/stats_table.py#L390-L399
             previous_alias = previous_alias or f"previous_{current_alias}"
@@ -328,9 +328,9 @@ HAVING {inside_start_timestamp_period}
 def to_data(
     key: str,
     kind: str,
-    value: Optional[Union[float, list[float]]],
-    previous: Optional[Union[float, list[float]]],
-    is_increase_bad: Optional[bool] = None,
+    value: Union[float, list[float]] | None,
+    previous: Union[float, list[float]] | None,
+    is_increase_bad: bool | None = None,
 ) -> dict:
     if isinstance(value, list):
         value = value[0]

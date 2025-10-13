@@ -1,4 +1,4 @@
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from posthog.schema import (
     FunnelCorrelationActorsQuery,
@@ -39,10 +39,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self,
         query: InsightActorsQueryNode | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        query_id: Optional[str] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
+        query_id: str | None = None,
     ):
         super().__init__(
             query,
@@ -63,7 +63,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
             return trends_runner.to_actors_query(
-                time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
+                time_frame=cast(str | None, query.day),  # Other runner accept day as int, but not this one
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
                 compare_value=query.compare,
@@ -112,7 +112,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
             return trends_runner.to_events_query(
-                time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
+                time_frame=cast(str | None, query.day),  # Other runner accept day as int, but not this one
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
                 compare_value=query.compare,

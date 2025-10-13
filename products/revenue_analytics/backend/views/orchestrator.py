@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Optional, cast
+from typing import cast
 
 from django.db.models import Prefetch
 
@@ -76,7 +76,7 @@ def _query_to_view(
 
 
 def build_all_revenue_analytics_views(
-    team: Team, timings: Optional[HogQLTimings] = None
+    team: Team, timings: HogQLTimings | None = None
 ) -> list[RevenueAnalyticsBaseView]:
     """Build all revenue-analytics views for a team.
 

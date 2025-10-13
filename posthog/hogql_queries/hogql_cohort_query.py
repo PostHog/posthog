@@ -1,6 +1,6 @@
 from collections import namedtuple
 from numbers import Number
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -92,7 +92,7 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 class HogQLCohortQuery:
     def __init__(
-        self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None, team: Optional[Team] = None
+        self, cohort_query: CohortQuery | None = None, cohort: Cohort | None = None, team: Team | None = None
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
@@ -439,7 +439,7 @@ class HogQLCohortQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
 
         def build_conditions(
-            prop: Optional[Union[PropertyGroup, Property]],
+            prop: Union[PropertyGroup, Property] | None,
         ) -> Condition:
             if not prop:
                 raise ValidationError("Cohort has a null property", str(prop))

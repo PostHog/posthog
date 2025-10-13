@@ -95,7 +95,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
 
-        counts = {key: None for key in ENTITY_MAP}
+        counts = dict.fromkeys(ENTITY_MAP)
         # get entities to search from params or default to all entities
         entities = params["entities"] if len(params["entities"]) > 0 else set(ENTITY_MAP.keys())
         query = params["q"]

@@ -2,7 +2,7 @@ from collections import (
     Counter,
     Counter as TCounter,
 )
-from typing import Literal, Optional
+from typing import Literal
 
 from posthog.hogql.hogql import HogQLContext
 
@@ -175,7 +175,7 @@ def uses_elements_chain(action: Action) -> bool:
 
 
 def string_matching_to_operator(
-    matching: Optional[Literal["exact", "contains", "regex"]], default: OperatorType
+    matching: Literal["exact", "contains", "regex"] | None, default: OperatorType
 ) -> OperatorType:
     if matching == "contains":
         return "icontains"

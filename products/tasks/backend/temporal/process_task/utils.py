@@ -1,11 +1,10 @@
-from typing import Optional
 
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.common.utils import asyncify
 
 
 @asyncify
-def get_github_token(github_integration_id: int) -> Optional[str]:
+def get_github_token(github_integration_id: int) -> str | None:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration)
 

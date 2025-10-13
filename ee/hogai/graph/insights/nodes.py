@@ -4,7 +4,7 @@ import inspect
 import warnings
 from datetime import timedelta
 from functools import wraps
-from typing import Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 from uuid import uuid4
 
 from django.db.models import Max
@@ -98,10 +98,10 @@ class InsightDict(TypedDict):
     """TypedDict for insight data returned from queryset.values()."""
 
     id: int
-    name: Optional[str]
-    description: Optional[str]
-    query: Optional[dict]
-    derived_name: Optional[str]
+    name: str | None
+    description: str | None
+    query: dict | None
+    derived_name: str | None
     short_id: str
 
 

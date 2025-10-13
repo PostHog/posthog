@@ -2,7 +2,7 @@ import time
 import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connections
@@ -116,10 +116,10 @@ class FeatureFlagMatchReason(StrEnum):
 @dataclass(frozen=True)
 class FeatureFlagMatch:
     match: bool = False
-    variant: Optional[str] = None
+    variant: str | None = None
     reason: FeatureFlagMatchReason = FeatureFlagMatchReason.NO_CONDITION_MATCH
-    condition_index: Optional[int] = None
-    payload: Optional[object] = None
+    condition_index: int | None = None
+    payload: object | None = None
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,7 @@ class FeatureFlagDetails:
     match: FeatureFlagMatch
     id: int = 0
     version: int = 0
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class FlagsMatcherCache:
@@ -164,13 +164,13 @@ class FeatureFlagMatcher:
         project_id: int,
         feature_flags: list[FeatureFlag],
         distinct_id: str,
-        groups: Optional[dict[GroupTypeName, str]] = None,
-        cache: Optional[FlagsMatcherCache] = None,
-        hash_key_overrides: Optional[dict[str, str]] = None,
-        property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
-        group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+        groups: dict[GroupTypeName, str] | None = None,
+        cache: FlagsMatcherCache | None = None,
+        hash_key_overrides: dict[str, str] | None = None,
+        property_value_overrides: dict[str, Union[str, int]] | None = None,
+        group_property_value_overrides: dict[str, dict[str, Union[str, int]]] | None = None,
         skip_database_flags: bool = False,
-        cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+        cohorts_cache: dict[int, CohortOrEmpty] | None = None,
     ):
         if group_property_value_overrides is None:
             group_property_value_overrides = {}
@@ -291,7 +291,7 @@ class FeatureFlagMatcher:
     def get_matches_with_details(
         self,
     ) -> tuple[
-        dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+        dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None
     ]:
         flags_details = {}
         flag_values = {}
@@ -338,7 +338,7 @@ class FeatureFlagMatcher:
             flags_details,
         )
 
-    def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
+    def get_matching_variant(self, feature_flag: FeatureFlag) -> str | None:
         # Calculate hash once outside the loop since it's the same for all variants
         variant_hash = self.get_hash(feature_flag, salt="variant")
         for variant in self.variant_lookup_table(feature_flag):
@@ -347,8 +347,8 @@ class FeatureFlagMatcher:
         return None
 
     def get_matching_payload(
-        self, is_match: bool, match_variant: Optional[str], feature_flag: FeatureFlag
-    ) -> Optional[object]:
+        self, is_match: bool, match_variant: str | None, feature_flag: FeatureFlag
+    ) -> object | None:
         if is_match:
             if match_variant:
                 return feature_flag.get_payload(match_variant)
@@ -462,7 +462,7 @@ class FeatureFlagMatcher:
     def _super_condition_matches(self, feature_flag: FeatureFlag) -> bool:
         return self._get_query_condition(f"flag_{feature_flag.pk}_super_condition")
 
-    def _super_condition_is_set(self, feature_flag: FeatureFlag) -> Optional[bool]:
+    def _super_condition_is_set(self, feature_flag: FeatureFlag) -> bool | None:
         return self._get_query_condition(f"flag_{feature_flag.pk}_super_condition_is_set")
 
     def _condition_matches(
@@ -470,14 +470,14 @@ class FeatureFlagMatcher:
         feature_flag: FeatureFlag,
         condition_index: int,
         match_if_entity_doesnt_exist: bool = False,
-        group_type_index: Optional[GroupTypeIndex] = None,
+        group_type_index: GroupTypeIndex | None = None,
     ) -> bool:
         return self._get_query_condition(
             f"flag_{feature_flag.pk}_condition_{condition_index}", match_if_entity_doesnt_exist, group_type_index
         )
 
     def _get_query_condition(
-        self, key: str, match_if_entity_doesnt_exist: bool = False, group_type_index: Optional[GroupTypeIndex] = None
+        self, key: str, match_if_entity_doesnt_exist: bool = False, group_type_index: GroupTypeIndex | None = None
     ) -> bool:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
@@ -701,7 +701,7 @@ class FeatureFlagMatcher:
             # Covers all cases like invalid JSON, invalid operator, invalid property name, invalid group input format, etc.
             raise
 
-    def hashed_identifier(self, feature_flag: FeatureFlag) -> Optional[str]:
+    def hashed_identifier(self, feature_flag: FeatureFlag) -> str | None:
         """
         If aggregating by people, returns distinct_id.
 
@@ -752,7 +752,7 @@ class FeatureFlagMatcher:
     def can_compute_locally(
         self,
         properties: list[Property],
-        group_type_index: Optional[GroupTypeIndex] = None,
+        group_type_index: GroupTypeIndex | None = None,
     ) -> bool:
         target_properties = self.property_value_overrides
         if group_type_index is not None:
@@ -798,7 +798,7 @@ def get_feature_flag_hash_key_overrides(
     team_id: int,
     distinct_ids: list[str],
     using_database: str = WRITE_DATABASE_FOR_PERSONS,
-    person_id_to_distinct_id_mapping: Optional[dict[int, str]] = None,
+    person_id_to_distinct_id_mapping: dict[int, str] | None = None,
 ) -> dict[str, str]:
     feature_flag_to_key_overrides = {}
 
@@ -834,13 +834,13 @@ def _get_all_feature_flags(
     team_id: int,
     project_id: int,
     distinct_id: str,
-    person_overrides: Optional[dict[str, str]] = None,
-    groups: Optional[dict[GroupTypeName, str]] = None,
-    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
-    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+    person_overrides: dict[str, str] | None = None,
+    groups: dict[GroupTypeName, str] | None = None,
+    property_value_overrides: dict[str, Union[str, int]] | None = None,
+    group_property_value_overrides: dict[str, dict[str, Union[str, int]]] | None = None,
     skip_database_flags: bool = False,
 ) -> tuple[
-    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None
 ]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
@@ -871,11 +871,11 @@ def _get_all_feature_flags(
 def get_all_feature_flags(
     team: Team,
     distinct_id: str,
-    groups: Optional[dict[GroupTypeName, str]] = None,
-    hash_key_override: Optional[str] = None,
-    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
-    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
-    flag_keys: Optional[list[str]] = None,
+    groups: dict[GroupTypeName, str] | None = None,
+    hash_key_override: str | None = None,
+    property_value_overrides: dict[str, Union[str, int]] | None = None,
+    group_property_value_overrides: dict[str, dict[str, Union[str, int]]] | None = None,
+    flag_keys: list[str] | None = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
     all_flags, reasons, payloads, errors, _ = get_all_feature_flags_with_details(
         team,
@@ -892,14 +892,14 @@ def get_all_feature_flags(
 def get_all_feature_flags_with_details(
     team: Team,
     distinct_id: str,
-    groups: Optional[dict[GroupTypeName, str]] = None,
-    hash_key_override: Optional[str] = None,
-    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
-    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
-    flag_keys: Optional[list[str]] = None,
+    groups: dict[GroupTypeName, str] | None = None,
+    hash_key_override: str | None = None,
+    property_value_overrides: dict[str, Union[str, int]] | None = None,
+    group_property_value_overrides: dict[str, dict[str, Union[str, int]]] | None = None,
+    flag_keys: list[str] | None = None,
     only_evaluate_survey_feature_flags: bool = False,  # If True, only evaluate flags starting with SURVEY_TARGETING_FLAG_PREFIX
 ) -> tuple[
-    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None
 ]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}

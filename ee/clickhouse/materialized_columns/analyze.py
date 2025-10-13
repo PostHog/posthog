@@ -1,6 +1,5 @@
 from collections import defaultdict
 from datetime import timedelta
-from typing import Optional
 
 import structlog
 
@@ -26,7 +25,7 @@ Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 logger = structlog.get_logger(__name__)
 
 
-def _analyze(since_hours_ago: int, min_query_time: int, team_id: Optional[int] = None) -> list[Suggestion]:
+def _analyze(since_hours_ago: int, min_query_time: int, team_id: int | None = None) -> list[Suggestion]:
     "Finds columns that should be materialized"
 
     raw_queries = sync_execute(
@@ -87,13 +86,13 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
 
 
 def materialize_properties_task(
-    properties_to_materialize: Optional[list[Suggestion]] = None,
+    properties_to_materialize: list[Suggestion] | None = None,
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
     backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
-    team_id_to_analyze: Optional[int] = None,
+    team_id_to_analyze: int | None = None,
     is_nullable: bool = False,
 ) -> None:
     """

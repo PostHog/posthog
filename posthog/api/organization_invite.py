@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -149,8 +149,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return level
 
     def validate_private_project_access(
-        self, private_project_access: Optional[list[dict[str, Any]]]
-    ) -> Optional[list[dict[str, Any]]]:
+        self, private_project_access: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]] | None:
         team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None

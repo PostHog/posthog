@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
@@ -37,21 +37,21 @@ class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[DateRange]
-    _interval: Optional[IntervalType]
+    _date_range: DateRange | None
+    _interval: IntervalType | None
     _interval_count: int
     _now_without_timezone: datetime
-    _earliest_timestamp_fallback: Optional[datetime]
+    _earliest_timestamp_fallback: datetime | None
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: DateRange | None,
         team: Team,
-        interval: Optional[IntervalType],
+        interval: IntervalType | None,
         now: datetime,
-        earliest_timestamp_fallback: Optional[datetime] = None,
-        interval_count: Optional[int] = None,
-        timezone_info: Optional[ZoneInfo] = None,
+        earliest_timestamp_fallback: datetime | None = None,
+        interval_count: int | None = None,
+        timezone_info: ZoneInfo | None = None,
         exact_timerange: bool = False,  # Setting this to true stops a relative time range from including the time between the intervalStart and the date_range start, as well as cuts off the interval at precisely now()
     ) -> None:
         self._team = team
@@ -181,7 +181,7 @@ class QueryDateRange:
 
         return self._date_range.explicitDate
 
-    def align_with_interval(self, start: datetime, *, interval_name: Optional[IntervalLiteral] = None) -> datetime:
+    def align_with_interval(self, start: datetime, *, interval_name: IntervalLiteral | None = None) -> datetime:
         interval_name = interval_name or self.interval_name
 
         if interval_name == "minute":
@@ -209,7 +209,7 @@ class QueryDateRange:
             minutes=self.interval_count if self.interval_name == "minute" else 0,
         )
 
-    def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
+    def all_values(self, *, interval_name: IntervalLiteral | None = None) -> list[datetime]:
         start = self.align_with_interval(self.date_from(), interval_name=interval_name)
         end: datetime = self.date_to()
         delta = self.interval_relativedelta()
@@ -380,7 +380,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: DateRange | None,
         total_intervals: int,
         team: Team,
         interval: IntervalType,

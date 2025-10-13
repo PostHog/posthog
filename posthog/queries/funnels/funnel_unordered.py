@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -40,8 +40,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         self,
         step: Entity,
         count: int,
-        people: Optional[list[uuid.UUID]] = None,
-        sampling_factor: Optional[float] = None,
+        people: list[uuid.UUID] | None = None,
+        sampling_factor: float | None = None,
     ) -> dict[str, Any]:
         return {
             "action_id": None,

@@ -1,5 +1,5 @@
 import dataclasses
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast
@@ -24,7 +24,7 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
-    def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
+    def __init__(self, *args, _create_in_folder: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._create_in_folder = _create_in_folder
 
@@ -53,8 +53,8 @@ class FileSystemSyncMixin(Model):
         qs: QuerySet,
         team: "Team",
         ref_field: str,
-        type: Optional[str | list[str]] = None,
-        type__startswith: Optional[str] = None,
+        type: str | list[str] | None = None,
+        type__startswith: str | None = None,
     ) -> QuerySet:
         """
         Given a base queryset `qs`, annotate a 'ref_id' from `ref_field`,

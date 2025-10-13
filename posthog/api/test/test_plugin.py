@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Optional, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -58,7 +58,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(activity, expected)
 
     def _create_plugin(
-        self, additional_params: Optional[dict] = None, expected_status: int = status.HTTP_201_CREATED
+        self, additional_params: dict | None = None, expected_status: int = status.HTTP_201_CREATED
     ) -> dict:
         params = {"url": "https://github.com/PostHog/helloworldplugin"}
 

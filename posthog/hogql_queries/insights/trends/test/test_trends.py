@@ -2,7 +2,7 @@ import json
 import uuid
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -57,8 +57,8 @@ from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
-def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
-    ret_dict: dict[str, Optional[Union[str, int]]] = {}
+def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Union[str, int] | None]:
+    ret_dict: dict[str, Union[str, int] | None] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         label = value if (value or isinstance(value, bool)) and value != "None" and value != "nan" else "Other"
         ret_dict["label"] = f"{entity.name} - {label}"

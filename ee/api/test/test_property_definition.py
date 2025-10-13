@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -159,7 +159,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             {"official", "internal"},
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="PropertyDefinition").first()
+        activity_log: ActivityLog | None = ActivityLog.objects.filter(scope="PropertyDefinition").first()
         assert activity_log is not None
         self.assertEqual(activity_log.scope, "PropertyDefinition")
         self.assertEqual(activity_log.activity, "changed")

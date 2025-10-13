@@ -1,6 +1,5 @@
 import secrets
 from datetime import timedelta
-from typing import Optional
 
 from django.conf import settings
 from django.db import models
@@ -123,7 +122,7 @@ class ExportedAsset(models.Model):
             "insight_id": self.insight_id,
         }
 
-    def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
+    def get_public_content_url(self, expiry_delta: timedelta | None = None):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
@@ -138,7 +137,7 @@ class ExportedAsset(models.Model):
         return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
 
 
-def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+def get_public_access_token(asset: ExportedAsset, expiry_delta: timedelta | None = None) -> str:
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
     return encode_jwt(

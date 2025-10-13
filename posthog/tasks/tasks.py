@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 from uuid import UUID
 
 from django.conf import settings
@@ -64,12 +63,12 @@ def redis_heartbeat() -> None:
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
-    user_id: Optional[int],
+    user_id: int | None,
     query_id: str,
     query_json: dict,
     query_tags: dict,
     is_query_service: bool,
-    limit_context: Optional[LimitContext] = None,
+    limit_context: LimitContext | None = None,
 ) -> None:
     """
     Kick off query
@@ -638,8 +637,8 @@ def update_cache_task(caching_state_id: UUID) -> None:
 @shared_task(ignore_result=True)
 def sync_insight_caching_state(
     team_id: int,
-    insight_id: Optional[int] = None,
-    dashboard_tile_id: Optional[int] = None,
+    insight_id: int | None = None,
+    dashboard_tile_id: int | None = None,
 ) -> None:
     from posthog.caching.insight_caching_state import sync_insight_caching_state
 

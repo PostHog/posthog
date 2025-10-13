@@ -1,6 +1,5 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 import pytest
 from freezegun.api import freeze_time
@@ -4757,7 +4756,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self,
         name: str,
         properties,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_201_CREATED,
         **kwargs,
     ):
@@ -4778,8 +4777,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def _get_feature_flag_activity(
         self,
-        flag_id: Optional[int] = None,
-        team_id: Optional[int] = None,
+        flag_id: int | None = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
@@ -4796,7 +4795,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             return None
         return activity.json()
 
-    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: list[dict]):
+    def assert_feature_flag_activity(self, flag_id: int | None, expected: list[dict]):
         activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: list[dict] = activity_response["results"]
@@ -8495,7 +8494,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         super().setUpTestData()
 
     def assert_expected_response(
-        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: Optional[str] = None
+        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: str | None = None
     ):
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/status",

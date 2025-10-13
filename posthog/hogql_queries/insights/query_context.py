@@ -1,6 +1,5 @@
 from abc import ABC
 from datetime import datetime
-from typing import Optional
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -26,10 +25,10 @@ class QueryContext(ABC):
         self,
         query: InsightQueryNode,
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        now: Optional[datetime] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
+        now: datetime | None = None,
     ):
         self.query = query
         self.team = team

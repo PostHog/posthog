@@ -5,7 +5,6 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from functools import wraps
 from time import sleep
-from typing import Optional
 
 from celery import current_task
 from prometheus_client import Counter
@@ -69,12 +68,12 @@ class RateLimit:
     limit_name: str
     get_task_name: Callable
     get_task_id: Callable
-    get_task_key: Optional[Callable] = None
-    applicable: Optional[Callable] = None  # allows to put a constraint on when rate limiting is used
+    get_task_key: Callable | None = None
+    applicable: Callable | None = None  # allows to put a constraint on when rate limiting is used
     ttl: int = 60
     bypass_all: bool = False
     redis_client = redis.get_client()
-    retry: Optional[float] = None
+    retry: float | None = None
     retry_timeout: float = 10.0  # seconds
     get_time: Callable[[], float] = lambda: time.time()
     sleep: Callable[[float], None] = lambda d: sleep(d)
@@ -92,7 +91,7 @@ class RateLimit:
             if applicable and running_task_key and task_id:
                 self.release(running_task_key, task_id)
 
-    def use(self, *args, **kwargs) -> tuple[Optional[str], Optional[str]]:
+    def use(self, *args, **kwargs) -> tuple[str | None, str | None]:
         """
         Acquire the resource before execution or throw exception.
         """
@@ -100,7 +99,7 @@ class RateLimit:
         task_name = self.get_task_name(*args, **kwargs)
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
-        team_id: Optional[int] = kwargs.get("team_id", None)
+        team_id: int | None = kwargs.get("team_id", None)
 
         max_concurrency: int = self.max_concurrency
 
@@ -179,10 +178,10 @@ class RateLimit:
         return wrapper
 
 
-__API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
-__APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
-__APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
-__WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+__API_CONCURRENT_QUERY_PER_TEAM: RateLimit | None = None
+__APP_CONCURRENT_QUERY_PER_ORG: RateLimit | None = None
+__APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: RateLimit | None = None
+__WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: RateLimit | None = None
 
 
 def get_api_team_rate_limiter():
@@ -190,8 +189,8 @@ def get_api_team_rate_limiter():
 
     def __applicable(
         *args,
-        team_id: Optional[int] = None,
-        is_api: Optional[bool] = None,
+        team_id: int | None = None,
+        is_api: bool | None = None,
         **kwargs,
     ) -> bool:
         return bool(
@@ -281,7 +280,7 @@ def get_web_analytics_api_rate_limiter():
 
     def __applicable(
         *args,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         **kwargs,
     ) -> bool:
         return bool(not TEST and team_id)
@@ -307,7 +306,7 @@ class ConcurrencyLimitExceeded(Exception):
 
 
 def limit_concurrency(
-    max_concurrent_tasks: int, key: Optional[Callable] = None, ttl: int = 60 * 15, limit_name: str = ""
+    max_concurrent_tasks: int, key: Callable | None = None, ttl: int = 60 * 15, limit_name: str = ""
 ) -> Callable:
     def decorator(task_func):
         @wraps(task_func)
@@ -348,7 +347,7 @@ def limit_concurrency(
     return decorator
 
 
-def get_org_app_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
+def get_org_app_concurrency_limit(org_id: uuid.UUID) -> int | None:
     """
     Get organization concurrency limit for app queries from
     feature entitlements. Using Redis for quicker lookups.

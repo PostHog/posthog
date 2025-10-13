@@ -1,7 +1,6 @@
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
@@ -79,10 +78,10 @@ class ClickhouseTrendExperimentResult:
         team: Team,
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
-        experiment_end_date: Optional[datetime] = None,
+        experiment_end_date: datetime | None = None,
         trend_class: type[Trends] = Trends,
-        custom_exposure_filter: Optional[Filter] = None,
-        holdout: Optional[ExperimentHoldout] = None,
+        custom_exposure_filter: Filter | None = None,
+        holdout: ExperimentHoldout | None = None,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]

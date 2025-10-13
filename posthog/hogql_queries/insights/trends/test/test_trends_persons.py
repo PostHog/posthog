@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 import pytest
 from freezegun import freeze_time
@@ -47,14 +47,14 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 def get_actors(
     trends_query: TrendsQuery,
     team: Team,
-    breakdown: Optional[Union[str, int]] = None,
-    compare: Optional[Compare] = None,
-    day: Optional[Union[str, int]] = None,
-    interval: Optional[int] = None,
-    series: Optional[int] = None,
-    status: Optional[str] = None,
-    offset: Optional[int] = None,
-    includeRecordings: Optional[bool] = None,
+    breakdown: Union[str, int] | None = None,
+    compare: Compare | None = None,
+    day: Union[str, int] | None = None,
+    interval: int | None = None,
+    series: int | None = None,
+    status: str | None = None,
+    offset: int | None = None,
+    includeRecordings: bool | None = None,
 ):
     insight_actors_query = InsightActorsQuery(
         source=trends_query,

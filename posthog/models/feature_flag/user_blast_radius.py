@@ -1,4 +1,3 @@
-from typing import Optional
 
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
@@ -27,7 +26,7 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
 def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
-    group_type_index: Optional[GroupTypeIndex] = None,
+    group_type_index: GroupTypeIndex | None = None,
 ):
     from posthog.queries.person_query import PersonQuery
 

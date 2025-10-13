@@ -1,6 +1,6 @@
 import time
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
@@ -189,7 +189,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         logger.exception("failed_to_update_cohort_metrics", error=str(e))
 
 
-def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: User | None) -> None:
     dependent_cohorts = get_all_cohort_dependents(cohort)
     dependency_cohorts = get_all_cohort_dependencies(cohort)
     related_cohorts = dependent_cohorts + dependency_cohorts
@@ -249,14 +249,14 @@ def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
     cohort.refresh_from_db()
 
 
-def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
+def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: User | None) -> None:
     """Helper function to enqueue a single cohort for calculation"""
     _prepare_cohort_for_calculation(cohort)
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
+def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: int | None = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
@@ -282,7 +282,7 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 @shared_task(ignore_result=True, max_retries=1)
 def calculate_cohort_from_list(
-    cohort_id: int, items: list[str], team_id: Optional[int] = None, id_type: str = "distinct_id"
+    cohort_id: int, items: list[str], team_id: int | None = None, id_type: str = "distinct_id"
 ) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -310,7 +310,7 @@ def calculate_cohort_from_list(
 
 @shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
+    cohort_id: int, filter_data: dict[str, Any], team_id: int | None = None
 ) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -327,7 +327,7 @@ def insert_cohort_from_insight_filter(
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
+def insert_cohort_from_query(cohort_id: int, team_id: int | None = None) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.

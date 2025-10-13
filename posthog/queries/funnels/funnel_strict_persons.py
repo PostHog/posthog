@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -17,8 +16,8 @@ class ClickhouseFunnelStrictActors(ClickhouseFunnelStrict, ActorBaseQuery):
 
     def actor_query(
         self,
-        limit_actors: Optional[bool] = True,
-        extra_fields: Optional[list[str]] = None,
+        limit_actors: bool | None = True,
+        extra_fields: list[str] | None = None,
     ):
         extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
         return (

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from posthog.schema import PersonsOnEventsMode
 
@@ -23,7 +23,7 @@ class TrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
+    def __init__(self, team: Team, entity: Entity | None, filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required for TrendsActors")
         super().__init__(team, filter, entity, **kwargs)
@@ -34,7 +34,7 @@ class TrendsActors(ActorBaseQuery):
             return self.entity.math_group_type_index
         return None
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
+    def actor_query(self, limit_actors: bool | None = True) -> tuple[str, dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team__project_id=self._team.project_id)
             self._filter = self._filter.shallow_clone(

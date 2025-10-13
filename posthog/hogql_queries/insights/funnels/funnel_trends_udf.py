@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -221,7 +221,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
 
     def actor_query(
         self,
-        extra_fields: Optional[list[str]] = None,
+        extra_fields: list[str] | None = None,
     ) -> ast.SelectQuery:
         team, actorsQuery = self.context.team, self.context.actorsQuery
 

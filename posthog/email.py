@@ -4,7 +4,7 @@ import sys
 import html
 import uuid
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.core import exceptions, mail
@@ -164,7 +164,7 @@ def _send_via_smtp(
     txt_body: str,
     html_body: str,
     headers: dict,
-    reply_to: Optional[str] = None,
+    reply_to: str | None = None,
 ) -> None:
     """Sends emails using SMTP"""
     messages: list = []
@@ -295,9 +295,9 @@ def _send_email(
     txt_body: str = "",
     html_body: str = "",
     template_name: str = "",
-    reply_to: Optional[str] = None,
-    use_http: Optional[bool] = False,
-    properties: Optional[dict] = None,
+    reply_to: str | None = None,
+    use_http: bool | None = False,
+    properties: dict | None = None,
 ) -> None:
     """
     Sends built email message asynchronously, either through SMTP or HTTP
@@ -328,11 +328,11 @@ class EmailMessage:
         self,
         campaign_key: str,
         template_name: str,
-        subject: Optional[str] = None,
-        template_context: Optional[dict] = None,
-        headers: Optional[dict] = None,
-        reply_to: Optional[str] = None,
-        use_http: Optional[bool] = False,
+        subject: str | None = None,
+        template_context: dict | None = None,
+        headers: dict | None = None,
+        reply_to: str | None = None,
+        use_http: bool | None = False,
     ):
         if template_context is None:
             template_context = {}
@@ -356,7 +356,7 @@ class EmailMessage:
         self.txt_body = ""
         self.headers = headers if headers else {}
 
-    def add_recipient(self, email: str, name: Optional[str] = None) -> None:
+    def add_recipient(self, email: str, name: str | None = None) -> None:
         sanitized_name = html.escape(name) if name else None
         self.to.append({"recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email, "raw_email": email})
 

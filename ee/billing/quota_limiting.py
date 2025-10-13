@@ -2,7 +2,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -53,8 +53,8 @@ GRACE_PERIOD_DAYS: dict[int, int] = {
 
 
 class OrgQuotaLimitingInformation(TypedDict):
-    quota_limited_until: Optional[int]
-    quota_limiting_suspended_until: Optional[int]
+    quota_limited_until: int | None
+    quota_limiting_suspended_until: int | None
 
 
 # These quota resource identifiers match billing default_plans_config.yml usage_key
@@ -175,7 +175,7 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
 
 def org_quota_limited_until(
     organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: list[str]
-) -> Optional[OrgQuotaLimitingInformation]:
+) -> OrgQuotaLimitingInformation | None:
     if not organization.usage:
         return None
 
@@ -502,13 +502,13 @@ def update_org_billing_quotas(organization: Organization):
             if quota_limited_until:
                 add_limited_team_tokens(
                     resource,
-                    {x: quota_limited_until for x in team_attributes},
+                    dict.fromkeys(team_attributes, quota_limited_until),
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 )
             elif limiting_suspended_until and limiting_suspended_until >= today_end.timestamp():
                 add_limited_team_tokens(
                     resource,
-                    {x: limiting_suspended_until for x in team_attributes},
+                    dict.fromkeys(team_attributes, limiting_suspended_until),
                     QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
                 )
             else:
@@ -521,14 +521,14 @@ def update_org_billing_quotas(organization: Organization):
 
 def set_org_usage_summary(
     organization: Organization,
-    new_usage: Optional[OrganizationUsageInfo] = None,
-    todays_usage: Optional[UsageCounters] = None,
+    new_usage: OrganizationUsageInfo | None = None,
+    todays_usage: UsageCounters | None = None,
 ) -> bool:
     # TRICKY: We don't want to overwrite the "todays_usage" value unless the usage from the billing service is different than what we have locally.
     # Also we want to return if anything changed so that the caller can update redis
 
     has_changed = False
-    new_usage = new_usage or cast(Optional[OrganizationUsageInfo], organization.usage)
+    new_usage = new_usage or cast(OrganizationUsageInfo | None, organization.usage)
     original_usage = cast(dict, copy.deepcopy(organization.usage)) if organization.usage else {}
 
     if not new_usage:

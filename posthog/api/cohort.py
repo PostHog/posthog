@@ -3,7 +3,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Annotated, Any, Literal, Optional, Union, cast
+from typing import Annotated, Any, Literal, Union, cast
 
 from django.conf import settings
 from django.db import DatabaseError
@@ -527,7 +527,7 @@ class CohortSerializer(serializers.ModelSerializer):
         except Exception as e:
             self._handle_csv_errors(e, cohort)
 
-    def validate_query(self, query: Optional[dict]) -> Optional[dict]:
+    def validate_query(self, query: dict | None) -> dict | None:
         if not query:
             return None
         if not isinstance(query, dict):

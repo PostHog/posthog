@@ -4,19 +4,17 @@ import uuid
 import shutil
 import tempfile
 import subprocess
-from typing import Optional
 
 import structlog
 import posthoganalytics
-
-from posthog.exceptions_capture import capture_exception
-
 from playwright.sync_api import (
     Browser,
     Page,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
+
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -87,7 +85,7 @@ def _convert_to_mp4(
 
 
 def _convert_to_gif(
-    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, measured_width: Optional[int]
+    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, measured_width: int | None
 ) -> None:
     """Convert WebM to GIF using ffmpeg."""
     vf_parts = ["fps=12"]
@@ -208,9 +206,9 @@ def detect_recording_resolution(
 def record_replay_to_file(
     image_path: str,
     url_to_render: str,
-    screenshot_width: Optional[int],
+    screenshot_width: int | None,
     wait_for_css_selector: str,
-    screenshot_height: Optional[int],
+    screenshot_height: int | None,
     recording_duration: int = 5,  # Duration in seconds
 ) -> None:
     # Input validation
@@ -226,7 +224,7 @@ def record_replay_to_file(
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg is required for MP4 and GIF exports but was not found in PATH")
 
-    temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
+    temp_dir_ctx: tempfile.TemporaryDirectory | None = None
     try:
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-", ignore_cleanup_errors=True)
         record_dir = temp_dir_ctx.name
@@ -279,7 +277,7 @@ def record_replay_to_file(
 
             # Navigate with correct dimensions
             _wait_for_page_ready(page, url_to_render, wait_for_css_selector)
-            measured_width: Optional[int] = None
+            measured_width: int | None = None
             try:
                 dimensions = page.evaluate("""
                     () => {

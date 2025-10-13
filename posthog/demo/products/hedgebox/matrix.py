@@ -1,6 +1,6 @@
 import datetime as dt
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.db import IntegrityError
 
@@ -81,10 +81,10 @@ class HedgeboxCluster(Cluster):
     MAX_RADIUS: int = 6
 
     # Properties
-    company: Optional[HedgeboxCompany]  # None means the cluster is a social circle instead of a company
+    company: HedgeboxCompany | None  # None means the cluster is a social circle instead of a company
 
     # Internal state - plain
-    _business_account: Optional[HedgeboxAccount]  # In social circle clusters the person-level account is used
+    _business_account: HedgeboxAccount | None  # In social circle clusters the person-level account is used
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

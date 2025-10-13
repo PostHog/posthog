@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from stripe import ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
@@ -47,10 +47,10 @@ class StripeNestedResource:
 
 def stripe_source(
     api_key: str,
-    account_id: Optional[str],
+    account_id: str | None,
     endpoint: str,
-    db_incremental_field_last_value: Optional[Any],
-    db_incremental_field_earliest_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
+    db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
 ):

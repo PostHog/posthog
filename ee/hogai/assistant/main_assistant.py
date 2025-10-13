@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -38,22 +38,22 @@ from ee.models import Conversation
 
 
 class MainAssistant(BaseAssistant):
-    _state: Optional[AssistantState]
-    _initial_state: Optional[AssistantState | PartialAssistantState]
+    _state: AssistantState | None
+    _initial_state: AssistantState | PartialAssistantState | None
 
     def __init__(
         self,
         team: Team,
         conversation: Conversation,
         *,
-        new_message: Optional[HumanMessage] = None,
+        new_message: HumanMessage | None = None,
         user: User,
-        session_id: Optional[str] = None,
-        contextual_tools: Optional[dict[str, Any]] = None,
+        session_id: str | None = None,
+        contextual_tools: dict[str, Any] | None = None,
         is_new_conversation: bool = False,
-        trace_id: Optional[str | UUID] = None,
-        billing_context: Optional[MaxBillingContext] = None,
-        initial_state: Optional[AssistantState | PartialAssistantState] = None,
+        trace_id: str | UUID | None = None,
+        billing_context: MaxBillingContext | None = None,
+        initial_state: AssistantState | PartialAssistantState | None = None,
     ):
         super().__init__(
             team,

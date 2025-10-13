@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -22,7 +22,7 @@ def _resolve_single_provider_value(
     config_section: str | None = None,
     explicit_sections: tuple[str, ...] = (),
     embedded_sections: tuple[str, ...] = (),
-) -> tuple[Optional[Any], list[LookupTrace]]:
+) -> tuple[Any | None, list[LookupTrace]]:
     traces: list[LookupTrace] = []
 
     if provider.supports_sections:

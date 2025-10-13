@@ -1,6 +1,5 @@
 # posthog/models/file_system/unfiled_file_saver.py
 from datetime import datetime
-from typing import Optional
 
 from django.utils import timezone
 
@@ -97,7 +96,7 @@ class UnfiledFileSaver:
         return created_all
 
 
-def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) -> list[FileSystem]:
+def save_unfiled_files(team: Team, user: User, file_type: str | None = None) -> list[FileSystem]:
     saver = UnfiledFileSaver(team, user)
     if file_type is None:
         return saver.save_all_unfiled()

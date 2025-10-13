@@ -3,7 +3,7 @@ import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from itertools import accumulate
-from typing import Any, Optional, cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import posthoganalytics
@@ -52,7 +52,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return query_type, sql, params, parse_function
 
     # Use cached result even on refresh if team has strict caching enabled
-    def get_cached_result(self, filter: Filter, team: Team) -> Optional[list[dict[str, Any]]]:
+    def get_cached_result(self, filter: Filter, team: Team) -> list[dict[str, Any]] | None:
         if not team.strict_caching_enabled or filter.breakdown or filter.display != TRENDS_LINEAR:
             return None
 
@@ -91,7 +91,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return _is_present
 
     # Use a condensed filter if a cached result exists in the current timerange
-    def adjusted_filter(self, filter: Filter, team: Team) -> tuple[Filter, Optional[dict[str, Any]]]:
+    def adjusted_filter(self, filter: Filter, team: Team) -> tuple[Filter, dict[str, Any] | None]:
         cached_result = self.get_cached_result(filter, team)
 
         new_filter = filter.shallow_clone({"date_from": interval_unit(filter.interval)}) if cached_result else filter
@@ -106,7 +106,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def merge_results(
         self,
         result,
-        cached_result: Optional[dict[str, Any]],
+        cached_result: dict[str, Any] | None,
         entity_order: int,
         filter: Filter,
         team: Team,
@@ -177,9 +177,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> list[dict[str, Any]]:
-        result: list[Optional[list[dict[str, Any]]]] = [None] * len(filter.entities)
-        parse_functions: list[Optional[Callable]] = [None] * len(filter.entities)
-        sql_statements_with_params: list[tuple[Optional[str], dict]] = [(None, {})] * len(filter.entities)
+        result: list[list[dict[str, Any]] | None] = [None] * len(filter.entities)
+        parse_functions: list[Callable | None] = [None] * len(filter.entities)
+        sql_statements_with_params: list[tuple[str | None, dict]] = [(None, {})] * len(filter.entities)
         cached_result = None
         jobs = []
 

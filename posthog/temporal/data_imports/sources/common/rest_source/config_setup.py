@@ -3,7 +3,7 @@ import graphlib  # type: ignore[import,unused-ignore]
 import warnings
 from collections.abc import Callable
 from copy import copy
-from typing import Any, NamedTuple, Optional, Union
+from typing import Any, NamedTuple, Union
 
 import dlt
 from dlt.common import jsonpath, logger
@@ -59,7 +59,7 @@ AUTH_MAP: dict[AuthType, type[AuthConfigBase]] = {
 
 class IncrementalParam(NamedTuple):
     start: str
-    end: Optional[str]
+    end: str | None
 
 
 def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator]:
@@ -71,8 +71,8 @@ def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator]:
 
 
 def create_paginator(
-    paginator_config: Optional[PaginatorConfig],
-) -> Optional[BasePaginator]:
+    paginator_config: PaginatorConfig | None,
+) -> BasePaginator | None:
     if isinstance(paginator_config, BasePaginator):
         return paginator_config
 
@@ -102,7 +102,7 @@ def get_auth_class(auth_type: AuthType) -> type[AuthConfigBase]:
         raise ValueError(f"Invalid paginator: {auth_type}. " f"Available options: {available_options}")
 
 
-def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
+def create_auth(auth_config: AuthConfig | None) -> AuthConfigBase | None:
     auth: AuthConfigBase = None
     if isinstance(auth_config, AuthConfigBase):
         auth = auth_config
@@ -126,8 +126,8 @@ def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
 
 def setup_incremental_object(
     request_params: dict[str, Any],
-    incremental_config: Optional[IncrementalConfig] = None,
-) -> tuple[Optional[Incremental[Any]], Optional[IncrementalParam], Optional[Callable[..., Any]]]:
+    incremental_config: IncrementalConfig | None = None,
+) -> tuple[Incremental[Any] | None, IncrementalParam | None, Callable[..., Any] | None]:
     incremental_params: list[str] = []
     for param_name, param_config in request_params.items():
         if (
@@ -138,7 +138,7 @@ def setup_incremental_object(
             incremental_params.append(param_name)
     if len(incremental_params) > 1:
         raise ValueError(f"Only a single incremental parameter is allower per endpoint. Found: {incremental_params}")
-    convert: Optional[Callable[..., Any]]
+    convert: Callable[..., Any] | None
     for param_name, param_config in request_params.items():
         if isinstance(param_config, dlt.sources.incremental):
             if param_config.end_value is not None:
@@ -177,7 +177,7 @@ def setup_incremental_object(
 
 def parse_convert_or_deprecated_transform(
     config: Union[IncrementalConfig, dict[str, Any]],
-) -> Optional[Callable[..., Any]]:
+) -> Callable[..., Any] | None:
     convert = config.get("convert", None)
     deprecated_transform = config.get("transform", None)
     if deprecated_transform:
@@ -198,7 +198,7 @@ def make_parent_key_name(resource_name: str, field_name: str) -> str:
 def build_resource_dependency_graph(
     resource_defaults: EndpointResourceBase,
     resource_list: list[str | EndpointResource],
-) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+) -> tuple[Any, dict[str, EndpointResource], dict[str, ResolvedParam | None]]:
     dependency_graph = graphlib.TopologicalSorter()
     endpoint_resource_map: dict[str, EndpointResource] = {}
     resolved_param_map: dict[str, ResolvedParam] = {}
@@ -345,7 +345,7 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
     ]
 
 
-def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[str]:
+def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> str | None:
     """Handle response actions based on the response and the provided actions."""
     content = response.text
 
@@ -387,8 +387,8 @@ def _create_response_actions_hook(
 
 
 def create_response_hooks(
-    response_actions: Optional[list[ResponseAction]],
-) -> Optional[dict[str, Any]]:
+    response_actions: list[ResponseAction] | None,
+) -> dict[str, Any] | None:
     """Create response hooks based on the provided response actions. Note
     that if the error status code is not handled by the response actions,
     the default behavior is to raise an HTTP error.

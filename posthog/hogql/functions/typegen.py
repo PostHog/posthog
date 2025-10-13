@@ -3,7 +3,6 @@ Type signature generator utilities for HogQL functions with variadic arguments.
 """
 
 from itertools import product
-from typing import Optional
 
 from posthog.hogql.ast import IntegerType, StringType
 from posthog.hogql.functions.core import AnyConstantType
@@ -12,7 +11,7 @@ from posthog.hogql.functions.core import AnyConstantType
 def generate_variadic_signatures(
     fixed_types: list[AnyConstantType],
     variadic_types: list[AnyConstantType],
-    suffix_types: Optional[list[AnyConstantType]] = None,
+    suffix_types: list[AnyConstantType] | None = None,
     min_variadic: int = 0,
     max_variadic: int = 5,
 ) -> list[tuple[AnyConstantType, ...]]:
@@ -48,7 +47,7 @@ def generate_variadic_signatures(
 def generate_json_path_signatures(
     fixed_types: list[AnyConstantType],
     return_type: AnyConstantType,
-    suffix_types: Optional[list[AnyConstantType]] = None,
+    suffix_types: list[AnyConstantType] | None = None,
     min_paths: int = 0,
     max_paths: int = 5,
 ) -> list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]:

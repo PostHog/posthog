@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import uuid4
 
 from langchain_core.messages import AIMessageChunk
@@ -23,7 +22,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
     notebook: Notebook | None = None
     _notebook_serializer: NotebookSerializer | None = None
 
-    def _get_model(self, instructions: str, previous_response_id: Optional[str] = None):
+    def _get_model(self, instructions: str, previous_response_id: str | None = None):
         return MaxChatOpenAI(
             model=self.REASONING_MODEL,
             streaming=True,
@@ -53,8 +52,8 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         self,
         chain: Runnable,
         config: RunnableConfig,
-        stream_parameters: Optional[dict] = None,
-        context: Optional[NotebookContext] = None,
+        stream_parameters: dict | None = None,
+        context: NotebookContext | None = None,
     ) -> Notebook:
         if self.notebook is None:
             self.notebook = await self._create_notebook()
@@ -83,14 +82,14 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
         return self.notebook
 
-    def _get_notebook_serializer(self, context: Optional[NotebookContext] = None) -> NotebookSerializer:
+    def _get_notebook_serializer(self, context: NotebookContext | None = None) -> NotebookSerializer:
         """Get or create a reusable notebook serializer to avoid repeated query conversions during streaming."""
         if self._notebook_serializer is None or (context and self._notebook_serializer.context != context):
             self._notebook_serializer = NotebookSerializer(context=context)
         return self._notebook_serializer
 
     async def _llm_chunk_to_notebook_update_message(
-        self, response: AIMessageChunk, context: Optional[NotebookContext] = None
+        self, response: AIMessageChunk, context: NotebookContext | None = None
     ) -> NotebookUpdateMessage:
         if not self.notebook:
             self.notebook = await self._create_notebook()

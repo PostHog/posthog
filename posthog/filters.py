@@ -1,4 +1,4 @@
-from typing import Optional, TypeVar, Union
+from typing import TypeVar, Union
 
 from django.db import models
 from django.db.models import Q
@@ -20,7 +20,7 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
     # The URL query parameter used for the search.
     search_param = settings.api_settings.SEARCH_PARAM
 
-    def get_search_fields(self, view: APIView) -> Optional[list[str]]:
+    def get_search_fields(self, view: APIView) -> list[str] | None:
         """
         Search fields are obtained from the view.
         """
@@ -61,8 +61,8 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
 
 def term_search_filter_sql(
     search_fields: list[str],
-    search_terms: Optional[str] = "",
-    search_extra: Optional[str] = "",
+    search_terms: str | None = "",
+    search_extra: str | None = "",
 ) -> tuple[str, dict]:
     if not search_fields or not search_terms:
         return "", {}

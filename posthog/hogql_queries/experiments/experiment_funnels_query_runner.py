@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
@@ -143,7 +143,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
     def _get_variants_with_base_stats(
         self, funnels_result: FunnelsQueryResponse
     ) -> tuple[ExperimentVariantFunnelsBaseStats, list[ExperimentVariantFunnelsBaseStats]]:
-        control_variant: Optional[ExperimentVariantFunnelsBaseStats] = None
+        control_variant: ExperimentVariantFunnelsBaseStats | None = None
         test_variants = []
 
         for result in funnels_result.results:
@@ -215,12 +215,12 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         raise ValueError(f"Cannot convert source query of type {self.query.funnels_query.kind} to query")
 
     # Cache results for 24 hours
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
         if not last_refresh:
             return True
         return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

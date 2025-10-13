@@ -1,7 +1,7 @@
 import re
 import itertools
 from collections.abc import Iterator, Sequence
-from typing import Any, Optional
+from typing import Any
 
 from posthog.schema import (
     ActorsQuery,
@@ -37,7 +37,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        self.source_query_runner: Optional[QueryRunner] = None
+        self.source_query_runner: QueryRunner | None = None
 
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
@@ -82,9 +82,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         results,
         actor_column_index,
         actors_lookup,
-        recordings_column_index: Optional[int],
-        recordings_lookup: Optional[dict[str, list[dict]]],
-        events_distinct_id_lookup: Optional[dict[str, list[str]]],
+        recordings_column_index: int | None,
+        recordings_lookup: dict[str, list[dict]] | None,
+        events_distinct_id_lookup: dict[str, list[str]] | None,
     ) -> list:
         enriched = []
 

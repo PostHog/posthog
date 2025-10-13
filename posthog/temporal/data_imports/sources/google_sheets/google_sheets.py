@@ -1,6 +1,6 @@
 import time
 import random
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 
@@ -102,7 +102,7 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 def google_sheets_source(
     config: GoogleSheetsSourceConfig,
     worksheet_name: str,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     worksheets = get_schemas(config)

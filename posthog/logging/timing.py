@@ -1,6 +1,6 @@
 import functools
 from time import time
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from statshog.defaults.django import statsd
@@ -23,7 +23,7 @@ def timed(name: str):
     return timed_decorator
 
 
-def timed_log(name: Optional[str] = None):
+def timed_log(name: str | None = None):
     def timed_decorator(func: Any) -> Any:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):

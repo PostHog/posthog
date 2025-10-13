@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Union
 
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 
@@ -54,13 +54,13 @@ class StickinessFilter(
     SampleMixin,
     BaseFilter,
 ):
-    get_earliest_timestamp: Optional[Callable]
+    get_earliest_timestamp: Callable | None
     team: "Team"
 
     def __init__(
         self,
-        data: Optional[dict[str, Any]] = None,
-        request: Optional[Request] = None,
+        data: dict[str, Any] | None = None,
+        request: Request | None = None,
         **kwargs,
     ) -> None:
         if data:
@@ -68,7 +68,7 @@ class StickinessFilter(
         else:
             data = {"insight": INSIGHT_STICKINESS}
         super().__init__(data, request, **kwargs)
-        team: Optional[Team] = kwargs.get("team", None)
+        team: Team | None = kwargs.get("team", None)
         if not team:
             raise ValidationError("Team must be provided to stickiness filter")
         self.team = team

@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from posthog.schema import DateRange, IntervalType
 
@@ -12,16 +11,16 @@ class QueryCompareToDateRange(QueryDateRange):
     """Moves the start of a date range back by the compare_to interval and sets the end to have the same delta as the original"""
 
     _team: Team
-    _date_range: Optional[DateRange]
-    _interval: Optional[IntervalType]
+    _date_range: DateRange | None
+    _interval: IntervalType | None
     _now_without_timezone: datetime
     _compare_to: str
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: DateRange | None,
         team: Team,
-        interval: Optional[IntervalType],
+        interval: IntervalType | None,
         now: datetime,
         compare_to: str,
         **kwargs,

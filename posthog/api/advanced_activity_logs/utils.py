@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Optional
 
 from django.utils import timezone
 
@@ -9,7 +8,7 @@ from posthog.models import Organization
 from .constants import ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT, ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT
 
 
-def get_activity_log_lookback_restriction(organization: Organization) -> Optional[datetime]:
+def get_activity_log_lookback_restriction(organization: Organization) -> datetime | None:
     """Get the lookback restriction date based on the AUDIT_LOGS feature."""
     audit_log_feature = organization.get_available_feature(AvailableFeature.AUDIT_LOGS)
 

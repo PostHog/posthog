@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -40,11 +40,11 @@ def fetch_log_entries(
     log_source: str,
     log_source_id: str,
     limit: int,
-    instance_id: Optional[str] = None,
-    after: Optional[datetime] = None,
-    before: Optional[datetime] = None,
-    search: Optional[str] = None,
-    level: Optional[list[str]] = None,
+    instance_id: str | None = None,
+    after: datetime | None = None,
+    before: datetime | None = None,
+    search: str | None = None,
+    level: list[str] | None = None,
 ) -> list[Any]:
     """Fetch a list of batch export log entries from ClickHouse."""
     if level is None:
@@ -86,7 +86,7 @@ def fetch_log_entries(
 class LogEntryMixin(viewsets.GenericViewSet):
     log_source: str  # Should be set by the inheriting class
 
-    def get_log_entry_instance_id(self) -> Optional[str]:
+    def get_log_entry_instance_id(self) -> str | None:
         """
         Can be used overridden to help with getting the instance_id for the log entry.
         Otherwise it defaults to null or the query param if given

@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db.models import Count, F, Q
@@ -130,7 +130,7 @@ def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter
     )
 
 
-def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def convert_legacy_filters_to_universal_filters(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Convert legacy filters to universal filters format.
     This is the Python equivalent of the frontend's convertLegacyFiltersToUniversalFilters function.

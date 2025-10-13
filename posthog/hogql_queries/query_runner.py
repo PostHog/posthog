@@ -185,9 +185,9 @@ RunnableQueryNode = Union[
 def get_query_runner(
     query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
-    timings: Optional[HogQLTimings] = None,
-    limit_context: Optional[LimitContext] = None,
-    modifiers: Optional[HogQLQueryModifiers] = None,
+    timings: HogQLTimings | None = None,
+    limit_context: LimitContext | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> "QueryRunner":
     try:
         kind = get_from_dict_or_attr(query, "kind")
@@ -742,9 +742,9 @@ def get_query_runner(
 def get_query_runner_or_none(
     query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
-    timings: Optional[HogQLTimings] = None,
-    limit_context: Optional[LimitContext] = None,
-    modifiers: Optional[HogQLQueryModifiers] = None,
+    timings: HogQLTimings | None = None,
+    limit_context: LimitContext | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> Optional["QueryRunner"]:
     try:
         return get_query_runner(
@@ -769,7 +769,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
     cached_response: CR
-    query_id: Optional[str]
+    query_id: str | None
 
     team: Team
     timings: HogQLTimings
@@ -783,10 +783,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self,
         query: Q | BaseModel | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        query_id: Optional[str] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
+        query_id: str | None = None,
         workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
@@ -863,7 +863,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         *,
         cache_manager: QueryCacheManagerBase,
         refresh_requested: bool = False,
-        user: Optional[User] = None,
+        user: User | None = None,
     ) -> QueryStatus:
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
@@ -891,7 +891,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             is_query_service=self.is_query_service,
         )
 
-    def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
+    def get_async_query_status(self, *, cache_key: str) -> QueryStatus | None:
         try:
             query_status = get_query_status(team_id=self.team.pk, query_id=self.query_id or cache_key)
             if query_status.complete:
@@ -902,8 +902,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return None
 
     def handle_cache_and_async_logic(
-        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManagerBase, user: Optional[User] = None
-    ) -> Optional[CR | CacheMissResponse]:
+        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManagerBase, user: User | None = None
+    ) -> CR | CacheMissResponse | None:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
         cached_response_candidate = cache_manager.get_cache_data()
@@ -981,10 +981,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-        user: Optional[User] = None,
-        query_id: Optional[str] = None,
-        insight_id: Optional[int] = None,
-        dashboard_id: Optional[int] = None,
+        user: User | None = None,
+        query_id: str | None = None,
+        insight_id: int | None = None,
+        dashboard_id: int | None = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         start_time = perf_counter()
         cache_key = self.get_cache_key()
@@ -1158,7 +1158,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["calculation_trigger"] = trigger
 
             # Don't cache debug queries with errors and export queries
-            errors: Optional[list] = fresh_response_dict.get("error", None)
+            errors: list | None = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
@@ -1254,7 +1254,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
         query_date_range = getattr(self, "query_date_range", None)
@@ -1299,7 +1299,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
@@ -1377,7 +1377,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
 # Type constraint for analytics query responses
 class AnalyticsQueryResponseProtocol(Protocol):
-    timings: Optional[list[QueryTiming]]
+    timings: list[QueryTiming] | None
 
 
 AR = TypeVar("AR", bound=AnalyticsQueryResponseProtocol)
@@ -1427,16 +1427,16 @@ class QueryResponse(BaseModel, Generic[DataT]):
         extra="forbid",
     )
     results: DataT
-    timings: Optional[list[QueryTiming]] = None
-    types: Optional[list[Union[tuple[str, str], str]]] = None
-    columns: Optional[list[str]] = None
-    error: Optional[str] = None
-    hogql: Optional[str] = None
-    hasMore: Optional[bool] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    samplingRate: Optional[SamplingRate] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
+    timings: list[QueryTiming] | None = None
+    types: list[Union[tuple[str, str], str]] | None = None
+    columns: list[str] | None = None
+    error: str | None = None
+    hogql: str | None = None
+    hasMore: bool | None = None
+    limit: int | None = None
+    offset: int | None = None
+    samplingRate: SamplingRate | None = None
+    modifiers: HogQLQueryModifiers | None = None
 
 
 class CachedQueryResponse(QueryResponse):

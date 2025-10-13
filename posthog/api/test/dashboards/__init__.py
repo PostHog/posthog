@@ -15,7 +15,7 @@ class DashboardAPI:
         self,
         model_id: int,
         model_type: Literal["insights", "dashboards"],
-        extra_data: Optional[dict] = None,
+        extra_data: dict | None = None,
         expected_get_status: int = status.HTTP_404_NOT_FOUND,
     ) -> None:
         if extra_data is None:
@@ -34,7 +34,7 @@ class DashboardAPI:
     def create_dashboard(
         self,
         data: dict[str, Any],
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_201_CREATED,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
@@ -50,7 +50,7 @@ class DashboardAPI:
         self,
         dashboard_id: int,
         data: dict[str, Any],
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
@@ -65,9 +65,9 @@ class DashboardAPI:
     def get_dashboard(
         self,
         dashboard_id: int,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[dict[str, Any]] = None,
+        query_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
@@ -80,9 +80,9 @@ class DashboardAPI:
 
     def list_dashboards(
         self,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[dict] = None,
+        query_params: dict | None = None,
         *,
         parent: Literal["project", "environment"] = "project",
     ) -> dict:
@@ -100,9 +100,9 @@ class DashboardAPI:
 
     def list_insights(
         self,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[dict] = None,
+        query_params: dict | None = None,
     ) -> dict:
         if team_id is None:
             team_id = self.team.id
@@ -122,9 +122,9 @@ class DashboardAPI:
     def get_insight(
         self,
         insight_id: int,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[dict[str, Any]] = None,
+        query_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
@@ -141,7 +141,7 @@ class DashboardAPI:
     def create_insight(
         self,
         data: dict[str, Any],
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_201_CREATED,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
@@ -163,7 +163,7 @@ class DashboardAPI:
         self,
         insight_id: int,
         data: dict[str, Any],
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
@@ -179,8 +179,8 @@ class DashboardAPI:
         self,
         dashboard_id: int,
         text: str = "I AM TEXT!",
-        extra_data: Optional[dict] = None,
-        team_id: Optional[int] = None,
+        extra_data: dict | None = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
@@ -201,8 +201,8 @@ class DashboardAPI:
 
     def get_insight_activity(
         self,
-        insight_id: Optional[int] = None,
-        team_id: Optional[int] = None,
+        insight_id: int | None = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
@@ -221,7 +221,7 @@ class DashboardAPI:
         self,
         dashboard_id: int,
         tile: dict,
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:

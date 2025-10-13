@@ -4,7 +4,6 @@ import time
 import asyncio
 import logging
 from enum import Enum
-from typing import Optional
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
@@ -53,18 +52,18 @@ class ExecutionResult(BaseModel):
     stdout: str
     stderr: str
     exit_code: int
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class SandboxEnvironmentConfig(BaseModel):
     name: str
     template: SandboxEnvironmentTemplate = SandboxEnvironmentTemplate.DEFAULT_BASE
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
-    environment_variables: Optional[dict[str, str]] = None
-    entrypoint: Optional[str] = None
-    snapshot_id: Optional[str] = None
+    environment_variables: dict[str, str] | None = None
+    entrypoint: str | None = None
+    snapshot_id: str | None = None
     ttl_seconds: int = 60 * 30  # 30 minutes
-    metadata: Optional[dict[str, str]] = None
+    metadata: dict[str, str] | None = None
 
 
 def get_runloop_client() -> AsyncRunloop:
@@ -181,7 +180,7 @@ class SandboxEnvironment:
     async def execute(
         self,
         command: str,
-        timeout_seconds: Optional[int] = None,
+        timeout_seconds: int | None = None,
     ) -> ExecutionResult:
         if not self.is_running:
             raise SandboxExecutionError(
@@ -236,7 +235,7 @@ class SandboxEnvironment:
 
         return result
 
-    async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:
+    async def initiate_snapshot(self, metadata: dict[str, str] | None = None) -> str:
         if not self.is_running:
             raise SandboxExecutionError(
                 f"Sandbox not in running state. Current status: {self.status}",

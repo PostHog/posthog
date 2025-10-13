@@ -61,8 +61,8 @@ class UUIDT(uuid.UUID):
 
     def __init__(
         self,
-        unix_time_ms: Optional[int] = None,
-        uuid_str: Optional[str] = None,
+        unix_time_ms: int | None = None,
+        uuid_str: str | None = None,
         *,
         seeded_random: Optional["Random"] = None,
     ) -> None:
@@ -105,7 +105,7 @@ class UUIDT(uuid.UUID):
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
-def uuid7(unix_ms_time: Optional[Union[int, str]] = None, random: Optional[Union["Random", int]] = None) -> uuid.UUID:
+def uuid7(unix_ms_time: Union[int, str] | None = None, random: Union["Random", int] | None = None) -> uuid.UUID:
     # timestamp part
     unix_ms_time_int: int
     if isinstance(unix_ms_time, str):
@@ -310,7 +310,7 @@ class Percentile(models.Aggregate):
 
 
 class LowercaseSlugField(models.SlugField):
-    def get_prep_value(self, value: Optional[str]) -> Optional[str]:
+    def get_prep_value(self, value: str | None) -> str | None:
         """Return model value formatted for use as a parameter in a query."""
         prep_value = super().get_prep_value(value)
         return prep_value.lower() if prep_value else prep_value
@@ -340,7 +340,7 @@ def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *arg
 
 def get_deferred_field_set_for_model(
     model: type[models.Model],
-    fields_not_deferred: Optional[set[str]] = None,
+    fields_not_deferred: set[str] | None = None,
     field_prefix: str = "",
 ) -> set[str]:
     """Return a set of field names to be deferred for a given model. Used with `.defer()` after `select_related`

@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -89,7 +89,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def select(self, query: str, placeholders: Optional[dict[str, Any]] = None, modifiers: Optional[dict] = None):
+    def select(self, query: str, placeholders: dict[str, Any] | None = None, modifiers: dict | None = None):
         if placeholders is None:
             placeholders = {}
         return execute_hogql_query(

@@ -9,15 +9,15 @@ if TYPE_CHECKING:
 
 class BaseHogQLError(Exception, ABC):
     message: str
-    start: Optional[int]
-    end: Optional[int]
+    start: int | None
+    end: int | None
 
     def __init__(
         self,
         message: str,
         *,
-        start: Optional[int] = None,
-        end: Optional[int] = None,
+        start: int | None = None,
+        end: int | None = None,
         node: Optional["Expr"] = None,
     ):
         super().__init__(message)

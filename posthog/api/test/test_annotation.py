@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries_context
@@ -220,7 +219,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_annotation_can_be_filtered_by_scope(
-        self, scope: Optional[str], expected_content: Optional[str], expected_result_count: int
+        self, scope: str | None, expected_content: str | None, expected_result_count: int
     ) -> None:
         Annotation.objects.create(
             organization=self.organization,

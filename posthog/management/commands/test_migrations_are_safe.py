@@ -4,7 +4,6 @@ import os
 import re
 import sys
 import select
-from typing import Optional
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -14,7 +13,7 @@ def _get_new_tables(sql: str):
     return re.findall(r'CREATE TABLE "([a-zA-Z0-9_]*)"', sql)
 
 
-def _get_table(search_string: str, operation_sql: str) -> Optional[str]:
+def _get_table(search_string: str, operation_sql: str) -> str | None:
     match = re.match(r'.*{} "([a-zA-Z0-9_]*)"'.format(search_string), operation_sql)
     if match:
         return match[1]
@@ -27,7 +26,7 @@ def validate_migration_sql(sql) -> bool:
     tables_created_so_far: list[str] = []
     for operation_sql in operations:
         # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
-        table_being_altered: Optional[str] = (
+        table_being_altered: str | None = (
             re.findall(r"ALTER TABLE \"([a-z_]+)\"", operation_sql)[0] if "ALTER TABLE" in operation_sql else None
         )
         # Extract table name from queries of this format: CREATE TABLE "posthog_feature"

@@ -2,7 +2,7 @@ import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -200,10 +200,10 @@ async def _run(
     source_type: str,
     job_inputs: dict[str, str],
     mock_data_response: Any,
-    sync_type: Optional[ExternalDataSchema.SyncType] = None,
-    sync_type_config: Optional[dict] = None,
-    billable: Optional[bool] = None,
-    ignore_assertions: Optional[bool] = False,
+    sync_type: ExternalDataSchema.SyncType | None = None,
+    sync_type_config: dict | None = None,
+    billable: bool | None = None,
+    ignore_assertions: bool | None = False,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -282,12 +282,12 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         class_self,
         path: str = "",
         method: Any = "GET",
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
-        auth: Optional[Any] = None,
-        paginator: Optional[Any] = None,
-        data_selector: Optional[Any] = None,
-        hooks: Optional[Any] = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        auth: Any | None = None,
+        paginator: Any | None = None,
+        data_selector: Any | None = None,
+        hooks: Any | None = None,
     ):
         return iter(mock_data_response)
 

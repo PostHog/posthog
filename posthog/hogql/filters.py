@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 from dateutil.parser import isoparse
 
@@ -22,12 +22,12 @@ class CompareOperationWrapper:
     skip: bool = False
 
 
-def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
+def replace_filters(node: T, filters: HogQLFilters | None, team: Team) -> T:
     return ReplaceFilters(filters, team).visit(node)
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: Optional[HogQLFilters], team: Team = None):
+    def __init__(self, filters: HogQLFilters | None, team: Team = None):
         super().__init__()
         self.filters = filters
         self.team = team

@@ -3,7 +3,7 @@ import json
 import urllib.parse
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Union
 from zoneinfo import ZoneInfo
 
 from django.forms import ValidationError
@@ -97,7 +97,7 @@ class TrendsBreakdown:
         entity: Entity,
         filter: Filter,
         team: Team,
-        column_optimizer: Optional[ColumnOptimizer] = None,
+        column_optimizer: ColumnOptimizer | None = None,
         person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         add_person_urls: bool = False,
     ):
@@ -128,7 +128,7 @@ class TrendsBreakdown:
             PropertyOperatorType.AND, self.entity.property_groups
         )
 
-        target_properties: Optional[PropertyGroup] = props_to_filter
+        target_properties: PropertyGroup | None = props_to_filter
         if self.person_on_events_mode == PersonsOnEventsMode.DISABLED:
             target_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
@@ -724,7 +724,7 @@ class TrendsBreakdown:
     def _determine_breakdown_label(
         self,
         breakdown_value: int,
-        breakdown_type: Optional[str],
+        breakdown_type: str | None,
         value: Union[str, int],
     ) -> str:
         if breakdown_type == "cohort":

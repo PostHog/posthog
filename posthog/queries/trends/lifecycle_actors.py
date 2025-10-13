@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.queries.actor_base_query import ActorBaseQuery
@@ -12,7 +11,7 @@ class LifecycleActors(ActorBaseQuery):
 
     QUERY_TYPE = "lifecycle"
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
+    def actor_query(self, limit_actors: bool | None = True) -> tuple[str, dict]:
         events_query, event_params = self.event_query_class(
             filter=self._filter,
             team=self._team,

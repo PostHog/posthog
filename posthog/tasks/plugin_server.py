@@ -1,4 +1,3 @@
-from typing import Optional
 
 from celery import shared_task
 from structlog import get_logger
@@ -17,7 +16,7 @@ queue = CeleryQueue.DEFAULT.value
 @shared_task(ignore_result=True, queue=queue)
 def fatal_plugin_error(
     plugin_config_id: int,
-    plugin_config_updated_at: Optional[str],
+    plugin_config_updated_at: str | None,
     error: str,
     is_system_error: bool,
 ) -> None:

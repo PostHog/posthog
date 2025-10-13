@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 
@@ -29,7 +28,7 @@ class ClickhouseSecondaryExperimentResult:
         team: Team,
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
-        experiment_end_date: Optional[datetime] = None,
+        experiment_end_date: datetime | None = None,
     ):
         self.variants = [variant["key"] for variant in feature_flag.variants]
         self.team = team

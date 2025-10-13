@@ -1,5 +1,5 @@
 import enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
@@ -140,7 +140,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         )
 
     @property
-    def template(self) -> Optional[HogFunctionTemplate]:
+    def template(self) -> HogFunctionTemplate | None:
         if self.hog_function_template:
             return self.hog_function_template
 
@@ -158,7 +158,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         except KeyError:
             return []
 
-    _status: Optional[dict] = None
+    _status: dict | None = None
 
     @property
     def status(self) -> dict:

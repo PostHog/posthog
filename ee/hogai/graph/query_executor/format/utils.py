@@ -1,6 +1,6 @@
 import datetime
 from math import floor
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
@@ -39,9 +39,9 @@ def format_percentage(value: float | int) -> str:
 
 def format_duration(
     d: Union[str, int, float, None],
-    max_units: Optional[int] = None,
-    seconds_precision: Optional[int] = None,
-    seconds_fixed: Optional[int] = None,
+    max_units: int | None = None,
+    seconds_precision: int | None = None,
+    seconds_fixed: int | None = None,
 ) -> str:
     """Convert seconds to a human-readable duration string.
     Example: `1d 10hrs 9mins 8s`

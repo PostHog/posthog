@@ -1,5 +1,4 @@
 import re
-from typing import Optional
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
@@ -12,11 +11,11 @@ from posthog.clickhouse.client.escape import substitute_params
 def build_function_call(
     url: str,
     format: str,
-    access_key: Optional[str] = None,
-    access_secret: Optional[str] = None,
-    structure: Optional[str] = None,
-    context: Optional[HogQLContext] = None,
-    table_size_mib: Optional[float] = None,
+    access_key: str | None = None,
+    access_secret: str | None = None,
+    structure: str | None = None,
+    context: HogQLContext | None = None,
+    table_size_mib: float | None = None,
 ) -> str:
     use_s3_cluster = False
     if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
@@ -145,11 +144,11 @@ class S3Table(FunctionCallTable):
     requires_args: bool = False
     url: str
     format: str = "CSVWithNames"
-    access_key: Optional[str] = None
-    access_secret: Optional[str] = None
-    structure: Optional[str] = None
-    table_id: Optional[str] = None
-    table_size_mib: Optional[float] = None
+    access_key: str | None = None
+    access_secret: str | None = None
+    structure: str | None = None
+    table_id: str | None = None
+    table_size_mib: float | None = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

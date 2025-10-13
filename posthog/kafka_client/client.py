@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 
@@ -32,7 +32,7 @@ class KafkaProducerForTests:
         topic: str,
         value: Any,
         key: Any = None,
-        headers: Optional[list[tuple[str, bytes]]] = None,
+        headers: list[tuple[str, bytes]] | None = None,
     ):
         produce_future = FutureProduceResult(topic_partition=TopicPartition(topic, 1))
         future = FutureRecordMetadata(
@@ -160,8 +160,8 @@ class _KafkaProducer:
         topic: str,
         data: Any,
         key: Any = None,
-        value_serializer: Optional[Callable[[Any], Any]] = None,
-        headers: Optional[list[tuple[str, str]]] = None,
+        value_serializer: Callable[[Any], Any] | None = None,
+        headers: list[tuple[str, str]] | None = None,
     ):
         if not value_serializer:
             value_serializer = self.json_serializer
@@ -220,7 +220,7 @@ def session_recording_kafka_producer() -> _KafkaProducer:
 
 
 def build_kafka_consumer(
-    topic: Optional[str],
+    topic: str | None,
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     auto_offset_reset="latest",
     test=False,
@@ -261,7 +261,7 @@ def build_kafka_consumer(
 
 
 class ClickhouseProducer:
-    producer: Optional[_KafkaProducer]
+    producer: _KafkaProducer | None
 
     def __init__(self):
         self.producer = KafkaProducer() if not settings.TEST else None

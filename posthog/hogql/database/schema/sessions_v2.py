@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, cast
 
 from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
 
@@ -505,7 +505,7 @@ def join_events_table_to_sessions_table_v2(
     return join_expr
 
 
-def get_lazy_session_table_properties_v2(search: Optional[str]):
+def get_lazy_session_table_properties_v2(search: str | None):
     # some fields shouldn't appear as properties
     hidden_fields = {
         "max_inserted_at",
@@ -597,12 +597,12 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
 }
 
 
-def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team: "Team"):
+def get_lazy_session_table_values_v2(key: str, search_term: str | None, team: "Team"):
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
         modifiers = create_default_modifiers_for_team(team)
-        custom_channel_type_rules: Optional[list[CustomChannelRule]] = modifiers.customChannelTypeRules
+        custom_channel_type_rules: list[CustomChannelRule] | None = modifiers.customChannelTypeRules
         if custom_channel_type_rules:
             custom_channel_types = [rule.channel_type for rule in custom_channel_type_rules]
         else:

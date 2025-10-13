@@ -1,7 +1,7 @@
 import re
 import json
 import math
-from typing import Literal, Optional, TypeVar, cast
+from typing import Literal, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -204,8 +204,8 @@ class RootNodeUIContextMixin(AssistantNode):
         config: RunnableConfig,
         insight: MaxInsightContext,
         query_runner: AssistantQueryExecutor,
-        dashboard_filters: Optional[dict] = None,
-        heading: Optional[str] = None,
+        dashboard_filters: dict | None = None,
+        heading: str | None = None,
     ) -> str | None:
         """
         Run and format a single insight for AI consumption.
@@ -317,7 +317,7 @@ class RootNode(RootNodeUIContextMixin):
         return AssistantNodeName.ROOT
 
     async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
+        self, input: BaseState, default_message: str | None = None
     ) -> ReasoningMessage | None:
         if not isinstance(input, BaseStateWithMessages):
             return None
@@ -664,7 +664,7 @@ class RootNodeTools(AssistantNode):
         return AssistantNodeName.ROOT_TOOLS
 
     async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
+        self, input: BaseState, default_message: str | None = None
     ) -> ReasoningMessage | None:
         if not isinstance(input, BaseStateWithMessages):
             return None

@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from django.core.management.base import BaseCommand
 
@@ -338,7 +338,7 @@ class SourceConfigGenerator:
 
         return type_mapping.get(field_type, "str")
 
-    def _get_input_converter(self, field_type: SourceFieldInputConfigType) -> Optional[str]:
+    def _get_input_converter(self, field_type: SourceFieldInputConfigType) -> str | None:
         converter_mapping = {
             SourceFieldInputConfigType.NUMBER: "int",
         }

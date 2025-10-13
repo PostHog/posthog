@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -346,7 +346,7 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     Raises an error if a cycle is detected.
     """
     # Build in-degree
-    in_degree = {node: 0 for node in nodes}
+    in_degree = dict.fromkeys(nodes, 0)
     for node, deps in edges.items():
         for dep in deps:
             if dep in in_degree:
@@ -372,7 +372,7 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     return sorted_list
 
 
-def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(hog: str, hog_type: str, in_repl: bool | None = False) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)

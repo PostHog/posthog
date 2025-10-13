@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -35,10 +35,8 @@ class TestProperty(BaseTest):
     def _property_to_expr(
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
-        team: Optional[Team] = None,
-        scope: Optional[
-            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
-        ] = None,
+        team: Team | None = None,
+        scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] | None = None,
         strict: bool = True,
     ):
         return clear_locations(
@@ -48,7 +46,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
+    def _parse_expr(self, expr: str, placeholders: dict[str, Any] | None = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):

@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
@@ -48,8 +48,8 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         self,
         insight: dict,
         series_index: int,
-        lower: Optional[int] = None,
-        upper: Optional[int] = None,
+        lower: int | None = None,
+        upper: int | None = None,
         calculation_interval: AlertCalculationInterval = AlertCalculationInterval.DAILY,
         check_ongoing_interval: bool = False,
     ) -> dict:
@@ -74,7 +74,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
     def create_time_series_trend_insight(
         self,
-        breakdown: Optional[BreakdownFilter] = None,
+        breakdown: BreakdownFilter | None = None,
         interval: IntervalType = IntervalType.WEEK,
     ) -> dict[str, Any]:
         query_dict = TrendsQuery(
@@ -104,7 +104,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         return insight
 
-    def create_aggregate_trend_insight(self, breakdown: Optional[BreakdownFilter] = None) -> dict[str, Any]:
+    def create_aggregate_trend_insight(self, breakdown: BreakdownFilter | None = None) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
                 EventsNode(

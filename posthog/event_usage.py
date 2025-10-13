@@ -2,7 +2,6 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import Optional
 
 import posthoganalytics
 
@@ -19,8 +18,8 @@ def report_user_signed_up(
     new_onboarding_enabled: bool = False,
     backend_processor: str = "",  # which serializer/view processed the request
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
-    user_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the User object
-    org_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the Organization object
+    user_analytics_metadata: dict | None = None,  # analytics metadata taken from the User object
+    org_analytics_metadata: dict | None = None,  # analytics metadata taken from the Organization object
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
 ) -> None:
@@ -159,8 +158,8 @@ def report_team_member_invited(
     current_member_count: int,
     is_bulk: bool,
     email_available: bool,
-    current_url: Optional[str] = None,
-    session_id: Optional[str] = None,
+    current_url: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """
     Triggered after a user creates an **individual** invite for a new team member. See `report_bulk_invited`
@@ -206,8 +205,8 @@ def report_bulk_invited(
     current_invite_count: int,
     current_member_count: int,
     email_available: bool,
-    current_url: Optional[str] = None,
-    session_id: Optional[str] = None,
+    current_url: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """
     Triggered after a user bulk creates invites for another user.
@@ -254,7 +253,7 @@ def report_user_organization_membership_level_changed(
     )
 
 
-def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
+def report_user_action(user: User, event: str, properties: dict | None = None, team: Team | None = None):
     if not user.distinct_id:
         return
     if properties is None:
@@ -289,7 +288,7 @@ def report_user_deleted_account(user: User):
     posthoganalytics.flush()
 
 
-def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
+def groups(organization: Organization | None = None, team: Team | None = None):
     result = {"instance": SITE_URL}
     if organization is not None:
         result["organization"] = str(organization.pk)
@@ -306,8 +305,8 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
 def report_team_action(
     team: Team,
     event: str,
-    properties: Optional[dict] = None,
-    group_properties: Optional[dict] = None,
+    properties: dict | None = None,
+    group_properties: dict | None = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the team instead
@@ -323,8 +322,8 @@ def report_team_action(
 def report_organization_action(
     organization: Organization,
     event: str,
-    properties: Optional[dict] = None,
-    group_properties: Optional[dict] = None,
+    properties: dict | None = None,
+    group_properties: dict | None = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the organization instead

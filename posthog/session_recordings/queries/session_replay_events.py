@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import LiteralString, Optional
+from typing import LiteralString
 
 from django.conf import settings
 from django.core.cache import cache
@@ -76,7 +76,7 @@ class SessionReplayEvents:
 
     def sessions_found_with_timestamps(
         self, session_ids: list[str], team: Team
-    ) -> tuple[set[str], Optional[datetime], Optional[datetime]]:
+    ) -> tuple[set[str], datetime | None, datetime | None]:
         """
         Check if sessions exist and return min/max timestamps for the entire list to optimize follow-up queries to get events for multiple sessions at once.
         Returns a tuple of (sessions_found, min_timestamp, max_timestamp).
@@ -132,7 +132,7 @@ class SessionReplayEvents:
 
     @staticmethod
     def get_metadata_query(
-        recording_start_time: Optional[datetime] = None,
+        recording_start_time: datetime | None = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -177,8 +177,8 @@ class SessionReplayEvents:
 
     @staticmethod
     def get_block_listing_query(
-        recording_start_time: Optional[datetime] = None,
-        format: Optional[str] = None,
+        recording_start_time: datetime | None = None,
+        format: str | None = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -212,7 +212,7 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
-    def build_recording_metadata(session_id: str, replay_response: list[tuple]) -> Optional[RecordingMetadata]:
+    def build_recording_metadata(session_id: str, replay_response: list[tuple]) -> RecordingMetadata | None:
         if len(replay_response) == 0:
             return None
         if len(replay_response) > 1:
@@ -242,8 +242,8 @@ class SessionReplayEvents:
         self,
         session_id: str,
         team: Team,
-        recording_start_time: Optional[datetime] = None,
-    ) -> Optional[RecordingMetadata]:
+        recording_start_time: datetime | None = None,
+    ) -> RecordingMetadata | None:
         query = self.get_metadata_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
             query,
@@ -262,9 +262,9 @@ class SessionReplayEvents:
         self,
         session_ids: list[str],
         team: Team,
-        recordings_min_timestamp: Optional[datetime] = None,
-        recordings_max_timestamp: Optional[datetime] = None,
-    ) -> dict[str, Optional[RecordingMetadata]]:
+        recordings_min_timestamp: datetime | None = None,
+        recordings_max_timestamp: datetime | None = None,
+    ) -> dict[str, RecordingMetadata | None]:
         """
         Get metadata for a group of sessions in one call.
         """
@@ -323,7 +323,7 @@ class SessionReplayEvents:
             },
         )
         # Build metadata for each session
-        result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
+        result: dict[str, RecordingMetadata | None] = dict.fromkeys(session_ids)
         for row in replay_response:
             # Match build_recording_metadata's expected format
             session_id = row[0]
@@ -334,7 +334,7 @@ class SessionReplayEvents:
         return result
 
     @staticmethod
-    def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> Optional[RecordingBlockListing]:
+    def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> RecordingBlockListing | None:
         if len(replay_response) == 0:
             return None
         if len(replay_response) > 1:
@@ -353,9 +353,9 @@ class SessionReplayEvents:
         self,
         session_id: str,
         team: Team,
-        recording_start_time: Optional[datetime] = None,
-        ttl_days: Optional[int] = None,
-    ) -> Optional[RecordingBlockListing]:
+        recording_start_time: datetime | None = None,
+        ttl_days: int | None = None,
+    ) -> RecordingBlockListing | None:
         query = self.get_block_listing_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
             query,
@@ -442,7 +442,7 @@ class SessionReplayEvents:
 
     @staticmethod
     def get_sessions_from_distinct_id_query(
-        format: Optional[str] = None,
+        format: str | None = None,
     ):
         """
         Helper function to build a query for listing all session IDs for a given set of distinct IDs

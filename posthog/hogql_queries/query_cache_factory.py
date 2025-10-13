@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -9,8 +8,8 @@ def get_query_cache_manager(
     *,
     team: Team,
     cache_key: str,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
 ) -> QueryCacheManagerBase:
     return DjangoCacheQueryCacheManager(
         team_id=team.pk,

@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -17,7 +17,7 @@ class SessionQuery:
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
-    _session_id_alias: Optional[str]
+    _session_id_alias: str | None
 
     def __init__(
         self,

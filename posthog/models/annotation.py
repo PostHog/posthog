@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.db import models
 from django.utils import timezone
@@ -41,19 +40,19 @@ class Annotation(ModelActivityMixin, models.Model):
     is_emoji = deprecate_field(models.BooleanField(default=False, null=True, blank=True))
 
     @property
-    def insight_short_id(self) -> Optional[str]:
+    def insight_short_id(self) -> str | None:
         return self.dashboard_item.short_id if self.dashboard_item is not None else None
 
     @property
-    def insight_name(self) -> Optional[str]:
+    def insight_name(self) -> str | None:
         return self.dashboard_item.name if self.dashboard_item is not None else None
 
     @property
-    def insight_derived_name(self) -> Optional[str]:
+    def insight_derived_name(self) -> str | None:
         return self.dashboard_item.derived_name if self.dashboard_item is not None else None
 
     @property
-    def dashboard_name(self) -> Optional[str]:
+    def dashboard_name(self) -> str | None:
         return self.dashboard.name if self.dashboard is not None else None
 
     def get_analytics_metadata(self):

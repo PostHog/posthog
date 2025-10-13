@@ -1,5 +1,5 @@
 import math
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -43,14 +43,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
-        def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _string_template(self, template: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.Expr:
             return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
 
-        def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _expr(self, expr: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
         def _select(
-            self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
+            self, query: str, placeholders: dict[str, ast.Expr] | None = None
         ) -> ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag:
             return cast(
                 ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag,

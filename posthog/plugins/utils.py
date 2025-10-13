@@ -4,7 +4,7 @@ import re
 import json
 import tarfile
 from tarfile import ReadError
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 
@@ -13,7 +13,7 @@ from django.conf import settings
 import requests
 
 
-def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
+def parse_github_url(url: str, get_latest_if_none=False) -> dict[str, str | None] | None:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
         r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)/?([A-Za-z0-9_.\-/]+)?)?$",
@@ -28,7 +28,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
     if not match:
         return None
 
-    parsed: dict[str, Optional[str]] = {
+    parsed: dict[str, str | None] = {
         "type": "github",
         "root_url": f"https://github.com/{match.group(1)}/{match.group(2)}",
         "user": match.group(1),
@@ -77,13 +77,13 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
     return parsed
 
 
-def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
+def parse_gitlab_url(url: str, get_latest_if_none=False) -> dict[str, str | None] | None:
     url, private_token = split_url_and_private_token(url)
     match = re.search(r"^https?://(?:www\.)?gitlab\.com/([A-Za-z0-9_.\-/]+)$", url)
     if not match:
         return None
 
-    parsed: dict[str, Optional[str]] = {
+    parsed: dict[str, str | None] = {
         "type": "gitlab",
         "project": match.group(1),
         "tag": None,
@@ -128,7 +128,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
     return parsed
 
 
-def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
+def parse_npm_url(url: str, get_latest_if_none=False) -> dict[str, str | None] | None:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
         r"^https?://(?:www\.)?npmjs\.com/package/([@a-z0-9_-]+(/[a-z0-9_-]+)?)?/?(v/([A-Za-z0-9_.-]+)/?|)$",
@@ -136,7 +136,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Opti
     )
     if not match:
         return None
-    parsed: dict[str, Optional[str]] = {
+    parsed: dict[str, str | None] = {
         "type": "npm",
         "pkg": match.group(1),
         "tag": match.group(4),
@@ -167,7 +167,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Opti
     return parsed
 
 
-def parse_url(url: str, get_latest_if_none=False) -> dict[str, Optional[str]]:
+def parse_url(url: str, get_latest_if_none=False) -> dict[str, str | None]:
     parsed_url = parse_github_url(url, get_latest_if_none)
     if parsed_url:
         return parsed_url
@@ -180,7 +180,7 @@ def parse_url(url: str, get_latest_if_none=False) -> dict[str, Optional[str]]:
     raise Exception("Must be a GitHub/GitLab repository or npm package URL!")
 
 
-def split_url_and_private_token(url: str) -> tuple[str, Optional[str]]:
+def split_url_and_private_token(url: str) -> tuple[str, str | None]:
     private_token = None
     if "?" in url:
         url, query = url.split("?")
@@ -190,7 +190,7 @@ def split_url_and_private_token(url: str) -> tuple[str, Optional[str]]:
 
 
 # passing `tag` overrides whatever is in the URL
-def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
+def download_plugin_archive(url: str, tag: str | None = None) -> bytes:
     parsed_url = parse_url(url)
     headers = {}
 
@@ -304,7 +304,7 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
         return None
 
 
-def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
+def find_index_ts_in_archive(archive: bytes, main_filename: str | None = None) -> str:
     main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
     for main_filename in main_filenames_to_try:
         index_ts = get_file_from_archive(archive, main_filename, json_parse=False)
@@ -314,8 +314,8 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[dict[str, Any]] = None
-) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
+    archive: bytes, plugin_json_parsed: dict[str, Any] | None = None
+) -> tuple[str, str | None, str | None, str | None]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
     If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
@@ -334,11 +334,11 @@ def extract_plugin_code(
     plugin_json = json.dumps(plugin_json_parsed)  # We serialize this even if just extracted from file, for minification
     assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
     # Extract frontend.tsx - optional
-    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
+    frontend_tsx: str | None = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
     # Extract site.ts - optional
-    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", json_parse=False)
+    site_ts: str | None = get_file_from_archive(archive, "site.ts", json_parse=False)
     # Extract index.ts - optional if frontend.tsx is present, otherwise required
-    index_ts: Optional[str] = None
+    index_ts: str | None = None
     try:
         index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
     except ValueError:

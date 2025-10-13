@@ -1,7 +1,7 @@
 import json
 import dataclasses
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.dispatch import receiver
@@ -159,7 +159,7 @@ class OrganizationSerializer(
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         return organization
 
-    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
@@ -475,9 +475,9 @@ class OrganizationInviteContext(ActivityContextBase):
     organization_id: str
     organization_name: str
     target_email: str
-    inviter_user_id: Optional[str]
-    inviter_user_email: Optional[str]
-    inviter_user_name: Optional[str]
+    inviter_user_id: str | None
+    inviter_user_email: str | None
+    inviter_user_name: str | None
     level: str
 
 

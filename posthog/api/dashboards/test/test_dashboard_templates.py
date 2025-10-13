@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.test.base import APIBaseTest
 
@@ -511,7 +510,7 @@ class TestDashboardTemplates(APIBaseTest):
         assert flag_response.status_code == status.HTTP_200_OK
         assert [(r["id"], r["scope"]) for r in flag_response.json()["results"]] == [(flag_template_id, "feature_flag")]
 
-    def create_template(self, overrides: dict[str, str | list[str]], team_id: Optional[int] = None) -> str:
+    def create_template(self, overrides: dict[str, str | list[str]], team_id: int | None = None) -> str:
         template = {**variable_template, **overrides}
         response = self.client.post(
             f"/api/projects/{team_id or self.team.pk}/dashboard_templates",

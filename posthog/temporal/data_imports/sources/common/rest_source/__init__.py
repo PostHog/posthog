@@ -39,7 +39,7 @@ from .utils import exclude_keys  # noqa: F401
 
 
 def convert_types(
-    data: Iterator[Any] | list[Any], types: Optional[dict[str, dict[str, Any]]]
+    data: Iterator[Any] | list[Any], types: dict[str, dict[str, Any]] | None
 ) -> Iterator[dict[str, Any]]:
     if types is None:
         yield from data
@@ -63,14 +63,14 @@ def rest_api_source(
     config: RESTAPIConfig,
     team_id: int,
     job_id: str,
-    db_incremental_field_last_value: Optional[Any] = None,
-    name: Optional[str] = None,
-    section: Optional[str] = None,
-    max_table_nesting: Optional[int] = None,
+    db_incremental_field_last_value: Any | None = None,
+    name: str | None = None,
+    section: str | None = None,
+    max_table_nesting: int | None = None,
     root_key: bool = False,
-    schema: Optional[Schema] = None,
-    schema_contract: Optional[TSchemaContract] = None,
-    spec: Optional[type[BaseConfiguration]] = None,
+    schema: Schema | None = None,
+    schema_contract: TSchemaContract | None = None,
+    spec: type[BaseConfiguration] | None = None,
 ) -> DltSource:
     """Creates and configures a REST API source for data extraction.
 
@@ -130,7 +130,7 @@ def rest_api_source(
 
 
 def rest_api_resources(
-    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
+    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Any | None
 ) -> list[DltResource]:
     """Creates a list of resources from a REST API configuration.
 
@@ -223,10 +223,10 @@ def create_resources(
     client_config: ClientConfig,
     dependency_graph: graphlib.TopologicalSorter,
     endpoint_resource_map: dict[str, EndpointResource],
-    resolved_param_map: dict[str, Optional[ResolvedParam]],
+    resolved_param_map: dict[str, ResolvedParam | None],
     team_id: int,
     job_id: str,
-    db_incremental_field_last_value: Optional[Any] = None,
+    db_incremental_field_last_value: Any | None = None,
 ) -> dict[str, DltResource]:
     resources = {}
 
@@ -271,15 +271,15 @@ def create_resources(
                 method: HTTPMethodBasic,
                 path: str,
                 params: dict[str, Any],
-                json: Optional[dict[str, Any]],
-                paginator: Optional[BasePaginator],
-                data_selector: Optional[jsonpath.TJsonPath],
-                hooks: Optional[dict[str, Any]],
+                json: dict[str, Any] | None,
+                paginator: BasePaginator | None,
+                data_selector: jsonpath.TJsonPath | None,
+                hooks: dict[str, Any] | None,
                 client: RESTClient = client,
-                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
-                incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: Optional[IncrementalParam] = incremental_param,
-                incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
+                columns_config: TTableHintTemplate[TAnySchemaColumns] | None = None,
+                incremental_object: Incremental[Any] | None = incremental_object,
+                incremental_param: IncrementalParam | None = incremental_param,
+                incremental_cursor_transform: Callable[..., Any] | None = incremental_cursor_transform,
             ) -> AsyncGenerator[Iterator[Any], Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
 
@@ -329,16 +329,16 @@ def create_resources(
                 method: HTTPMethodBasic,
                 path: str,
                 params: dict[str, Any],
-                paginator: Optional[BasePaginator],
-                data_selector: Optional[jsonpath.TJsonPath],
-                hooks: Optional[dict[str, Any]],
+                paginator: BasePaginator | None,
+                data_selector: jsonpath.TJsonPath | None,
+                hooks: dict[str, Any] | None,
                 client: RESTClient = client,
                 resolved_param: ResolvedParam = resolved_param,
                 include_from_parent: list[str] = include_from_parent,
-                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
-                incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: Optional[IncrementalParam] = incremental_param,
-                incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
+                columns_config: TTableHintTemplate[TAnySchemaColumns] | None = None,
+                incremental_object: Incremental[Any] | None = incremental_object,
+                incremental_param: IncrementalParam | None = incremental_param,
+                incremental_cursor_transform: Callable[..., Any] | None = incremental_cursor_transform,
             ) -> AsyncGenerator[Any, Any]:
                 yield dlt.mark.materialize_table_schema()
 
@@ -390,9 +390,9 @@ def create_resources(
 def _set_incremental_params(
     params: dict[str, Any],
     incremental_object: Incremental[Any],
-    incremental_param: Optional[IncrementalParam],
-    transform: Optional[Callable[..., Any]],
-    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_param: IncrementalParam | None,
+    transform: Callable[..., Any] | None,
+    db_incremental_field_last_value: Any | None = None,
 ) -> dict[str, Any]:
     def identity_func(x: Any) -> Any:
         return x

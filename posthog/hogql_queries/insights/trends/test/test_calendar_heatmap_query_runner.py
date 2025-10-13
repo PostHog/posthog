@@ -1,4 +1,3 @@
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -43,7 +42,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_from,
         date_to,
         properties=None,
-        filter_test_accounts: Optional[bool] = False,
+        filter_test_accounts: bool | None = False,
         series=None,
     ):
         query = CalendarHeatmapQuery(

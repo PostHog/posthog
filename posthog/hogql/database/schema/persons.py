@@ -1,4 +1,4 @@
-from typing import Optional, Self, cast
+from typing import Self, cast
 
 import posthoganalytics
 
@@ -59,7 +59,7 @@ def select_from_persons_table(
     context: HogQLContext,
     node: SelectQuery,
     *,
-    filter: Optional[Expr] = None,
+    filter: Expr | None = None,
 ):
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
@@ -265,10 +265,10 @@ class RawPersonsTable(Table):
 # This is useful when executing a query for a large team.
 class PersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
-    filter: Optional[Expr] = None
+    filter: Expr | None = None
 
     @staticmethod
-    def _is_promotable_expr(expr, alias: Optional[str] = None):
+    def _is_promotable_expr(expr, alias: str | None = None):
         return (
             isinstance(expr, CompareOperation)
             and expr.op == CompareOperationOp.In
@@ -277,7 +277,7 @@ class PersonsTable(LazyTable):
         )
 
     @staticmethod
-    def _partition_exprs(exprs, alias: Optional[str] = None):
+    def _partition_exprs(exprs, alias: str | None = None):
         not_promotable = []
         promotable = []
         for expr in exprs:

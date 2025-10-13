@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Optional
+from typing import Any
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -9,13 +9,13 @@ from posthog.utils import relative_date_parse
 
 
 class LifecycleFilter(Filter):
-    target_date: Optional[datetime.datetime] = None
-    lifecycle_type: Optional[str] = None
+    target_date: datetime.datetime | None = None
+    lifecycle_type: str | None = None
 
     def __init__(
         self,
-        data: Optional[dict[str, Any]] = None,
-        request: Optional[Request] = None,
+        data: dict[str, Any] | None = None,
+        request: Request | None = None,
         **kwargs,
     ) -> None:
         super().__init__(data, request, **kwargs)

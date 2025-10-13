@@ -1,4 +1,3 @@
-from typing import Optional
 
 from django.db import models
 
@@ -51,7 +50,7 @@ class MessageRecipientPreference(UUIDTModel):
 
     @classmethod
     def get_or_create_for_identifier(
-        cls, team_id: int, identifier: str, defaults: Optional[dict[str, PreferenceStatus]] = None
+        cls, team_id: int, identifier: str, defaults: dict[str, PreferenceStatus] | None = None
     ) -> "MessageRecipientPreference":
         """Get or create preferences for an identifier"""
         if defaults is None:

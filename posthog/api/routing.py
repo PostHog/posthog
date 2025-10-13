@@ -54,7 +54,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
-    param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
+    param_derived_from_user_current_team: Literal["team_id", "project_id"] | None = None
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
@@ -64,8 +64,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     permission_classes = []
 
     # NOTE: Could we type this? Would be pretty cool as a helper
-    scope_object: Optional[APIScopeObjectOrNotSupported] = None
-    required_scopes: Optional[list[str]] = None
+    scope_object: APIScopeObjectOrNotSupported | None = None
+    required_scopes: list[str] | None = None
     sharing_enabled_actions: list[str] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -312,7 +312,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return self.parents_query_dict["organization_id"]
         except KeyError:
             user = cast(User, self.request.user)
-            current_organization_id: Optional[UUID]
+            current_organization_id: UUID | None
             if self._is_team_view:
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id
@@ -452,7 +452,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":
-        team: Optional[Team] = None
+        team: Team | None = None
         try:
             team = self.team
         except (Team.DoesNotExist, KeyError):

@@ -160,16 +160,16 @@ class HedgeboxPerson(SimPerson):
     watches_marius_tech_tips: bool
 
     # Internal state - plain
-    active_session_intent: Optional[HedgeboxSessionIntent]
-    invite_to_use_id: Optional[str]
-    file_to_view: Optional[HedgeboxFile]
+    active_session_intent: HedgeboxSessionIntent | None
+    invite_to_use_id: str | None
+    file_to_view: HedgeboxFile | None
     is_invitable: bool
 
     # Internal state - bounded
     _need: float  # 0 means no need, 1 means desperate
     _satisfaction: float  # -1 means hate, 0 means ambivalence, 1 means love
     _churned: bool
-    _personal_account: Optional[HedgeboxAccount]  # In company clusters the cluster-level account is used
+    _personal_account: HedgeboxAccount | None  # In company clusters the cluster-level account is used
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -239,7 +239,7 @@ class HedgeboxPerson(SimPerson):
         self._satisfaction = max(-1, min(1, value))
 
     @property
-    def account(self) -> Optional[HedgeboxAccount]:
+    def account(self) -> HedgeboxAccount | None:
         return self.cluster._business_account if self.cluster.company else self._personal_account
 
     @account.setter
@@ -286,7 +286,7 @@ class HedgeboxPerson(SimPerson):
             if self.cluster.random.random() < time_appropriateness:
                 return next_session_datetime  # If the time is right, let's act - otherwise, let's advance further
 
-    def determine_session_intent(self) -> Optional[HedgeboxSessionIntent]:
+    def determine_session_intent(self) -> HedgeboxSessionIntent | None:
         weeks_since_account_creation = (
             (self.cluster.simulation_time - self.account.created_at).total_seconds() / 86_400 / 7 if self.account else 0
         )

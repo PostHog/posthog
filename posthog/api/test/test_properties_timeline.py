@@ -1,7 +1,6 @@
 import json
 import uuid
 import random
-from typing import Optional
 
 from freezegun.api import freeze_time
 from posthog.test.base import (
@@ -49,15 +48,15 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
     def _get_timeline_result(
         self,
         *,
-        events: Optional[list] = None,
-        actions: Optional[list] = None,
-        properties: Optional[list] = None,
-        breakdown: Optional[str] = None,
-        breakdown_type: Optional[BreakdownType] = None,
-        date_from: Optional[str],
-        date_to: Optional[str],
+        events: list | None = None,
+        actions: list | None = None,
+        properties: list | None = None,
+        breakdown: str | None = None,
+        breakdown_type: BreakdownType | None = None,
+        date_from: str | None,
+        date_to: str | None,
         display: str = "ActionsTable",
-        interval: Optional[str] = None,
+        interval: str | None = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> PropertiesTimelineResult:
         url = (

@@ -2,7 +2,7 @@ import re
 import json
 import datetime
 from math import ceil
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -84,7 +84,7 @@ class SmoothingIntervalsMixin(BaseParamMixin):
 
 class SelectorMixin(BaseParamMixin):
     @cached_property
-    def selector(self) -> Optional[str]:
+    def selector(self) -> str | None:
         return self._data.get(SELECTOR, None)
 
     @include_dict
@@ -94,7 +94,7 @@ class SelectorMixin(BaseParamMixin):
 
 class ShownAsMixin(BaseParamMixin):
     @cached_property
-    def shown_as(self) -> Optional[str]:
+    def shown_as(self) -> str | None:
         return self._data.get(SHOWN_AS, None)
 
     @include_dict
@@ -104,7 +104,7 @@ class ShownAsMixin(BaseParamMixin):
 
 class ClientQueryIdMixin(BaseParamMixin):
     @cached_property
-    def client_query_id(self) -> Optional[str]:
+    def client_query_id(self) -> str | None:
         return self._data.get(CLIENT_QUERY_ID, None)
 
     @include_query_tags
@@ -127,7 +127,7 @@ class FilterTestAccountsMixin(BaseParamMixin):
 
 class FormulaMixin(BaseParamMixin):
     @cached_property
-    def formula(self) -> Optional[str]:
+    def formula(self) -> str | None:
         formula = self._data.get(FORMULA, None)
         if not formula:
             return None
@@ -140,7 +140,7 @@ class FormulaMixin(BaseParamMixin):
 
 class BreakdownMixin(BaseParamMixin):
     @cached_property
-    def breakdown(self) -> Optional[Union[str, list[Union[str, int]]]]:
+    def breakdown(self) -> Union[str, list[Union[str, int]]] | None:
         breakdown = self._data.get(BREAKDOWN)
 
         if not isinstance(breakdown, str):
@@ -152,7 +152,7 @@ class BreakdownMixin(BaseParamMixin):
             return breakdown
 
     @cached_property
-    def breakdown_attribution_type(self) -> Optional[BreakdownAttributionType]:
+    def breakdown_attribution_type(self) -> BreakdownAttributionType | None:
         attribution_type = self._data.get(BREAKDOWN_ATTRIBUTION_TYPE)
         if not attribution_type:
             return BreakdownAttributionType.FIRST_TOUCH
@@ -160,7 +160,7 @@ class BreakdownMixin(BaseParamMixin):
         return attribution_type
 
     @cached_property
-    def breakdown_attribution_value(self) -> Optional[int]:
+    def breakdown_attribution_value(self) -> int | None:
         attribution_value = self._data.get(BREAKDOWN_ATTRIBUTION_VALUE)
 
         if attribution_value is None and self.breakdown_attribution_type == BreakdownAttributionType.STEP:
@@ -169,7 +169,7 @@ class BreakdownMixin(BaseParamMixin):
         return int(attribution_value) if attribution_value is not None else None
 
     @cached_property
-    def breakdowns(self) -> Optional[list[dict[str, Any]]]:
+    def breakdowns(self) -> list[dict[str, Any]] | None:
         breakdowns = self._data.get(BREAKDOWNS)
 
         try:
@@ -184,7 +184,7 @@ class BreakdownMixin(BaseParamMixin):
             raise ValidationError(detail="breakdowns must be a list of items, each with property and type")
 
     @cached_property
-    def _breakdown_limit(self) -> Optional[int]:
+    def _breakdown_limit(self) -> int | None:
         if BREAKDOWN_LIMIT in self._data:
             try:
                 return int(self._data[BREAKDOWN_LIMIT])
@@ -205,7 +205,7 @@ class BreakdownMixin(BaseParamMixin):
         return self.breakdown_histogram_bin_count is not None
 
     @cached_property
-    def breakdown_histogram_bin_count(self) -> Optional[int]:
+    def breakdown_histogram_bin_count(self) -> int | None:
         if BREAKDOWN_HISTOGRAM_BIN_COUNT in self._data:
             try:
                 return int(self._data[BREAKDOWN_HISTOGRAM_BIN_COUNT])
@@ -214,7 +214,7 @@ class BreakdownMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def breakdown_hide_other_aggregation(self) -> Optional[bool]:
+    def breakdown_hide_other_aggregation(self) -> bool | None:
         if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
             try:
                 return self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] in ("True", "true", True)
@@ -244,11 +244,11 @@ class BreakdownMixin(BaseParamMixin):
         return result
 
     @cached_property
-    def breakdown_type(self) -> Optional[BreakdownType]:
+    def breakdown_type(self) -> BreakdownType | None:
         return self._data.get(BREAKDOWN_TYPE, None)
 
     @cached_property
-    def breakdown_group_type_index(self) -> Optional[GroupTypeIndex]:
+    def breakdown_group_type_index(self) -> GroupTypeIndex | None:
         value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
         return validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
 
@@ -282,7 +282,7 @@ class BreakdownMixin(BaseParamMixin):
 
 class BreakdownValueMixin(BaseParamMixin):
     @cached_property
-    def breakdown_value(self) -> Optional[str]:
+    def breakdown_value(self) -> str | None:
         return self._data.get(BREAKDOWN_VALUE, None)
 
     @include_dict
@@ -353,19 +353,19 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
-    date_from_delta_mapping: Optional[dict[str, int]]
-    date_to_delta_mapping: Optional[dict[str, int]]
+    date_from_delta_mapping: dict[str, int] | None
+    date_to_delta_mapping: dict[str, int] | None
 
     @cached_property
-    def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
+    def _date_from(self) -> Union[str, datetime.datetime] | None:
         return self._data.get(DATE_FROM, None)
 
     @cached_property
-    def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
+    def _date_to(self) -> Union[str, datetime.datetime] | None:
         return self._data.get(DATE_TO, None)
 
     @cached_property
-    def date_from(self) -> Optional[datetime.datetime]:
+    def date_from(self) -> datetime.datetime | None:
         self.date_from_delta_mapping = None
         if self._date_from:
             if self._date_from == "all":
@@ -533,7 +533,7 @@ class EntitiesMixin(BaseParamMixin):
 # These arguments are used to specify the target entity for insight actor retrieval on trend graphs
 class EntityIdMixin(BaseParamMixin):
     @cached_property
-    def target_entity_id(self) -> Optional[str]:
+    def target_entity_id(self) -> str | None:
         return self._data.get("entityId", None) or self._data.get("entity_id", None)
 
     @include_dict
@@ -543,7 +543,7 @@ class EntityIdMixin(BaseParamMixin):
 
 class EntityTypeMixin(BaseParamMixin):
     @cached_property
-    def target_entity_type(self) -> Optional[str]:
+    def target_entity_type(self) -> str | None:
         return self._data.get("type", None) or self._data.get("entity_type", None)
 
     @include_dict
@@ -553,7 +553,7 @@ class EntityTypeMixin(BaseParamMixin):
 
 class EntityMathMixin(BaseParamMixin):
     @cached_property
-    def target_entity_math(self) -> Optional[MathType]:
+    def target_entity_math(self) -> MathType | None:
         return self._data.get("entity_math", None)
 
     @include_dict
@@ -563,7 +563,7 @@ class EntityMathMixin(BaseParamMixin):
 
 class EntityOrderMixin(BaseParamMixin):
     @cached_property
-    def target_entity_order(self) -> Optional[str]:
+    def target_entity_order(self) -> str | None:
         return self._data.get("entity_order", None) or self._data.get("target_entity_order", None)
 
     @include_dict
@@ -584,7 +584,7 @@ class IncludeRecordingsMixin(BaseParamMixin):
 
 class SearchMixin(BaseParamMixin):
     @cached_property
-    def search(self) -> Optional[str]:
+    def search(self) -> str | None:
         search = self._data.get("search", None)
         return search
 
@@ -599,7 +599,7 @@ class DistinctIdMixin(BaseParamMixin):
     """
 
     @cached_property
-    def distinct_id(self) -> Optional[str]:
+    def distinct_id(self) -> str | None:
         distinct_id = self._data.get("distinct_id", None)
         return distinct_id
 
@@ -610,7 +610,7 @@ class EmailMixin(BaseParamMixin):
     """
 
     @cached_property
-    def email(self) -> Optional[str]:
+    def email(self) -> str | None:
         email = self._data.get("email", None)
         return email
 
@@ -621,7 +621,7 @@ class UpdatedAfterMixin(BaseParamMixin):
     """
 
     @cached_property
-    def updated_after(self) -> Optional[str]:
+    def updated_after(self) -> str | None:
         updated_after = self._data.get("updated_after", None)
         return updated_after
 
@@ -632,7 +632,7 @@ class SampleMixin(BaseParamMixin):
     """
 
     @cached_property
-    def sampling_factor(self) -> Optional[float]:
+    def sampling_factor(self) -> float | None:
         sampling_factor = self._data.get("sampling_factor", None)
 
         # cover for both None and empty strings - also ok to filter out 0s here

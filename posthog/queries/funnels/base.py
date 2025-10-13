@@ -1,7 +1,7 @@
 import uuid
 import urllib.parse
 from abc import ABC
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -44,8 +44,8 @@ class ClickhouseFunnelBase(ABC):
 
     _filter: Filter
     _team: Team
-    _include_timestamp: Optional[bool]
-    _include_preceding_timestamp: Optional[bool]
+    _include_timestamp: bool | None
+    _include_preceding_timestamp: bool | None
     _extra_event_fields: list[ColumnName]
     _extra_event_properties: list[PropertyName]
     _include_properties: list[str]
@@ -54,10 +54,10 @@ class ClickhouseFunnelBase(ABC):
         self,
         filter: Filter,
         team: Team,
-        include_timestamp: Optional[bool] = None,
-        include_preceding_timestamp: Optional[bool] = None,
+        include_timestamp: bool | None = None,
+        include_preceding_timestamp: bool | None = None,
         base_uri: str = "/",
-        include_properties: Optional[list[str]] = None,
+        include_properties: list[str] | None = None,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -119,8 +119,8 @@ class ClickhouseFunnelBase(ABC):
         self,
         step: Entity,
         count: int,
-        people: Optional[list[uuid.UUID]] = None,
-        sampling_factor: Optional[float] = None,
+        people: list[uuid.UUID] | None = None,
+        sampling_factor: float | None = None,
     ) -> dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action().name
@@ -837,7 +837,7 @@ class ClickhouseFunnelBase(ABC):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> Optional[list[str]]:
+    def _get_breakdown_conditions(self) -> list[str] | None:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.

@@ -8,8 +8,8 @@ from posthog.hogql.database.models import SavedQuery
 
 class RevenueAnalyticsBaseView(SavedQuery, ABC):
     prefix: str
-    source_id: Optional[str] = None
-    event_name: Optional[str] = None
+    source_id: str | None = None
+    event_name: str | None = None
     union_all: bool = False
 
     DATABASE_SCHEMA_TABLE_KIND: ClassVar[DatabaseSchemaManagedViewTableKind]

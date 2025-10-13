@@ -1,6 +1,6 @@
 import re
 import json
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
@@ -134,7 +134,7 @@ def log_config_update_activity(
 
 
 def _update_plugin_attachment(
-    request: request.Request, plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: User
+    request: request.Request, plugin_config: PluginConfig, key: str, file: UploadedFile | None, user: User
 ):
     try:
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
@@ -260,11 +260,11 @@ class PluginSerializer(serializers.ModelSerializer):
     def get_hog_function_migration_available(self, plugin: Plugin):
         return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None if plugin.url else False
 
-    def get_url(self, plugin: Plugin) -> Optional[str]:
+    def get_url(self, plugin: Plugin) -> str | None:
         # remove ?private_token=... from url
         return str(plugin.url).split("?")[0] if plugin.url else None
 
-    def get_latest_tag(self, plugin: Plugin) -> Optional[str]:
+    def get_latest_tag(self, plugin: Plugin) -> str | None:
         if not plugin.latest_tag or not plugin.latest_tag_checked_at:
             return None
 

@@ -1,7 +1,7 @@
 import os
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
@@ -40,7 +40,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Yield final result
         yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, result)
 
-    def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
+    def _make_api_request(self, session_ids: list[str], focus_area: str | None = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
         payload: dict[str, Union[list[str], str]] = {"session_ids": session_ids}
         if focus_area is not None:

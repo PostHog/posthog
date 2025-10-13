@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from django.db import models
 from django.db.models import Q
@@ -53,8 +52,8 @@ def create_or_update_file(
     ref: str,
     href: str,
     meta: dict,
-    created_at: Optional[datetime] = None,
-    created_by_id: Optional[int] = None,
+    created_at: datetime | None = None,
+    created_by_id: int | None = None,
 ):
     has_existing = False
     all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).filter(~Q(shortcut=True)).all()

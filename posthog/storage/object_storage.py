@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from django.conf import settings
 
@@ -24,29 +24,29 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def head_object(self, bucket: str, file_key: str) -> Optional[dict]:
+    def head_object(self, bucket: str, file_key: str) -> dict | None:
         pass
 
     @abc.abstractmethod
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> str | None:
         pass
 
     @abc.abstractmethod
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
-    ) -> Optional[dict]:
+    ) -> dict | None:
         pass
 
     @abc.abstractmethod
-    def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
+    def list_objects(self, bucket: str, prefix: str) -> list[str] | None:
         pass
 
     @abc.abstractmethod
-    def read(self, bucket: str, key: str) -> Optional[str]:
+    def read(self, bucket: str, key: str) -> str | None:
         pass
 
     @abc.abstractmethod
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(self, bucket: str, key: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -76,21 +76,21 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> str | None:
         pass
 
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
-    ) -> Optional[dict]:
+    ) -> dict | None:
         pass
 
-    def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
+    def list_objects(self, bucket: str, prefix: str) -> list[str] | None:
         pass
 
-    def read(self, bucket: str, key: str) -> Optional[str]:
+    def read(self, bucket: str, key: str) -> str | None:
         return None
 
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(self, bucket: str, key: str) -> bytes | None:
         return None
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
@@ -117,14 +117,14 @@ class ObjectStorage(ObjectStorageClient):
             logger.warn("object_storage.health_check_failed", bucket=bucket, error=e)
             return False
 
-    def head_object(self, bucket: str, file_key) -> Optional[dict]:
+    def head_object(self, bucket: str, file_key) -> dict | None:
         try:
             return self.aws_client.head_object(Bucket=bucket, Key=file_key)
         except Exception as e:
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
 
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> str | None:
         try:
             return self.aws_client.generate_presigned_url(
                 ClientMethod="get_object",
@@ -139,7 +139,7 @@ class ObjectStorage(ObjectStorageClient):
 
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
-    ) -> Optional[dict]:
+    ) -> dict | None:
         try:
             return self.aws_client.generate_presigned_post(
                 bucket, file_key, Conditions=conditions, ExpiresIn=expiration
@@ -149,7 +149,7 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
-    def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
+    def list_objects(self, bucket: str, prefix: str) -> list[str] | None:
         try:
             s3_response = self.aws_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
             if s3_response.get("Contents"):
@@ -171,14 +171,14 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
-    def read(self, bucket: str, key: str) -> Optional[str]:
+    def read(self, bucket: str, key: str) -> str | None:
         object_bytes = self.read_bytes(bucket, key)
         if object_bytes:
             return object_bytes.decode("utf-8")
         else:
             return None
 
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(self, bucket: str, key: str) -> bytes | None:
         s3_response = {}
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
@@ -295,16 +295,16 @@ def tag(file_name: str, tags: dict[str, str]) -> None:
     return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
-def read(file_name: str, bucket: str | None = None) -> Optional[str]:
+def read(file_name: str, bucket: str | None = None) -> str | None:
     return object_storage_client().read(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
-def read_bytes(file_name: str, bucket: str | None = None) -> Optional[bytes]:
+def read_bytes(file_name: str, bucket: str | None = None) -> bytes | None:
     bucket = bucket or settings.OBJECT_STORAGE_BUCKET
     return object_storage_client().read_bytes(bucket, file_name)
 
 
-def list_objects(prefix: str) -> Optional[list[str]]:
+def list_objects(prefix: str) -> list[str] | None:
     return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 
@@ -319,19 +319,19 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
     )
 
 
-def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
+def get_presigned_url(file_key: str, expiration: int = 3600) -> str | None:
     return object_storage_client().get_presigned_url(
         bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
     )
 
 
-def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
+def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> dict | None:
     return object_storage_client().get_presigned_post(
         bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, conditions=conditions, expiration=expiration
     )
 
 
-def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:
+def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> dict | None:
     return object_storage_client().head_object(file_key=file_key, bucket=bucket)
 
 

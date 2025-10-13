@@ -1,7 +1,6 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 import structlog
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -17,24 +16,24 @@ class InternalEventEvent:
     event: str
     distinct_id: str
     properties: dict
-    timestamp: Optional[str] = None
-    url: Optional[str] = None
-    uuid: Optional[str] = None
+    timestamp: str | None = None
+    url: str | None = None
+    uuid: str | None = None
 
 
 @dataclass
 class InternalEventPerson:
     id: str
     properties: dict
-    name: Optional[str] = None
-    url: Optional[str] = None
+    name: str | None = None
+    url: str | None = None
 
 
 @dataclass
 class InternalEvent:
     team_id: int
     event: InternalEventEvent
-    person: Optional[InternalEventPerson] = None
+    person: InternalEventPerson | None = None
 
 
 class InternalEventSerializer(DataclassSerializer):
@@ -47,7 +46,7 @@ def internal_event_to_dict(data: InternalEvent) -> dict:
 
 
 def create_internal_event(
-    team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None
+    team_id: int, event: InternalEventEvent, person: InternalEventPerson | None = None
 ) -> InternalEvent:
     data = InternalEvent(team_id=team_id, event=event, person=person)
 
@@ -59,7 +58,7 @@ def create_internal_event(
     return data
 
 
-def produce_internal_event(team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None):
+def produce_internal_event(team_id: int, event: InternalEventEvent, person: InternalEventPerson | None = None):
     data = create_internal_event(team_id, event, person)
     serialized_data = internal_event_to_dict(data)
     kafka_topic = KAFKA_CDP_INTERNAL_EVENTS

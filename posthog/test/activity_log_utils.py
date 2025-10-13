@@ -5,7 +5,7 @@ This module provides a test helper class with methods to create and update all m
 covered by the activity logging system.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from django.utils import timezone
@@ -74,7 +74,7 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # Person
-    def create_person(self, distinct_id: Optional[str] = None, **kwargs) -> dict[str, Any]:
+    def create_person(self, distinct_id: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a person via API."""
         if not distinct_id:
             distinct_id = str(uuid4())
@@ -93,7 +93,7 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # Group
-    def create_group(self, group_type_index: int = 0, group_key: Optional[str] = None, **kwargs) -> dict[str, Any]:
+    def create_group(self, group_type_index: int = 0, group_key: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a group via API."""
         # First ensure group type exists
         from posthog.models.group_type_mapping import GroupTypeMapping
@@ -455,7 +455,7 @@ class ActivityLogTestHelper(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
-    def delete_organization_membership(self, user_id: str, org_id: Optional[str] = None) -> None:
+    def delete_organization_membership(self, user_id: str, org_id: str | None = None) -> None:
         """Delete an organization membership via API."""
         if not org_id:
             org_id = self.organization.id
@@ -463,7 +463,7 @@ class ActivityLogTestHelper(APILicensedTest):
         response = self.client.delete(f"/api/organizations/{org_id}/members/{user_id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def delete_organization_invite(self, invite_id: str, org_id: Optional[str] = None) -> None:
+    def delete_organization_invite(self, invite_id: str, org_id: str | None = None) -> None:
         """Delete an organization invite via API."""
         if not org_id:
             org_id = self.organization.id
@@ -644,7 +644,7 @@ class ActivityLogTestHelper(APILicensedTest):
 
     # User
     def create_user_via_invite(
-        self, email: Optional[str] = None, org_id: Optional[str] = None, **kwargs
+        self, email: str | None = None, org_id: str | None = None, **kwargs
     ) -> dict[str, Any]:
         """Create a user by sending an organization invite."""
         if not email:
@@ -663,7 +663,7 @@ class ActivityLogTestHelper(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.json()
 
-    def create_user(self, email: Optional[str] = None, **kwargs) -> dict[str, Any]:
+    def create_user(self, email: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a user via API (as admin)."""
         if not email:
             email = f"user-{uuid4()}@test.com"

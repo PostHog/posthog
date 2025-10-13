@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID
 
 import orjson
@@ -257,7 +257,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             properties=orjson.loads(properties) if properties else {},
         )
 
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
 

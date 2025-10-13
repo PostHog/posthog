@@ -1,6 +1,5 @@
 import re
 import json
-from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -83,7 +82,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Exception | None = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -163,7 +162,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Exception | None = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -240,7 +239,7 @@ class CreateHogFunctionInputsTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Exception | None = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)

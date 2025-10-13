@@ -4,7 +4,7 @@ import math
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
-from typing import Any, LiteralString, Optional, cast
+from typing import Any, LiteralString, cast
 
 import psycopg
 import pyarrow as pa
@@ -180,10 +180,10 @@ def _build_query(
     schema: str,
     table_name: str,
     should_use_incremental_field: bool,
-    incremental_field: Optional[str],
-    incremental_field_type: Optional[IncrementalFieldType],
-    db_incremental_field_last_value: Optional[Any],
-    add_sampling: Optional[bool] = False,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    add_sampling: bool | None = False,
 ) -> sql.Composed:
     if not should_use_incremental_field:
         if add_sampling:
@@ -590,10 +590,10 @@ def postgres_source(
     table_names: list[str],
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
-    team_id: Optional[int] = None,
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Any | None,
+    team_id: int | None = None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:

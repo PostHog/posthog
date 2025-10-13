@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -64,9 +64,9 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit=None,
         properties=None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
-        filter_test_accounts: Optional[bool] = False,
-        strip_query_params: Optional[bool] = False,
-        order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
+        filter_test_accounts: bool | None = False,
+        strip_query_params: bool | None = False,
+        order_by: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebExternalClicksTableQuery(

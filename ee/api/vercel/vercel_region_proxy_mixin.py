@@ -1,6 +1,6 @@
 import re
 import json
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -40,7 +40,7 @@ class VercelRegionProxyMixin:
         return settings.SITE_URL.startswith("http://localhost") or settings.DEBUG
 
     @property
-    def current_region(self) -> Optional[str]:
+    def current_region(self) -> str | None:
         if settings.SITE_URL == f"https://{self.US_DOMAIN}":
             return "us"
         elif settings.SITE_URL == f"https://{self.EU_DOMAIN}":
@@ -69,7 +69,7 @@ class VercelRegionProxyMixin:
         cache_key = f"vercel_installation_exists:{installation_id}"
         cache.set(cache_key, exists, timeout=self.CACHE_TTL)
 
-    def _extract_installation_id(self, request: HttpRequest) -> Optional[str]:
+    def _extract_installation_id(self, request: HttpRequest) -> str | None:
         try:
             if not all([request.META.get("HTTP_AUTHORIZATION"), request.META.get("HTTP_X_VERCEL_AUTH")]):
                 return None
@@ -81,7 +81,7 @@ class VercelRegionProxyMixin:
         except (exceptions.AuthenticationFailed, exceptions.ValidationError):
             return None
 
-    def _extract_data_region_from_metadata(self, request: HttpRequest) -> Optional[str]:
+    def _extract_data_region_from_metadata(self, request: HttpRequest) -> str | None:
         try:
             body = json.loads(request.body.decode("utf-8")) if request.body else {}
             metadata = body.get("metadata", {})

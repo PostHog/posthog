@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterable
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
@@ -18,18 +18,18 @@ class SourceResponse:
     items: Iterable[Any]
     primary_keys: list[str] | None
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
-    partition_count: Optional[int] = None
-    partition_size: Optional[int] = None
-    partition_keys: Optional[list[str]] = None
+    partition_count: int | None = None
+    partition_size: int | None = None
+    partition_keys: list[str] | None = None
     """Override partition keys at a source level"""
-    partition_mode: Optional[PartitionMode] = None
+    partition_mode: PartitionMode | None = None
     """Override partition mode at a source level"""
-    partition_format: Optional[PartitionFormat] = None
+    partition_format: PartitionFormat | None = None
     """Override partition format at a source level"""
-    sort_mode: Optional[SortMode] = "asc"
+    sort_mode: SortMode | None = "asc"
     """our source typically return data in ascending timestamp order, but some (eg Stripe) do not"""
-    rows_to_sync: Optional[int] = None
-    has_duplicate_primary_keys: Optional[bool] = None
+    rows_to_sync: int | None = None
+    has_duplicate_primary_keys: bool | None = None
     """Whether incremental tables have non-unique primary keys"""
 
 
@@ -41,9 +41,9 @@ class SourceInputs:
     schema_id: str
     team_id: int
     should_use_incremental_field: bool
-    db_incremental_field_last_value: Optional[Any]
-    db_incremental_field_earliest_value: Optional[Any]
-    incremental_field: Optional[str]
-    incremental_field_type: Optional[IncrementalFieldType]
+    db_incremental_field_last_value: Any | None
+    db_incremental_field_earliest_value: Any | None
+    incremental_field: str | None
+    incremental_field_type: IncrementalFieldType | None
     job_id: str
     logger: FilteringBoundLogger

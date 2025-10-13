@@ -1,5 +1,4 @@
 import json
-from typing import Optional
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
@@ -11,7 +10,7 @@ def _get_cache_key(organization_id: str) -> str:
     return f"{CACHE_KEY_PREFIX}:{organization_id}"
 
 
-def get_cached_fields(organization_id: str) -> Optional[dict]:
+def get_cached_fields(organization_id: str) -> dict | None:
     try:
         client = get_client()
         key = _get_cache_key(organization_id)

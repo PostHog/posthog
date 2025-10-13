@@ -1,5 +1,5 @@
 from dataclasses import is_dataclass
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
@@ -95,5 +95,5 @@ class PostHogClientInterceptor(Interceptor):
 
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
-    ) -> Optional[type[WorkflowInboundInterceptor]]:
+    ) -> type[WorkflowInboundInterceptor] | None:
         return _PostHogClientWorkflowInterceptor

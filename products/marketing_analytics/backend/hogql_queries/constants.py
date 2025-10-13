@@ -1,7 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 import math
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import (
     InfinityValue,
@@ -214,8 +214,8 @@ IS_INCREASE_BAD_MAPPING = {
 
 def to_marketing_analytics_data(
     key: str,
-    value: Optional[Union[float, str, list[float], list[str]]],
-    previous: Optional[Union[float, str, list[float], list[str]]],
+    value: Union[float, str, list[float], list[str]] | None,
+    previous: Union[float, str, list[float], list[str]] | None,
     has_comparison: bool = False,
 ) -> MarketingAnalyticsItem:
     """

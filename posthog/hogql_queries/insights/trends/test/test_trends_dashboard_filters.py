@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.test.base import BaseTest
 
@@ -28,17 +27,17 @@ class TestTrendsDashboardFilters(BaseTest):
     def _create_query_runner(
         self,
         date_from: str,
-        date_to: Optional[str],
+        date_to: str | None,
         interval: IntervalType,
-        series: Optional[list[EventsNode | ActionsNode]],
-        properties: Optional[list[EventPropertyFilter] | PropertyGroupFilter] = None,
-        trends_filters: Optional[TrendsFilter] = None,
-        breakdown: Optional[BreakdownFilter] = None,
-        filter_test_accounts: Optional[bool] = None,
-        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        explicit_date: Optional[bool] = None,
-        compare_filters: Optional[CompareFilter] = None,
+        series: list[EventsNode | ActionsNode] | None,
+        properties: list[EventPropertyFilter] | PropertyGroupFilter | None = None,
+        trends_filters: TrendsFilter | None = None,
+        breakdown: BreakdownFilter | None = None,
+        filter_test_accounts: bool | None = None,
+        hogql_modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
+        explicit_date: bool | None = None,
+        compare_filters: CompareFilter | None = None,
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(

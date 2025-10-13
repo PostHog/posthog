@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
@@ -42,8 +42,8 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
-    tasks: Annotated[Optional[list[DeepResearchTask]], replace] = Field(default=None)  # type: ignore[assignment]
-    todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
+    tasks: Annotated[list[DeepResearchTask] | None, replace] = Field(default=None)  # type: ignore[assignment]
+    todos: Annotated[list[DeepResearchTodo] | None, replace] = Field(default=None)
     """
     The current TO-DO list.
     """
@@ -51,7 +51,7 @@ class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
     """
     Intermediate reports.
     """
-    previous_response_id: Optional[str] = Field(default=None)
+    previous_response_id: str | None = Field(default=None)
     """
     The ID of the previous OpenAI Responses API response.
     """
@@ -59,7 +59,7 @@ class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
     """
     All notebooks created across the entire conversation.
     """
-    current_run_notebooks: Annotated[Optional[list[NotebookInfo]], replace] = Field(default=None)
+    current_run_notebooks: Annotated[list[NotebookInfo] | None, replace] = Field(default=None)
     """
     Notebooks created in the current deep research run (reset on new run).
     """

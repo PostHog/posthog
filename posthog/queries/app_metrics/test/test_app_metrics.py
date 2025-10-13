@@ -1,6 +1,5 @@
 import json
 from datetime import datetime
-from typing import Optional
 
 from freezegun.api import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -25,13 +24,13 @@ def create_app_metric(
     timestamp: str,
     plugin_config_id: int,
     category: str,
-    job_id: Optional[str] = None,
+    job_id: str | None = None,
     successes=0,
     successes_on_retry=0,
     failures=0,
-    error_uuid: Optional[str] = None,
-    error_type: Optional[str] = None,
-    error_details: Optional[dict] = None,
+    error_uuid: str | None = None,
+    error_type: str | None = None,
+    error_details: dict | None = None,
 ):
     timestamp = cast_timestamp_or_now(timestamp)
     data = {

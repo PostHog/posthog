@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from rest_framework.exceptions import ValidationError
 
@@ -200,8 +200,8 @@ class FunnelUnordered(FunnelBase):
         step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
-        people: Optional[list[uuid.UUID]] = None,
-        sampling_factor: Optional[float] = None,
+        people: list[uuid.UUID] | None = None,
+        sampling_factor: float | None = None,
     ) -> dict[str, Any]:
         if isinstance(step, DataWarehouseNode):
             raise NotImplementedError("Data Warehouse queries are not supported in funnels")

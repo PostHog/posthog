@@ -1,6 +1,6 @@
 import datetime
 from abc import ABC
-from typing import Any, Optional, get_args, get_origin
+from typing import Any, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
@@ -154,12 +154,12 @@ class StateClassMixin:
 
 
 class ReasoningNodeMixin:
-    REASONING_MESSAGE: Optional[str] = None
+    REASONING_MESSAGE: str | None = None
     _team: Team
     _user: User
 
     async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
+        self, input: BaseState, default_message: str | None = None
     ) -> ReasoningMessage | None:
         content = self.REASONING_MESSAGE or default_message
         return ReasoningMessage(content=content) if content else None
@@ -170,7 +170,7 @@ class TaxonomyReasoningNodeMixin:
     _user: User
 
     async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
+        self, input: BaseState, default_message: str | None = None
     ) -> ReasoningMessage | None:
         if not isinstance(input, BaseStateWithIntermediateSteps):
             return None

@@ -1,7 +1,7 @@
 import json
 import datetime
 from collections.abc import Callable
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -1083,7 +1083,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             self.assertFalse(matched_person)
 
     def _filter_with_date_range(
-        self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
+        self, date_from: datetime.datetime, date_to: datetime.datetime | None = None
     ) -> Filter:
         data = {
             "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}],
@@ -1193,7 +1193,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
 
 def filter_persons_with_property_group(
-    filter: Filter, team: Team, property_overrides: Optional[dict[str, Any]] = None
+    filter: Filter, team: Team, property_overrides: dict[str, Any] | None = None
 ) -> list[str]:
     if property_overrides is None:
         property_overrides = {}

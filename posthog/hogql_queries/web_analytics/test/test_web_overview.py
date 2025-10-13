@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -98,12 +97,12 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_to: str,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         compare: bool = True,
-        limit_context: Optional[LimitContext] = None,
-        filter_test_accounts: Optional[bool] = False,
-        action: Optional[Action] = None,
-        custom_event: Optional[str] = None,
-        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
-        include_revenue: Optional[bool] = False,
+        limit_context: LimitContext | None = None,
+        filter_test_accounts: bool | None = False,
+        action: Action | None = None,
+        custom_event: str | None = None,
+        bounce_rate_mode: BounceRatePageViewMode | None = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        include_revenue: bool | None = False,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             modifiers = HogQLQueryModifiers(

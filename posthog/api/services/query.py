@@ -1,4 +1,3 @@
-from typing import Optional
 
 import structlog
 import pydantic_core
@@ -43,14 +42,14 @@ def process_query_dict(
     team: Team,
     query_json: dict,
     *,
-    dashboard_filters_json: Optional[dict] = None,
-    variables_override_json: Optional[dict] = None,
-    limit_context: Optional[LimitContext] = None,
+    dashboard_filters_json: dict | None = None,
+    variables_override_json: dict | None = None,
+    limit_context: LimitContext | None = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
-    query_id: Optional[str] = None,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    user: User | None = None,
+    query_id: str | None = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     is_query_service: bool = False,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
@@ -107,14 +106,14 @@ def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
-    dashboard_filters: Optional[DashboardFilter] = None,
-    variables_override: Optional[list[HogQLVariable]] = None,
-    limit_context: Optional[LimitContext] = None,
+    dashboard_filters: DashboardFilter | None = None,
+    variables_override: list[HogQLVariable] | None = None,
+    limit_context: LimitContext | None = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
-    query_id: Optional[str] = None,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    user: User | None = None,
+    query_id: str | None = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     is_query_service: bool = False,
 ) -> dict | BaseModel:
     result: dict | BaseModel

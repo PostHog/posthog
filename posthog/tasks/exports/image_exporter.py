@@ -3,7 +3,7 @@ import time
 import uuid
 import tempfile
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Literal
 
 from django.conf import settings
 
@@ -182,7 +182,7 @@ def _screenshot_asset(
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
 ) -> None:
-    driver: Optional[webdriver.Chrome] = None
+    driver: webdriver.Chrome | None = None
     try:
         driver = get_driver()
         # Set initial window size with a more reasonable height to prevent initial rendering issues

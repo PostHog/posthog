@@ -1,4 +1,4 @@
-from typing import Optional, Protocol, cast, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
@@ -376,7 +376,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     def actor_query(
         self,
-        extra_fields: Optional[list[str]] = None,
+        extra_fields: list[str] | None = None,
     ) -> ast.SelectQuery:
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),

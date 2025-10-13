@@ -91,8 +91,8 @@ class DeliverSubscriptionReportActivityInputs:
     """Inputs for the `deliver_subscription_report_activity`."""
 
     subscription_id: int
-    previous_value: typing.Optional[str] = None
-    invite_message: typing.Optional[str] = None
+    previous_value: str | None = None
+    invite_message: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:

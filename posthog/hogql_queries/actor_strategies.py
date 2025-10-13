@@ -1,4 +1,4 @@
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from django.db import connection, connections
 
@@ -37,7 +37,7 @@ class ActorStrategy:
     def filter_conditions(self) -> list[ast.Expr]:
         return []
 
-    def order_by(self) -> Optional[list[ast.OrderExpr]]:
+    def order_by(self) -> list[ast.OrderExpr] | None:
         return None
 
 
@@ -135,7 +135,7 @@ class PersonStrategy(ActorStrategy):
             )
         return where_exprs
 
-    def order_by(self) -> Optional[list[ast.OrderExpr]]:
+    def order_by(self) -> list[ast.OrderExpr] | None:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
             return None
 
@@ -203,7 +203,7 @@ class GroupStrategy(ActorStrategy):
 
         return where_exprs
 
-    def order_by(self) -> Optional[list[ast.OrderExpr]]:
+    def order_by(self) -> list[ast.OrderExpr] | None:
         if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:
             return None
 

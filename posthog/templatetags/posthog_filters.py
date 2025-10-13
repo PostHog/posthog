@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from django import template
 
@@ -12,7 +12,7 @@ register.filter(compact_number)
 
 
 @register.filter
-def percentage(value: Optional[Number], decimals: int = 1) -> str:
+def percentage(value: Number | None, decimals: int = 1) -> str:
     """
     Returns a rounded formatted with a specific number of decimal digits and a % sign. Expects a decimal-based ratio.
     Example:
@@ -27,7 +27,7 @@ def percentage(value: Optional[Number], decimals: int = 1) -> str:
 
 
 @register.filter
-def intcomma(value: Optional[Number]) -> str:
+def intcomma(value: Number | None) -> str:
     """
     Converts an integer to a string containing commas every three digits.
     Example:

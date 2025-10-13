@@ -1,7 +1,6 @@
 import asyncio
 from collections.abc import Callable
 from datetime import datetime
-from typing import Optional
 
 from django.conf import settings
 from django.db import transaction
@@ -200,7 +199,7 @@ def process_error(
     rollback: bool = True,
     alert: bool = False,
     status: int = MigrationStatus.Errored,
-    current_operation_index: Optional[int] = None,
+    current_operation_index: int | None = None,
 ):
     logger.error(f"Async migration {migration_instance.name} error: {error}")
 
@@ -345,14 +344,14 @@ def halt_starting_migration(migration_instance: AsyncMigration) -> bool:
 
 def update_async_migration(
     migration_instance: AsyncMigration,
-    error: Optional[str] = None,
-    current_query_id: Optional[str] = None,
-    celery_task_id: Optional[str] = None,
-    progress: Optional[int] = None,
-    current_operation_index: Optional[int] = None,
-    status: Optional[int] = None,
-    started_at: Optional[datetime] = None,
-    finished_at: Optional[datetime] = None,
+    error: str | None = None,
+    current_query_id: str | None = None,
+    celery_task_id: str | None = None,
+    progress: int | None = None,
+    current_operation_index: int | None = None,
+    status: int | None = None,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
     lock_row: bool = True,
 ):
     def execute_update():

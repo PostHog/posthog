@@ -3,7 +3,7 @@ This module contains serializers that are used across other serializers for nest
 """
 
 import copy
-from typing import Any, Optional
+from typing import Any
 
 from rest_framework import serializers
 from rest_framework.fields import SkipField
@@ -32,7 +32,7 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "role_at_organization",
         ]
 
-    def get_hedgehog_config(self, user: User) -> Optional[dict]:
+    def get_hedgehog_config(self, user: User) -> dict | None:
         if user.hedgehog_config:
             return {
                 "use_as_profile": user.hedgehog_config.get("use_as_profile"),
@@ -66,7 +66,7 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
     Do not use this in greenfield endpoints!
     """
 
-    instance: Optional[Project]
+    instance: Project | None
 
     class Meta:
         model = Project
@@ -216,7 +216,7 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         model = Organization
         fields = ["id", "name", "slug", "logo_media_id", "membership_level", "members_can_use_personal_api_keys"]
 
-    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = OrganizationMembership.objects.filter(
             organization=organization, user=self.context["request"].user
         ).first()

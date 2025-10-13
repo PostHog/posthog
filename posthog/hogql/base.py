@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedError
@@ -14,8 +14,8 @@ camel_case_pattern = re.compile(r"(?<!^)(?<![A-Z])(?=[A-Z])")
 
 @dataclass(kw_only=True)
 class AST:
-    start: Optional[int] = field(default=None)
-    end: Optional[int] = field(default=None)
+    start: int | None = field(default=None)
+    end: int | None = field(default=None)
 
     # This is part of the visitor pattern from visitor.py.
     def accept(self, visitor):
@@ -75,7 +75,7 @@ class Type(AST):
 
 @dataclass(kw_only=True)
 class Expr(AST):
-    type: Optional[Type] = field(default=None)
+    type: Type | None = field(default=None)
 
 
 @dataclass(kw_only=True)

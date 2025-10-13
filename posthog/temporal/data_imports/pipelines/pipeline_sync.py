@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -68,7 +68,7 @@ def validate_schema_and_update_table_sync(
     schema_id: uuid.UUID,
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
-    table_schema_dict: Optional[dict[str, str]] = None,
+    table_schema_dict: dict[str, str] | None = None,
 ) -> None:
     """
 

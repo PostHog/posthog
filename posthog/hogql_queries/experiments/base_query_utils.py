@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -194,7 +194,7 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
 
 
 def get_experiment_date_range(
-    experiment: Experiment, team: Team, override_end_date: Optional[datetime] = None
+    experiment: Experiment, team: Team, override_end_date: datetime | None = None
 ) -> DateRange:
     """
     Returns an DateRange object based on the experiment's start and end dates,
@@ -207,9 +207,9 @@ def get_experiment_date_range(
     """
     if team.timezone:
         tz = ZoneInfo(team.timezone)
-        start_date: Optional[datetime] = experiment.start_date.astimezone(tz) if experiment.start_date else None
+        start_date: datetime | None = experiment.start_date.astimezone(tz) if experiment.start_date else None
         if override_end_date:
-            end_date: Optional[datetime] = override_end_date.astimezone(tz)
+            end_date: datetime | None = override_end_date.astimezone(tz)
         else:
             end_date = experiment.end_date.astimezone(tz) if experiment.end_date else None
     else:

@@ -2,7 +2,6 @@ import json
 import logging
 import dataclasses
 from datetime import timedelta
-from typing import Optional
 
 from django.conf import settings
 
@@ -38,14 +37,14 @@ logging.basicConfig(level=logging.INFO)
 
 @dataclasses.dataclass
 class RunUsageReportsInputs:
-    at: Optional[str] = None
-    skip_capture_event: Optional[bool] = False
+    at: str | None = None
+    skip_capture_event: bool | None = False
 
 
 @dataclasses.dataclass
 class QueryUsageReportsInputs:
-    at: Optional[str] = None
-    skip_capture_event: Optional[bool] = False
+    at: str | None = None
+    skip_capture_event: bool | None = False
 
 
 @activity.defn(name="query-usage-reports")

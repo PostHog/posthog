@@ -2,7 +2,6 @@ import time
 import uuid
 import asyncio
 import logging
-from typing import Optional
 
 import posthoganalytics
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _execute_task_processing_workflow(
-    task_id: str, team_id: int, user_id: Optional[int] = None, use_sandbox: bool = False
+    task_id: str, team_id: int, user_id: int | None = None, use_sandbox: bool = False
 ) -> str:
     workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
 
@@ -48,7 +47,7 @@ async def _execute_task_processing_workflow(
     return result
 
 
-def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Optional[int] = None) -> None:
+def execute_task_processing_workflow(task_id: str, team_id: int, user_id: int | None = None) -> None:
     """
     Execute the task processing workflow synchronously.
     This is a fire-and-forget operation - it starts the workflow

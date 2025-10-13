@@ -1,5 +1,5 @@
 import time
-from typing import Optional, cast
+from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -365,7 +365,7 @@ class ScopeBasePermission(BasePermission):
                 return "patch"
         return view.action
 
-    def _get_required_scopes(self, request, view) -> Optional[list[str]]:
+    def _get_required_scopes(self, request, view) -> list[str] | None:
         # If required_scopes is set on the view method then use that
         # Otherwise use the scope_object and derive the required scope from the action
         if getattr(view, "required_scopes", None):
@@ -508,7 +508,7 @@ class AccessControlPermission(ScopeBasePermission):
     def _get_user_access_control(self, request, view) -> UserAccessControl:
         return view.user_access_control
 
-    def _get_required_access_level(self, request, view) -> Optional[AccessControlLevel]:
+    def _get_required_access_level(self, request, view) -> AccessControlLevel | None:
         resource = self._get_scope_object(request, view)
         required_scopes = self._get_required_scopes(request, view)
 

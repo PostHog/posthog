@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -17,10 +17,10 @@ from posthog.hogql.visitor import clear_locations
 class TestFilters(BaseTest):
     maxDiff = None
 
-    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
+    def _parse_expr(self, expr: str, placeholders: dict[str, Any] | None = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
-    def _parse_select(self, select: str, placeholders: Optional[dict[str, Any]] = None):
+    def _parse_select(self, select: str, placeholders: dict[str, Any] | None = None):
         return clear_locations(parse_select(select, placeholders=placeholders))
 
     def _print_ast(self, node: ast.Expr):

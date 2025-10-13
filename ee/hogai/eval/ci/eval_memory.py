@@ -1,4 +1,3 @@
-from typing import Optional
 
 import pytest
 
@@ -77,7 +76,7 @@ def call_node(demo_org_team_user, core_memory):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(message: str) -> Optional[AssistantMessage]:
+    async def callable(message: str) -> AssistantMessage | None:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
         raw_state = await graph.ainvoke(
             AssistantState(messages=[HumanMessage(content=message)]), {"configurable": {"thread_id": conversation.id}}

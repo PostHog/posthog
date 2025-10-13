@@ -1,6 +1,5 @@
 # Marketing Source Adapter Factory
 
-from typing import Optional
 
 import structlog
 
@@ -124,7 +123,7 @@ class MarketingSourceFactory:
 
     def _create_googleads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[GoogleAdsConfig]:
+    ) -> GoogleAdsConfig | None:
         """Create Google Ads adapter config with campaign and stats tables"""
         patterns = TABLE_PATTERNS["GoogleAds"]
         campaign_table = None
@@ -156,7 +155,7 @@ class MarketingSourceFactory:
 
     def _create_linkedinads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[LinkedinAdsConfig]:
+    ) -> LinkedinAdsConfig | None:
         """Create LinkedIn Ads adapter config with campaign and stats tables"""
         patterns = TABLE_PATTERNS["LinkedinAds"]
         campaign_table = None
@@ -188,7 +187,7 @@ class MarketingSourceFactory:
 
     def _create_redditads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[RedditAdsConfig]:
+    ) -> RedditAdsConfig | None:
         """Create Reddit Ads adapter config with campaign and stats tables"""
         patterns = TABLE_PATTERNS["RedditAds"]
         campaign_table = None
@@ -220,7 +219,7 @@ class MarketingSourceFactory:
 
     def _create_metaads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[MetaAdsConfig]:
+    ) -> MetaAdsConfig | None:
         """Create Meta Ads adapter config with campaign and stats tables"""
         patterns = TABLE_PATTERNS["MetaAds"]
         campaign_table = None
@@ -321,7 +320,7 @@ class MarketingSourceFactory:
 
         return adapters
 
-    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[SourceMap]:
+    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> SourceMap | None:
         """Get source map for a table"""
         if source_id and table.external_data_source and table.external_data_source.source_type:
             # Managed table

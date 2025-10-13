@@ -74,7 +74,7 @@ OperatorType = Literal[
 
 OperatorInterval = Literal["day", "week", "month", "year"]
 GroupTypeName = str
-PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
+PropertyIdentifier = tuple[PropertyName, PropertyType, GroupTypeIndex | None]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
@@ -183,68 +183,68 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
 
 class Property:
     key: str
-    operator: Optional[OperatorType]
+    operator: OperatorType | None
     value: ValueT
     type: PropertyType
-    group_type_index: Optional[GroupTypeIndex]
+    group_type_index: GroupTypeIndex | None
 
     # All these property keys are used in cohorts.
     # Type of `key`
-    event_type: Optional[Literal["events", "actions"]]
+    event_type: Literal["events", "actions"] | None
     # Any extra filters on the event
-    event_filters: Optional[list["Property"]]
+    event_filters: list["Property"] | None
     # Query people who did event '$pageview' 20 times in the last 30 days
     # translates into:
     # key = '$pageview', value = 'performed_event_multiple'
     # time_value = 30, time_interval = day
     # operator_value = 20, operator = 'gte'
-    operator_value: Optional[int]
-    time_value: Optional[int]
-    time_interval: Optional[OperatorInterval]
+    operator_value: int | None
+    time_value: int | None
+    time_interval: OperatorInterval | None
     # Alternative to time_value & time_interval, for explicit date bound rather than relative
-    explicit_datetime: Optional[str]
+    explicit_datetime: str | None
     # Query people who did event '$pageview' in last week, but not in the previous 30 days
     # translates into:
     # key = '$pageview', value = 'restarted_performing_event'
     # time_value = 1, time_interval = 'week'
     # seq_time_value = 30, seq_time_interval = 'day'
-    seq_time_value: Optional[int]
-    seq_time_interval: Optional[OperatorInterval]
+    seq_time_value: int | None
+    seq_time_interval: OperatorInterval | None
     # Query people who did '$pageview' in last 2 weeks, followed by 'sign up' within 30 days
     # translates into:
     # key = '$pageview', value = 'performed_event_sequence'
     # time_value = 2, time_interval = 'week'
     # seq_event = 'sign up', seq_event_type = 'events'
     # seq_time_value = 30, seq_time_interval = 'day'
-    seq_event_type: Optional[str]
-    seq_event: Optional[Union[str, int]]
-    total_periods: Optional[int]
-    min_periods: Optional[int]
-    negation: Optional[bool] = False
+    seq_event_type: str | None
+    seq_event: Union[str, int] | None
+    total_periods: int | None
+    min_periods: int | None
+    negation: bool | None = False
     _data: dict
 
     def __init__(
         self,
         key: str,
-        value: Optional[ValueT] = None,
-        operator: Optional[OperatorType] = None,
-        type: Optional[PropertyType] = None,
+        value: ValueT | None = None,
+        operator: OperatorType | None = None,
+        type: PropertyType | None = None,
         # Only set for `type` == `group`
-        group_type_index: Optional[int] = None,
+        group_type_index: int | None = None,
         # Only set for `type` == `behavioral`
-        event_type: Optional[Literal["events", "actions"]] = None,
-        operator_value: Optional[int] = None,
-        time_value: Optional[int] = None,
-        time_interval: Optional[OperatorInterval] = None,
-        explicit_datetime: Optional[str] = None,
-        total_periods: Optional[int] = None,
-        min_periods: Optional[int] = None,
-        seq_event_type: Optional[str] = None,
-        seq_event: Optional[Union[str, int]] = None,
-        seq_time_value: Optional[int] = None,
-        seq_time_interval: Optional[OperatorInterval] = None,
-        negation: Optional[bool] = None,
-        event_filters: Optional[list["Property"]] = None,
+        event_type: Literal["events", "actions"] | None = None,
+        operator_value: int | None = None,
+        time_value: int | None = None,
+        time_interval: OperatorInterval | None = None,
+        explicit_datetime: str | None = None,
+        total_periods: int | None = None,
+        min_periods: int | None = None,
+        seq_event_type: str | None = None,
+        seq_event: Union[str, int] | None = None,
+        seq_time_value: int | None = None,
+        seq_time_interval: OperatorInterval | None = None,
+        negation: bool | None = None,
+        event_filters: list["Property"] | None = None,
         **kwargs,
     ) -> None:
         self.key = key

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import AnyStatistic, StatisticError
@@ -49,7 +49,7 @@ class FrequentistMethod:
         result = method.run_test(treatment_stat, control_stat)
     """
 
-    def __init__(self, config: Optional[FrequentistConfig] = None):
+    def __init__(self, config: FrequentistConfig | None = None):
         """
         Initialize FrequentistMethod with configuration.
 

@@ -2,7 +2,7 @@ import zoneinfo
 from datetime import datetime, timedelta
 from math import ceil
 from time import sleep
-from typing import Optional, Union
+from typing import Union
 
 from rest_framework import request
 
@@ -34,7 +34,7 @@ INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=30)
 
 def should_refresh_insight(
     insight: Insight,
-    dashboard_tile: Optional[DashboardTile],
+    dashboard_tile: DashboardTile | None,
     *,
     request: request.Request,
     is_shared=False,
@@ -48,7 +48,7 @@ def should_refresh_insight(
         team=insight.team,
     )
 
-    delta_days: Optional[int] = None
+    delta_days: int | None = None
     if filter.date_from and filter.date_to:
         delta = filter.date_to - filter.date_from
         delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
@@ -86,7 +86,7 @@ def should_refresh_insight(
     return refresh_insight_now, refresh_frequency
 
 
-def _sleep_if_refresh_is_running_somewhere_else(caching_state: Optional[InsightCachingState], now: datetime) -> bool:
+def _sleep_if_refresh_is_running_somewhere_else(caching_state: InsightCachingState | None, now: datetime) -> bool:
     """Prevent the same query from running concurrently needlessly."""
     is_refresh_currently_running = _is_refresh_currently_running_somewhere_else(caching_state, now)
     if is_refresh_currently_running:
@@ -106,7 +106,7 @@ def _sleep_if_refresh_is_running_somewhere_else(caching_state: Optional[InsightC
     return False
 
 
-def _is_refresh_currently_running_somewhere_else(caching_state: Optional[InsightCachingState], now: datetime) -> bool:
+def _is_refresh_currently_running_somewhere_else(caching_state: InsightCachingState | None, now: datetime) -> bool:
     """Return whether the refresh is most likely still running somewhere else."""
     if (
         caching_state is not None

@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Optional
 
 from posthog.schema import (
     CachedMarketingAnalyticsAggregatedQueryResponse,
@@ -28,7 +27,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
     cached_response: CachedMarketingAnalyticsAggregatedQueryResponse
 
     def _build_main_select_query(
-        self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
+        self, conversion_aggregator: ConversionGoalsAggregator | None = None
     ) -> ast.SelectQuery:
         """Build the main SELECT query for aggregated totals."""
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
@@ -76,7 +75,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
         )
 
     def _build_select_columns_mapping(
-        self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
+        self, conversion_aggregator: ConversionGoalsAggregator | None = None
     ) -> dict[str, ast.Expr]:
         """Build column mappings excluding Campaign and Source columns for aggregated queries"""
         # Start with base columns but exclude Campaign, Source and rate metrics

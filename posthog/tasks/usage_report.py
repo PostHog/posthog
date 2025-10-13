@@ -7,7 +7,7 @@ import dataclasses
 from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, TypedDict, Union
+from typing import Any, Literal, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
@@ -187,15 +187,15 @@ class InstanceMetadata:
     period: Period
     site_url: str
     product: str
-    helm: Optional[dict]
-    clickhouse_version: Optional[str]
-    users_who_logged_in: Optional[list[dict[str, Union[str, int]]]]
-    users_who_logged_in_count: Optional[int]
-    users_who_signed_up: Optional[list[dict[str, Union[str, int]]]]
-    users_who_signed_up_count: Optional[int]
-    table_sizes: Optional[TableSizes]
-    plugins_installed: Optional[dict]
-    plugins_enabled: Optional[dict]
+    helm: dict | None
+    clickhouse_version: str | None
+    users_who_logged_in: list[dict[str, Union[str, int]]] | None
+    users_who_logged_in_count: int | None
+    users_who_signed_up: list[dict[str, Union[str, int]]] | None
+    users_who_signed_up_count: int | None
+    table_sizes: TableSizes | None
+    plugins_installed: dict | None
+    plugins_enabled: dict | None
     instance_tag: str
 
 
@@ -380,7 +380,7 @@ def _execute_split_query(
     query_template: str,
     params: dict,
     num_splits: int = 2,
-    combine_results_func: Optional[Callable[[list], Any]] = None,
+    combine_results_func: Callable[[list], Any] | None = None,
 ) -> Any:
     """
     Helper function to execute a query split into multiple parts to reduce load.
@@ -792,7 +792,7 @@ def get_teams_with_api_queries_metrics(
 def get_teams_with_query_metric(
     begin: datetime,
     end: datetime,
-    query_types: Optional[list[str]] = None,
+    query_types: list[str] | None = None,
     access_method: str = "",
     metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
 ) -> list[tuple[int, int]]:
@@ -1181,9 +1181,9 @@ def get_teams_with_active_hog_transformations_in_period() -> list:
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
-    organization_id: Optional[str] = None,
+    organization_id: str | None = None,
     full_report_dict: dict[str, Any],
-    at_date: Optional[str] = None,
+    at_date: str | None = None,
 ) -> None:
     if not organization_id:
         raise ValueError("Organization_id must be provided")
@@ -1660,9 +1660,9 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
-    at: Optional[str] = None,
+    at: str | None = None,
     skip_capture_event: bool = False,
-    organization_ids: Optional[list[str]] = None,
+    organization_ids: list[str] | None = None,
 ) -> None:
     import posthoganalytics
 

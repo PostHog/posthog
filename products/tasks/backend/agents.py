@@ -1,7 +1,6 @@
 """Agent definitions for the Tasks product."""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -63,12 +62,12 @@ def get_all_agents() -> list[dict]:
     return [agent.to_dict() for agent in AGENTS]
 
 
-def get_agent_by_id(agent_id: str) -> Optional[Agent]:
+def get_agent_by_id(agent_id: str) -> Agent | None:
     """Get a specific agent by ID."""
     return AGENTS_BY_ID.get(agent_id)
 
 
-def get_agent_dict_by_id(agent_id: str) -> Optional[dict]:
+def get_agent_dict_by_id(agent_id: str) -> dict | None:
     """Get a specific agent as a dictionary by ID."""
     agent = get_agent_by_id(agent_id)
     return agent.to_dict() if agent else None

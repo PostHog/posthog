@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
@@ -122,7 +121,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return ast.And(exprs=filter_exprs)
 
-    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[ast.Expr, ast.Expr]:
+    def get_date_ranges(self, table_name: str | None = None) -> tuple[ast.Expr, ast.Expr]:
         current_date_from = self.runner.query_date_range.date_from()
         current_date_to = self.runner.query_date_range.date_to()
 

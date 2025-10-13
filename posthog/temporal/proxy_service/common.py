@@ -35,7 +35,7 @@ class RecordDeletedException(NonRetriableException):
 
 
 @sync_to_async
-def get_record(proxy_record_id: uuid.UUID) -> t.Optional[ProxyRecord]:
+def get_record(proxy_record_id: uuid.UUID) -> ProxyRecord | None:
     connection.connect()
     pr = ProxyRecord.objects.filter(id=proxy_record_id)
     return pr.first()
@@ -49,7 +49,7 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
 
 
 @sync_to_async
-def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None, status: t.Optional[str] = None):
+def update_record(*, proxy_record_id: uuid.UUID, message: str | None = None, status: str | None = None):
     connection.connect()
     prs = ProxyRecord.objects.filter(id=proxy_record_id)
     if len(prs) == 0:
@@ -67,10 +67,10 @@ class UpdateProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     status: str
-    message: t.Optional[str]
+    message: str | None
 
     def __init__(
-        self, organization_id: uuid.UUID, proxy_record_id: uuid.UUID, status: str, message: t.Optional[str] = None
+        self, organization_id: uuid.UUID, proxy_record_id: uuid.UUID, status: str, message: str | None = None
     ):
         self.organization_id = organization_id
         self.proxy_record_id = proxy_record_id

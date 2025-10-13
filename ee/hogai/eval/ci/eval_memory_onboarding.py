@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import uuid4
 
 import pytest
@@ -210,7 +209,7 @@ def core_memory():
 def call_memory_onboarding():
     """Fixture to call MemoryOnboardingNode with a parametrized EventTaxonomyItem as input."""
 
-    async def callable(input: tuple[str, Optional[EventTaxonomyItem]]) -> Optional[AssistantMessage]:
+    async def callable(input: tuple[str, EventTaxonomyItem | None]) -> AssistantMessage | None:
         organization_name, taxonomy_item = input  # The org name MAY matter as it gets included in the system prompt
         # Because memory is stateful at the team level, each eval case here must have its own team instance
         _, team, user = await database_sync_to_async(User.objects.bootstrap)(

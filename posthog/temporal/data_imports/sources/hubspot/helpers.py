@@ -2,7 +2,7 @@
 
 import urllib.parse
 from collections.abc import Iterator
-from typing import Any, Optional
+from typing import Any
 
 import requests as http_requests
 from dlt.sources.helpers import requests
@@ -51,7 +51,7 @@ def fetch_property_history(
     endpoint: str,
     api_key: str,
     props: str,
-    params: Optional[dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Fetch property history from the given CRM endpoint.
 
@@ -93,7 +93,7 @@ def fetch_property_history(
 
 
 def fetch_data(
-    endpoint: str, api_key: str, refresh_token: str, params: Optional[dict[str, Any]] = None
+    endpoint: str, api_key: str, refresh_token: str, params: dict[str, Any] | None = None
 ) -> Iterator[list[dict[str, Any]]]:
     """
     Fetch data from HUBSPOT endpoint using a specified API key and yield the properties of each result.

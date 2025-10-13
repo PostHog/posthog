@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, cast
+from typing import cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -9,8 +9,8 @@ from posthog.models.property import Property, PropertyGroup
 
 @dataclass(frozen=True)
 class PropertyGroups:
-    outer: Optional[PropertyGroup]
-    inner: Optional[PropertyGroup]
+    outer: PropertyGroup | None
+    inner: PropertyGroup | None
 
 
 class PropertyOptimizer:

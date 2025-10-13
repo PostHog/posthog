@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import PersonsOnEventsMode
@@ -31,21 +31,21 @@ INTERVAL_TO_SECONDS = {
 }
 
 
-def relative_date_to_seconds(date: tuple[Optional[int], Union[OperatorInterval, None]]):
+def relative_date_to_seconds(date: tuple[int | None, Union[OperatorInterval, None]]):
     if date[0] is None or date[1] is None:
         raise ValueError("Time value and time interval must be specified")
 
     return date[0] * INTERVAL_TO_SECONDS[date[1]]
 
 
-def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
+def validate_interval(interval: OperatorInterval | None) -> OperatorInterval:
     if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
         raise ValueError(f"Invalid interval: {interval}")
     else:
         return interval
 
 
-def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -> int:
+def parse_and_validate_positive_integer(value: int | None, value_name: str) -> int:
     if value is None:
         raise ValueError(f"{value_name} cannot be None")
     try:
@@ -57,7 +57,7 @@ def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -
     return parsed_value
 
 
-def validate_entity(possible_event: tuple[Optional[str], Optional[Union[int, str]]]) -> Event:
+def validate_entity(possible_event: tuple[str | None, Union[int, str] | None]) -> Event:
     event_type = possible_event[0]
     event_val = possible_event[1]
     if event_type is None or event_val is None:
@@ -117,7 +117,7 @@ class FOSSCohortQuery(EventQuery):
     SEQUENCE_FIELD_ALIAS = "steps"
     _fields: list[str]
     _events: list[str]
-    _earliest_time_for_event_query: Optional[Relative_Date]
+    _earliest_time_for_event_query: Relative_Date | None
     _restrict_event_query_by_time: bool
 
     def __init__(
@@ -125,15 +125,15 @@ class FOSSCohortQuery(EventQuery):
         filter: Filter,
         team: Team,
         *,
-        cohort_pk: Optional[int] = None,
+        cohort_pk: int | None = None,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: Optional[list[ColumnName]] = None,
-        extra_event_properties: Optional[list[PropertyName]] = None,
-        extra_person_fields: Optional[list[ColumnName]] = None,
-        override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        extra_fields: list[ColumnName] | None = None,
+        extra_event_properties: list[PropertyName] | None = None,
+        extra_person_fields: list[ColumnName] | None = None,
+        override_aggregate_users_by_distinct_id: bool | None = None,
         **kwargs,
     ) -> None:
         if extra_person_fields is None:
@@ -170,7 +170,7 @@ class FOSSCohortQuery(EventQuery):
 
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
-        team: Optional[Team] = None
+        team: Team | None = None
 
         def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
             nonlocal team
@@ -297,7 +297,7 @@ class FOSSCohortQuery(EventQuery):
         q = ""
         filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
 
-        prev_alias: Optional[str] = None
+        prev_alias: str | None = None
         fields = ""
         for idx, (subq_query, subq_alias) in enumerate(filtered_queries):
             if idx == 0:
@@ -419,7 +419,7 @@ class FOSSCohortQuery(EventQuery):
             self._earliest_time_for_event_query = relative_date
 
     def _get_conditions(self) -> tuple[str, dict[str, Any]]:
-        def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
+        def build_conditions(prop: Union[PropertyGroup, Property] | None, prepend="level", num=0):
             if not prop:
                 return "", {}
 
@@ -627,7 +627,7 @@ class FOSSCohortQuery(EventQuery):
 
     def _get_entity(
         self,
-        event: tuple[Optional[str], Optional[Union[int, str]]],
+        event: tuple[str | None, Union[int, str] | None],
         prepend: str,
         idx: int,
     ) -> tuple[str, dict[str, Any]]:

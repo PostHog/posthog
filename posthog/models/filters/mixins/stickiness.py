@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -25,11 +25,11 @@ class SelectedIntervalMixin(BaseParamMixin):
 
 
 class StickinessDateMixin(DateMixin):
-    get_earliest_timestamp: Optional[Callable]
+    get_earliest_timestamp: Callable | None
     team: "Team"
 
     @cached_property
-    def _date_from(self) -> Optional[Union[str, datetime]]:
+    def _date_from(self) -> Union[str, datetime] | None:
         if not self.team:
             raise AttributeError("StickinessDateMixin requires team to be provided")
 
@@ -46,7 +46,7 @@ class StickinessDateMixin(DateMixin):
             return relative_date_parse("-7d", self.team.timezone_info)
 
     @cached_property
-    def _date_to(self) -> Optional[Union[str, datetime]]:
+    def _date_to(self) -> Union[str, datetime] | None:
         return self._data.get(DATE_TO)
 
 

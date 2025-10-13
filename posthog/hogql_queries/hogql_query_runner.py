@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
@@ -30,25 +30,25 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery | HogQLASTQuery
     cached_response: CachedHogQLQueryResponse
-    settings: Optional[HogQLGlobalSettings]
+    settings: HogQLGlobalSettings | None
 
     def __init__(
         self,
         *args,
-        settings: Optional[HogQLGlobalSettings] = None,
+        settings: HogQLGlobalSettings | None = None,
         **kwargs,
     ):
         self.settings = settings or HogQLGlobalSettings()
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        values: Optional[dict[str, ast.Expr]] = (
+        values: dict[str, ast.Expr] | None = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):

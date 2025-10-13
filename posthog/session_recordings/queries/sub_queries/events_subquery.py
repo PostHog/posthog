@@ -1,6 +1,5 @@
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Optional
 
 import posthoganalytics
 
@@ -69,7 +68,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         team: Team,
         query: RecordingsQuery,
         allow_event_property_expansion: bool = False,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        hogql_query_modifiers: HogQLQueryModifiers | None = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers

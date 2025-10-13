@@ -43,7 +43,7 @@ def create_insight(
     is_shared=True,
     filters=filter_dict,
     deleted=False,
-    query: Optional[dict] = None,
+    query: dict | None = None,
 ) -> Insight:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
@@ -71,14 +71,14 @@ def create_tile(
     mock_active_teams: Any = None,
     on_home_dashboard=False,
     team_should_be_active=True,
-    viewed_at_delta: Optional[timedelta] = None,
+    viewed_at_delta: timedelta | None = None,
     insight_filters=filter_dict,
     insight_deleted=False,
     dashboard_deleted=False,
     dashboard_tile_deleted=False,
     is_dashboard_shared=True,
     text_tile=False,
-    query: Optional[dict] = None,
+    query: dict | None = None,
 ) -> DashboardTile:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()

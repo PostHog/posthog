@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from typing import Optional
 
 import structlog
 
@@ -504,7 +503,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
-def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color: Optional[str]) -> None:
+def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color: str | None) -> None:
     text = Text.objects.create(
         team=dashboard.team,
         body=body,
@@ -522,8 +521,8 @@ def _create_tile_for_insight(
     name: str,
     description: str,
     layouts: dict,
-    color: Optional[str],
-    query: Optional[dict] = None,
+    color: str | None,
+    query: dict | None = None,
     user=None,
 ) -> None:
     insight = Insight.objects.create(

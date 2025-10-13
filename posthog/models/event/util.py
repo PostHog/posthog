@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Union
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -27,22 +27,22 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]] = None,
-    properties: Optional[dict] = None,
-    elements: Optional[list[Element]] = None,
-    person_id: Optional[uuid.UUID] = None,
-    person_properties: Optional[dict] = None,
-    person_created_at: Optional[Union[datetime, str]] = None,
-    group0_properties: Optional[dict] = None,
-    group1_properties: Optional[dict] = None,
-    group2_properties: Optional[dict] = None,
-    group3_properties: Optional[dict] = None,
-    group4_properties: Optional[dict] = None,
-    group0_created_at: Optional[Union[datetime, str]] = None,
-    group1_created_at: Optional[Union[datetime, str]] = None,
-    group2_created_at: Optional[Union[datetime, str]] = None,
-    group3_created_at: Optional[Union[datetime, str]] = None,
-    group4_created_at: Optional[Union[datetime, str]] = None,
+    timestamp: Union[datetime, str] | None = None,
+    properties: dict | None = None,
+    elements: list[Element] | None = None,
+    person_id: uuid.UUID | None = None,
+    person_properties: dict | None = None,
+    person_created_at: Union[datetime, str] | None = None,
+    group0_properties: dict | None = None,
+    group1_properties: dict | None = None,
+    group2_properties: dict | None = None,
+    group3_properties: dict | None = None,
+    group4_properties: dict | None = None,
+    group0_created_at: Union[datetime, str] | None = None,
+    group1_created_at: Union[datetime, str] | None = None,
+    group2_created_at: Union[datetime, str] | None = None,
+    group3_created_at: Union[datetime, str] | None = None,
+    group4_created_at: Union[datetime, str] | None = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
 ) -> str:
     if properties is None:
@@ -89,7 +89,7 @@ def create_event(
 
 
 def format_clickhouse_timestamp(
-    raw_timestamp: Optional[Union[datetime, str]],
+    raw_timestamp: Union[datetime, str] | None,
     default=None,
 ) -> str:
     if default is None:
@@ -104,7 +104,7 @@ def format_clickhouse_timestamp(
 
 def bulk_create_events(
     events: list[dict[str, Any]],
-    person_mapping: Optional[dict[str, Person]] = None,
+    person_mapping: dict[str, Person] | None = None,
 ) -> None:
     """
     TEST ONLY
@@ -292,7 +292,7 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-def parse_properties(properties: str, allow_list: Optional[set[str]] = None) -> dict:
+def parse_properties(properties: str, allow_list: set[str] | None = None) -> dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
     if allow_list is None:

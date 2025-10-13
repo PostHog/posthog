@@ -1,5 +1,5 @@
 from collections.abc import Callable, Coroutine, Hashable
-from typing import Any, Generic, Literal, Optional, Protocol, cast, runtime_checkable
+from typing import Any, Generic, Literal, Protocol, cast, runtime_checkable
 
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
@@ -191,9 +191,7 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
 
     def add_query_planner(
         self,
-        path_map: Optional[
-            dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName]
-        ] = None,
+        path_map: dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName] | None = None,
     ):
         query_planner = QueryPlannerNode(self._team, self._user)
         self.add_node(AssistantNodeName.QUERY_PLANNER, query_planner)
@@ -263,7 +261,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
 
     def add_root(
         self,
-        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
+        path_map: dict[Hashable, AssistantNodeName] | None = None,
     ):
         path_map = path_map or {
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
@@ -369,7 +367,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
-    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
+    def add_inkeep_docs(self, path_map: dict[Hashable, AssistantNodeName] | None = None):
         """Add the Inkeep docs search node to the graph."""
         path_map = path_map or {
             "end": AssistantNodeName.END,

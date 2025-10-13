@@ -49,43 +49,43 @@ class PaginatorTypeConfig(TypedDict, total=True):
 class PageNumberPaginatorConfig(PaginatorTypeConfig, total=False):
     """A paginator that uses page number-based pagination strategy."""
 
-    initial_page: Optional[int]
-    page_param: Optional[str]
-    total_path: Optional[jsonpath.TJsonPath]
-    maximum_page: Optional[int]
+    initial_page: int | None
+    page_param: str | None
+    total_path: jsonpath.TJsonPath | None
+    maximum_page: int | None
 
 
 class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
     """A paginator that uses offset-based pagination strategy."""
 
     limit: int
-    offset: Optional[int]
-    offset_param: Optional[str]
-    limit_param: Optional[str]
-    total_path: Optional[jsonpath.TJsonPath]
-    maximum_offset: Optional[int]
+    offset: int | None
+    offset_param: str | None
+    limit_param: str | None
+    total_path: jsonpath.TJsonPath | None
+    maximum_offset: int | None
 
 
 class HeaderLinkPaginatorConfig(PaginatorTypeConfig, total=False):
     """A paginator that uses the 'Link' header in HTTP responses
     for pagination."""
 
-    links_next_key: Optional[str]
+    links_next_key: str | None
 
 
 class JSONResponsePaginatorConfig(PaginatorTypeConfig, total=False):
     """Locates the next page URL within the JSON response body. The key
     containing the URL can be specified using a JSON path."""
 
-    next_url_path: Optional[jsonpath.TJsonPath]
+    next_url_path: jsonpath.TJsonPath | None
 
 
 class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
     """Uses a cursor parameter for pagination, with the cursor value found in
     the JSON response body."""
 
-    cursor_path: Optional[jsonpath.TJsonPath]
-    cursor_param: Optional[str]
+    cursor_path: jsonpath.TJsonPath | None
+    cursor_param: str | None
 
 
 PaginatorConfig = (
@@ -123,9 +123,9 @@ class BearerTokenAuthConfig(TypedDict, total=False):
 class ApiKeyAuthConfig(AuthTypeConfig, total=False):
     """Uses provided `api_key` to create authorization data in the specified `location` (query, param, header, cookie) under specified `name`"""
 
-    name: Optional[str]
+    name: str | None
     api_key: str
-    location: Optional[TApiKeyLocation]
+    location: TApiKeyLocation | None
 
 
 class HttpBasicAuthConfig(AuthTypeConfig, total=True):
@@ -153,24 +153,24 @@ AuthConfig = (
 
 class ClientConfig(TypedDict, total=False):
     base_url: str
-    headers: Optional[dict[str, str]]
-    auth: Optional[AuthConfig]
-    paginator: Optional[PaginatorConfig]
+    headers: dict[str, str] | None
+    auth: AuthConfig | None
+    paginator: PaginatorConfig | None
 
 
 class IncrementalArgs(TypedDict, total=False):
     cursor_path: str
-    initial_value: Optional[str]
-    last_value_func: Optional[LastValueFunc[str]]
-    primary_key: Optional[TTableHintTemplate[TColumnNames]]
-    end_value: Optional[str]
-    row_order: Optional[TSortOrder]
-    convert: Optional[Callable[..., Any]]
+    initial_value: str | None
+    last_value_func: LastValueFunc[str] | None
+    primary_key: TTableHintTemplate[TColumnNames] | None
+    end_value: str | None
+    row_order: TSortOrder | None
+    convert: Callable[..., Any] | None
 
 
 class IncrementalConfig(IncrementalArgs, total=False):
     start_param: str
-    end_param: Optional[str]
+    end_param: str | None
 
 
 ParamBindType = Literal["resolve", "incremental"]
@@ -202,41 +202,41 @@ class ResolvedParam:
 
 
 class ResponseAction(TypedDict, total=False):
-    status_code: Optional[int | str]
-    content: Optional[str]
+    status_code: int | str | None
+    content: str | None
     action: str
 
 
 class Endpoint(TypedDict, total=False):
-    path: Optional[str]
-    method: Optional[HTTPMethodBasic]
-    params: Optional[dict[str, ResolveParamConfig | IncrementalParamConfig | Any]]
-    json: Optional[dict[str, Any]]
-    paginator: Optional[PaginatorConfig]
-    data_selector: Optional[jsonpath.TJsonPath]
-    response_actions: Optional[list[ResponseAction]]
-    incremental: Optional[IncrementalConfig]
+    path: str | None
+    method: HTTPMethodBasic | None
+    params: dict[str, ResolveParamConfig | IncrementalParamConfig | Any] | None
+    json: dict[str, Any] | None
+    paginator: PaginatorConfig | None
+    data_selector: jsonpath.TJsonPath | None
+    response_actions: list[ResponseAction] | None
+    incremental: IncrementalConfig | None
 
 
 class ResourceBase(TypedDict, total=False):
     """Defines hints that may be passed to `dlt.resource` decorator"""
 
-    table_name: Optional[TTableHintTemplate[str]]
-    max_table_nesting: Optional[int]
-    write_disposition: Optional[TTableHintTemplate[TWriteDispositionConfig]]
-    parent: Optional[TTableHintTemplate[str]]
-    columns: Optional[TTableHintTemplate[TAnySchemaColumns]]
-    primary_key: Optional[TTableHintTemplate[TColumnNames]]
-    merge_key: Optional[TTableHintTemplate[TColumnNames]]
-    schema_contract: Optional[TTableHintTemplate[TSchemaContract]]
-    table_format: Optional[TTableHintTemplate[TTableFormat]]
-    selected: Optional[bool]
-    parallelized: Optional[bool]
+    table_name: TTableHintTemplate[str] | None
+    max_table_nesting: int | None
+    write_disposition: TTableHintTemplate[TWriteDispositionConfig] | None
+    parent: TTableHintTemplate[str] | None
+    columns: TTableHintTemplate[TAnySchemaColumns] | None
+    primary_key: TTableHintTemplate[TColumnNames] | None
+    merge_key: TTableHintTemplate[TColumnNames] | None
+    schema_contract: TTableHintTemplate[TSchemaContract] | None
+    table_format: TTableHintTemplate[TTableFormat] | None
+    selected: bool | None
+    parallelized: bool | None
 
 
 class EndpointResourceBase(ResourceBase, total=False):
-    endpoint: Optional[str | Endpoint]
-    include_from_parent: Optional[list[str]]
+    endpoint: str | Endpoint | None
+    include_from_parent: list[str] | None
 
 
 class EndpointResource(EndpointResourceBase, total=False):
@@ -245,5 +245,5 @@ class EndpointResource(EndpointResourceBase, total=False):
 
 class RESTAPIConfig(TypedDict):
     client: ClientConfig
-    resource_defaults: Optional[EndpointResourceBase]
+    resource_defaults: EndpointResourceBase | None
     resources: list[str | EndpointResource]

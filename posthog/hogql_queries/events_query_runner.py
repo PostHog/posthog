@@ -1,7 +1,7 @@
 import re
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, cast
+from typing import cast
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -134,7 +134,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(
+                        person: Person | None = get_pk_or_uuid(
                             Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
                         where_exprs.append(

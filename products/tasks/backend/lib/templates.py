@@ -1,4 +1,3 @@
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -13,7 +12,7 @@ class WorkflowStageTemplate(BaseModel):
     key: str
     name: str
     color: str
-    agent_name: Optional[str]
+    agent_name: str | None
     is_manual_only: bool = False
 
 

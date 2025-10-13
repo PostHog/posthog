@@ -1,7 +1,7 @@
 import re
 import math
 from datetime import date, datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -62,14 +62,14 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 def escape_hogql_string(
     name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
-    timezone: Optional[str] = None,
+    timezone: str | None = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
 
 
 def escape_clickhouse_string(
-    name: Optional[float | int | str | list | tuple | date | datetime | UUID | UUIDT],
-    timezone: Optional[str] = None,
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
+    timezone: str | None = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
 
@@ -77,7 +77,7 @@ def escape_clickhouse_string(
 class SQLValueEscaper:
     def __init__(
         self,
-        timezone: Optional[str] = None,
+        timezone: str | None = None,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ):
         self._timezone = timezone or "UTC"

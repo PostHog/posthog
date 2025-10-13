@@ -1,4 +1,3 @@
-from typing import Optional
 
 from posthog.constants import AGGREGATION_GROUP_TYPE_INDEX
 from posthog.models.filters.mixins.common import BaseParamMixin
@@ -8,7 +7,7 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 
 class GroupsAggregationMixin(BaseParamMixin):
     @cached_property
-    def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
+    def aggregation_group_type_index(self) -> GroupTypeIndex | None:
         value = self._data.get(AGGREGATION_GROUP_TYPE_INDEX)
         return validate_group_type_index(AGGREGATION_GROUP_TYPE_INDEX, value)
 

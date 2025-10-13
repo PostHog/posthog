@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Optional, cast
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
@@ -558,7 +558,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 f"received query counts\n\n{query_counts}",
             )
 
-    def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
+    def assert_insight_activity(self, insight_id: int | None, expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]

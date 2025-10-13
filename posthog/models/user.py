@@ -63,7 +63,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
+    def create_user(self, email: str, password: str | None, first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
@@ -79,11 +79,11 @@ class UserManager(BaseUserManager):
         self,
         organization_name: str,
         email: str,
-        password: Optional[str],
+        password: str | None,
         first_name: str = "",
-        organization_fields: Optional[dict[str, Any]] = None,
-        team_fields: Optional[dict[str, Any]] = None,
-        create_team: Optional[Callable[["Organization", "User"], "Team"]] = None,
+        organization_fields: dict[str, Any] | None = None,
+        team_fields: dict[str, Any] | None = None,
+        create_team: Callable[["Organization", "User"], "Team"] | None = None,
         is_staff: bool = False,
         **user_fields,
     ) -> tuple["Organization", "Team", "User"]:
@@ -112,7 +112,7 @@ class UserManager(BaseUserManager):
         self,
         organization: Organization,
         email: str,
-        password: Optional[str],
+        password: str | None,
         first_name: str = "",
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
         **extra_fields,
@@ -289,7 +289,7 @@ class User(AbstractUser, UUIDTClassicModel):
         return teams.order_by("id")
 
     @cached_property
-    def organization(self) -> Optional[Organization]:
+    def organization(self) -> Organization | None:
         if self.current_organization is None:
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
@@ -299,7 +299,7 @@ class User(AbstractUser, UUIDTClassicModel):
         return self.current_organization
 
     @cached_property
-    def team(self) -> Optional[Team]:
+    def team(self) -> Team | None:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()
             if self.current_team:

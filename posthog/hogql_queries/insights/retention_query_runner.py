@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from posthog.schema import (
     Breakdown,
@@ -62,9 +62,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         self,
         query: RetentionQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         super().__init__(
             query=query,
@@ -222,7 +222,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
@@ -268,7 +268,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def actor_query(
         self,
         cumulative: bool = False,
-        start_interval_index_filter: Optional[int] = None,
+        start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
@@ -824,7 +824,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     def to_actors_query(
-        self, interval: Optional[int] = None, breakdown_values: str | list[str] | int | None = None
+        self, interval: int | None = None, breakdown_values: str | list[str] | int | None = None
     ) -> ast.SelectQuery:
         with self.timings.measure("retention_actors_query"):
             # Cohort breakdowns require special handling as cohort breakdowns unlike say event breakdowns

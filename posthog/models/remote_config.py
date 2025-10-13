@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
@@ -54,7 +54,7 @@ logger = structlog.get_logger(__name__)
 
 
 # Load the JS content from the frontend build
-_array_js_content: Optional[str] = None
+_array_js_content: str | None = None
 
 
 def get_array_js_content():
@@ -77,7 +77,7 @@ def cache_key_for_team_token(team_token: str) -> str:
     return f"remote_config/{team_token}/config"
 
 
-def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
+def sanitize_config_for_public_cdn(config: dict, request: HttpRequest | None = None) -> dict:
     from posthog.api.utils import on_permitted_recording_domain
 
     # Remove domains from session recording
@@ -355,14 +355,14 @@ class RemoteConfig(UUIDTModel):
         return data
 
     @classmethod
-    def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
+    def get_config_via_token(cls, token: str, request: HttpRequest | None = None) -> dict:
         config = cls._get_config_via_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
-    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
+    def get_config_js_via_token(cls, token: str, request: HttpRequest | None = None) -> str:
         config = cls._get_config_via_cache(token)
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
@@ -382,7 +382,7 @@ class RemoteConfig(UUIDTModel):
         return js_content
 
     @classmethod
-    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
+    def get_array_js_via_token(cls, token: str, request: HttpRequest | None = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
         js_content = cls.get_config_js_via_token(token, request=request)
 

@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 import structlog
 
@@ -17,8 +16,8 @@ def send_email_subscription_report(
     email: str,
     subscription: Subscription,
     assets: list[ExportedAsset],
-    invite_message: Optional[str] = None,
-    total_asset_count: Optional[int] = None,
+    invite_message: str | None = None,
+    total_asset_count: int | None = None,
     send_async: bool = True,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
