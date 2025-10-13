@@ -12,7 +12,7 @@ export class RandomCohortBranchHandler implements ActionHandler {
         action,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'random_cohort_branch' }>>): ActionHandlerResult {
         const nextAction = getRandomCohort(invocation, action)
-        return { nextAction }
+        return { nextAction, output: { assigned_cohort: nextAction.id } }
     }
 }
 

@@ -105,7 +105,7 @@ export type HogFunctionInvocationGlobals = {
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
 
-    variables: HogFunctionInvocationGlobalVariables
+    actions?: HogFunctionInvocationActionVariables
 }
 
 /**
@@ -118,9 +118,7 @@ export type HogFunctionInvocationGlobals = {
  * After execution, every action will have a corresponding entry in the map with
  * the key `$action/{actionId}` containing the result of the action.
  */
-export type HogFunctionInvocationGlobalVariables = {
-    version: 1
-} & {
+export type HogFunctionInvocationActionVariables = {
     [key: string]: { result: any; error?: any }
 }
 
@@ -309,7 +307,6 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
-    // variables: Record<string, any> // NOTE: not used yet but
     currentAction?: {
         id: string
         startedAtTimestamp: number
