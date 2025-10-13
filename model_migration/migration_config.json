@@ -1,0 +1,57 @@
+{
+    "migrations": [
+        {
+            "name": "error_tracking",
+            "source_files": ["error_tracking/error_tracking.py"],
+            "target_app": "error_tracking",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "done"
+        },
+        {
+            "name": "batch_exports",
+            "source_files": ["batch_imports.py"],
+            "target_app": "batch_exports",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "skip"
+        },
+        {
+            "name": "links",
+            "source_files": ["link.py"],
+            "target_app": "links",
+            "create_backend_dir": false,
+            "status": "skip"
+        },
+        {
+            "name": "experiments",
+            "source_files": ["experiment.py", "web_experiment.py"],
+            "target_app": "experiments",
+            "create_backend_dir": true,
+            "product_already_exists": true,
+            "status": "todo"
+        },
+        {
+            "name": "messaging",
+            "source_files": ["messaging.py"],
+            "target_app": "messaging",
+            "create_backend_dir": false,
+            "status": "todo"
+        },
+        {
+            "name": "dashboards",
+            "source_files": ["dashboard.py", "dashboard_tile.py"],
+            "target_app": "dashboards",
+            "create_backend_dir": true,
+            "status": "todo"
+        },
+        {
+            "name": "product_analytics_insights",
+            "source_files": ["insight.py", "subscription.py"],
+            "target_app": "product_analytics",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo"
+        }
+    ]
+}
