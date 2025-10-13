@@ -23,10 +23,6 @@ export function RetentionOptions(): JSX.Element {
                 <RetentionReferencePicker />
             </div>
             <div className="flex items-center gap-2">
-                <div>Time window</div>
-                <RetentionTimeWindowModePicker />
-            </div>
-            <div className="flex items-center gap-2">
                 <div>When users return</div>
                 <RetentionCumulativeButton />
                 <div>the interval</div>
@@ -39,6 +35,10 @@ export function RetentionOptions(): JSX.Element {
             <div className="flex items-center gap-2">
                 <div>Mean calculation logic</div>
                 <RetentionMeanDropdown />
+            </div>
+            <div className="flex items-center gap-2">
+                <div>Time window</div>
+                <RetentionTimeWindowModePicker />
             </div>
             <div>
                 <p className="text-secondary mt-4">
