@@ -243,7 +243,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     // Upper bounds dataset
                     datasets.push({
-                        label: '',
+                        label: 'Upper bound',
                         data: upperBounds,
                         borderColor: COLORS.BAR_DEFAULT,
                         borderWidth: 1,
@@ -254,7 +254,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     // Lower bounds dataset with significance-based fill
                     datasets.push({
-                        label: '',
+                        label: 'Lower bound',
                         data: lowerBounds,
                         borderColor: COLORS.BAR_DEFAULT,
                         borderWidth: 1,
@@ -294,7 +294,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     // Main variant data (always on top) with segment styling for interpolated data
                     datasets.push({
-                        label: variantKey,
+                        label: 'Delta',
                         data: values,
                         borderColor: variantColor,
                         borderWidth: 2,
@@ -306,7 +306,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const index = context.dataIndex
                                 const dataPoint = trimmedData[index]
                                 // Use dimmed color for interpolated data points
-                                return dataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.3)
+                                return dataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.5)
                             }
                             return variantColor
                         },
@@ -315,17 +315,23 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const index = context.dataIndex
                                 const dataPoint = trimmedData[index]
                                 // Use dimmed color for interpolated data points
-                                return dataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.3)
+                                return dataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.5)
                             }
                             return variantColor
                         },
                         segment: {
                             borderColor: (ctx: any) => {
                                 // The segment leads FROM p0 TO p1
-                                // Color it dimmed if the end point (p1) has no real data
+                                // Dim the color if the end point (p1) has no real data
                                 const endIndex = ctx.p1DataIndex
                                 const endDataPoint = trimmedData[endIndex]
-                                return endDataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.3)
+                                return endDataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.5)
+                            },
+                            borderDash: (ctx: any) => {
+                                // Make it dashed if the end point (p1) has no real data
+                                const endIndex = ctx.p1DataIndex
+                                const endDataPoint = trimmedData[endIndex]
+                                return endDataPoint?.hasRealData ? [] : [5, 5]
                             },
                         },
                     })

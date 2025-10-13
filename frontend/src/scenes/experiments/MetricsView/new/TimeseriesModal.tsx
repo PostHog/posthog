@@ -45,11 +45,11 @@ export function TimeseriesModal({
                     </div>
                     <LemonDivider vertical className="h-4 self-stretch" />
                     <div className="flex items-center">
-                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
+                        <MetricTitle metric={metric} />
                     </div>
                     <LemonDivider vertical className="h-4 self-stretch" />
                     <div className="flex items-center">
-                        <MetricTitle metric={metric} />
+                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
                     </div>
                 </div>
             }
