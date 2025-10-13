@@ -163,7 +163,8 @@ async function addGroupPropertiesToPostIngestionEvent(
             const group = await groupRepository.fetchGroup(
                 event.teamId as TeamId,
                 columnIndex as GroupTypeIndex,
-                groupKey
+                groupKey,
+                { useReadReplica: true }
             )
 
             const groupProperties = group ? group.group_properties : {}

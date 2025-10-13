@@ -2345,6 +2345,11 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
+class TimeWindowMode(StrEnum):
+    STRICT_CALENDAR_DATES = "strict_calendar_dates"
+    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
+
+
 class RetentionPeriod(StrEnum):
     HOUR = "Hour"
     DAY = "Day"
@@ -10911,6 +10916,9 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
+    timeWindowMode: Optional[TimeWindowMode] = Field(
+        default=None, description="The time window mode to use for retention calculations"
+    )
     totalIntervals: Optional[int] = 8
 
 
