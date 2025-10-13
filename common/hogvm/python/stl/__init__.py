@@ -430,7 +430,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
 
     zone = dt["zone"] if is_hog_datetime(dt) else "UTC"
     if is_hog_datetime(dt):
-        base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+        base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC)
         base_dt = pytz.timezone(zone).localize(base_dt)
     else:
         base_dt = datetime.datetime(dt["year"], dt["month"], dt["day"], tzinfo=pytz.timezone(zone))
