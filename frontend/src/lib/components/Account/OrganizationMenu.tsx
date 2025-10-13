@@ -32,16 +32,16 @@ export function OrganizationMenu({
                     <ButtonPrimitive
                         iconOnly={iconOnly}
                         data-attr="tree-navbar-organization-dropdown-button"
-                        size="sm"
+                        size={iconOnly ? 'base' : 'sm'}
                         {...buttonProps}
-                        className={cn('max-w-[178px]', buttonProps.className)}
+                        className={cn('max-w-[178px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                     >
                         {currentOrganization ? (
                             <UploadedLogo
                                 name={currentOrganization.name}
                                 entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
-                                size={iconOnly ? 'xsmall' : 'medium'}
+                                size={iconOnly ? 'small' : 'medium'}
                             />
                         ) : (
                             <UploadedLogo name="?" entityId="" mediaId="" size={iconOnly ? 'xsmall' : 'medium'} />

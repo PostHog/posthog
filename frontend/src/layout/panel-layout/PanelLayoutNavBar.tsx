@@ -16,7 +16,7 @@ import {
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { DebugNotice } from 'lib/components/DebugNotice'
@@ -267,26 +267,32 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <div
                             className={cn(
                                 'flex gap-1 rounded-md w-full',
-                                isLayoutNavCollapsed && 'flex-col items-center'
+                                isLayoutNavCollapsed && 'flex-col items-center pt-px'
                             )}
                         >
-                            <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
-                                <div>
-                                    <OrganizationMenu
-                                        showName={false}
-                                        buttonProps={{ variant: 'panel' }}
-                                        iconOnly={isLayoutNavCollapsed}
-                                    />
-                                </div>
-                            </Tooltip>
-                            <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
-                                <div>
-                                    <ProjectMenu
-                                        buttonProps={{ className: 'max-w-[175px]', variant: 'panel' }}
-                                        iconOnly={isLayoutNavCollapsed}
-                                    />
-                                </div>
-                            </Tooltip>
+                            <OrganizationMenu
+                                showName={false}
+                                buttonProps={{
+                                    variant: 'panel',
+                                    className: 'px-px',
+                                    iconOnly: isLayoutNavCollapsed,
+                                    tooltipCloseDelayMs: 0,
+                                    tooltipPlacement: 'bottom',
+                                    tooltip: 'Switch organization',
+                                }}
+                                iconOnly={isLayoutNavCollapsed}
+                            />
+                            <ProjectMenu
+                                buttonProps={{
+                                    className: 'max-w-[175px]',
+                                    variant: 'panel',
+                                    tooltipCloseDelayMs: 0,
+                                    iconOnly: isLayoutNavCollapsed,
+                                    tooltipPlacement: 'bottom',
+                                    tooltip: 'Switch project',
+                                }}
+                                iconOnly={isLayoutNavCollapsed}
+                            />
                         </div>
                     </div>
 
