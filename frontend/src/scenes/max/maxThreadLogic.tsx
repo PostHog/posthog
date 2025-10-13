@@ -706,13 +706,13 @@ async function onEventImplementation(
                         toolResult.page_key,
                         breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
                     )
+                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool(s)
                 }
             }
             actions.addMessage({
                 ...parsedResponse,
                 status: 'completed',
             })
-            actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the tool(s)
         } else {
             if (isNotebookUpdateMessage(parsedResponse)) {
                 actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
