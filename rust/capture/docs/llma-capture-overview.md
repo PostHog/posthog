@@ -99,9 +99,16 @@ The `/i/v0/ai` endpoint accepts multipart POST requests with the following struc
 1. **Event Part** (required)
    - `Content-Disposition: form-data; name="event"`
    - `Content-Type: application/json`
-   - Body: Standard PostHog event JSON payload
+   - Body: Standard PostHog event JSON payload (without properties, or with properties that will be rejected if `event.properties` part is also present)
 
-2. **Blob Parts** (optional, multiple allowed)
+2. **Event Properties Part** (optional)
+   - `Content-Disposition: form-data; name="event.properties"`
+   - `Content-Type: application/json`
+   - Body: JSON object containing event properties
+   - Cannot be used together with embedded properties in the event part (request will be rejected with 400 Bad Request)
+   - Properties from this part are merged into the event as the `properties` field
+
+3. **Blob Parts** (optional, multiple allowed)
    - `Content-Disposition: form-data; name="event.properties.<property_name>"; filename="<blob_id>"` (required)
    - `Content-Type: application/octet-stream` (or `application/json`, `text/plain`, etc.) (optional, defaults to `application/octet-stream`)
    - Body: Binary blob data
@@ -127,11 +134,17 @@ Content-Type: application/json
 
 {
   "event": "$ai_generation",
-  "properties": {
-    "model": "gpt-4",
-    "completion_tokens": 150
-  },
+  "distinct_id": "user_123",
   "timestamp": "2024-01-15T10:30:00Z"
+}
+
+------boundary123
+Content-Disposition: form-data; name="event.properties"
+Content-Type: application/json
+
+{
+  "$ai_model": "gpt-4",
+  "completion_tokens": 150
 }
 
 ------boundary123
@@ -164,18 +177,40 @@ To prevent LLM data from accidentally containing the multipart boundary sequence
 
 #### Processing Flow
 
-1. Parse multipart request
-2. Extract event JSON from the "event" part
-3. Collect all blob parts:
-   - Extract property path from each part name
-   - Verify the property doesn't already exist in the event JSON
+1. **Parse multipart request**
+   - Validate that the first part is the `event` part
+   - Extract event JSON from the "event" part
+
+2. **Handle event properties**
+   - If `event.properties` part exists: extract properties JSON from it
+   - If embedded properties exist in the event part AND `event.properties` part exists: reject with 400 Bad Request
+   - Merge properties into the event (from `event.properties` part if present, otherwise use embedded properties)
+
+3. **Validate event structure**
+   - Check event name starts with `$ai_`
+   - Verify required fields (distinct_id, properties, etc.)
+   - Validate required AI properties (e.g., `$ai_model`)
+
+4. **Collect all blob parts**
+   - Extract property path from each part name (e.g., `event.properties.$ai_input`)
    - Store blob data with metadata (property path, content type, size)
-4. Create multipart file containing all blobs with index
-5. Upload single multipart file to S3:
+   - Check for duplicate blob property names
+
+5. **Validate size limits**
+   - Event part ≤ 32KB
+   - Event + properties combined ≤ 960KB
+   - Sum of all parts ≤ 25MB (configurable)
+
+6. **Create multipart file containing all blobs with index**
+
+7. **Upload single multipart file to S3**
    - Generate S3 key using team_id, event_id, and random string
    - Include blob index in S3 object metadata
-6. Add properties to event with S3 URLs including byte ranges
-7. Send modified event to Kafka
+
+8. **Replace blob properties with S3 URLs**
+   - Add properties to event with S3 URLs including byte ranges
+
+9. **Send modified event to Kafka**
 
 ### S3 Storage
 
