@@ -30,7 +30,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "retrieve_revenue_analytics_property_values":
             result = self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)

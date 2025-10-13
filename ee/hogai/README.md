@@ -259,7 +259,7 @@ class YourToolkit(TaxonomyAgentToolkit):
         super().__init__(team)
 
     # You must override this method if you are adding a custom tool that is only applicable to your usecase
-    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
         """Override the handle_tools method to add custom tools."""
         if tool_name == "hello_world":
             result = hello_world_tool(tool_input.arguments.name)

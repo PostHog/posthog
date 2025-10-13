@@ -16,7 +16,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.graph.taxonomy.tools import ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 
@@ -117,9 +117,6 @@ class final_answer(base_final_answer[ErrorTrackingIssueImpactToolOutput]):
 class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
-
-    async def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         return [final_answer]

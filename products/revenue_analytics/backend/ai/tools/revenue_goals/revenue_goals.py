@@ -48,7 +48,7 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "add_revenue_goal":
             result = self._add_revenue_goal(tool_input.arguments)
