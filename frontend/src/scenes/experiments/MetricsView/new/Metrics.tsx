@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconList } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -26,7 +25,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         secondaryMetricsResultsErrors,
         primaryMetricsResultsErrors,
         hasMinimumExposureForResults,
-        featureFlags,
     } = useValues(experimentLogic)
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
@@ -69,7 +67,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const hasSomeResults =
         results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
         hasMinimumExposureForResults
-    const hasHowToReadTooltip = featureFlags[FEATURE_FLAGS.HOW_TO_READ_METRICS_EXPLANATION] === 'test'
 
     return (
         <div className="mb-4 -mt-2">
@@ -96,7 +93,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
-                        {hasSomeResults && !isSecondary && hasHowToReadTooltip && <HowToReadTooltip />}
+                        {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>
 
@@ -142,7 +139,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                     metric: metrics[0] as ExperimentMetric,
                                 }}
                                 experiment={experiment}
-                                isSecondary={!!isSecondary}
                             />
                         </div>
                     )}

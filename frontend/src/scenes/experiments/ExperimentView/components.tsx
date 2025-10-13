@@ -67,9 +67,8 @@ import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
-import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
-import { getExperimentInsightColour } from '../utils'
+import { getVariantColor } from '../utils'
 
 // Utility function to create MaxTool configuration for experiment survey creation
 export function createMaxToolExperimentSurveyConfig(
@@ -152,17 +151,15 @@ export function createMaxToolExperimentSurveyConfig(
 export function VariantTag({
     experimentId,
     variantKey,
-    muted = false,
     fontSize,
     className,
 }: {
     experimentId: ExperimentIdType
     variantKey: string
-    muted?: boolean
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, getInsightType } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic({ experimentId }))
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -176,6 +173,10 @@ export function VariantTag({
         return <></>
     }
 
+    const variantColor = experiment.parameters?.feature_flag_variants
+        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+        : 'var(--text-muted)'
+
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
             <span className={clsx('flex items-center min-w-0', className)}>
@@ -183,13 +184,7 @@ export function VariantTag({
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        backgroundColor: getExperimentInsightColour(
-                            getIndexForVariant(
-                                legacyPrimaryMetricsResults[0],
-                                variantKey,
-                                getInsightType(experiment.metrics[0])
-                            )
-                        ),
+                        backgroundColor: variantColor,
                     }}
                 />
                 <LemonTag type="option" className="ml-2">
@@ -201,8 +196,16 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
+            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
+            {usesNewQueryRunner && (
+                <div
+                    className="w-2 h-2 rounded-full shrink-0"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ backgroundColor: variantColor }}
+                />
+            )}
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
+                className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >

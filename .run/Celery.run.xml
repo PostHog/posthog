@@ -14,7 +14,7 @@
       <env name="REPLAY_EMBEDDINGS_ALLOWED_TEAM" value="1,2,3" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
-    <option name="SDK_NAME" value="Python 3.11 (posthog)" />
+      <option name="SDK_NAME" value="Python 3.12 (posthog)"/>
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
