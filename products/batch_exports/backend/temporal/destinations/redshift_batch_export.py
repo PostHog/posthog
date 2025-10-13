@@ -985,7 +985,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 redshift_client.managed_table(
                     inputs.table.schema_name,
                     stage_table_name,
-                    table_fields,
+                    table_schemas.stage_table_schema,
                     create=merge_settings.requires_merge,
                     delete=merge_settings.requires_merge,
                     primary_key=primary_key,
@@ -1177,7 +1177,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
-        json_columns = ("properties", "person_properties", "set", "set_once", "urls")
+        json_columns = ("properties", "person_properties", "set", "set_once")
         transformer = ParquetStreamTransformer(
             schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=json_columns),
             compression="zstd",
