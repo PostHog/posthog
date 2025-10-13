@@ -2,12 +2,18 @@ from itertools import cycle
 from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from posthog.test.base import (
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
@@ -138,7 +144,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team,
             properties={"$host": "us.posthog.com"},
         )
-        await self.flush_persons_and_events()
+        await sync_to_async(flush_persons_and_events)()
 
     async def _run_assistant_graph(
         self,
