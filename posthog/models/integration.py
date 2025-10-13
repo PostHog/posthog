@@ -1673,6 +1673,109 @@ class GitHubIntegration:
                 "status_code": response.status_code,
             }
 
+    def search_code(self, query: str, repository: str | None = None, owner: str | None = None) -> dict[str, Any]:
+        """Search code across repositories using GitHub Code Search API."""
+        if self.access_token_expired():
+            self.refresh_access_token()
+
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            return {
+                "success": False,
+                "error": "No access token available",
+            }
+
+        search_query_parts = [query]
+        if repository:
+            if owner:
+                search_query_parts.append(f"repo:{owner}/{repository}")
+            else:
+                org = self.organization()
+                search_query_parts.append(f"repo:{org}/{repository}")
+        elif owner:
+            search_query_parts.append(f"user:{owner}")
+
+        search_query = " ".join(search_query_parts)
+
+        return self._execute_code_search(
+            search_query=search_query,
+            access_token=access_token,
+            team_id=self.integration.team_id,
+            integration_id=self.integration.id,
+        )
+
+    @classmethod
+    def search_code_with_token(
+        cls, query: str, token: str, repository: str | None = None, owner: str | None = None
+    ) -> dict[str, Any]:
+        """Search code using a provided GitHub token (e.g., GITHUB_TOKEN from settings)."""
+        search_query_parts = [query]
+        if repository:
+            if owner:
+                search_query_parts.append(f"repo:{owner}/{repository}")
+            else:
+                search_query_parts.append(f"repo:{repository}")
+        elif owner:
+            search_query_parts.append(f"user:{owner}")
+
+        search_query = " ".join(search_query_parts)
+
+        return cls._execute_code_search(
+            search_query=search_query,
+            access_token=token,
+            team_id=None,
+            integration_id=None,
+        )
+
+    @staticmethod
+    def _execute_code_search(
+        search_query: str, access_token: str, team_id: int | None = None, integration_id: int | None = None
+    ) -> dict[str, Any]:
+        """Execute GitHub code search with given parameters."""
+        try:
+            response = requests.get(
+                "https://api.github.com/search/code",
+                params={"q": search_query},
+                headers={
+                    "Authorization": f"token {access_token}",
+                    "Accept": "application/vnd.github.text-match+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "success": True,
+                    "total_count": data.get("total_count", 0),
+                    "incomplete_results": data.get("incomplete_results", False),
+                    "items": data.get("items", []),
+                }
+            else:
+                logger.warning(
+                    "github_code_search_failed",
+                    status_code=response.status_code,
+                    team_id=team_id,
+                    integration_id=integration_id,
+                )
+                return {
+                    "success": False,
+                    "error": f"GitHub API returned status {response.status_code}",
+                    "status_code": response.status_code,
+                }
+        except requests.exceptions.RequestException as e:
+            logger.exception(
+                "github_code_search_request_failed",
+                error=str(e),
+                team_id=team_id,
+                integration_id=integration_id,
+            )
+            return {
+                "success": False,
+                "error": f"Failed to search GitHub: {str(e)}",
+            }
+
 
 class MetaAdsIntegration:
     integration: Integration

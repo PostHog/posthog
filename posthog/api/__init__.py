@@ -60,6 +60,7 @@ from . import (
     exports,
     feature_flag,
     flag_value,
+    github_search,
     hog,
     hog_function,
     hog_function_template,
@@ -719,6 +720,13 @@ environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"github_search",
+    github_search.GitHubSearchViewSet,
+    "project_github_search",
     ["team_id"],
 )
 
