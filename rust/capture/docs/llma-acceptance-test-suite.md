@@ -47,6 +47,7 @@ This document describes the Python acceptance test suite for the LLM Analytics p
 - **Validation**: Use PostHog query API to fetch processed event, verify blob placeholders correctly inserted
 - **Tests Implemented**:
   - `test_basic_ai_generation_event`: Full end-to-end event processing
+  - `test_all_accepted_ai_event_types`: Verify all six supported AI event types are accepted and stored
 
 ### Phase 2: Basic S3 Uploads
 

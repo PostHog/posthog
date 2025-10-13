@@ -668,6 +668,65 @@ async fn test_invalid_event_name_custom_event_returns_400() {
 }
 
 #[tokio::test]
+async fn test_all_allowed_ai_event_types_accepted() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let allowed_events = vec![
+        "$ai_generation",
+        "$ai_trace",
+        "$ai_span",
+        "$ai_embedding",
+        "$ai_metric",
+        "$ai_feedback",
+    ];
+
+    for event_name in allowed_events {
+        let properties = json!({
+            "$ai_model": "test-model"
+        });
+
+        let form = create_ai_event_form(event_name, "test_user", properties);
+
+        let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Event type {} should be accepted",
+            event_name
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_invalid_ai_event_type_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let invalid_events = vec![
+        "$ai_unknown",
+        "$ai_custom",
+        "$ai_",
+    ];
+
+    for event_name in invalid_events {
+        let properties = json!({
+            "$ai_model": "test-model"
+        });
+
+        let form = create_ai_event_form(event_name, "test_user", properties);
+
+        let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "Event type {} should be rejected",
+            event_name
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_missing_required_ai_properties_returns_400() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);

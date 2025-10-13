@@ -13,43 +13,101 @@ This approach allows us to capture comprehensive LLM usage data without impactin
 
 ## Supported Events
 
-### Events with Large Context Payloads
+The LLM Analytics capture endpoint supports four primary AI event types. Events are sent to the `/i/v0/ai` endpoint with multipart payloads to handle large context data efficiently.
 
-These events contain substantial LLM context that requires blob storage:
+### `$ai_generation`
 
-- **`$ai_trace`**
-  - `$ai_input_state`
-  - `$ai_output_state`
+A generation represents a single call to an LLM (e.g., a chat completion request).
 
-- **`$ai_span`**
-  - `$ai_input_state`
-  - `$ai_output_state`
+**Core Properties:**
 
-- **`$ai_generation`**
-  - `$ai_input` - Can contain 300,000+ LLM tokens, making blob storage essential
-  - `$ai_output_choices`
+- `$ai_trace_id` (required) - UUID to group AI events (e.g., conversation_id)
+- `$ai_model` (required) - The model used (e.g., "gpt-4o", "claude-3-opus")
+- `$ai_provider` (required) - The LLM provider (e.g., "openai", "anthropic", "gemini")
+- `$ai_input` - List of messages sent to the LLM (can be stored as blob)
+  - Can contain 300,000+ tokens, making blob storage essential
+  - Each message has a `role` ("user", "system", or "assistant") and `content` array
+  - Content types: text, image URLs, function calls
+- `$ai_output_choices` - List of response choices from the LLM (can be stored as blob)
+  - Each choice has a `role` and `content` array
+- `$ai_input_tokens` - Number of tokens in the input
+- `$ai_output_tokens` - Number of tokens in the output
+- `$ai_span_id` (optional) - Unique identifier for this generation
+- `$ai_span_name` (optional) - Name given to this generation
+- `$ai_parent_id` (optional) - Parent span ID for tree view grouping
+- `$ai_latency` (optional) - LLM call latency in seconds
+- `$ai_http_status` (optional) - HTTP status code of the response
+- `$ai_base_url` (optional) - Base URL of the LLM provider
+- `$ai_request_url` (optional) - Full URL of the request
+- `$ai_is_error` (optional) - Boolean indicating if the request was an error
+- `$ai_error` (optional) - Error message or object
 
-- **`$ai_embedding`**
-  - `$ai_input`
-  - Note: Output data is not currently included in the event payload, though this may be added in future iterations
+**Cost Properties** (optional, auto-calculated from model and token counts if not provided):
 
-### Standard Events
+- `$ai_input_cost_usd` - Cost in USD of input tokens
+- `$ai_output_cost_usd` - Cost in USD of output tokens
+- `$ai_total_cost_usd` - Total cost in USD
 
-These events can be processed through the regular pipeline without blob storage:
+**Cache Properties** (optional):
 
-- **`$ai_metric`** - Lightweight metric data that doesn't require offloading
-- **`$ai_feedback`** - User feedback events that remain small enough for standard processing
+- `$ai_cache_read_input_tokens` - Number of tokens read from cache
+- `$ai_cache_creation_input_tokens` - Number of tokens written to cache (Anthropic-specific)
 
-### Future Considerations
+**Model Parameters** (optional):
 
-The event schema is designed to accommodate future multimodal content types, including:
+- `$ai_temperature` - Temperature parameter used
+- `$ai_stream` - Whether the response was streamed
+- `$ai_max_tokens` - Maximum tokens setting
+- `$ai_tools` - Tools/functions available to the LLM
 
-- Images
-- Audio
-- Video
-- Files
+### `$ai_trace`
 
-These additions will leverage the same blob storage infrastructure when implemented.
+A trace represents a complete AI interaction flow (e.g., a full conversation or agent execution).
+
+**Key Properties:**
+
+- `$ai_trace_id` (required) - UUID identifying this trace
+- `$ai_input_state` - Initial state of the trace (can be stored as blob)
+- `$ai_output_state` - Final state of the trace (can be stored as blob)
+
+### `$ai_span`
+
+A span represents a logical unit of work within a trace (e.g., a tool call, a retrieval step).
+
+**Key Properties:**
+
+- `$ai_trace_id` (required) - Parent trace UUID
+- `$ai_span_id` (required) - Unique identifier for this span
+- `$ai_parent_id` (optional) - Parent span ID for nesting
+- `$ai_span_name` - Name describing this span
+- `$ai_input_state` - Input state for this span (can be stored as blob)
+- `$ai_output_state` - Output state for this span (can be stored as blob)
+
+### `$ai_embedding`
+
+An embedding event captures vector generation for semantic search or RAG systems.
+
+**Key Properties:**
+
+- `$ai_trace_id` (required) - Parent trace UUID
+- `$ai_model` (required) - Embedding model used
+- `$ai_provider` (required) - Provider (e.g., "openai", "cohere")
+- `$ai_input` - Text or data being embedded (can be stored as blob)
+- `$ai_input_tokens` - Number of tokens in the input
+- Note: Output vectors are typically not captured in events
+
+### Standard Events (No Blob Storage Required)
+
+These events are lightweight and processed through the regular pipeline:
+
+- **`$ai_metric`** - Performance metrics, usage statistics
+- **`$ai_feedback`** - User feedback on AI responses
+
+### Blob Storage Strategy
+
+Properties that can contain large payloads (marked as "can be stored as blob" above) should be sent as separate multipart parts with names like `event.properties.$ai_input` or `event.properties.$ai_output_choices`. This keeps the event JSON small while allowing arbitrarily large context data to be stored efficiently in S3.
+
+**Reference:** [PostHog LLM Analytics Manual Capture Documentation](https://posthog.com/docs/llm-analytics/manual-capture)
 
 ## General Architecture
 

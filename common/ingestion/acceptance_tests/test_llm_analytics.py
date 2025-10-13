@@ -540,8 +540,12 @@ class TestLLMAnalytics:
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
 
-    def test_ai_generation_event_with_different_content_types(self, client, project_id, api_key):
+    def test_ai_generation_event_with_different_content_types(self, shared_org_project):
         """Test sending events with blobs using different supported content types."""
+        client = shared_org_project["client"]
+        project_id = shared_org_project["project_id"]
+        api_key = shared_org_project["api_key"]
+
         base_distinct_id = f"user_{uuid.uuid4()}"
 
         # Send Event 1: application/json blob
@@ -667,3 +671,122 @@ class TestLLMAnalytics:
         logger.info("All three content type events verified successfully")
 
         # TODO: Verify blob properties have S3 URLs once S3 upload is implemented
+
+    def test_all_accepted_ai_event_types(self, shared_org_project):
+        """Test that all six accepted AI event types are successfully captured and stored."""
+        client = shared_org_project["client"]
+        project_id = shared_org_project["project_id"]
+        api_key = shared_org_project["api_key"]
+
+        base_distinct_id = f"user_{uuid.uuid4()}"
+
+        # Define all event types with their specific properties
+        events_to_test = [
+            {
+                "event_type": "$ai_generation",
+                "distinct_id": f"{base_distinct_id}_generation",
+                "properties": {
+                    "$ai_model": "test-model",
+                    "$ai_provider": "test-provider",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 50,
+                },
+            },
+            {
+                "event_type": "$ai_trace",
+                "distinct_id": f"{base_distinct_id}_trace",
+                "properties": {
+                    "$ai_model": "test-model",
+                    "$ai_provider": "test-provider",
+                    "$ai_trace_id": str(uuid.uuid4()),
+                },
+            },
+            {
+                "event_type": "$ai_span",
+                "distinct_id": f"{base_distinct_id}_span",
+                "properties": {
+                    "$ai_model": "test-model",
+                    "$ai_provider": "test-provider",
+                    "$ai_trace_id": str(uuid.uuid4()),
+                    "$ai_span_id": str(uuid.uuid4()),
+                },
+            },
+            {
+                "event_type": "$ai_embedding",
+                "distinct_id": f"{base_distinct_id}_embedding",
+                "properties": {
+                    "$ai_model": "test-model",
+                    "$ai_provider": "test-provider",
+                    "$ai_input_tokens": 75,
+                },
+            },
+            {
+                "event_type": "$ai_metric",
+                "distinct_id": f"{base_distinct_id}_metric",
+                "properties": {
+                    "$ai_model": "test-model",
+                    "$ai_provider": "test-provider",
+                    "$ai_metric_type": "latency",
+                    "$ai_metric_value": 1.23,
+                },
+            },
+            {
+                "event_type": "$ai_feedback",
+                "distinct_id": f"{base_distinct_id}_feedback",
+                "properties": {
+                    "$ai_model": "test-model",
+                    "$ai_provider": "test-provider",
+                    "$ai_feedback_score": 5,
+                    "$ai_feedback_comment": "Great response",
+                },
+            },
+        ]
+
+        # Send all events
+        for event_spec in events_to_test:
+            event_type = event_spec["event_type"]
+            distinct_id = event_spec["distinct_id"]
+            logger.info(f"Sending {event_type} event")
+
+            event_data = {
+                "event": event_type,
+                "distinct_id": distinct_id,
+                "$set": {"test_user": True, "event_type_test": event_type},
+            }
+
+            fields = {
+                "event": ("event", json.dumps(event_data), "application/json"),
+                "event.properties": ("event.properties", json.dumps(event_spec["properties"]), "application/json"),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            response = requests.post(
+                f"{client.base_url}/i/v0/ai",
+                data=multipart_data,
+                headers={"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {api_key}"},
+            )
+
+            assert (
+                response.status_code == 200
+            ), f"Expected 200 for {event_type}, got {response.status_code}: {response.text}"
+            response_data = response.json()
+            assert len(response_data["accepted_parts"]) == 2
+            logger.info(f"{event_type} event sent successfully")
+
+        logger.info("All event types sent successfully, now querying to verify storage")
+
+        # Query and verify all events
+        for event_spec in events_to_test:
+            event_type = event_spec["event_type"]
+            distinct_id = event_spec["distinct_id"]
+            logger.info(f"Querying {event_type} event with distinct_id {distinct_id}")
+
+            event = client.wait_for_event(project_id, event_type, distinct_id)
+            assert event is not None, f"Event {event_type} not found"
+            assert event["event"] == event_type
+            assert event["distinct_id"] == distinct_id
+            assert event["properties"]["$ai_model"] == "test-model"
+            assert event["properties"]["$ai_provider"] == "test-provider"
+            logger.info(f"{event_type} event verified successfully")
+
+        logger.info("All six AI event types verified successfully")

@@ -375,9 +375,23 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         ));
     }
 
-    if !event_name.starts_with("$ai_") {
+    // Only accept specific AI event types
+    const ALLOWED_AI_EVENTS: [&str; 6] = [
+        "$ai_generation",
+        "$ai_trace",
+        "$ai_span",
+        "$ai_embedding",
+        "$ai_metric",
+        "$ai_feedback",
+    ];
+
+    if !ALLOWED_AI_EVENTS.contains(&event_name) {
         return Err(CaptureError::RequestDecodingError(
-            format!("Event name must start with '$ai_', got '{}'", event_name),
+            format!(
+                "Event name must be one of: {}, got '{}'",
+                ALLOWED_AI_EVENTS.join(", "),
+                event_name
+            ),
         ));
     }
 

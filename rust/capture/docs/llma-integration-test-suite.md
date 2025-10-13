@@ -67,11 +67,13 @@ This document describes the Rust integration test suite for the LLM Analytics ca
 
 #### Scenario 1.4: Basic Validation
 
-- **Test**: Send events with invalid names (not starting with `$ai_`), duplicate blob properties
-- **Validation**: Invalid events rejected, valid events processed, proper error messages
+- **Test**: Send events with valid/invalid event types, missing required properties, duplicate blob properties
+- **Validation**: Only accepted AI event types (`$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, `$ai_feedback`) are processed; invalid events rejected with proper error messages
 - **Tests Implemented**:
+  - `test_all_allowed_ai_event_types_accepted`: All six accepted event types pass validation
+  - `test_invalid_ai_event_type_returns_400`: Invalid AI event types rejected (e.g., `$ai_unknown`, `$ai_custom`)
   - `test_invalid_event_name_not_ai_prefix_returns_400`: Non-AI event names rejected
-  - `test_invalid_event_name_regular_event_returns_400`: Regular events rejected
+  - `test_invalid_event_name_regular_event_returns_400`: Regular events rejected (e.g., `$pageview`)
   - `test_invalid_event_name_custom_event_returns_400`: Custom events rejected
   - `test_missing_required_ai_properties_returns_400`: Missing `$ai_model`
   - `test_empty_event_name_returns_400`: Empty event names
