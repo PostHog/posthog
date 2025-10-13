@@ -102,12 +102,18 @@ The `/i/v0/ai` endpoint accepts multipart POST requests with the following struc
    - Body: Standard PostHog event JSON payload
 
 2. **Blob Parts** (optional, multiple allowed)
-   - `Content-Disposition: form-data; name="event.properties.<property_name>"; filename="<blob_id>"`
-   - `Content-Type: application/octet-stream` (or `application/json`, `text/plain`, etc.)
-   - `Content-Encoding: gzip` (optional, for compressed data)
-   - `Content-Length: <size>` (size of the blob part in bytes)
-   - Body: Binary blob data (optionally gzip compressed)
+   - `Content-Disposition: form-data; name="event.properties.<property_name>"; filename="<blob_id>"` (required)
+   - `Content-Type: application/octet-stream` (or `application/json`, `text/plain`, etc.) (optional, defaults to `application/octet-stream`)
+   - Body: Binary blob data
    - The part name follows the JSON path in the event object (e.g., `event.properties.$ai_input_state`)
+
+**Allowed Part Headers:**
+
+- `Content-Disposition` (required for all parts)
+- `Content-Type` (optional for blob parts, defaults to `application/octet-stream`)
+- No other headers are supported on individual parts (e.g., `Content-Encoding` is not allowed on parts)
+
+**Note:** Individual parts cannot have their own compression. To compress the entire request payload, use the `Content-Encoding: gzip` header at the HTTP request level.
 
 #### Example Request Structure
 
@@ -131,22 +137,18 @@ Content-Type: application/json
 ------boundary123
 Content-Disposition: form-data; name="event.properties.$ai_input"; filename="blob_abc123"
 Content-Type: application/json
-Content-Encoding: gzip
-Content-Length: 2048
 
-[Gzipped JSON LLM input data]
+[JSON LLM input data]
 
 ------boundary123
 Content-Disposition: form-data; name="event.properties.$ai_output_choices"; filename="blob_def456"
 Content-Type: application/json
-Content-Length: 5120
 
-[Uncompressed JSON LLM output data]
+[JSON LLM output data]
 
 ------boundary123
 Content-Disposition: form-data; name="event.properties.$ai_embedding_vector"; filename="blob_ghi789"
 Content-Type: application/octet-stream
-Content-Length: 16384
 
 [Binary embedding vector data]
 ------boundary123--
@@ -279,42 +281,44 @@ The following content types are accepted for blob parts:
 
 #### Content Type Handling
 
-- Blob parts must include a Content-Type header
+- Blob parts may include a Content-Type header (defaults to `application/octet-stream` if not specified)
 - The Content-Type is stored within the multipart file for each part
 - Content-Type is used by the evaluation service to determine how to parse each blob within the multipart file
 
 ### Compression
 
-#### Client-side Compression
+#### Request-Level Compression
 
-SDKs should compress blob payloads before transmission to reduce bandwidth usage:
+The endpoint supports request-level gzip compression to reduce bandwidth usage:
 
-- Compression algorithm: gzip
-- Compressed parts should include `Content-Encoding: gzip` header
-- Original Content-Type should be preserved (e.g., `Content-Type: application/json` with `Content-Encoding: gzip`)
+- **Compression algorithm**: gzip
+- **How to compress**: Add `Content-Encoding: gzip` header to the HTTP request and compress the entire multipart request body
+- **Server behavior**: The capture service will detect the `Content-Encoding: gzip` header and decompress the entire request before processing the multipart data
+- **Recommendation**: SDKs should compress large requests (e.g., > 10KB) to minimize network transfer time
 
-#### Server-side Compression
+**Example Compressed Request:**
 
-For uncompressed data received from SDKs:
+```http
+POST /i/v0/ai HTTP/1.1
+Content-Type: multipart/form-data; boundary=----boundary123
+Content-Encoding: gzip
 
-- The capture service will automatically compress the following content types:
+[Gzipped multipart request body]
+```
+
+The entire multipart body (including all parts) is compressed as a single gzip stream.
+
+#### Server-side Compression (S3 Storage)
+
+For data received from SDKs (after request decompression, if any):
+
+- The capture service will automatically compress the following content types before storing in S3:
   - `application/json`
   - `text/*` (all text subtypes)
 - Binary formats (`application/octet-stream`) will not be automatically compressed
 - Compression is applied before storing in S3
 - S3 object metadata will indicate if server-side compression was applied
-
-#### Example Headers
-
-Compressed blob part from SDK:
-
-```http
-Content-Disposition: form-data; name="event.properties.$ai_input"; filename="blob_abc123"
-Content-Type: application/json
-Content-Encoding: gzip
-
-[Gzipped JSON data]
-```
+- This compression is transparent to clients and reduces storage costs
 
 ## Reliability Concerns
 
