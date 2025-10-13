@@ -692,9 +692,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_result.number_of_samples - control_result.sum, 6)  # failure_count
         self.assertEqual(test_result.number_of_samples - test_result.sum, 6)  # failure_count
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_conversion_window(self):
+    def test_funnel_metric_with_conversion_window(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -783,7 +784,11 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query,
+            team=self.team,
+            use_new_query_builder=use_new_query_builder,
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -800,9 +805,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # success_count
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # failure_count
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_custom_conversion_window(self):
+    def test_funnel_metric_with_custom_conversion_window(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -907,7 +913,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -924,9 +932,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successes within 24h window
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures outside window
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_action(self):
+    def test_funnel_metric_with_action(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1015,7 +1024,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1031,9 +1042,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_duplicate_events(self):
+    def test_funnel_metric_duplicate_events(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1123,7 +1135,11 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query,
+            team=self.team,
+            use_new_query_builder=use_new_query_builder,
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1139,9 +1155,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_events_out_of_order(self):
+    def test_funnel_metric_events_out_of_order(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1230,7 +1247,11 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query,
+            team=self.team,
+            use_new_query_builder=use_new_query_builder,
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1246,9 +1267,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_many_steps(self):
+    def test_funnel_metric_with_many_steps(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1331,7 +1353,11 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query,
+            team=self.team,
+            use_new_query_builder=use_new_query_builder,
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1347,9 +1373,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_step_property_filter(self):
+    def test_funnel_metric_with_step_property_filter(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1472,9 +1499,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_multiple_similar_steps(self):
+    def test_funnel_metric_with_multiple_similar_steps(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1599,7 +1627,11 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query,
+            team=self.team,
+            use_new_query_builder=use_new_query_builder,
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1615,9 +1647,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_unordered_steps(self):
+    def test_funnel_metric_with_unordered_steps(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -1707,7 +1740,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1723,9 +1758,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_ordered_vs_unordered_comparison(self):
+    def test_funnel_metric_ordered_vs_unordered_comparison(self, name, use_new_query_builder):
         """Test that ordered and unordered funnels behave differently when events are out of order"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1865,7 +1901,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [ordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         ordered_result = query_runner.calculate()
 
         # Test with unordered funnel (should succeed)
@@ -1881,7 +1919,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [unordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         unordered_result = query_runner.calculate()
 
         # With ordered funnel, the out-of-order events should not be counted as success
