@@ -537,10 +537,6 @@ The capture service enforces strict validation on incoming events:
    - Blob properties must match expected blob fields for each event type
    - Non-conforming events are rejected with detailed validation errors
 
-## Open Questions
-
-- Should the capture service validate Content-Types of blob parts against a whitelist, or accept any Content-Type provided by the client?
-
 ## Rejected Solutions
 
 ### WarpStream-based Processing
