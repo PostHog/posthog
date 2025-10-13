@@ -279,7 +279,7 @@ const sparklineMock: MockSignature = async (req, res, ctx) => {
     return res(ctx.json(results))
 }
 
-const attributesMock: MockSignature = async (req, res, ctx) => {
+const attributesMock: MockSignature = async (_req, res, ctx) => {
     await delayIfNotTestRunner()
     const results = Object.keys(keysAndValues).map((key) => ({
         id: key,
