@@ -1,6 +1,9 @@
+import os
+import re
 import json
 from collections import defaultdict
 from datetime import datetime
+from tempfile import mkstemp
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
@@ -122,13 +125,37 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
         block_deleted_error_counter = 0
 
         for block in input.blocks:
+            _, _, path, _, query, _ = urlparse(block.url)
+            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
+
+            if not match:
+                raise Exception()
+
+            start_byte, end_byte = int(match.group(1)), int(match.group(2))
+            expected_length = end_byte - start_byte + 1
+            key = path.lstrip("/")
+
             try:
-                await storage.delete_block(block.url)
+                _, tmpfile = mkstemp()
+
+                await storage.download_file(key, tmpfile)
+
+                with open(tmpfile, "rb+") as fp:
+                    fp.seek(start_byte)
+                    fp.write("\0" * expected_length)
+
+                await storage.upload_file(key, tmpfile)
+
                 logger.info(f"Deleted block at {block.url}")
                 block_deleted_counter += 1
-            except session_recording_v2_object_storage.BlockDeleteError:
-                logger.warning(f"Failed to delete block at {block.url}, skipping...")
+            except session_recording_v2_object_storage.FileDownloadError:
+                logger.warning(f"Failed to download block at {block.url}, skipping...")
                 block_deleted_error_counter += 1
+            except session_recording_v2_object_storage.FileUploadError:
+                logger.warning(f"Failed to upload block at {block.url}, skipping...")
+                block_deleted_error_counter += 1
+            finally:
+                os.remove(tmpfile)
 
     get_block_deleted_counter().add(block_deleted_counter)
     get_block_deleted_error_counter().add(block_deleted_error_counter)
