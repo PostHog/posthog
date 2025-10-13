@@ -243,7 +243,9 @@ export const SessionRecordingPreview = memo(
 
         const iconClassNames = 'text-secondary shrink-0'
         const ttlColor =
-            recording.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? '#f63b3bff' : 'currentColor'
+            recording.recording_ttl && recording.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
+                ? '#f63b3bff'
+                : 'currentColor'
 
         return (
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -296,12 +298,14 @@ export const SessionRecordingPreview = memo(
                                             <span>{recording.keypress_count}</span>
                                         </span>
                                     </Tooltip>
-                                    <Tooltip className="flex items-center" title="Days until recording expires">
-                                        <span className="flex gap-x-0.5">
-                                            <IconHourglass fill={ttlColor} className={iconClassNames} />
-                                            <span style={{ color: ttlColor }}>{recording.recording_ttl}d</span>
-                                        </span>
-                                    </Tooltip>
+                                    {recording.recording_ttl && (
+                                        <Tooltip className="flex items-center" title="Days until recording expires">
+                                            <span className="flex gap-x-0.5">
+                                                <IconHourglass fill={ttlColor} className={iconClassNames} />
+                                                <span style={{ color: ttlColor }}>{recording.recording_ttl}d</span>
+                                            </span>
+                                        </Tooltip>
+                                    )}
                                 </div>
                             </div>
 
