@@ -75,7 +75,7 @@ impl MixpanelEvent {
             let properties = mx.properties.other;
             let properties = map_geoip_props(properties);
             let properties = remove_mp_props(properties);
-            let properties = add_source_data(properties);
+            let properties = add_source_data(properties, context.job_id);
 
             let raw_event = RawEvent {
                 token: Some(token.clone()),
@@ -221,11 +221,15 @@ fn remove_mp_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
     props
 }
 
-fn add_source_data(mut props: HashMap<String, Value>) -> HashMap<String, Value> {
+fn add_source_data(mut props: HashMap<String, Value>, job_id: uuid::Uuid) -> HashMap<String, Value> {
     props.insert("historical_migration".to_string(), Value::Bool(true));
     props.insert(
         "analytics_source".to_string(),
         Value::String("mixpanel".to_string()),
+    );
+    props.insert(
+        "$import_job_id".to_string(),
+        Value::String(job_id.to_string()),
     );
     props
 }

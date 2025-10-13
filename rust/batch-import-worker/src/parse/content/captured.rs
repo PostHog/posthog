@@ -17,6 +17,12 @@ pub fn captured_parse_fn(
 
         //TODO - HACK: relevant customer specifically asked for this, but it's not right in the general case
         raw.map_property("organization_id", try_parse_to_num);
+
+        raw.properties.insert(
+            "$import_job_id".to_string(),
+            Value::String(context.job_id.to_string()),
+        );
+
         let raw = raw;
 
         let Some(distinct_id) = raw.extract_distinct_id() else {

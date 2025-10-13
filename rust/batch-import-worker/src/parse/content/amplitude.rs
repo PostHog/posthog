@@ -152,6 +152,7 @@ fn create_group_identify_event(
     group_key: String,
     changes: GroupChanges,
     timestamp: chrono::DateTime<chrono::Utc>,
+    job_id: uuid::Uuid,
 ) -> Result<InternallyCapturedEvent, Error> {
     let event_uuid = Uuid::now_v7();
 
@@ -178,6 +179,10 @@ fn create_group_identify_event(
     properties.insert(
         "analytics_source".to_string(),
         Value::String("amplitude".to_string()),
+    );
+    properties.insert(
+        "$import_job_id".to_string(),
+        Value::String(job_id.to_string()),
     );
 
     let raw_event = RawEvent {
@@ -453,6 +458,10 @@ impl AmplitudeEvent {
                 "analytics_source".to_string(),
                 Value::String("amplitude".to_string()),
             );
+            properties.insert(
+                "$import_job_id".to_string(),
+                Value::String(context.job_id.to_string()),
+            );
 
             // Add groups to the regular event properties BEFORE creating RawEvent
             if !amp.groups.is_empty() {
@@ -545,6 +554,7 @@ impl AmplitudeEvent {
                                 changed_group.group_key,
                                 changed_group.changes,
                                 timestamp,
+                                context.job_id,
                             ) {
                                 Ok(group_event) => {
                                     events.push(group_event);
@@ -639,6 +649,7 @@ mod tests {
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -999,6 +1010,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1074,6 +1086,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: cache.clone(),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1116,6 +1129,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1155,6 +1169,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1218,6 +1233,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1274,6 +1290,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: false, // Disabled
@@ -1327,6 +1344,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1424,6 +1442,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: group_cache.clone(),
             import_events: true,
@@ -1498,6 +1517,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: group_cache.clone(),
             import_events: true,
@@ -1566,6 +1586,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1629,6 +1650,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1688,6 +1710,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1738,6 +1761,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
