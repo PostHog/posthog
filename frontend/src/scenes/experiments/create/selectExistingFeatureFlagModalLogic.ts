@@ -79,9 +79,10 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
                 loadFeatureFlags: async () => {
-                    const response = await api.get(
-                        `api/projects/@current/feature_flags/?${toParams(values.paramsFromFilters)}`
-                    )
+                    const url = `api/projects/@current/experiments/eligible_feature_flags/?${toParams({
+                        ...values.paramsFromFilters,
+                    })}`
+                    const response = await api.get(url)
                     return response
                 },
             },

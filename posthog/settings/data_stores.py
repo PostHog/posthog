@@ -128,11 +128,14 @@ if not persons_db_writer_url and DEBUG and not TEST:
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
 
 if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(default=persons_db_writer_url, conn_max_age=0)
+    DATABASES["persons_db_writer"] = dj_database_url.config(
+        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
 
     # Fall back to the writer URL if no reader URL is set
-    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or persons_db_writer_url
-    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    DATABASES["persons_db_reader"] = dj_database_url.config(
+        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
