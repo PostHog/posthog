@@ -97,6 +97,7 @@ export const logsLogic = kea<logsLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
+        setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
     }),
 
     reducers({
@@ -263,10 +264,12 @@ export const logsLogic = kea<logsLogicType>([
                 let lastTime = ''
                 let i = -1
                 const labels: string[] = []
+                const dates: string[] = []
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
                         }
@@ -292,7 +295,7 @@ export const logsLogic = kea<logsLogicType>([
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
-                return { data, labels }
+                return { data, labels, dates }
             },
         ],
     })),
@@ -325,6 +328,17 @@ export const logsLogic = kea<logsLogicType>([
         },
         zoomDateRange: ({ multiplier }) => {
             const newDateRange = zoomDateRange(values.dateRange, multiplier)
+            actions.setDateRange(newDateRange)
+        },
+        setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
+            const dates = values.sparklineData.dates
+            const dateFrom = dates[startIndex]
+            const dateTo = dates[endIndex]
+
+            const newDateRange = {
+                date_from: dateFrom,
+                date_to: dateTo,
+            }
             actions.setDateRange(newDateRange)
         },
     })),

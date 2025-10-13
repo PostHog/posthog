@@ -39,11 +39,15 @@ export const scene: SceneExport = {
 
 export function LogsScene(): JSX.Element {
     const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading } = useValues(logsLogic)
-    const { runQuery } = useActions(logsLogic)
+    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
+
+    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
+        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
+    }
 
     return (
         <SceneContent className="h-screen">
@@ -57,7 +61,12 @@ export function LogsScene(): JSX.Element {
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
-                    <Sparkline labels={sparklineData.labels} data={sparklineData.data} className="w-full flex-1" />
+                    <Sparkline
+                        labels={sparklineData.labels}
+                        data={sparklineData.data}
+                        className="w-full flex-1"
+                        onSelectionChange={onSelectionChange}
+                    />
                 ) : !sparklineLoading ? (
                     <div className="flex-1text-muted text-center">No data</div>
                 ) : null}
