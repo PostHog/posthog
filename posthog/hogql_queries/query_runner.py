@@ -828,7 +828,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        return isinstance(data, self.query_type)
+        query_type = self.query_type
+        # Resolve type alias if present
+        if hasattr(query_type, "__value__"):
+            query_type = query_type.__value__
+        # Handle both UnionType and typing._UnionGenericAlias
+        if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
+            return any(isinstance(data, t) for t in get_args(query_type))
+        if not isinstance(query_type, type):
+            raise TypeError(f"query_type must be a type, got {type(query_type)}: {query_type}")
+        return isinstance(data, query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`

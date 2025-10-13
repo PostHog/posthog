@@ -121,7 +121,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.13
+                  python-version: 3.12.11
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -154,7 +154,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for services to be available
               run: |
@@ -164,7 +164,7 @@ jobs:
             - name: Run migrations up to master
               run: |
                   # Run Django migrations first (excluding managed=False models)
-                  python manage.py migrate
+                  .venv-master/bin/python manage.py migrate
                   # Then run persons migrations using sqlx; comment out until we've merged
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx database create
@@ -327,7 +327,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.11.13']
+                python-version: ['3.12.11']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:25.6.9.98']
                 segment: ['Core']
                 person-on-events: [false]
@@ -380,121 +380,121 @@ jobs:
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 10
 
