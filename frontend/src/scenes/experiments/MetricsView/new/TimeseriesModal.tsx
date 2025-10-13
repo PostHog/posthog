@@ -74,7 +74,7 @@ export function TimeseriesModal({
                         {processedChartData ? (
                             <VariantTimeseriesChart chartData={processedChartData} />
                         ) : (
-                            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+                            <div className="p-10 text-center text-muted">
                                 No timeseries data available for this variant
                             </div>
                         )}
