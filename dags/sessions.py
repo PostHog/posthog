@@ -3,6 +3,8 @@ from dagster import AssetExecutionContext, BackfillPolicy, MonthlyPartitionsDefi
 from posthog.clickhouse.client import sync_execute
 from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
+from dags.common import JobOwners
+
 # Each partition is pretty heavy, as it's an entire month of events, so this number doesn't need to be high
 MAX_PARTITIONS_PER_RUN = 3
 
@@ -26,6 +28,7 @@ def get_partion_where_clause(context: AssetExecutionContext) -> str:
     partitions_def=monthly_partitions,
     name="sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
 )
 def sessions_v3_backfill(context: AssetExecutionContext):
     where_clause = get_partion_where_clause(context)
