@@ -23,7 +23,7 @@ from databricks.sdk.oauth import (
     get_workspace_endpoints,
 )
 from databricks.sql.client import Connection
-from databricks.sql.exc import OperationalError, ServerOperationError
+from databricks.sql.exc import DatabaseError, OperationalError, ServerOperationError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -464,8 +464,7 @@ class DatabricksClient:
                 """
             await self.execute_query(query, fetch_results=False)
         except ServerOperationError as err:
-            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to create table: %s", err.message)  # noqa: TRY400
+            if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
             raise
 
@@ -491,8 +490,7 @@ class DatabricksClient:
         try:
             await self.execute_async_query(query, fetch_results=False)
         except ServerOperationError as err:
-            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to copy data from volume into table: %s", err.message)  # noqa: TRY400
+            if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(
                     f"Failed to copy data from volume into table: {err.message}"
                 )
@@ -547,10 +545,15 @@ class DatabricksClient:
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
-        await self.execute_query(
-            f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
-            fetch_results=False,
-        )
+        try:
+            await self.execute_query(
+                f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
+                fetch_results=False,
+            )
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to create volume: {err.message}")
+            raise
 
     async def adelete_volume(self, volume: str):
         """Asynchronously delete a Databricks volume."""
@@ -565,13 +568,20 @@ class DatabricksClient:
         The Databricks connector has dedicated methods for retrieving metadata.
         """
         with self.connection.cursor() as cursor:
-            await asyncio.to_thread(cursor.columns, table_name=table_name)
-            results = await asyncio.to_thread(cursor.fetchall)
             try:
-                column_names = [row.name for row in results]
-            except AttributeError:
-                # depending on the table column mapping mode, this could also be returned via a different attribute
-                column_names = [row.COLUMN_NAME for row in results]
+                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                results = await asyncio.to_thread(cursor.fetchall)
+                try:
+                    column_names = [row.name for row in results]
+                except AttributeError:
+                    # depending on the table column mapping mode, this could also be returned via a different attribute
+                    column_names = [row.COLUMN_NAME for row in results]
+            except DatabaseError as err:
+                if "Expected field named: DataAccessConfigID" in str(err):
+                    raise DatabricksInsufficientPermissionsError(
+                        f"Failed to get table columns: {err}. Please check that you have SELECT permissions on the table."
+                    )
+                raise
             return column_names
 
     async def amerge_tables(
@@ -860,6 +870,13 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
+def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+    """Check if the error is an insufficient permissions error."""
+    if err.message is None:
+        return False
+    return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -1011,13 +1028,13 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        # include attempt in the stage table name to avoid collisions if multiple attempts are running at the same time
-        # (ideally this should never happen but it has in the past)
+        # include attempt in the stage table & volume names to avoid collisions if multiple attempts are running at the
+        # same time (ideally this should never happen but it has in the past)
         attempt = activity.info().attempt
         stage_table_name: str | None = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}" if requires_merge else None
         )
-        volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+        volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
         async with DatabricksClient.from_inputs_and_integration(

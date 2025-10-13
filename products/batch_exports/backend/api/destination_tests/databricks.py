@@ -50,7 +50,7 @@ class DatabricksTestStep(DestinationTestStep):
         self.table_name = table_name
 
     @contextlib.asynccontextmanager
-    async def connect(self, set_context: bool = True) -> AsyncGenerator[DatabricksClient, None]:
+    async def connect(self) -> AsyncGenerator[DatabricksClient, None]:
         assert self.server_hostname is not None
         assert self.http_path is not None
         assert self.client_id is not None
@@ -89,7 +89,7 @@ class DatabricksEstablishConnectionTestStep(DatabricksTestStep):
         """Run this test step."""
 
         try:
-            async with self.connect(set_context=False):
+            async with self.connect():
                 pass
         except DatabricksConnectionError as err:
             return DestinationTestStepResult(
@@ -123,7 +123,7 @@ class DatabricksCatalogTestStep(DatabricksTestStep):
 
         assert self.catalog is not None
 
-        async with self.connect(set_context=False) as databricks_client:
+        async with self.connect() as databricks_client:
             try:
                 await databricks_client.use_catalog(self.catalog)
             except DatabricksCatalogNotFoundError as err:
@@ -160,7 +160,7 @@ class DatabricksSchemaTestStep(DatabricksTestStep):
         assert self.catalog is not None
         assert self.schema is not None
 
-        async with self.connect(set_context=False) as databricks_client:
+        async with self.connect() as databricks_client:
             await databricks_client.use_catalog(self.catalog)
             try:
                 await databricks_client.use_schema(self.schema)
@@ -208,10 +208,16 @@ class DatabricksTableTestStep(DatabricksTestStep):
         assert self.schema is not None
         assert self.table_name is not None
 
-        async with self.connect(set_context=False) as databricks_client:
+        async with self.connect() as databricks_client:
             await databricks_client.use_catalog(self.catalog)
             await databricks_client.use_schema(self.schema)
-            columns = await databricks_client.aget_table_columns(self.table_name)
+            try:
+                columns = await databricks_client.aget_table_columns(self.table_name)
+            except DatabricksInsufficientPermissionsError as err:
+                return DestinationTestStepResult(
+                    status=Status.FAILED,
+                    message=str(err),
+                )
             if columns:
                 # table exists
                 return DestinationTestStepResult(status=Status.PASSED)
@@ -233,6 +239,60 @@ class DatabricksTableTestStep(DatabricksTestStep):
                 return DestinationTestStepResult(
                     status=Status.FAILED,
                     message=f"A test table {test_table_name} was created, but could not be deleted afterwards: {err}",
+                )
+
+        return DestinationTestStepResult(status=Status.PASSED)
+
+
+class DatabricksVolumeTestStep(DatabricksTestStep):
+    """Test whether we can create a Databricks volume.
+
+    A batch export needs to create a volume to upload files to. We also check for permissions to delete a volume.
+    """
+
+    name = "Verify permissions to create a Databricks volume"
+    description = "Ensure we have the required permissions to create a Databricks volume. We need to create temporary volumes as part of the batch export process."
+
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if (
+            self.server_hostname is None
+            or self.http_path is None
+            or self.client_id is None
+            or self.client_secret is None
+            or self.catalog is None
+            or self.schema is None
+            or self.table_name is None
+        ):
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Run this test step."""
+
+        assert self.catalog is not None
+        assert self.schema is not None
+        assert self.table_name is not None
+
+        async with self.connect() as databricks_client:
+            await databricks_client.use_catalog(self.catalog)
+            await databricks_client.use_schema(self.schema)
+
+            test_volume_name = f"{self.table_name}_test"
+            try:
+                await databricks_client.acreate_volume(test_volume_name)
+            except DatabricksInsufficientPermissionsError as err:
+                return DestinationTestStepResult(
+                    status=Status.FAILED,
+                    message=f"A test volume could not be created: {err}",
+                )
+
+            try:
+                await databricks_client.adelete_volume(test_volume_name)
+            except DatabricksInsufficientPermissionsError as err:
+                return DestinationTestStepResult(
+                    status=Status.FAILED,
+                    message=f"A test volume {test_volume_name} was created, but could not be deleted afterwards: {err}",
                 )
 
         return DestinationTestStepResult(status=Status.PASSED)
@@ -286,6 +346,15 @@ class DatabricksDestinationTest(DestinationTest):
                 schema=self.schema,
             ),
             DatabricksTableTestStep(
+                server_hostname=self.server_hostname,
+                http_path=self.http_path,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                catalog=self.catalog,
+                schema=self.schema,
+                table_name=self.table_name,
+            ),
+            DatabricksVolumeTestStep(
                 server_hostname=self.server_hostname,
                 http_path=self.http_path,
                 client_id=self.client_id,

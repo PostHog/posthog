@@ -2,6 +2,7 @@ import os
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
 
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
@@ -12,6 +13,10 @@ from products.batch_exports.backend.api.destination_tests.databricks import (
     DatabricksEstablishConnectionTestStep,
     DatabricksSchemaTestStep,
     DatabricksTableTestStep,
+    DatabricksVolumeTestStep,
+)
+from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
+    DatabricksInsufficientPermissionsError,
 )
 
 REQUIRED_ENV_VARS = (
@@ -86,6 +91,7 @@ def table(cursor, databricks_config, schema):
         DatabricksCatalogTestStep(),
         DatabricksSchemaTestStep(),
         DatabricksTableTestStep(),
+        DatabricksVolumeTestStep(),
     ],
 )
 async def test_test_steps_fail_if_not_configured(step):
@@ -203,7 +209,7 @@ class TestDatabricksTableTestStep:
             client_secret=databricks_config["client_secret"],
             catalog=databricks_config["catalog"],
             schema=schema,
-            table=table,
+            table_name=table,
         )
         result = await test_step.run()
         assert result.status == Status.PASSED
@@ -216,7 +222,46 @@ class TestDatabricksTableTestStep:
             client_secret=databricks_config["client_secret"],
             catalog=databricks_config["catalog"],
             schema=schema,
-            table="new_table",
+            table_name="new_table",
         )
         result = await test_step.run()
         assert result.status == Status.PASSED
+
+
+class TestDatabricksVolumeTestStep:
+    async def test_success(self, databricks_config, schema):
+        test_step = DatabricksVolumeTestStep(
+            server_hostname=databricks_config["server_hostname"],
+            http_path=databricks_config["http_path"],
+            client_id=databricks_config["client_id"],
+            client_secret=databricks_config["client_secret"],
+            catalog=databricks_config["catalog"],
+            schema=schema,
+            table_name="test_volume",
+        )
+        result = await test_step.run()
+        assert result.status == Status.PASSED
+
+    async def test_failure_when_insufficient_permissions(self, databricks_config, schema):
+        """Test that the test step fails when we don't have permissions to create a volume.
+
+        We test this by mocking the DatabricksClient. We could avoid mocking the client but this would require more
+        manual set up - as developers we would need to create one catalog where the service principal has permissions
+        and one where it doesn't.
+        """
+        with patch(
+            "products.batch_exports.backend.api.destination_tests.databricks.DatabricksClient.acreate_volume",
+            side_effect=DatabricksInsufficientPermissionsError("Insufficient permissions"),
+        ):
+            test_step = DatabricksVolumeTestStep(
+                server_hostname=databricks_config["server_hostname"],
+                http_path=databricks_config["http_path"],
+                client_id=databricks_config["client_id"],
+                client_secret=databricks_config["client_secret"],
+                catalog=databricks_config["catalog"],
+                schema=schema,
+                table_name="test_volume",
+            )
+            result = await test_step.run()
+            assert result.status == Status.FAILED
+            assert result.message == "A test volume could not be created: Insufficient permissions"
