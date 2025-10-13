@@ -44,12 +44,12 @@ export const retentionOptionDescriptions = {
 export const RETENTION_TIME_WINDOW_MODE_OPTIONS: LemonSelectOptions<NonNullable<RetentionFilter['timeWindowMode']>> = [
     {
         value: 'strict_calendar_dates',
-        label: 'Strict calendar intervals',
+        label: 'strict calendar intervals',
         tooltip: 'Intervals are based on calendar boundaries (e.g., midnight for daily retention)',
     },
     {
         value: '24_hour_windows',
-        label: 'Rolling 24-hour windows',
+        label: 'rolling 24-hour windows',
         tooltip:
             "Intervals are calculated from each user's first event timestamp (e.g., if a user starts at 11 PM, their 'next day' is 24 hours later at 11 PM)",
     },
