@@ -12,7 +12,7 @@ use crate::{
         custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
         js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
-    metric_consts::PER_FRAME_TIME,
+    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
     symbol_store::Catalog,
 };
@@ -38,20 +38,23 @@ pub enum RawFrame {
     Go(RawGoFrame),
     #[serde(rename = "hermes")]
     Hermes(RawHermesFrame),
-    // TODO - remove once we're happy no clients are using this anymore
-    #[serde(rename = "javascript")]
-    LegacyJS(RawJSFrame),
     #[serde(rename = "java")]
     Java(RawJavaFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
+    // TODO - remove once we're happy no clients are using this anymore
+    #[serde(rename = "javascript")]
+    LegacyJS(RawJSFrame),
 }
 
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
+            RawFrame::JavaScriptWeb(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
+            RawFrame::LegacyJS(frame) => {
+                // TODO: monitor this metric and remove the legacy frame type when it hits 0
+                metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::JavaScriptNode(frame) => {
@@ -109,6 +112,13 @@ impl RawFrame {
 
         FrameId::new(hash_id, team_id)
     }
+
+    pub fn is_suspicious(&self) -> bool {
+        match self {
+            RawFrame::JavaScriptWeb(frame) => frame.is_suspicious(),
+            _ => false,
+        }
+    }
 }
 
 // We emit a single, unified representation of a frame, which is what we pass on to users.
@@ -134,6 +144,9 @@ pub struct Frame {
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
+
+    #[serde(default)] // Defaults to false
+    pub suspicious: bool, // We mark some frames as suspicious if we think they might be from our own SDK code.
 
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging
     // purposes, all production code should assume this is None
