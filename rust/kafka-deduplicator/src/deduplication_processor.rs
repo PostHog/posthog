@@ -771,7 +771,7 @@ impl DeduplicationProcessor {
         metrics: &MetricsHelper,
     ) -> Result<()> {
         // Only publish for actual duplicates (not New or Skipped)
-        if self.should_publish_event(deduplication_result) {
+        if !self.should_publish_event(deduplication_result) {
             return Ok(());
         }
 
