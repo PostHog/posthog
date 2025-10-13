@@ -216,7 +216,7 @@ dev = [
     "python-dateutil>=2.8.2",
     "requests-mock>=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.8.1",
+    "ruff~=0.14.0",
     "sqlalchemy==2.0.38",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
