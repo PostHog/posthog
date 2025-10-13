@@ -462,6 +462,18 @@ class BillingManager:
 
         return res.json()
 
+    def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+        self.update_available_product_features(organization)
+
+        return res.json()
+
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
