@@ -18,6 +18,7 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
     "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
+    "fromUnixTimestamp64Milli": HogQLFunctionMeta("fromUnixTimestamp64Milli", 1, 1),
     "toStartOfInterval": HogQLFunctionMeta(
         "toStartOfInterval",
         2,

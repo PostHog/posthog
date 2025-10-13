@@ -10,4 +10,5 @@ packages:
     - playwright
     - plugin-server
     - products/*
+    - products/mcp/typescript
     - rust/cyclotron-node

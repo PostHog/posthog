@@ -12,7 +12,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
-import { ActionType, ElementType } from '~/types'
+import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
 import { ActionStepPropertyKey } from './ActionStep'
 import type { actionsTabLogicType } from './actionsTabLogicType'
@@ -35,6 +35,7 @@ function newAction(
                 : {},
         ],
         pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
     }
 }
 

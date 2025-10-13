@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 
 import type { currentPageLogicType } from './currentPageLogicType'
 
@@ -45,6 +45,7 @@ export function withoutPostHogInit(href: string): string {
 
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
+
     actions(() => ({
         setHref: (href: string) => ({ href }),
         setWildcardHref: (href: string) => ({ href }),
@@ -91,14 +92,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
     afterMount(({ actions, values, cache }) => {
         actions.setHref(withoutPostHogInit(values.href))
 
-        cache.interval = window.setInterval(() => {
-            if (window.location.href !== values.href) {
-                actions.setHref(withoutPostHogInit(window.location.href))
-            }
-        }, 500)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        window.clearInterval(cache.interval)
+        cache.disposables.add(() => {
+            const interval = window.setInterval(() => {
+                if (window.location.href !== values.href) {
+                    actions.setHref(withoutPostHogInit(window.location.href))
+                }
+            }, 500)
+            return () => window.clearInterval(interval)
+        }, 'urlChangeInterval')
     }),
 ])

@@ -885,6 +885,18 @@ export const WebQuery = ({
         return <MarketingAnalyticsTable attachTo={attachTo} query={query} insightProps={insightProps} />
     }
 
+    if (query.kind === NodeKind.MarketingAnalyticsAggregatedQuery) {
+        return (
+            <Query
+                uniqueKey={uniqueKey}
+                attachTo={attachTo}
+                query={query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+            />
+        )
+    }
+
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
         return <WebVitalsPathBreakdownTile attachTo={attachTo} query={query} insightProps={insightProps} />
     }

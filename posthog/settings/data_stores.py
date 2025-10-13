@@ -118,12 +118,24 @@ if read_host:
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-if os.getenv("PERSONS_DB_WRITER_URL"):
-    DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
+# For local development, default to the persons database in the main container if no URL is provided
+persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
+if not persons_db_writer_url and DEBUG and not TEST:
+    # Default to local persons database in main container in development mode (but not test mode)
+    # This matches the docker-compose.dev.yml configuration
+    # A default is needed for generate_demo_data to properly populate the correct databases
+    # with the demo data
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
+
+if persons_db_writer_url:
+    DATABASES["persons_db_writer"] = dj_database_url.config(
+        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
 
     # Fall back to the writer URL if no reader URL is set
-    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
-    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    DATABASES["persons_db_reader"] = dj_database_url.config(
+        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True

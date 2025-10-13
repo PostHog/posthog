@@ -56,7 +56,7 @@ impl QuotaResource {
             Self::Recordings => "recordings",
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
-            Self::Surveys => "surveys",
+            Self::Surveys => "survey_responses",
             Self::LLMEvents => "llm_events",
         }
     }

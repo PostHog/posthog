@@ -445,7 +445,7 @@ describe('dataNodeLogic', () => {
         })
 
         // Autoload is running in the background and will fire in 5 seconds. Check that there's a background script for this.
-        expect(logic.cache.autoLoadInterval).toBeTruthy()
+        expect(logic.cache.disposables.registry.has('autoLoadInterval')).toBe(true)
         jest.advanceTimersByTime(31000)
         await expectLogic(logic)
             .toDispatchActions(['loadNewData', 'loadNewDataSuccess'])

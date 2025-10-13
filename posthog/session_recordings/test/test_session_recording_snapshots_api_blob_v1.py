@@ -218,7 +218,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             "allow": ("Allow", "GET, HEAD, OPTIONS"),
             "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
             "content-length": ("Content-Length", "15"),
-            "vary": ("Vary", "Origin"),
+            "vary": ("Vary", "origin"),
             "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
             "referrer-policy": ("Referrer-Policy", "same-origin"),
             "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),

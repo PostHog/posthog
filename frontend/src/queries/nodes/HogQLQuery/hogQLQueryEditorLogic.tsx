@@ -17,7 +17,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
@@ -56,7 +56,12 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
+        actions: [
+            dataWarehouseViewsLogic,
+            ['createDataWarehouseSavedQuery'],
+            dataWarehouseSettingsSceneLogic,
+            ['updateView'],
+        ],
     })),
     actions({
         saveQuery: (queryOverride?: string) => ({ queryOverride }),

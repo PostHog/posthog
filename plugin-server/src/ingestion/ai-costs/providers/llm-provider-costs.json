@@ -8250,7 +8250,8 @@
         "provider": "openrouter",
         "cost": {
             "prompt_token": 0.000003,
-            "completion_token": 0.000015
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
         }
     },
     {
@@ -8266,7 +8267,8 @@
         "provider": "openrouter",
         "cost": {
             "prompt_token": 3e-7,
-            "completion_token": 5e-7
+            "completion_token": 5e-7,
+            "cache_read_token": 8e-8
         }
     },
     {
@@ -8282,7 +8284,17 @@
         "provider": "openrouter",
         "cost": {
             "prompt_token": 0.000003,
-            "completion_token": 0.000015
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
+        }
+    },
+    {
+        "model": "x-ai/grok-4-fast",
+        "provider": "openrouter",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 5e-7,
+            "cache_read_token": 5e-8
         }
     },
     {

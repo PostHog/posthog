@@ -4,6 +4,7 @@ from typing import Optional, cast
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
@@ -230,6 +231,31 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             detail=Detail(name=serializer.instance.name, type="standard"),
         )
 
+        # PostHog capture for hog_flow started
+        try:
+            # Extract trigger type from the trigger config
+            # trigger_type = serializer.instance.trigger.get("type", "unknown")
+
+            # Count edges and actions
+            edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
+            actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
+
+            posthoganalytics.capture(
+                distinct_id=str(serializer.context["request"].user.distinct_id),
+                event="hog_flow_created",
+                properties={
+                    "workflow_id": str(serializer.instance.id),
+                    "workflow_name": serializer.instance.name,
+                    # "trigger_type": trigger_type,
+                    "edges_count": edges_count,
+                    "actions_count": actions_count,
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization.id),
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to capture hog_flow_started event", error=str(e))
+
     def perform_update(self, serializer):
         # TODO(team-messaging): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
@@ -253,6 +279,32 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             activity="updated",
             detail=Detail(changes=changes, name=serializer.instance.name),
         )
+
+        # PostHog capture for hog_flow activated (draft -> active)
+        if (
+            before_update
+            and before_update.status == HogFlow.State.DRAFT
+            and serializer.instance.status == HogFlow.State.ACTIVE
+        ):
+            try:
+                # Count edges and actions
+                edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
+                actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
+
+                posthoganalytics.capture(
+                    distinct_id=str(serializer.context["request"].user.distinct_id),
+                    event="hog_flow_activated",
+                    properties={
+                        "workflow_id": str(serializer.instance.id),
+                        "workflow_name": serializer.instance.name,
+                        "edges_count": edges_count,
+                        "actions_count": actions_count,
+                        "team_id": str(self.team_id),
+                        "organization_id": str(self.organization.id),
+                    },
+                )
+            except Exception as e:
+                logger.warning("Failed to capture hog_flow_activated event", error=str(e))
 
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):

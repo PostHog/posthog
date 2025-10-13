@@ -12,6 +12,7 @@ import type { notebookPanelLogicType } from './notebookPanelLogicType'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
+
     connect(() => ({
         values: [sidePanelStateLogic, ['sidePanelOpen', 'selectedTab'], featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
@@ -113,25 +114,29 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                 selectedTab: values.selectedTab,
             }
 
-            cache.dragListener = (event: MouseEvent) => {
-                if (!cache.dragStart) {
-                    cache.dragStart = event.pageX
+            // Add drag listener using disposables
+            cache.disposables.add(() => {
+                const dragListener = (event: MouseEvent): void => {
+                    if (!cache.dragStart) {
+                        cache.dragStart = event.pageX
+                    }
+
+                    // The drop distance is the percentage between where the drag started and where it now is
+                    const distanceFromRightEdge = window.innerWidth - event.pageX
+                    const distanceFromDragStart = event.pageX - cache.dragStart
+
+                    // If we have dragged a little bit to the right, or we are dragging close to the side panel
+                    const shouldBeOpen = distanceFromDragStart > 50 || distanceFromRightEdge < 200
+
+                    if (shouldBeOpen && (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Notebooks)) {
+                        actions.openSidePanel(SidePanelTab.Notebooks)
+                    } else if (!cache.initialPanelState.sidePanelOpen && !shouldBeOpen) {
+                        actions.closeSidePanel()
+                    }
                 }
-
-                // The drop distance is the percentage between where the drag started and where it now is
-                const distanceFromRightEdge = window.innerWidth - event.pageX
-                const distanceFromDragStart = event.pageX - cache.dragStart
-
-                // If we have dragged a little bit to the right, or we are dragging close to the side panel
-                const shouldBeOpen = distanceFromDragStart > 50 || distanceFromRightEdge < 200
-
-                if (shouldBeOpen && (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Notebooks)) {
-                    actions.openSidePanel(SidePanelTab.Notebooks)
-                } else if (!cache.initialPanelState.sidePanelOpen && !shouldBeOpen) {
-                    actions.closeSidePanel()
-                }
-            }
-            window.addEventListener('drag', cache.dragListener)
+                window.addEventListener('drag', dragListener)
+                return () => window.removeEventListener('drag', dragListener)
+            }, 'dragListener')
         },
         endDropMode: () => {
             // If we are in the notebook panel then we leave it open, otherwise we revert to the original state
@@ -142,7 +147,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                     actions.openSidePanel(cache.initialPanelState.selectedTab)
                 }
             }
-            window.removeEventListener('drag', cache.dragListener)
+            cache.disposables.dispose('dragListener')
         },
     })),
 

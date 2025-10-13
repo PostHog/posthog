@@ -96,7 +96,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     def dangerously_get_required_scopes(self):
         if self.action == "authenticate":
-            return ["team:read"]
+            return ["project:read"]
 
         return []
 

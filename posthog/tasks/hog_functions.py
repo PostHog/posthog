@@ -54,14 +54,25 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
 
     actions_by_id = {action.id: action for action in all_related_actions}
 
+    successfully_compiled_hog_functions = []
     for hog_function in affected_hog_functions:
-        hog_function.filters = compile_filters_bytecode(hog_function.filters, hog_function.team, actions_by_id)
-        hog_function.updated_at = timezone.now()
+        compiled_filters = compile_filters_bytecode(hog_function.filters, hog_function.team, actions_by_id)
 
-    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters", "updated_at"])
+        # Only update if compilation succeeded (no bytecode_error)
+        if not compiled_filters.get("bytecode_error"):
+            hog_function.filters = compiled_filters
+            hog_function.updated_at = timezone.now()
+            successfully_compiled_hog_functions.append(hog_function)
+        else:
+            logger.warning(
+                f"Failed to compile filters for hog function {hog_function.id}: {compiled_filters.get('bytecode_error')}. "
+                "Keeping existing filters intact."
+            )
+
+    updates = HogFunction.objects.bulk_update(successfully_compiled_hog_functions, ["filters", "updated_at"])
 
     reload_hog_functions_on_workers(
-        team_id=team_id, hog_function_ids=[str(hog_function.id) for hog_function in affected_hog_functions]
+        team_id=team_id, hog_function_ids=[str(hog_function.id) for hog_function in successfully_compiled_hog_functions]
     )
 
     return updates

@@ -11,7 +11,7 @@ use kafka_deduplicator::checkpoint::{
 };
 use kafka_deduplicator::checkpoint_manager::CheckpointManager;
 use kafka_deduplicator::kafka::types::Partition;
-use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
+use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig, TimestampMetadata};
 use kafka_deduplicator::store_manager::StoreManager;
 
 use common_types::RawEvent;
@@ -276,9 +276,9 @@ async fn test_manual_checkpoint_export_incremental() {
         create_test_raw_event("user2", "token1", "event2"),
     ];
     for event in &events {
-        let result = store.handle_event_with_raw(event);
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        let key = event.into();
+        let metadata = TimestampMetadata::new(event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -365,9 +365,9 @@ async fn test_checkpoint_manual_export_full() {
         create_test_raw_event("user2", "token1", "event2"),
     ];
     for event in &events {
-        let result = store.handle_event_with_raw(event);
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        let key = event.into();
+        let metadata = TimestampMetadata::new(event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -447,9 +447,9 @@ async fn test_incremental_vs_full_upload_serial() {
         create_test_raw_event("user2", "token1", "event2"),
     ];
     for event in &events {
-        let result = store.handle_event_with_raw(event);
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        let key = event.into();
+        let metadata = TimestampMetadata::new(event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -523,9 +523,9 @@ async fn test_unavailable_uploader() {
         create_test_raw_event("user2", "token1", "event2"),
     ];
     for event in &events {
-        let result = store.handle_event_with_raw(event);
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        let key = event.into();
+        let metadata = TimestampMetadata::new(event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -579,9 +579,9 @@ async fn test_unpopulated_exporter() {
         create_test_raw_event("user2", "token1", "event2"),
     ];
     for event in &events {
-        let result = store.handle_event_with_raw(event);
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // All events should be new
+        let key = event.into();
+        let metadata = TimestampMetadata::new(event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();

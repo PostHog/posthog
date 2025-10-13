@@ -56,5 +56,6 @@ ConsoleLogItem.args = {
         timeInRecording: 123,
         search: 'some text',
         type: 'console',
+        key: 'some-key',
     },
 }

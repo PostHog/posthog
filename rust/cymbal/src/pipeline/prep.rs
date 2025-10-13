@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use common_types::{CapturedEvent, ClickHouseEvent, PersonMode, RawEvent, Team};
+use common_types::{
+    format::{format_ch_datetime, parse_datetime_assuming_utc},
+    CapturedEvent, ClickHouseEvent, PersonMode, RawEvent, Team,
+};
 use serde_json::Value;
 
 use crate::{
@@ -9,9 +12,7 @@ use crate::{
     recursively_sanitize_properties, sanitize_string,
 };
 
-use super::{
-    exception::add_error_to_event, format_ch_timestamp, parse_ts_assuming_utc, IncomingEvent,
-};
+use super::{exception::add_error_to_event, IncomingEvent};
 
 // Adds team info, and folds set, set_once and ip address data into the event properties
 pub fn prepare_events(
@@ -69,8 +70,8 @@ pub fn prepare_events(
                 // and store an event error if we can't. If the event has no timestamp, use the instant
                 // the event was captured.
                 let timestamp = match &raw_event.timestamp {
-                    Some(ts) => parse_ts_assuming_utc(ts),
-                    None => Ok(parse_ts_assuming_utc(&outer.now)
+                    Some(ts) => parse_datetime_assuming_utc(ts),
+                    None => Ok(parse_datetime_assuming_utc(&outer.now)
                         .expect("CapturedEvent::now is always valid")), // Set by capture, should always be valid
                 };
 
@@ -132,7 +133,7 @@ fn transform_event(
 
     let mut sent_at = outer
         .get_sent_at_as_rfc3339()
-        .map(|sa| parse_ts_assuming_utc(&sa).expect("sent_at is a valid datetime"));
+        .map(|sa| parse_datetime_assuming_utc(&sa).expect("sent_at is a valid datetime"));
 
     if raw_event
         .properties
@@ -143,7 +144,7 @@ fn transform_event(
         sent_at = None;
     }
 
-    let now = parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid");
+    let now = parse_datetime_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid");
 
     let timestamp = resolve_timestamp(timestamp, sent_at, now, raw_event.offset);
 
@@ -162,8 +163,8 @@ fn transform_event(
                 .expect("Json data just deserialized can be serialized"),
         ),
         person_id: None,
-        timestamp: format_ch_timestamp(timestamp),
-        created_at: format_ch_timestamp(Utc::now()),
+        timestamp: format_ch_datetime(timestamp),
+        created_at: format_ch_datetime(Utc::now()),
         elements_chain: None, // TODO - we skip elements chain extraction for now, but should implement it eventually
         person_created_at: None,
         person_properties: None,

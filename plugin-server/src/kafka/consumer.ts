@@ -830,7 +830,9 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
     // We extract the specific headers we care about into a structured format.
 
-    const result: EventHeaders = {}
+    const result: EventHeaders = {
+        force_disable_person_processing: false,
+    }
 
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
@@ -845,12 +847,21 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.event = value
             } else if (key === 'uuid') {
                 result.uuid = value
+            } else if (key === 'force_disable_person_processing') {
+                result.force_disable_person_processing = value === 'true'
             }
         })
     })
 
     // Track comprehensive header status metrics
-    const trackedHeaders = ['token', 'distinct_id', 'timestamp', 'event', 'uuid'] as const
+    const trackedHeaders = [
+        'token',
+        'distinct_id',
+        'timestamp',
+        'event',
+        'uuid',
+        'force_disable_person_processing',
+    ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'
         kafkaHeaderStatusCounter.labels(header, status).inc()

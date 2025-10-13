@@ -114,6 +114,7 @@ export function MessagingScene(): JSX.Element {
             ),
             onClick: () => openSetupModal(undefined, 'email'),
         },
+
         {
             label: (
                 <div className="flex gap-1 items-center">
@@ -174,7 +175,6 @@ export function MessagingScene(): JSX.Element {
             <SceneTitleSection
                 name="Messaging"
                 resourceType={{ type: 'messaging' }}
-                description="Create automated workflows triggered by PostHog events to onboard, retain, and re-engage your users."
                 actions={
                     <>
                         {currentTab === 'campaigns' && (

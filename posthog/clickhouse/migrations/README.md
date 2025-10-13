@@ -60,19 +60,16 @@ This may cause lots of troubles and block migrations.
 
 The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
 
-
-
 ### Testing
 
 To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
-
 
 ## Ingestion layer
 
 We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
 
 1. Create your data table in ClickHouse main cluster.
-2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`. 
+2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`.
 3. Create a Kafka table in ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`.
 4. Create materialized view between Kafka table and writable table on ingestion nodes.
 

@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
@@ -37,7 +38,7 @@ class ActionStepJSON:
     properties: Optional[list[dict]] = None
 
 
-class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
+class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     team = models.ForeignKey("Team", on_delete=models.CASCADE)

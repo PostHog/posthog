@@ -2,10 +2,18 @@ use std::collections::HashMap;
 use std::ops::Not;
 
 use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
+use rdkafka::message::{Header, Headers, OwnedHeaders};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
+
+/// Information about the library/SDK that sent an event
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
@@ -57,6 +65,78 @@ pub struct RawEngageEvent {
     pub set: Option<HashMap<String, Value>>,
     #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
     pub set_once: Option<HashMap<String, Value>>,
+}
+
+pub struct CapturedEventHeaders {
+    pub token: Option<String>,
+    pub distinct_id: Option<String>,
+    pub timestamp: Option<String>,
+    pub event: Option<String>,
+    pub uuid: Option<String>,
+    pub force_disable_person_processing: Option<bool>,
+}
+
+impl CapturedEventHeaders {
+    pub fn set_force_disable_person_processing(&mut self, value: bool) {
+        self.force_disable_person_processing = Some(value);
+    }
+}
+
+impl From<CapturedEventHeaders> for OwnedHeaders {
+    fn from(headers: CapturedEventHeaders) -> Self {
+        let fdpp_str = headers
+            .force_disable_person_processing
+            .map(|b| b.to_string());
+        OwnedHeaders::new()
+            .insert(Header {
+                key: "token",
+                value: headers.token.as_deref(),
+            })
+            .insert(Header {
+                key: "distinct_id",
+                value: headers.distinct_id.as_deref(),
+            })
+            .insert(Header {
+                key: "timestamp",
+                value: headers.timestamp.as_deref(),
+            })
+            .insert(Header {
+                key: "event",
+                value: headers.event.as_deref(),
+            })
+            .insert(Header {
+                key: "uuid",
+                value: headers.uuid.as_deref(),
+            })
+            .insert(Header {
+                key: "force_disable_person_processing",
+                value: fdpp_str.as_deref(),
+            })
+    }
+}
+
+impl From<OwnedHeaders> for CapturedEventHeaders {
+    fn from(headers: OwnedHeaders) -> Self {
+        let mut headers_map = HashMap::new();
+        for header in headers.iter() {
+            if let Some(value) = header.value {
+                if let Ok(value_str) = std::str::from_utf8(value) {
+                    headers_map.insert(header.key.to_string(), value_str.to_string());
+                }
+            }
+        }
+
+        Self {
+            token: headers_map.get("token").cloned(),
+            distinct_id: headers_map.get("distinct_id").cloned(),
+            timestamp: headers_map.get("timestamp").cloned(),
+            event: headers_map.get("event").cloned(),
+            uuid: headers_map.get("uuid").cloned(),
+            force_disable_person_processing: headers_map
+                .get("force_disable_person_processing")
+                .and_then(|v| v.parse::<bool>().ok()),
+        }
+    }
 }
 
 // The event type that capture produces
@@ -237,6 +317,24 @@ impl RawEvent {
         if let Some(value) = self.properties.get_mut(key) {
             *value = f(value.take());
         }
+    }
+
+    /// Extract library information from the event properties
+    /// Returns None if $lib property is not present
+    pub fn extract_library_info(&self) -> Option<LibraryInfo> {
+        let name = self
+            .properties
+            .get("$lib")
+            .and_then(|v| v.as_str())
+            .map(String::from)?;
+
+        let version = self
+            .properties
+            .get("$lib_version")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        Some(LibraryInfo { name, version })
     }
 }
 

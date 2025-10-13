@@ -9,7 +9,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-_site_reachable = None
+_site_reachable: Optional[bool] = None
 _site_reachable_exception: Optional[Exception] = None
 _site_reachable_checked_at: Optional[datetime] = None
 

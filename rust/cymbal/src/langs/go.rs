@@ -1,10 +1,8 @@
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
-use crate::{
-    frames::{Frame, FrameId},
-    langs::CommonFrameMetadata,
-};
+use crate::{frames::Frame, langs::CommonFrameMetadata};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawGoFrame {
@@ -42,6 +40,7 @@ impl From<&RawGoFrame> for Frame {
             junk_drawer: None,
             context: None,
             release: None,
+            suspicious: false,
         }
     }
 }

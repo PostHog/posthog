@@ -33,6 +33,8 @@ export interface HeatmapDataLogicProps {
     exportToken?: string | null
 }
 
+export type HrefMatchType = 'exact' | 'pattern'
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
     props({ context: 'toolbar', exportToken: null } as HeatmapDataLogicProps),
@@ -45,7 +47,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
-        setHrefMatchType: (matchType: 'exact' | 'pattern') => ({ matchType }),
+        setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
         setIsReady: (isReady: boolean) => ({ isReady }),
@@ -56,7 +58,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
     })),
     reducers({
         hrefMatchType: [
-            'exact' as 'exact' | 'pattern',
+            'exact' as HrefMatchType,
             {
                 setHrefMatchType: (_, { matchType }) => matchType,
             },
@@ -289,7 +291,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFilters: () => {
             actions.loadHeatmap()
         },
-        patchHeatmapFilters: () => {
+        patchHeatmapFilters: ({ filters }) => {
+            // Clear old data when switching heatmap types
+            if (filters.type) {
+                actions.resetHeatmapData()
+            }
             actions.loadHeatmap()
         },
         setHeatmapFixedPositionMode: () => {

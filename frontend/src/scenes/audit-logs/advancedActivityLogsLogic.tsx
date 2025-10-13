@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { ADVANCED_ACTIVITY_PAGE_SIZE, FEATURE_FLAGS } from 'lib/constants'
+import { ADVANCED_ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +12,7 @@ import { dateStringToDayJs, objectClean } from 'lib/utils'
 
 import { ActivityScope } from '~/types'
 
+import { userLogic } from '../userLogic'
 import type { advancedActivityLogsLogicType } from './advancedActivityLogsLogicType'
 
 export interface DetailFilter {
@@ -83,7 +84,7 @@ const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_f
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     })),
 
     actions({
@@ -196,6 +197,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
                     params.append('page', (values.filters.page || 1).toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
+                    params.append('include_organization_scoped', '1')
 
                     const response = await api.get(`api/projects/@current/advanced_activity_logs/?${params}`)
                     return response
@@ -229,11 +231,6 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     })),
 
     selectors({
-        isFeatureFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: any): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
-        ],
-
         hasActiveFilters: [
             (s) => [s.filters],
             (filters: AdvancedActivityLogFilters): boolean => {
@@ -334,17 +331,15 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             if (tab === 'exports') {
                 // Start polling when switching to exports tab
                 actions.loadExports()
-                if (!cache.exportPollingInterval) {
-                    cache.exportPollingInterval = setInterval(() => {
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
                         actions.loadExports()
                     }, 5000)
-                }
+                    return () => clearInterval(intervalId)
+                }, 'exportPollingInterval')
             } else {
                 // Stop polling when switching away from exports tab
-                if (cache.exportPollingInterval) {
-                    clearInterval(cache.exportPollingInterval)
-                    cache.exportPollingInterval = null
-                }
+                cache.disposables.dispose('exportPollingInterval')
             }
         },
 
@@ -462,7 +457,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     item_ids: values.filters.item_ids,
                 }
 
-                await api.create('api/projects/@current/advanced_activity_logs/export/', {
+                await api.create('api/projects/@current/advanced_activity_logs/export/?include_organization_scoped=1', {
                     format,
                     filters: filtersToExport,
                 })
@@ -525,9 +520,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     : searchParams.activities?.split(',') || []
             }
             if (searchParams.item_ids) {
-                urlFilters.item_ids = Array.isArray(searchParams.item_ids)
-                    ? searchParams.item_ids
-                    : searchParams.item_ids?.split(',') || []
+                urlFilters.item_ids = searchParams.item_ids.split?.(',') || [searchParams.item_ids]
             }
             if (searchParams.was_impersonated !== undefined) {
                 urlFilters.was_impersonated =
@@ -551,16 +544,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
     })),
 
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadAvailableFilters()
             actions.loadAdvancedActivityLogs({})
-        },
-        beforeUnmount: () => {
-            if (cache.exportPollingInterval) {
-                clearInterval(cache.exportPollingInterval)
-                cache.exportPollingInterval = null
-            }
         },
     })),
 ])
