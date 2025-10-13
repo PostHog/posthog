@@ -243,7 +243,7 @@ class Command(BaseCommand):
         schedule_id = f"behavioral-cohorts-{interval_minutes}min-{team_id or 'all'}-{int(time.time() * 1000)}"
 
         # Calculate end time based on duration
-        start_time = datetime.utcnow()
+        start_time = datetime.now(datetime.UTC)
         end_time = start_time + timedelta(hours=duration_hours)
 
         # Calculate number of expected runs

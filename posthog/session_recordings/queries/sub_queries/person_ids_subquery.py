@@ -41,7 +41,7 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
             return None
 
         # anchor to python now so that tests can freeze time
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
 
         if poe_is_active(self._team):
             return parse_select(

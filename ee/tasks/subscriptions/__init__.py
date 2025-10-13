@@ -272,7 +272,7 @@ def schedule_all_subscriptions() -> None:
     NOTE: This task is scheduled hourly just before the hour allowing for the 15 minute timedelta to cover
     all upcoming hourly scheduled subscriptions
     """
-    now_with_buffer = datetime.utcnow() + timedelta(minutes=15)
+    now_with_buffer = datetime.now(datetime.UTC) + timedelta(minutes=15)
     subscriptions = (
         Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
         .exclude(dashboard__deleted=True)
