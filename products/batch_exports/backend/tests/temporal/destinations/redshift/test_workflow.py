@@ -19,6 +19,7 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
+    copy_into_redshift_activity_from_stage,
     insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
 )
@@ -183,6 +184,7 @@ async def test_redshift_export_workflow(
                     insert_into_redshift_activity,
                     insert_into_internal_stage_activity,
                     insert_into_redshift_activity_from_stage,
+                    copy_into_redshift_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -265,6 +267,7 @@ async def test_redshift_export_workflow_handles_unexpected_insert_activity_error
                     insert_into_redshift_activity,
                     insert_into_internal_stage_activity,
                     insert_into_redshift_activity_from_stage,
+                    copy_into_redshift_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -335,6 +338,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
                     insert_into_redshift_activity,
                     insert_into_internal_stage_activity,
                     insert_into_redshift_activity_from_stage,
+                    copy_into_redshift_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
