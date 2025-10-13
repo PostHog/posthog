@@ -3951,7 +3951,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface CoreFilterDefinition {
     label: string
     description?: string | ReactNode
-    examples?: (string | number)[]
+    examples?: (string | number | boolean)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
@@ -5246,6 +5246,7 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
+    SdkDoctor = 'sdk-doctor',
 }
 
 export interface ProductPricingTierSubrows {
