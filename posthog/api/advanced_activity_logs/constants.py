@@ -3,3 +3,6 @@ BATCH_SIZE = 10000
 SAMPLING_PERCENTAGE = 10
 CACHE_TTL_SECONDS = 12 * 60 * 60  # 12 hours
 CACHE_KEY_PREFIX = "activity_log:details_fields"
+# Fallbacks need to be kept in sync with the smallest AUDIT_LOG feature limits in billing
+ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT = 2
+ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT = "months"

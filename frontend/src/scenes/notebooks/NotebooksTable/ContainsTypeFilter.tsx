@@ -29,6 +29,8 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Cohort]: 'Cohorts',
     [NotebookNodeType.Group]: 'Groups',
     [NotebookNodeType.TaskCreate]: 'Task suggestions',
+    [NotebookNodeType.LLMTrace]: 'LLM traces',
+    [NotebookNodeType.Issues]: 'Issues',
 }
 
 export function ContainsTypeFilters({

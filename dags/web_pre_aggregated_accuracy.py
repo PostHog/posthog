@@ -168,17 +168,36 @@ def web_pre_aggregated_accuracy(context: AssetExecutionContext, config: Accuracy
             f"{accuracy_rate:.1f}% within tolerance ({within_tolerance_count}/{total_rows} rows)"
         )
 
-        context.add_output_metadata(
-            {
-                "team_id": MetadataValue.int(team_id),
-                "date_range": MetadataValue.text(f"{start_date_str} to {end_date_str}"),
-                "total_rows": MetadataValue.int(total_rows),
-                "within_tolerance_count": MetadataValue.int(within_tolerance_count),
-                "accuracy_rate": MetadataValue.float(accuracy_rate),
-                "overall_status": MetadataValue.text(overall_status),
-                "max_pct_difference": MetadataValue.float(max_pct_difference),
-            }
+        context.log.info(table_rows)
+
+        rows_md = "\n".join(
+            f"| {row['period_bucket_date']} "
+            f"| {row['regular_count']:,} "
+            f"| {row['pre_aggregated_count']:,} "
+            f"| {row['pct_difference']:.2f}% "
+            f"| {row['within_tolerance']} "
+            f"| {row['quality_status']} |"
+            for row in table_rows
         )
+
+        comparison_md = f"""
+        | Date | Regular Count | Pre-Aggregated Count | Diff % | Within Tolerance | Status |
+        |------|---------------|----------------------|--------|------------------|--------|
+        {rows_md}""".strip()
+
+        metadata = {
+            "team_id": MetadataValue.int(team_id),
+            "date_range": MetadataValue.text(f"{start_date_str} to {end_date_str}"),
+            "total_rows": MetadataValue.int(total_rows),
+            "within_tolerance_count": MetadataValue.int(within_tolerance_count),
+            "accuracy_rate": MetadataValue.float(accuracy_rate),
+            "overall_status": MetadataValue.text(overall_status),
+            "max_pct_difference": MetadataValue.float(max_pct_difference),
+            "comparison_table_json": MetadataValue.json(table_rows),
+            "comparison_table": MetadataValue.text(comparison_md),
+        }
+
+        context.add_output_metadata(metadata)
 
         return table_rows
 
