@@ -1289,13 +1289,7 @@ class _Printer(Visitor[str]):
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
-                    args = []
-                    for arg in node_args:
-                        printed_arg = self.visit(arg)
-                        if node.name == "and" and printed_arg == "1":
-                            pass
-                        else:
-                            args.append(printed_arg)
+                    args = [self.visit(arg) for arg in node_args]
 
                 # Some of these `isinstance` checks are here just to make our type system happy
                 # We have some guarantees in place to ensure that the arguments are string/constants anyway
