@@ -93,7 +93,6 @@ export function MessagingScene(): JSX.Element {
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
     const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
-    const hasMessagingSesFeatureFlag = useFeatureFlag('MESSAGING_SES')
 
     if (!hasMessagingFeatureFlag) {
         return (
@@ -107,16 +106,15 @@ export function MessagingScene(): JSX.Element {
     }
 
     const newChannelMenuItems: LemonMenuItems = [
-        hasMessagingSesFeatureFlag
-            ? {
-                  label: (
-                      <div className="flex gap-1 items-center">
-                          <IconLetter /> Email
-                      </div>
-                  ),
-                  onClick: () => openSetupModal(undefined, 'email'),
-              }
-            : null,
+        {
+            label: (
+                <div className="flex gap-1 items-center">
+                    <IconLetter /> Email
+                </div>
+            ),
+            onClick: () => openSetupModal(undefined, 'email'),
+        },
+
         {
             label: (
                 <div className="flex gap-1 items-center">
@@ -137,7 +135,7 @@ export function MessagingScene(): JSX.Element {
             ),
             onClick: () => openSetupModal(undefined, 'twilio'),
         },
-    ].filter(Boolean)
+    ]
 
     const tabs: LemonTab<MessagingSceneTab>[] = [
         {
@@ -150,18 +148,16 @@ export function MessagingScene(): JSX.Element {
                 </>
             ),
         },
-        hasMessagingSesFeatureFlag
-            ? {
-                  label: 'Library',
-                  key: 'library',
-                  content: (
-                      <>
-                          <p>Create and manage messages</p>
-                          <MessageTemplatesTable />
-                      </>
-                  ),
-              }
-            : null,
+        {
+            label: 'Library',
+            key: 'library',
+            content: (
+                <>
+                    <p>Create and manage messages</p>
+                    <MessageTemplatesTable />
+                </>
+            ),
+        },
         {
             label: 'Channels',
             key: 'channels',
@@ -172,14 +168,13 @@ export function MessagingScene(): JSX.Element {
             key: 'opt-outs',
             content: <OptOutScene />,
         },
-    ].filter(Boolean) as LemonTab<MessagingSceneTab>[]
+    ]
 
     return (
         <SceneContent className="messaging">
             <SceneTitleSection
                 name="Messaging"
                 resourceType={{ type: 'messaging' }}
-                description="Create automated workflows triggered by PostHog events to onboard, retain, and re-engage your users."
                 actions={
                     <>
                         {currentTab === 'campaigns' && (

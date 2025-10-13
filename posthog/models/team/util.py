@@ -16,7 +16,7 @@ actions_that_require_current_team = [
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
-    from posthog.models.cohort import CohortPeople
+    from posthog.models.cohort import Cohort, CohortPeople
     from posthog.models.error_tracking import ErrorTrackingIssueFingerprintV2
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
@@ -27,7 +27,12 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
-    _raw_delete(CohortPeople.objects.filter(cohort__team_id__in=team_ids))
+
+    # Get cohort_ids from the default database first to avoid cross-database join
+    # CohortPeople is in persons_db, Cohort is in default db
+    cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
+    _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))
+
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))

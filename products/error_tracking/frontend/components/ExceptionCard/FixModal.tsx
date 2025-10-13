@@ -46,12 +46,15 @@ Note: Frames marked with [IN-APP] are from the application code (my code), while
 Focus your analysis primarily on the [IN-APP] frames as these are most likely where the issue needs to be fixed.
 
 Can you:
-1. Analyze what's causing this error
-2. Suggest the most likely fix
-3. Provide code examples if applicable
-4. Explain why this error occurred
+1. Analyze what's causing this error. Try to consider multiple possible factors, and dig deep to find a root cause.
+2. Explain in detail why this error occurred. Provide code examples if applicable.
+3. Suggest the most likely fix, enumerating multiple possible solutions and choosing the best one.
+4. Attempt to fix this error.
 
-Please be specific about the file and line number where the fix should be applied.`
+The final output of your efforts should be:
+- An implemented fix for the issue
+- A detailed explanation of the fix and how it addresses the root cause
+`
     }
 
     const handleCopy = (): void => {

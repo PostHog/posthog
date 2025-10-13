@@ -10,6 +10,8 @@ from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
+from posthog.schema import AttributionMode
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -166,6 +168,7 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
+    "experiment_recalculation_time",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -200,10 +203,14 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
+    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
+    attribution_mode = serializers.ChoiceField(
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map", "conversion_goals"]
+        fields = ["sources_map", "conversion_goals", "attribution_window_days", "attribution_mode"]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -221,6 +228,13 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "conversion_goals" in validated_data:
             instance.conversion_goals = validated_data["conversion_goals"]
+
+        # Handle attribution settings
+        if "attribution_window_days" in validated_data:
+            instance.attribution_window_days = validated_data["attribution_window_days"]
+
+        if "attribution_mode" in validated_data:
+            instance.attribution_mode = validated_data["attribution_mode"]
 
         instance.save()
         return instance
@@ -672,6 +686,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 if instance.marketing_analytics_config.sources_map
                 else {}
             ),
+            "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
+            "attribution_mode": instance.marketing_analytics_config.attribution_mode,
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -687,6 +703,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Log activity for marketing analytics config changes
         new_config = {
             "sources_map": validated_data.get("sources_map", {}),
+            "attribution_window_days": validated_data.get("attribution_window_days"),
+            "attribution_mode": validated_data.get("attribution_mode"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }

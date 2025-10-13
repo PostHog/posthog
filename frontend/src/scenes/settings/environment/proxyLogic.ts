@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -112,11 +112,9 @@ export const proxyLogic = kea<proxyLogicType>([
     })),
     afterMount(({ actions, cache }) => {
         actions.loadRecords()
-        cache.refreshTimeout = setInterval(() => actions.maybeRefreshRecords(), 5000)
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.refreshTimeout) {
-            clearTimeout(cache.refreshTimeout)
-        }
+        cache.disposables.add(() => {
+            const timerId = setInterval(() => actions.maybeRefreshRecords(), 5000)
+            return () => clearInterval(timerId)
+        }, 'refreshInterval')
     }),
 ])
