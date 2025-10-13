@@ -69,7 +69,6 @@ When listing goals, no parameters are needed. This will show all current goals w
 USER_GOALS_PROMPT = """
 Goal: {change}
 
-You can find the current set goals with a tool call.
-
-DO NOT CHANGE THE CURRENT GOALS UNLESS EXPLICITLY REQUESTED. Avoid removing a goal unless explicitly requested.
+You can find the current set of goals with a tool call.
+Avoid removing a goal unless explicitly requested.
 """.strip()
