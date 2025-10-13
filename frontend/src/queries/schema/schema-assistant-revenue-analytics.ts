@@ -9,5 +9,8 @@ export interface RevenueAnalyticsAssistantFilters {
 }
 
 export interface RevenueAnalyticsAssistantGoalsOutput {
-    goals: RevenueAnalyticsGoal[]
+    /**
+     * Should only be listed when the revenue goals changed. If they haven't just use `null`.
+     */
+    goals: RevenueAnalyticsGoal[] | null
 }

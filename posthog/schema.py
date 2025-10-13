@@ -4409,7 +4409,9 @@ class RevenueAnalyticsAssistantGoalsOutput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    goals: list[RevenueAnalyticsGoal]
+    goals: Optional[list[RevenueAnalyticsGoal]] = Field(
+        ..., description="Should only be listed when the revenue goals changed. If they haven't just use `null`."
+    )
 
 
 class RevenueAnalyticsEventItem(BaseModel):

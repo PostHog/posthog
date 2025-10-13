@@ -22617,10 +22617,18 @@
             "additionalProperties": false,
             "properties": {
                 "goals": {
-                    "items": {
-                        "$ref": "#/definitions/RevenueAnalyticsGoal"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/RevenueAnalyticsGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Should only be listed when the revenue goals changed. If they haven't just use `null`."
                 }
             },
             "required": ["goals"],

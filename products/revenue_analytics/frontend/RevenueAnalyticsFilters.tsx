@@ -280,6 +280,8 @@ const RevenueGoalsSwitch = (): JSX.Element => {
     const { revenueGoals, displayRevenueGoals } = useValues(revenueAnalyticsLogic)
     const { setDisplayRevenueGoals, setRevenueGoals } = useActions(revenueAnalyticsLogic)
 
+    const disabledReason = revenueGoals.length === 0 ? 'No revenue goals found' : undefined
+
     return (
         <Tooltip
             title={
@@ -296,9 +298,11 @@ const RevenueGoalsSwitch = (): JSX.Element => {
         >
             <MaxTool
                 identifier="manage_revenue_goals"
-                context={{ current_goals: revenueGoals }}
+                context={{}}
                 callback={(response: RevenueAnalyticsAssistantGoalsOutput) => {
-                    setRevenueGoals(response.goals)
+                    if (response.goals !== null) {
+                        setRevenueGoals(response.goals)
+                    }
                 }}
                 initialMaxPrompt="Show me my revenue goals"
                 suggestions={[
@@ -308,12 +312,12 @@ const RevenueGoalsSwitch = (): JSX.Element => {
                     'Update the revenue goal for the next quarter to 50M ARR',
                 ]}
             >
-                <LemonButton icon={<IconPiggyBank />} type="secondary" size="small">
+                <LemonButton icon={<IconPiggyBank />} type="secondary" size="small" disabledReason={disabledReason}>
                     <LemonSwitch
                         label="Revenue goals"
                         checked={displayRevenueGoals}
                         onChange={setDisplayRevenueGoals}
-                        disabledReason={revenueGoals.length === 0 ? 'No revenue goals found' : undefined}
+                        disabledReason={disabledReason}
                     />
                 </LemonButton>
             </MaxTool>

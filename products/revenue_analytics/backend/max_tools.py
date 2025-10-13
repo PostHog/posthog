@@ -101,10 +101,10 @@ class ManageRevenueGoalsTool(MaxTool):
         result = await self._invoke_graph(change)
         if type(result["output"]) is not RevenueAnalyticsAssistantGoalsOutput:
             content = result["intermediate_steps"][-1][0].tool_input
-            output = RevenueAnalyticsAssistantGoalsOutput(goals=[])
+            output = RevenueAnalyticsAssistantGoalsOutput(goals=None)
         else:
             try:
-                content = "✅ Updated revenue goals."
+                content = "✅ Revenue goals action completed."
                 output = result["output"]
             except Exception as e:
                 raise ValueError(f"Failed to process revenue goals result: {e}")
