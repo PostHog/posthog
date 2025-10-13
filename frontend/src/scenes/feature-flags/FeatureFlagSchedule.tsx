@@ -346,7 +346,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
                                           ? 'Fix release condition errors'
-                                          : variantErrors.some((error) => error.key != null)
+                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                                              variantErrors.some((error) => error.key != null)
                                             ? 'Fix schedule variant changes errors'
                                             : undefined
                                 }
