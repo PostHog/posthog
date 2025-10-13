@@ -42,7 +42,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     forms(({ actions }) => ({
         emailSender: {
             defaults: {
-                provider: 'mailjet',
+                provider: 'ses',
                 email: '',
                 name: '',
             } as EmailSenderFormType,

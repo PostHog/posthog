@@ -115,6 +115,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -1166,15 +1168,19 @@ class EmailIntegration:
 
         if verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
-            other_integrations = Integration.objects.filter(
+            all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,
                 kind="email",
                 config__domain=domain,
                 config__provider=provider,
             )
-            for integration in other_integrations:
+            for integration in all_integrations_for_domain:
                 integration.config["verified"] = True
                 integration.save()
+
+            reload_integrations_on_workers(
+                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            )
 
         return verification_result
 
@@ -1857,9 +1863,9 @@ class DatabricksIntegration:
             sock.close()
         except OSError:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
         except Exception:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
