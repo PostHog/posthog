@@ -78,6 +78,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Dashboards',
         activityScope: ActivityScope.DASHBOARD,
         description: 'Create and manage your dashboards',
+        iconType: 'dashboard',
     },
     [Scene.DataManagement]: {
         projectBased: true,
