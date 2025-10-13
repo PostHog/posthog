@@ -873,7 +873,7 @@ def _get_merge_settings(
         return RequiredMergeSettings(
             requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
         )
-    elif isinstance(model, BatchExportModel) and model.name == "events" and use_super is True:
+    elif (model is None or (isinstance(model, BatchExportModel) and model.name == "events")) and use_super is True:
         merge_key = [("uuid", "TEXT")]
         update_key = [("timestamp", "TIMESTAMP")]
         primary_key = [("uuid", "TEXT")]
