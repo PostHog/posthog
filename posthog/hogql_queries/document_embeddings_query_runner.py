@@ -93,9 +93,9 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
     def to_query(self) -> ast.SelectQuery:
         # as in "universal set"
-        universe = lambda col: column("universe", col)
+        universe = lambda c: col("universe", c)
         # as in "point from which all distances are measured"
-        origin = lambda col: column("origin", col)
+        origin = lambda c: col("origin", c)
 
         nearest = lambda expr: ast.Call(
             name=self.output_argby_func,
@@ -130,52 +130,31 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             universe("timestamp"),
         ]
 
-        where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq, left=universe("timestamp"), right=ast.Constant(value=self.date_from)
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq, left=universe("timestamp"), right=ast.Constant(value=self.date_to)
-            ),
-        ]
-
-        if self.query.products:
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=universe("product"),
-                    right=ast.Constant(value=self.query.products),
-                )
-            )
-
-        if self.query.document_types:
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=universe("document_type"),
-                    right=ast.Constant(value=self.query.document_types),
-                )
-            )
-
-        if self.query.renderings:
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=universe("rendering"),
-                    right=ast.Constant(value=self.query.renderings),
-                )
-            )
-
-        return ast.SelectQuery(
+        query = ast.SelectQuery(
             select=cols,
             select_from=self.join_expr,
             group_by=group_by,  # If we got multiple hits for a doc, we take the best one
             order_by=self.order_by,
-            where=ast.And(exprs=where_exprs),
         )
+
+        # We apply the thresholding here, finally, after we've scored all the documents. The other elements of the
+        # query filter (product, document_type etc) are applied to the universe select, rather than this one.
+        if self.query.threshold:
+            query.having = ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=col("distance"),
+                right=ast.Constant(value=self.query.threshold),
+            )
+
+        return query
 
     @property
     def join_expr(self) -> ast.JoinExpr:
+        # This join expression is saying, for every unique combination of product, document type, and document ID,
+        # we want to join the origin table with the universe table on the model name. The OR clause in it is
+        # specifying that, if a given universe document has the same product and document_type as the origin document,
+        # we want to ONLY join like for like renderings, but if the document is from a different product or document_type,
+        # we want to join /across/ renderings (we take the best result later, in the final selects group by)
         constraint = ast.JoinConstraint(
             constraint_type="ON",
             expr=ast.And(
@@ -206,10 +185,19 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
                                     ),
                                 ]
                             ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.NotEq,
-                                left=ast.Field(chain=["origin", "document_type"]),
-                                right=ast.Field(chain=["universe", "document_type"]),
+                            ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["origin", "product"]),
+                                        right=ast.Field(chain=["universe", "product"]),
+                                    ),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["origin", "document_type"]),
+                                        right=ast.Field(chain=["universe", "document_type"]),
+                                    ),
+                                ]
                             ),
                         ]
                     ),
@@ -223,18 +211,70 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             next_join=ast.JoinExpr(
                 join_type="INNER JOIN",
                 constraint=constraint,
-                table=ast.Field(chain=["document_embeddings"]),
+                table=self.universe_select,
                 alias="universe",
             ),
         )
 
     @property
+    def universe_select(self) -> ast.SelectQuery:
+        cols: list[ast.Expr] = [
+            ast.Alias(alias="product", expr=col("product")),
+            ast.Alias(alias="document_type", expr=col("document_type")),
+            ast.Alias(alias="model_name", expr=col("model_name")),
+            ast.Alias(alias="rendering", expr=col("rendering")),
+            ast.Alias(alias="document_id", expr=col("document_id")),
+            ast.Alias(alias="timestamp", expr=col("timestamp")),
+            ast.Alias(alias="embedding", expr=col("embedding")),
+        ]
+
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq, left=col("timestamp"), right=ast.Constant(value=self.date_from)
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq, left=col("timestamp"), right=ast.Constant(value=self.date_to)
+            ),
+        ]
+
+        if self.query.products:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=col("product"),
+                    right=ast.Constant(value=self.query.products),
+                )
+            )
+
+        if self.query.document_types:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=col("document_type"),
+                    right=ast.Constant(value=self.query.document_types),
+                )
+            )
+
+        if self.query.renderings:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=col("rendering"),
+                    right=ast.Constant(value=self.query.renderings),
+                )
+            )
+
+        return ast.SelectQuery(
+            select=cols,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["document_embeddings"])),
+            where=ast.And(exprs=where_exprs),
+        )
+
+    @property
     def origin_select(self) -> ast.SelectQuery:
-        # We're argMax'ing columns to output cols of the same name, so we do this. I think
-        # the hogql parser would actually handle this for us, but I'm doing it here for clarity,
-        # and because it made local work faster to test
-        col = lambda col: column("d", col)
-        # We do this because we fuzzy match on timestamp, and people might mess up
+        # If a document has been embedded twice with two different timestamps, rather than simply updated
+        # in place, we select the most recent one. This should basically never happen, given we specify
+        # the timestamp in the query, but we do it anyway to be safe.
         most_recent = lambda expr: ast.Call(
             name="argMax",
             args=[expr, col("timestamp")],
@@ -249,11 +289,6 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             ast.Alias(alias="embedding", expr=most_recent(col("embedding"))),
         ]
 
-        # Note that one thing node added here is renderings - even if the caller specified
-        # a set of renderings to select for, we still use all available renderings for the
-        # origin in the join, we simply exclude it from the result set. The renderings filter
-        # is the same as the product and document type filters semantically for this query,
-        # which is to say it's only applied to the final output
         where_exprs = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -288,7 +323,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
         return ast.SelectQuery(
             select=select_cols,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["document_embeddings"]), alias="d"),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["document_embeddings"])),
             group_by=group_by,
             where=ast.And(exprs=where_exprs),
         )
@@ -341,5 +376,5 @@ def timestamp_fuzzy_match(left: ast.Expr, timestamp: datetime.datetime, range: d
     )
 
 
-def column(*chain: str):
+def col(*chain: str):
     return ast.Field(chain=list(chain))
