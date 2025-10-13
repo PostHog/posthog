@@ -10,8 +10,8 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 0.1 Routing Configuration
 
-- [x] Create new `/ai` endpoint in capture service
-- [ ] Set up routing for `/ai` endpoint to capture service
+- [x] Create new `/i/v0/ai` endpoint in capture service
+- [ ] Set up routing for `/i/v0/ai` endpoint to capture service
 
 #### 0.2 End-to-End Integration Tests
 
@@ -37,7 +37,7 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 1.3 Initial Deployment
 
-- [ ] Deploy capture-ai service to production with basic `/ai` endpoint
+- [ ] Deploy capture-ai service to production with basic `/i/v0/ai` endpoint
 - [ ] Test basic multipart parsing and Kafka output functionality
 - [ ] Verify endpoint responds correctly to AI events
 
@@ -96,8 +96,8 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 #### 6.2 Alerting
 
 - [ ] Configure alerts for S3 upload failures
-- [ ] Set up alerts for high error rates on `/ai` endpoint
-- [ ] Set up alerts for high latency on `/ai` endpoint
+- [ ] Set up alerts for high error rates on `/i/v0/ai` endpoint
+- [ ] Set up alerts for high latency on `/i/v0/ai` endpoint
 
 #### 6.3 Runbooks
 

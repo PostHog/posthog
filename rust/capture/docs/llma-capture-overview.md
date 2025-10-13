@@ -58,7 +58,7 @@ The LLM Analytics capture system implements a specialized data flow that efficie
 ### Data Flow
 
 1. **Event Ingestion**
-   - Events are transmitted using server-side PostHog SDKs via HTTP to a dedicated `/ai` endpoint
+   - Events are transmitted using server-side PostHog SDKs via HTTP to a dedicated `/i/v0/ai` endpoint
    - Requests utilize multipart payloads containing:
      - Event payload (metadata and standard properties)
      - Binary blobs containing LLM context (e.g., input state, output state property values)
@@ -85,7 +85,7 @@ The LLM Analytics capture system implements a specialized data flow that efficie
 
 ### HTTP Endpoint
 
-The `/ai` endpoint accepts multipart POST requests with the following structure:
+The `/i/v0/ai` endpoint accepts multipart POST requests with the following structure:
 
 #### Request Format
 
@@ -112,7 +112,7 @@ The `/ai` endpoint accepts multipart POST requests with the following structure:
 #### Example Request Structure
 
 ```http
-POST /ai HTTP/1.1
+POST /i/v0/ai HTTP/1.1
 Content-Type: multipart/form-data; boundary=----boundary123
 
 ------boundary123
@@ -330,7 +330,7 @@ Content-Encoding: gzip
 
 ### Preventing Malicious Uploads
 
-- All requests to the `/ai` endpoint must be authenticated using the project's private API key
+- All requests to the `/i/v0/ai` endpoint must be authenticated using the project's private API key
 - The capture service validates the API key before processing any multipart data
 - This prevents unauthorized uploads and ensures blob storage is only used by legitimate PostHog projects
 
@@ -340,7 +340,7 @@ The authentication process for LLM analytics events follows these steps:
 
 1. **API Key Extraction**
    - Extract the API key from the request headers (e.g., `Authorization: Bearer <api_key>`)
-   - API key must be present for all requests to `/ai`
+   - API key must be present for all requests to `/i/v0/ai`
 
 2. **Early Validation**
    - Validate the API key format and existence before parsing multipart data
@@ -402,7 +402,7 @@ Three approaches for handling data deletion requests:
 The capture service enforces strict validation on incoming events:
 
 1. **Event Name Validation**
-   - All events sent to `/ai` must have an event name starting with `$ai_`
+   - All events sent to `/i/v0/ai` must have an event name starting with `$ai_`
    - Requests with non-AI events are rejected with 400 Bad Request
    - This ensures the endpoint is only used for its intended purpose
 

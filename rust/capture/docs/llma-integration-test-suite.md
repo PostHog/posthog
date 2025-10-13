@@ -38,7 +38,7 @@ This document describes the Rust integration test suite for the LLM Analytics ca
 
 #### Scenario 1.1: Basic Routing
 
-- **Test**: Verify `/ai` endpoint is accessible and returns correct response codes
+- **Test**: Verify `/i/v0/ai` endpoint is accessible and returns correct response codes
 - **Validation**: HTTP 200 for valid requests, proper error codes for invalid requests
 - **Tests Implemented**:
   - `test_ai_endpoint_get_returns_405`: GET requests return 405

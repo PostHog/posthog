@@ -10,7 +10,7 @@ This document describes the Python acceptance test suite for the LLM Analytics p
 
 ### Test Environment
 
-- **Local PostHog Deployment**: Complete local PostHog setup including capture service with `/ai` endpoint
+- **Local PostHog Deployment**: Complete local PostHog setup including capture service with `/i/v0/ai` endpoint
 - **S3-Compatible Storage**: Local S3-compatible storage for blob storage with direct access for verification
 - **PostHog Query API**: Used to fetch processed events from the ingestion pipeline for validation
 - **Direct S3 Access**: Test suite has direct S3 client access to verify blob storage and retrieval
@@ -147,7 +147,7 @@ The acceptance test suite is implemented in Python using pytest to test against 
 
 - **Local PostHog Instance**: Full PostHog deployment running locally
 - **Local S3 Storage**: S3-compatible storage (configured via PostHog local setup)
-- **Capture Service**: Running with `/ai` endpoint enabled
+- **Capture Service**: Running with `/i/v0/ai` endpoint enabled
 - **Test Configuration**: Environment variables for service endpoints and credentials
 
 #### Environment Configuration
