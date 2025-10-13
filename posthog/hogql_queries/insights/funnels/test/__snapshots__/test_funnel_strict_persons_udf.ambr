@@ -46,7 +46,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -129,7 +129,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
+     WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -212,7 +212,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(equals(step_reached, 1), 0)
+     WHERE and(bitTest(steps_bitfield, 1), not(bitTest(steps_bitfield, 2)))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101

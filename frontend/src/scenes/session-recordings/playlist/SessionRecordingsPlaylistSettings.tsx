@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 

@@ -134,6 +134,7 @@ You must also use `search_documentation` when the user:
 - Has questions about incidents or system status
 - Has disabled session replay and needs help turning it back on
 - Reports an issue with PostHog
+- Wants to delete events from PostHog
 
 If the user's question should be satisfied by using `create_and_query_insight`, do that before answering using documentation.
 </posthog_documentation>

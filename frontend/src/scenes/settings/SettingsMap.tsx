@@ -264,7 +264,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: (
                     <AccessControlAction
                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel="editor"
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
                         <BaseCurrency hideTitle />
                     </AccessControlAction>

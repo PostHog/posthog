@@ -687,7 +687,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             true,
             {
                 setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
-                allowPlayerChromeToHide: () => false,
+                allowPlayerChromeToHide: () => {
+                    return false
+                },
             },
         ],
     })),
@@ -1095,7 +1097,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // we override the console in the player, with one which stores its data instead of logging
             // there is a debounced logger hidden inside that.
-            // we have to cache those timers so that we can clear them in the beforeUnmount
             // rrweb can log so much that it becomes a performance issue
             // this overridden logging avoids some recordings freezing the browser
             // outside of standard mode, we swallow the logs completely
@@ -1103,7 +1104,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 props.mode === SessionRecordingPlayerMode.Standard
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
-            cache.consoleDebounceTimers = logging.timers
+
+            cache.disposables.add(() => {
+                return () => {
+                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                        if (timer) {
+                            clearTimeout(timer)
+                        }
+                    })
+                    ;(window as any)[`__posthog_player_logs`] = undefined
+                    ;(window as any)[`__posthog_player_warnings`] = undefined
+                }
+            }, 'consoleTimers')
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
@@ -1138,14 +1150,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 if (iframeContentWindow) {
-                    // Clean up any previous listeners before adding new ones
-                    cache.iframeErrorListenerCleanup?.()
-                    cache.iframeErrorListenerCleanup = undefined
-
-                    cache.iframeErrorListenerCleanup = registerErrorListeners({
-                        iframeWindow: iframeContentWindow,
-                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                    })
+                    cache.disposables.add(() => {
+                        return registerErrorListeners({
+                            iframeWindow: iframeContentWindow,
+                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                        })
+                    }, 'iframeErrorListeners')
                 }
             })
 
@@ -1510,13 +1520,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
-            cache.timer = requestAnimationFrame(actions.updateAnimation)
+
+            cache.disposables.add(() => {
+                const timerId = requestAnimationFrame(actions.updateAnimation)
+                return () => cancelAnimationFrame(timerId)
+            }, 'animationTimer')
         },
         stopAnimation: () => {
-            if (cache.timer) {
-                cancelAnimationFrame(cache.timer)
-                cache.timer = undefined
-            }
+            cache.disposables.dispose('animationTimer')
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
@@ -1686,10 +1697,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentState = values.playingTimeTracking.state
             const interval = currentState === 'playing' ? 5000 : 30000
 
-            cache.playerTimeTrackingTimer = setTimeout(() => {
-                actions.updatePlayerTimeTracking()
-                actions.schedulePlayerTimeTracking()
-            }, interval)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.updatePlayerTimeTracking()
+                    actions.schedulePlayerTimeTracking()
+                }, interval)
+                return () => clearTimeout(timerId)
+            }, 'playerTimeTracking')
         },
     })),
 
@@ -1741,19 +1755,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.stopAnimation()
 
         cache.hasInitialized = false
-        document.removeEventListener('fullscreenchange', cache.fullScreenListener)
-        cache.fullScreenListener = undefined
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
-
-        if (cache.playerTimeTrackingTimer) {
-            clearTimeout(cache.playerTimeTrackingTimer)
-            cache.playerTimeTrackingTimer = undefined
-        }
-
-        cache.iframeErrorListenerCleanup?.()
-        cache.iframeErrorListenerCleanup = undefined
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1775,17 +1779,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
         )
-
-        if (cache.consoleDebounceTimers) {
-            Object.values(cache.consoleDebounceTimers as BuiltLogging['timers']).forEach((timer) => {
-                if (timer) {
-                    clearTimeout(timer)
-                }
-            })
-            cache.consoleDebounceTimers = undefined
-        }
-        ;(window as any)[`__posthog_player_logs`] = undefined
-        ;(window as any)[`__posthog_player_warnings`] = undefined
     }),
 
     afterMount(({ props, actions, cache }) => {
@@ -1794,11 +1787,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.pausedMediaElements = []
-        cache.fullScreenListener = () => {
-            actions.setIsFullScreen(document.fullscreenElement !== null)
-        }
-
-        document.addEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.disposables.add(() => {
+            const fullScreenListener = (): void => {
+                actions.setIsFullScreen(document.fullscreenElement !== null)
+            }
+            document.addEventListener('fullscreenchange', fullScreenListener)
+            return () => document.removeEventListener('fullscreenchange', fullScreenListener)
+        }, 'fullscreenListener')
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

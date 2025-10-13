@@ -233,7 +233,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
+     WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -333,17 +333,21 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
          memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
     AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
@@ -558,7 +562,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -630,7 +634,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
+     WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -702,7 +706,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 2), 0)
+     WHERE bitTest(steps_bitfield, 2)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1329,8 +1333,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('finance')))))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1400,8 +1404,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('finance')))))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1471,8 +1475,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('technology')))))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1542,8 +1546,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('technology')))))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101

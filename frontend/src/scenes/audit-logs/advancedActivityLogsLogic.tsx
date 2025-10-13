@@ -331,17 +331,15 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             if (tab === 'exports') {
                 // Start polling when switching to exports tab
                 actions.loadExports()
-                if (!cache.exportPollingInterval) {
-                    cache.exportPollingInterval = setInterval(() => {
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
                         actions.loadExports()
                     }, 5000)
-                }
+                    return () => clearInterval(intervalId)
+                }, 'exportPollingInterval')
             } else {
                 // Stop polling when switching away from exports tab
-                if (cache.exportPollingInterval) {
-                    clearInterval(cache.exportPollingInterval)
-                    cache.exportPollingInterval = null
-                }
+                cache.disposables.dispose('exportPollingInterval')
             }
         },
 
@@ -546,16 +544,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
     })),
 
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadAvailableFilters()
             actions.loadAdvancedActivityLogs({})
-        },
-        beforeUnmount: () => {
-            if (cache.exportPollingInterval) {
-                clearInterval(cache.exportPollingInterval)
-                cache.exportPollingInterval = null
-            }
         },
     })),
 ])

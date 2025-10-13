@@ -2,12 +2,12 @@ import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useRef } from 'react'
 
-import { getSeriesColor } from 'lib/colors'
 import { percentage } from 'lib/utils'
 
 import { SessionData } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
+import { getVariantColor } from '../../utils'
 import { useTooltip } from './FunnelBarVertical'
 import { useFunnelChartData } from './FunnelChart'
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
@@ -25,16 +25,21 @@ interface StepBarCSSProperties extends React.CSSProperties {
 export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useTooltip()
-    const { experimentResult } = useFunnelChartData()
+    const { experimentResult, experiment } = useFunnelChartData()
     const { openModal } = useActions(sampledSessionsModalLogic)
 
-    const seriesColor = getSeriesColor((step as any).breakdown_index)
+    const variantKey = Array.isArray(step.breakdown_value)
+        ? step.breakdown_value[0]?.toString() || ''
+        : step.breakdown_value?.toString() || ''
+
+    const seriesColor =
+        experiment?.parameters?.feature_flag_variants && variantKey
+            ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+            : 'var(--text-muted)'
 
     // Get sampled sessions from the experiment result
-    // Find the variant result that matches this series
     let sessionData: SessionData[] | undefined
-    if (experimentResult) {
-        const variantKey = step.breakdown_value
+    if (experimentResult && variantKey) {
         if (variantKey === 'control') {
             sessionData = experimentResult.baseline.step_sessions?.[stepIndex]
         } else {
@@ -46,8 +51,8 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         if (sessionData) {
             openModal({
                 sessionData,
-                stepName: step.name,
-                variant: String(step.breakdown_value || 'control'),
+                stepName: step.custom_name || step.name,
+                variant: variantKey,
             })
         }
     }

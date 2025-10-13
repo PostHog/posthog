@@ -40,6 +40,7 @@ export enum TileId {
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
     FRUSTRATING_PAGES = 'FRUSTRATING_PAGES',
+    MARKETING_OVERVIEW = 'MARKETING_OVERVIEW',
 
     // Page Report Tiles to avoid conflicts with web analytics
     PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
@@ -125,8 +126,9 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 16,
 
     // Marketing Tiles
-    [TileId.MARKETING]: 1,
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
+    [TileId.MARKETING_OVERVIEW]: 1,
+    [TileId.MARKETING]: 2,
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it

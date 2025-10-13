@@ -164,6 +164,7 @@ impl From<&RawNodeFrame> for Frame {
             context: raw.get_context(),
             release: None,
             synthetic: raw.meta.synthetic,
+            suspicious: false,
         }
     }
 }
@@ -205,6 +206,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             context: get_sourcelocation_context(&location),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -247,6 +249,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             context: raw_frame.get_context(),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

@@ -1,71 +1,8 @@
 import React from 'react'
 
-import { getAppContext } from 'lib/utils/getAppContext'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlResourceType } from '~/types'
-
-type AccessControlLevelNone = 'none'
-type AccessControlLevelMember = AccessControlLevelNone | 'member' | 'admin'
-type AccessControlLevelResource = AccessControlLevelNone | 'viewer' | 'editor' | 'manager'
-type AccessControlLevel = AccessControlLevelMember | AccessControlLevelResource
-
-const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessControlLevel[] => {
-    if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
-        return ['none', 'member', 'admin']
-    }
-    return ['none', 'viewer', 'editor', 'manager']
-}
-
-export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
-    if (resourceType === AccessControlResourceType.RevenueAnalytics) {
-        return 'revenue analytics resource'
-    }
-
-    return resourceType.replace('_', ' ')
-}
-
-export const accessLevelSatisfied = (
-    resourceType: AccessControlResourceType,
-    currentLevel: AccessControlLevel,
-    requiredLevel: AccessControlLevel
-): boolean => {
-    const levels = orderedAccessLevels(resourceType)
-    return levels.indexOf(currentLevel) >= levels.indexOf(requiredLevel)
-}
-
-export const getAccessControlDisabledReason = (
-    resourceType: AccessControlResourceType,
-    minAccessLevel: AccessControlLevel,
-    userAccessLevel?: AccessControlLevel,
-    includeAccessDetails: boolean = true
-): string | null => {
-    // If the userAccessLevel is not provided, we use the app context for that resource type
-    const parsedUserAccessLevel = userAccessLevel ?? getAppContext()?.resource_access_control?.[resourceType]
-
-    // And if we can't figure out the user's access level from the arguments OR app context,
-    // we assume they don't have access to the resource to err on the side of caution
-    const hasAccess = parsedUserAccessLevel
-        ? accessLevelSatisfied(resourceType, parsedUserAccessLevel, minAccessLevel)
-        : false
-
-    if (!hasAccess) {
-        let reason = `You don't have sufficient permissions for this ${resourceTypeToString(resourceType)}.`
-        if (includeAccessDetails) {
-            reason += ` Your access level (${parsedUserAccessLevel ?? 'none'}) doesn't meet the required level (${minAccessLevel}).`
-        }
-        return reason
-    }
-
-    return null
-}
-
-export const userHasAccess = (
-    resourceType: AccessControlResourceType,
-    minAccessLevel: AccessControlLevel,
-    userAccessLevel?: AccessControlLevel
-): boolean => {
-    return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
-}
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 interface AccessControlActionChildrenProps {
     disabled?: boolean

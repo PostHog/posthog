@@ -215,7 +215,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
                 }
 
                 if (!props.blobV2PollingDisabled) {

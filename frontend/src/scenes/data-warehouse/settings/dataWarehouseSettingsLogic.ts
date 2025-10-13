@@ -190,21 +190,23 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         deleteJoin: ({ join }): void => {
@@ -226,7 +228,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])

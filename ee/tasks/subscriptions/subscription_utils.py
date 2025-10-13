@@ -1,3 +1,4 @@
+import time
 import asyncio
 import datetime
 from typing import Union
@@ -7,6 +8,8 @@ from django.conf import settings
 import structlog
 from celery import chain
 from prometheus_client import Histogram
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -21,12 +24,65 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 DEFAULT_MAX_ASSET_COUNT = 6
 
+
+def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
+    failed_assets = [a for a in assets if not a.content and not a.content_location]
+    failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
+    failed_insight_urls = [
+        f"/project/{resource.team_id}/insights/{a.insight.short_id}"
+        for a in failed_assets
+        if a.insight and hasattr(a.insight, "short_id")
+    ]
+
+    dashboard_url = f"/project/{resource.team_id}/dashboard/{resource.dashboard_id}" if resource.dashboard else None
+
+    return {
+        "failed_asset_count": len(failed_assets),
+        "failed_insight_ids": failed_insight_ids,
+        "failed_insight_urls": failed_insight_urls,
+        "dashboard_url": dashboard_url,
+    }
+
+
+# Prometheus metrics for Celery workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
     "Time spent generating assets for a subscription",
     labelnames=["execution_path"],
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
+
+
+# Temporal metrics for temporal workers
+def get_metric_meter() -> MetricMeter:
+    if activity.in_activity():
+        return activity.metric_meter()
+    elif workflow.in_workflow():
+        return workflow.metric_meter()
+    else:
+        raise RuntimeError("Not within workflow or activity context")
+
+
+def get_asset_generation_duration_metric(execution_path: str) -> MetricHistogramTimedelta:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"execution_path": execution_path})
+        .create_histogram_timedelta(
+            "subscription_asset_generation_duration",
+            "Time spent generating assets for a subscription",
+        )
+    )
+
+
+def get_asset_generation_timeout_metric(execution_path: str) -> MetricCounter:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"execution_path": execution_path})
+        .create_counter(
+            "subscription_asset_generation_timeout",
+            "Number of times asset generation timed out during subscription delivery",
+        )
+    )
 
 
 def generate_assets(
@@ -86,7 +142,8 @@ async def generate_assets_async(
     This function requires "created_by", "insight", "dashboard", "team" be prefetched on the resource
     """
     logger.info("generate_assets_async.starting", resource_id=getattr(resource, "id", None))
-    with SUBSCRIPTION_ASSET_GENERATION_TIMER.labels(execution_path="temporal").time():
+    start_time = time.time()
+    try:
         if resource.dashboard:
             # Fetch tiles asynchronously
             dashboard = resource.dashboard  # Capture reference for lambda
@@ -123,24 +180,75 @@ async def generate_assets_async(
         # Create async tasks for each asset export
         async def export_single_asset(asset: ExportedAsset) -> None:
             try:
-                logger.info("generate_assets_async.exporting_asset", asset_id=asset.id)
+                logger.info(
+                    "generate_assets_async.exporting_asset",
+                    asset_id=asset.id,
+                    insight_id=asset.insight_id,
+                    subscription_id=getattr(resource, "id", None),
+                    team_id=resource.team_id,
+                )
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(asset)
-                logger.info("generate_assets_async.asset_exported", asset_id=asset.id)
+                logger.info(
+                    "generate_assets_async.asset_exported",
+                    asset_id=asset.id,
+                    insight_id=asset.insight_id,
+                    subscription_id=getattr(resource, "id", None),
+                    team_id=resource.team_id,
+                )
             except Exception as e:
                 logger.error(
                     "generate_assets_async.export_failed",
                     asset_id=asset.id,
+                    insight_id=asset.insight_id,
                     subscription_id=getattr(resource, "id", None),
                     error=str(e),
                     exc_info=True,
+                    team_id=resource.team_id,
                 )
                 # Save the exception but continue with other assets
                 asset.exception = str(e)
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
 
-        # Run all exports concurrently
-        logger.info("generate_assets_async.starting_exports", asset_count=len(assets))
-        await asyncio.gather(*[export_single_asset(asset) for asset in assets])
-        logger.info("generate_assets_async.exports_complete", asset_count=len(assets))
+        # Reserve buffer time for email/Slack delivery after exports
+        buffer_seconds = 120  # 2 minutes
+        export_timeout_seconds = (settings.TEMPORAL_TASK_TIMEOUT_MINUTES * 60) - buffer_seconds
+
+        subscription_id = getattr(resource, "id", None)
+
+        logger.info(
+            "generate_assets_async.starting_exports",
+            asset_count=len(assets),
+            subscription_id=subscription_id,
+            team_id=resource.team_id,
+        )
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*[export_single_asset(asset) for asset in assets]), timeout=export_timeout_seconds
+            )
+            logger.info(
+                "generate_assets_async.exports_complete",
+                asset_count=len(assets),
+                subscription_id=subscription_id,
+                team_id=resource.team_id,
+            )
+        except TimeoutError:
+            get_asset_generation_timeout_metric("temporal").add(1)
+
+            # Get failure info for logging
+            failure_info = _get_failed_asset_info(assets, resource)
+
+            logger.warning(
+                "generate_assets_async.exports_timeout",
+                asset_count=len(assets),
+                subscription_id=subscription_id,
+                dashboard_id=resource.dashboard_id if resource.dashboard else None,
+                team_id=resource.team_id,
+                **failure_info,
+            )
+            # Continue with partial results - some assets may not have content
 
         return insights, assets
+    finally:
+        duration = datetime.timedelta(seconds=time.time() - start_time)
+        get_asset_generation_duration_metric("temporal").record(duration)

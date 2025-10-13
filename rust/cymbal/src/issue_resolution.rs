@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
-use common_types::error_tracking::NewFingerprintEvent;
 use rdkafka::types::RDKafkaErrorCode;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
@@ -36,6 +35,7 @@ pub struct Issue {
     pub status: IssueStatus,
     pub name: Option<String>,
     pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -73,7 +73,7 @@ impl Issue {
             r#"
             -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
             -- generally a risky override of sqlx's normal type checking
-            SELECT i.id, i.team_id, i.status, i.name, i.description
+            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -98,7 +98,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, name, description FROM posthog_errortrackingissue
+            SELECT id, team_id, status, name, description, created_at FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -127,18 +127,20 @@ impl Issue {
             status: IssueStatus::Active,
             name: Some(name),
             description: Some(description),
+            created_at: Utc::now(),
         };
 
         sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
             issue.id,
             issue.team_id,
             issue.status.to_string(),
             issue.name,
-            issue.description
+            issue.description,
+            issue.created_at
         )
         .execute(executor)
         .await?;
@@ -259,7 +261,7 @@ pub async fn resolve_issue(
     event_timestamp: DateTime<Utc>,
     event_properties: FingerprintedErrProps,
 ) -> Result<Issue, UnhandledError> {
-    let mut conn = context.pool.acquire().await?;
+    let mut conn = context.posthog_pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue =
         Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
@@ -397,17 +399,12 @@ async fn send_new_fingerprint_event(
     issue: &Issue,
     output_props: &OutputErrProps,
 ) -> Result<(), UnhandledError> {
-    let event = NewFingerprintEvent {
-        team_id: issue.team_id,
-        fingerprint: output_props.fingerprint.clone(),
-        models: context.config.embedding_models.0.clone(),
-        exception_list: (&output_props.exception_list).into(),
-    };
+    let request = output_props.to_fingerprint_embedding_request(issue);
 
     let res = send_iter_to_kafka(
         &context.immediate_producer,
-        &context.config.new_fingerprints_topic,
-        &[event],
+        &context.config.embedding_worker_topic,
+        &[request],
     )
     .await
     .into_iter()

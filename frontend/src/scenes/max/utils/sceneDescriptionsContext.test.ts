@@ -134,21 +134,6 @@ describe('buildSceneDescriptionsContext', () => {
         }
     })
 
-    it('only includes URL keys that are in AssistantNavigateUrl', () => {
-        const result = buildSceneDescriptionsContext()
-        const lines = result.split('\n').filter((l) => l.trim())
-
-        // Extract URL keys from each line (between - ** and **)
-        for (const line of lines) {
-            const match = line.match(/^- \*\*(\w+)\*\*/)
-            expect(match).toBeTruthy()
-            if (match) {
-                const urlKey = match[1]
-                expect(ASSISTANT_NAVIGATE_URLS.has(urlKey as AssistantNavigateUrl)).toBe(true)
-            }
-        }
-    })
-
     it('all returned URL keys are valid entries in AssistantNavigateUrl', () => {
         const result = buildSceneDescriptionsContext()
         const lines = result.split('\n').filter((l) => l.trim())

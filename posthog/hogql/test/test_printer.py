@@ -570,7 +570,7 @@ class TestPrinter(BaseTest):
             self.assertEqual(printed_expr % context.values, unoptimized_expr % unoptimized_context.values)
 
         if expected_context_values is not None:
-            self.assertDictContainsSubset(expected_context_values, context.values)
+            self.assertLessEqual(expected_context_values.items(), context.values.items())
 
         if expected_skip_indexes_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
@@ -941,6 +941,28 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
         self._assert_expr_error("a -> { print(2) }", "You can not use placeholders here")
 
+    def test_logical_and_optimization(self):
+        self.assertEqual(
+            self._expr("team_id=1 AND 1 AND event='name'"),
+            "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND 1"),
+            "equals(events.team_id, 1)",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND 0"),
+            "0",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND (1=1 AND event='name')"),
+            "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND (0=1 AND event='name')"),
+            "0",
+        )
+
     def test_logic(self):
         self.assertEqual(
             self._expr("event or timestamp"),
@@ -1143,8 +1165,18 @@ class TestPrinter(BaseTest):
 
     def test_select_where(self):
         self.assertEqual(
+            self._select("select 1 from events where 1 == 1"),
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+        self.assertEqual(
             self._select("select 1 from events where 1 == 2"),
-            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+        self.assertEqual(
+            self._select("select 1 from events where event='name'"),
+            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_having(self):
@@ -1155,12 +1187,16 @@ class TestPrinter(BaseTest):
 
     def test_select_prewhere(self):
         self.assertEqual(
+            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
+            f"SELECT 1 FROM events PREWHERE 0 WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+        self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2"),
             f"SELECT 1 FROM events PREWHERE 0 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
-            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("select 1 from events prewhere 1 == 2 where event='name'"),
+            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_order_by(self):
@@ -1246,13 +1282,13 @@ class TestPrinter(BaseTest):
     def test_select_union_all(self):
         self.assertEqual(
             self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select(
-                "SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2 UNION ALL SELECT events.event FROM events WHERE 1 = 2"
+                "SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 1 UNION ALL SELECT events.event FROM events WHERE 1 = 1"
             ),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),

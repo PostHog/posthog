@@ -102,6 +102,7 @@ impl From<&CustomFrame> for Frame {
             context: value.get_context(),
             release: None,
             synthetic: value.meta.synthetic,
+            suspicious: false,
         }
     }
 }

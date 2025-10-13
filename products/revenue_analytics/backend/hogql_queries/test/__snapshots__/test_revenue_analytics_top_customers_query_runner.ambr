@@ -97,7 +97,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
@@ -270,7 +270,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
@@ -501,7 +501,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
@@ -732,7 +732,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
@@ -963,7 +963,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   GROUP BY customer_id,
            name
@@ -1198,7 +1198,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
@@ -1430,7 +1430,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
@@ -1661,7 +1661,7 @@
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+        WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month

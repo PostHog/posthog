@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, metalytics, my_notifications, named_query, project
+from posthog.api import data_color_theme, hog_flow, llm_gateway, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -25,6 +25,7 @@ from posthog.warehouse.api.lineage import LineageViewSet
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -210,7 +211,14 @@ project_features_router = projects_router.register(
 
 projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 
+# Agents endpoints
 projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
+
+# Task progress endpoints
+projects_router.register(r"task_progress", tasks.TaskProgressViewSet, "project_task_progress", ["team_id"])
+
+# Workflows endpoints
+projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 project_workflows_router = projects_router.register(
     r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]
@@ -358,13 +366,6 @@ projects_router.register(
     ["project_id"],
 )
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
-
-register_grandfathered_environment_nested_viewset(
-    r"named_query",
-    named_query.NamedQueryViewSet,
-    "environment_named_query",
-    ["team_id"],
-)
 
 # External data resources
 register_grandfathered_environment_nested_viewset(
@@ -827,6 +828,10 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
+)
 
 environments_router.register(
     r"user_interviews",

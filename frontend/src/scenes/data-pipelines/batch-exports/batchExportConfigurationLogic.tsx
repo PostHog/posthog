@@ -649,11 +649,13 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         model,
                         filters,
                         json_config_file,
+                        integration_id,
                         ...config
                     } = values.configuration
                     const destinationObj = {
                         type: destination,
                         config: config,
+                        integration: integration_id,
                     }
                     const data = {
                         paused,

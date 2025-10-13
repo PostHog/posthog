@@ -1,4 +1,7 @@
 import os
+import math
+import time
+import asyncio
 import logging
 from enum import Enum
 from typing import Optional
@@ -6,6 +9,7 @@ from typing import Optional
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 from runloop_api_client import (
+    APITimeoutError as RunloopAPITimeoutError,
     AsyncRunloop,
     BadRequestError as RunloopBadRequestError,
     NotFoundError as RunloopNotFoundError,
@@ -17,6 +21,7 @@ from products.tasks.backend.temporal.exceptions import (
     SandboxExecutionError,
     SandboxNotFoundError,
     SandboxProvisionError,
+    SandboxTimeoutError,
     SnapshotCreationError,
 )
 
@@ -187,19 +192,40 @@ class SandboxEnvironment:
         if timeout_seconds is None:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
-        execution = await self._client.devboxes.executions.execute_async(
+        execution = await self._client.with_options(timeout=timeout_seconds).devboxes.executions.execute_async(
             self.id,
             command=command,
             timeout=timeout_seconds,
         )
 
-        # Wait for execution to complete
-        final_execution = await self._client.devboxes.wait_for_command(
-            execution_id=execution.execution_id,
-            devbox_id=self.id,
-            statuses=["completed"],
-            timeout_seconds=timeout_seconds,
-        )
+        start_time = time.time()
+
+        while True:
+            elapsed_time = time.time() - start_time
+            remaining_time = math.ceil(timeout_seconds - elapsed_time)
+
+            if remaining_time <= 0:
+                raise SandboxTimeoutError(
+                    f"Execution timed out after {timeout_seconds} seconds",
+                    {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                )
+
+            try:
+                api_timeout = min(remaining_time, 60)  # Runloop only supports 60 second timeouts
+
+                final_execution = await self._client.devboxes.wait_for_command(
+                    execution_id=execution.execution_id,
+                    devbox_id=self.id,
+                    statuses=["completed"],
+                    timeout_seconds=api_timeout,
+                )
+
+                break
+
+            except RunloopAPITimeoutError:
+                # TODO: Move this to a workflow.sleep() when used in a temporal workflow
+                await asyncio.sleep(1)
+                continue
 
         result = ExecutionResult(
             stdout=final_execution.stdout,

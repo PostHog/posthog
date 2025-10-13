@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import builtins
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
+from temporalio import common
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
@@ -879,6 +880,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 input,
                 id=workflow_id,
                 task_queue=SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
             )
         )
 

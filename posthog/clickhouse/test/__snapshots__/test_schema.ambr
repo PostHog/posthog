@@ -472,6 +472,25 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      embedding Array(Float64) -- The embedding itself
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_document_embeddings_test', 'clickhouse_document_embeddings', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
   '''
   
@@ -1664,6 +1683,25 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      embedding Array(Float64) -- The embedding itself
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_document_embeddings_test', 'clickhouse_document_embeddings', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_session_recording_events]
   '''
   
@@ -2203,6 +2241,61 @@
   _timestamp,
   _offset
   FROM kafka_plugin_log_entries
+  
+  '''
+# ---
+# name: test_create_table_query[posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      embedding Array(Float64) -- The embedding itself
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.posthog_document_embeddings', '{replica}-{shard}', inserted_at)
+  
+      -- This index assumes:
+      --  - people will /always/ provide a date range
+      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
+      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
+      SETTINGS index_granularity = 512
+      
+  '''
+# ---
+# name: test_create_table_query[posthog_document_embeddings_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_mv
+  TO writable_posthog_document_embeddings
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  model_name,
+  rendering,
+  document_id,
+  timestamp,
+  _timestamp as inserted_at,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_posthog_document_embeddings
   
   '''
 # ---
@@ -5429,6 +5522,39 @@
   
   SETTINGS index_granularity=512
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      embedding Array(Float64) -- The embedding itself
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.posthog_document_embeddings', '{replica}-{shard}', inserted_at)
+  
+      -- This index assumes:
+      --  - people will /always/ provide a date range
+      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
+      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
+      SETTINGS index_granularity = 512
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[query_log_archive]

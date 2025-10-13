@@ -23,6 +23,7 @@ interface ToastButton {
     label: string
     action: (() => void) | (() => Promise<void>)
     dataAttr?: string
+    className?: string
 }
 
 interface ToastOptionsWithButton extends ToastOptions {
@@ -57,6 +58,7 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
                     type="secondary"
                     size="small"
                     data-attr={button.dataAttr}
+                    className={button.className}
                 >
                     {button.label}
                 </LemonButton>

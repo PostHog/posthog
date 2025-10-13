@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Params } from 'scenes/sceneTypes'
@@ -18,8 +18,14 @@ const DEFAULT_FILTER_GROUP = {
 const DEFAULT_TEST_ACCOUNT = false
 const DEFAULT_SEARCH_QUERY = ''
 
+export interface IssueFiltersLogicProps {
+    logicKey: string
+}
+
 export const issueFiltersLogic = kea<issueFiltersLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueFilters', 'issueFiltersLogic']),
+    props({} as IssueFiltersLogicProps),
+    key(({ logicKey }) => logicKey),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),

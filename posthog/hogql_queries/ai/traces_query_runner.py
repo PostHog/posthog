@@ -22,6 +22,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -64,7 +65,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         )
 
     def _calculate(self):
-        with self.timings.measure("traces_query_hogql_execute"):
+        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.MAX_AI):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0

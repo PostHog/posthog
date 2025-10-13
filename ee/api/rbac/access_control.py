@@ -15,6 +15,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     default_access_level,
     highest_access_level,
+    minimum_access_level,
     ordered_access_levels,
 )
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
@@ -65,10 +66,18 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
     # Validate that access control is a valid option
     def validate_access_level(self, access_level):
-        if access_level and access_level not in ordered_access_levels(self.initial_data["resource"]):
-            raise serializers.ValidationError(
-                f"Invalid access level. Must be one of: {', '.join(ordered_access_levels(self.initial_data['resource']))}"
-            )
+        resource = self.initial_data["resource"]
+        levels = ordered_access_levels(resource)
+
+        if access_level and access_level not in levels:
+            raise serializers.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
+
+        if access_level:
+            min_level = minimum_access_level(resource)
+            if levels.index(access_level) < levels.index(min_level):
+                raise serializers.ValidationError(
+                    f"Access level cannot be set below the minimum '{min_level}' for {resource}."
+                )
 
         return access_level
 
@@ -209,6 +218,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 if is_resource_level
                 else ordered_access_levels(resource),
                 "default_access_level": "editor" if is_resource_level else default_access_level(resource),
+                "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
             }

@@ -213,6 +213,7 @@ class AddIndexAnalyzer(OperationAnalyzer):
     default_score = 0
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         if hasattr(op, "index"):
             concurrent = getattr(op.index, "concurrent", False)
             if not concurrent:
@@ -220,14 +221,14 @@ class AddIndexAnalyzer(OperationAnalyzer):
                     type=self.operation_type,
                     score=4,
                     reason="Non-concurrent index creation locks table",
-                    details={},
+                    details={"model": model_name},
                     guidance="Use migrations.AddIndex with index=models.Index(..., name='...', fields=[...]) and set concurrent=True in the index. In PostgreSQL this requires a separate migration with atomic=False.",
                 )
         return OperationRisk(
             type=self.operation_type,
             score=0,
             reason="Concurrent index is safe",
-            details={},
+            details={"model": model_name},
         )
 
 
@@ -236,11 +237,12 @@ class AddConstraintAnalyzer(OperationAnalyzer):
     default_score = 3
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         return OperationRisk(
             type=self.operation_type,
             score=3,
             reason="Adding constraint may lock table (use NOT VALID pattern)",
-            details={},
+            details={"model": model_name},
             guidance="""Add constraints without locking in 2 steps:
 1. Add constraint with `NOT VALID` using RunSQL: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) NOT VALID`
 2. In a separate migration, validate: `ALTER TABLE ... VALIDATE CONSTRAINT ...`
@@ -255,7 +257,110 @@ class RunSQLAnalyzer(OperationAnalyzer):
 
     def analyze(self, op) -> OperationRisk:
         sql = str(op.sql).upper()
+
+        # Check for CONCURRENTLY operations first (these are safe)
+        # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
+        if "CONCURRENTLY" in sql:
+            if "CREATE" in sql and "INDEX" in sql:
+                if "IF NOT EXISTS" in sql:
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=1,
+                        reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
+                        details={"sql": sql},
+                    )
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                    guidance="Add IF NOT EXISTS for idempotency: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
+                )
+            elif "DROP" in sql and "INDEX" in sql:
+                if "IF EXISTS" in sql:
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=1,
+                        reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
+                        details={"sql": sql},
+                    )
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason="DROP INDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                    guidance="Add IF EXISTS for idempotency: DROP INDEX CONCURRENTLY IF EXISTS",
+                )
+            elif "REINDEX" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=1,
+                    reason="REINDEX CONCURRENTLY is safe (non-blocking)",
+                    details={"sql": sql},
+                )
+
+        # Check for constraint operations (before general ALTER/DROP checks)
+        if "ADD" in sql and "CONSTRAINT" in sql and "NOT VALID" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=1,
+                reason="ADD CONSTRAINT ... NOT VALID is safe (validates new rows only, no table scan)",
+                details={"sql": sql},
+                guidance="Follow up with VALIDATE CONSTRAINT in a later migration to check existing rows.",
+            )
+
+        if "VALIDATE" in sql and "CONSTRAINT" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="VALIDATE CONSTRAINT can be slow but non-blocking (allows reads/writes)",
+                details={"sql": sql},
+                guidance="Long-running on large tables but uses SHARE UPDATE EXCLUSIVE lock (allows normal operations).",
+            )
+
+        if "DROP" in sql and "CONSTRAINT" in sql:
+            # Check for CASCADE which can be expensive
+            if "CASCADE" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=3,
+                    reason="DROP CONSTRAINT CASCADE may be slow (drops dependent objects)",
+                    details={"sql": sql},
+                )
+            return OperationRisk(
+                type=self.operation_type,
+                score=1,
+                reason="DROP CONSTRAINT is fast (just removes metadata)",
+                details={"sql": sql},
+            )
+
+        # Check for metadata-only operations (safe and instant)
+        if "COMMENT ON" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="COMMENT ON is metadata-only (instant, no locks)",
+                details={"sql": sql},
+            )
+
+        if "SET STATISTICS" in sql or "SET (FILLFACTOR" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Metadata-only operation (instant, no locks)",
+                details={"sql": sql},
+            )
+
         if "DROP" in sql:
+            # Check if using IF EXISTS for safer idempotent operations
+            if "IF EXISTS" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="RunSQL with DROP is dangerous",
+                    details={"sql": sql},
+                    guidance="Good: using IF EXISTS makes this idempotent. Consider using DROP ... CONCURRENTLY for indexes to avoid locks.",
+                )
             return OperationRisk(
                 type=self.operation_type,
                 score=5,
@@ -281,6 +386,24 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 score=3,
                 reason="RunSQL with ALTER may cause locks",
                 details={"sql": sql},
+            )
+        elif "CREATE" in sql and "INDEX" in sql:
+            # Non-concurrent index creation (would have been caught earlier if CONCURRENTLY)
+            if "IF NOT EXISTS" in sql:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason="CREATE INDEX without CONCURRENTLY locks table",
+                    details={"sql": sql},
+                    guidance="Use CONCURRENTLY to avoid table locks: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
+                )
+            # Missing IF NOT EXISTS - slightly higher score within NEEDS_REVIEW range
+            return OperationRisk(
+                type=self.operation_type,
+                score=3,
+                reason="CREATE INDEX without CONCURRENTLY locks table",
+                details={"sql": sql},
+                guidance="Use CREATE INDEX CONCURRENTLY to avoid table locks. Add IF NOT EXISTS for idempotency and safer retries.",
             )
         else:
             return OperationRisk(

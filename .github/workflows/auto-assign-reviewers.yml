@@ -31,7 +31,7 @@ jobs:
 
             - name: Run reviewer assignment script
               env:
-                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}

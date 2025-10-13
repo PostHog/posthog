@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
-import { createBatch, createNewBatchPipeline, createNewPipeline } from './helpers'
+import { createBatch, createNewBatchPipeline, createNewPipeline, createUnwrapper } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from './results'
 import { ProcessingStep } from './steps'
@@ -249,11 +249,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep4)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             expect(results).toHaveLength(2)
             expect((results![0] as TestEventWithTeam).event.event).toBe('test-event-0')
@@ -326,11 +327,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep2)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             // Should return empty array since event was dropped
             expect(results).toHaveLength(0)
@@ -387,11 +389,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep2)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             // Should return empty array since event was redirected
             expect(results).toHaveLength(0)
@@ -460,11 +463,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep2)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             // Should return empty array since event went to DLQ
             expect(results).toHaveLength(0)
@@ -643,11 +647,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep4)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             expect(results).toHaveLength(3)
             // Verify final ordering is preserved despite concurrent preprocessing
@@ -807,11 +812,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep4)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             // Should only return the valid events
             expect(results).toHaveLength(2)
@@ -956,12 +962,13 @@ describe('Pipeline Integration Tests', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler: mockPromiseScheduler,
             })
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
             // Expect the pipeline to throw an exception
-            await expect(resultHandlingPipeline.next()).rejects.toThrow('Mock preprocessing exception')
+            await expect(unwrapper.next()).rejects.toThrow('Mock preprocessing exception')
 
             // Verify preprocessing steps were called
             expect(step1).toHaveBeenCalledTimes(2)
@@ -1114,12 +1121,13 @@ describe('Pipeline Integration Tests', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler: mockPromiseScheduler,
             })
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
             // Expect the pipeline to throw an exception
-            await expect(resultHandlingPipeline.next()).rejects.toThrow('Mock batch exception')
+            await expect(unwrapper.next()).rejects.toThrow('Mock batch exception')
 
             // Verify preprocessing step was called
             expect(step1).toHaveBeenCalledTimes(2)
@@ -1204,12 +1212,13 @@ describe('Pipeline Integration Tests', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler: mockPromiseScheduler,
             })
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
             // Expect the pipeline to throw an exception
-            await expect(resultHandlingPipeline.next()).rejects.toThrow('Mock step2 exception')
+            await expect(unwrapper.next()).rejects.toThrow('Mock step2 exception')
 
             // Verify preprocessing steps were called
             expect(step1).toHaveBeenCalledTimes(4)
@@ -1315,12 +1324,13 @@ describe('Pipeline Integration Tests', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler: mockPromiseScheduler,
             })
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
             // Start the pipeline processing
-            const resultsPromise = resultHandlingPipeline.next()
+            const resultsPromise = unwrapper.next()
 
             // Resolve promises in specific order to test ordering preservation
             // 1. Resolve second promise first
@@ -1577,11 +1587,12 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep4)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
 
             expect(results).toHaveLength(5)
             // Verify final ordering is preserved despite concurrent preprocessing
@@ -1673,12 +1684,13 @@ describe('Pipeline Integration Tests', () => {
                 .pipeBatch(batchStep2)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+            const unwrapper = createUnwrapper(resultHandlingPipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            resultHandlingPipeline.feed(batch)
+            unwrapper.feed(batch)
 
             const startTime = Date.now()
-            const results = await resultHandlingPipeline.next()
+            const results = await unwrapper.next()
             const endTime = Date.now()
 
             // Verify all events were processed

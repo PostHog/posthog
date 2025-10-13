@@ -49,6 +49,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Query]: customOrTitleSerializer,
         [NotebookNodeType.Recording]: customOrTitleSerializer,
         [NotebookNodeType.LLMTrace]: customOrTitleSerializer,
+        [NotebookNodeType.Issues]: customOrTitleSerializer,
         [NotebookNodeType.RecordingPlaylist]: customOrTitleSerializer,
         [NotebookNodeType.ReplayTimestamp]: customOrTitleSerializer,
         [NotebookNodeType.Survey]: customOrTitleSerializer,

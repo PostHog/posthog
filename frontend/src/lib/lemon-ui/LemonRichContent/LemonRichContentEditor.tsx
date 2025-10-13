@@ -43,12 +43,7 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
     content: [
         {
             type: 'paragraph',
-            content: [
-                {
-                    type: 'text',
-                    text: '',
-                },
-            ],
+            content: [],
         },
     ],
 }

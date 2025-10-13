@@ -6,6 +6,7 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio import common
 from temporalio.client import (
     Client,
     Schedule,
@@ -18,6 +19,7 @@ from temporalio.client import (
 )
 
 from posthog.constants import (
+    ANALYTICS_PLATFORM_TASK_QUEUE,
     BILLING_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     MAX_AI_TASK_QUEUE,
@@ -88,7 +90,7 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             "schedule-all-subscriptions",
             asdict(ScheduleAllSubscriptionsWorkflowInputs()),
             id="schedule-all-subscriptions-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
     )
@@ -167,6 +169,9 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             EnforceMaxReplayRetentionInput(dry_run=False),
             id="enforce-max-replay-retention-schedule",
             task_queue=SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         ),
         spec=ScheduleSpec(
             calendars=[
