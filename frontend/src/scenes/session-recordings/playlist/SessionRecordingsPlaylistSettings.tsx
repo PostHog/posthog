@@ -27,6 +27,7 @@ const SortingKeyToLabel = {
     click_count: 'Clicks',
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
+    recording_ttl: 'Expiration',
 }
 
 function getLabel(filters: RecordingUniversalFilters): string {
@@ -70,12 +71,12 @@ function SortedBy({
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
-                    onClick: () => setFilters({ order: 'activity_score' }),
+                    onClick: () => setFilters({ order: 'activity_score', order_direction: 'DESC' }),
                     active: filters.order === 'activity_score',
                 },
                 {
                     label: SortingKeyToLabel['console_error_count'],
-                    onClick: () => setFilters({ order: 'console_error_count' }),
+                    onClick: () => setFilters({ order: 'console_error_count', order_direction: 'DESC' }),
                     active: filters.order === 'console_error_count',
                 },
                 {
@@ -83,17 +84,17 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['duration'],
-                            onClick: () => setFilters({ order: 'duration' }),
+                            onClick: () => setFilters({ order: 'duration', order_direction: 'DESC' }),
                             active: filters.order === 'duration',
                         },
                         {
                             label: SortingKeyToLabel['active_seconds'],
-                            onClick: () => setFilters({ order: 'active_seconds' }),
+                            onClick: () => setFilters({ order: 'active_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'active_seconds',
                         },
                         {
                             label: SortingKeyToLabel['inactive_seconds'],
-                            onClick: () => setFilters({ order: 'inactive_seconds' }),
+                            onClick: () => setFilters({ order: 'inactive_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'inactive_seconds',
                         },
                     ],
@@ -103,20 +104,25 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['click_count'],
-                            onClick: () => setFilters({ order: 'click_count' }),
+                            onClick: () => setFilters({ order: 'click_count', order_direction: 'DESC' }),
                             active: filters.order === 'click_count',
                         },
                         {
                             label: SortingKeyToLabel['keypress_count'],
-                            onClick: () => setFilters({ order: 'keypress_count' }),
+                            onClick: () => setFilters({ order: 'keypress_count', order_direction: 'DESC' }),
                             active: filters.order === 'keypress_count',
                         },
                         {
                             label: SortingKeyToLabel['mouse_activity_count'],
-                            onClick: () => setFilters({ order: 'mouse_activity_count' }),
+                            onClick: () => setFilters({ order: 'mouse_activity_count', order_direction: 'DESC' }),
                             active: filters.order === 'mouse_activity_count',
                         },
                     ],
+                },
+                {
+                    label: 'Expiration',
+                    onClick: () => setFilters({ order: 'recording_ttl', order_direction: 'ASC' }),
+                    active: filters.order === 'recording_ttl',
                 },
             ]}
             icon={<IconSort className="text-lg" />}

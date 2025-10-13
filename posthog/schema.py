@@ -2266,6 +2266,7 @@ class RecordingOrder(StrEnum):
     KEYPRESS_COUNT = "keypress_count"
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
+    RECORDING_TTL = "recording_ttl"
 
 
 class RecordingOrderDirection(StrEnum):

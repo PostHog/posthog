@@ -22046,7 +22046,8 @@
                 "click_count",
                 "keypress_count",
                 "mouse_activity_count",
-                "activity_score"
+                "activity_score",
+                "recording_ttl"
             ],
             "type": "string"
         },
