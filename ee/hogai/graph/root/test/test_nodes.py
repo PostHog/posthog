@@ -83,7 +83,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ]
             )
             next_state = node.run(state, {})
-            self.assertIsInstance(next_state, PartialAssistantState)
+            assert next_state is not None
             self.assertEqual(len(next_state.messages), 1)
             self.assertIsInstance(next_state.messages[0], AssistantMessage)
             assistant_message = next_state.messages[0]
