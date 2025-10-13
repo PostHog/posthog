@@ -22,6 +22,7 @@ class ShopifySource(BaseSource[ShopifySourceConfig]):
         return ExternalDataSourceType.SHOPIFY
 
     # TODO:andrew to write docs for setting up private access token
+    # TODO:andrew to update the "follow these steps" URL in doc string
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -29,7 +30,7 @@ class ShopifySource(BaseSource[ShopifySourceConfig]):
             iconPath="/static/services/shopify.png",
             caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.
 
-You can find your store ID in your store's URL which typically looks like https://shop.{store_id}.com. To create and configure your access token go to [your store's admin panel](https://admin.shopify.com) and [follow these steps]()
+You can find your store URL by visiting your store's admin console. The URL typically looks like https://{store_id}.myshopify.com OR https://shop.{store_id}.com. To create and configure your access token go to [your store's admin console](https://admin.shopify.com) and [follow these steps]()
 
 The simplest setup for permissions is to only allow **read** permissions for the resources you are interested in syncing with your warehouse.
         """,
@@ -38,11 +39,12 @@ The simplest setup for permissions is to only allow **read** permissions for the
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="shopify_store_id",
-                        label="Store id",
-                        type=SourceFieldInputConfigType.TEXT,
+                        name="shopify_store_url",
+                        label="Store URL",
+                        type=SourceFieldInputConfigType.URL,
                         required=True,
-                        placeholder="shopify_store_id",
+                        # we will parse and validate this URL in the source implementation
+                        placeholder="https://my-store-id.myshopify.com",
                     ),
                     SourceFieldInputConfig(
                         name="shopify_access_token",
