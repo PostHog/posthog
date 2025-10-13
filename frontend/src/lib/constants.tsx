@@ -319,6 +319,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_UNIFIED_CREATE_FORM: 'experiments-unified-create-form', // owner: @rodrigoi #team-experiments
     TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
+    EXPERIMENTS_HIDE_STOP_BUTTON: 'experiments-hide-stop-button', // owner: @jurajmajerik #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
