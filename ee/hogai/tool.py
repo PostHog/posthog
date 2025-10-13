@@ -58,8 +58,8 @@ class MaxTool(AssistantContextMixin, BaseTool):
     For example, "Updating filters"
     """
 
-    root_system_prompt_template: str = "No context provided for this tool."
-    """The template for context associated with this tool, that will be injected into the root node's system prompt.
+    context_prompt_template: str = "No context provided for this tool."
+    """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
@@ -140,11 +140,11 @@ class MaxTool(AssistantContextMixin, BaseTool):
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
-    def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
+    def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
-        return self.root_system_prompt_template.format(**formatted_context)
+        return self.context_prompt_template.format(**formatted_context)
 
     @classmethod
     async def create_tool_class(
@@ -160,4 +160,4 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        raise NotImplementedError
+        return cls(team=team, user=user, state=state, config=config)

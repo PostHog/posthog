@@ -506,7 +506,7 @@ Query results: 42 events
         """Test generation of contextual tools prompt"""
         # Mock the tool class
         mock_tool = MagicMock()
-        mock_tool.format_system_prompt_injection.return_value = "Tool system prompt"
+        mock_tool.format_context_prompt_injection.return_value = "Tool system prompt"
         mock_get_contextual_tool_class.return_value = lambda team, user: mock_tool
 
         config = RunnableConfig(

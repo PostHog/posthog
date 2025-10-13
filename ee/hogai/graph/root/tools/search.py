@@ -64,7 +64,7 @@ class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
     thinking_message: str = "Searching for information"
-    root_system_prompt_template: str = "Searches documentation or user data in PostHog (insights)"
+    context_prompt_template: str = "Searches documentation or user data in PostHog (insights)"
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
 
