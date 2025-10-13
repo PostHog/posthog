@@ -34,10 +34,12 @@ pub async fn do_issue_processing(
                 .clone()
                 .unwrap_or(fingerprinted.exception_list[0].exception_type.clone());
 
-            let description = fingerprinted
-                .proposed_issue_description
-                .clone()
-                .unwrap_or(fingerprinted.exception_list[0].exception_message.clone().unwrap_or_default());
+            let description = fingerprinted.proposed_issue_description.clone().unwrap_or(
+                fingerprinted.exception_list[0]
+                    .exception_message
+                    .clone()
+                    .unwrap_or_default(),
+            );
 
             let event_timestamp =
                 parse_datetime_assuming_utc(&event.timestamp).unwrap_or_else(|e| {
