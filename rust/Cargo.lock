@@ -2252,7 +2252,7 @@ dependencies = [
  "moka",
  "once_cell",
  "posthog-rs",
- "posthog-symbol-data 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "posthog-symbol-data 0.2.0",
  "rdkafka",
  "regex",
  "reqwest 0.12.15",
@@ -5711,19 +5711,19 @@ dependencies = [
 [[package]]
 name = "posthog-symbol-data"
 version = "0.2.0"
-dependencies = [
- "serde",
- "thiserror 2.0.16",
-]
-
-[[package]]
-name = "posthog-symbol-data"
-version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed6c8edcab40fb71e1eb6b6af8961b3d0d04fbcaa841331036c964868d5dcb22"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "posthog-symbol-data"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.16",
 ]
 
 [[package]]

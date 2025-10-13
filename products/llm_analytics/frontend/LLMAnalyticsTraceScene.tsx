@@ -101,7 +101,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col">
+                <div className="relative flex flex-col gap-3">
                     <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <TraceMetadata
@@ -109,12 +109,12 @@ function TraceSceneWrapper(): JSX.Element {
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                         />
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
-                    <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
+                    <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
                         <EventContent
                             trace={trace}
@@ -168,7 +168,7 @@ function TraceMetadata({
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
     return (
-        <header className="flex gap-2 flex-wrap">
+        <header className="flex gap-1.5 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
