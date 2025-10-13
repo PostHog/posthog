@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 from pydantic import BaseModel
@@ -18,6 +19,8 @@ from products.revenue_analytics.backend.ai.tools.revenue_goals import (
 
 from ee.hogai.tool import MaxTool
 
+logger = logging.getLogger(__name__)
+
 
 class FilterRevenueAnalyticsTool(MaxTool):
     name: str = "filter_revenue_analytics"
@@ -29,6 +32,8 @@ class FilterRevenueAnalyticsTool(MaxTool):
         - "revenue analytics" synonyms: "revenue", "MRR", "growth", "churn", and similar
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
+    - When NOT to use the tool:
+        * When the user asks to update revenue goals. Use `manage_revenue_goals` tool instead.
     """
     thinking_message: str = "Coming up with filters"
     root_system_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
@@ -71,13 +76,15 @@ class ManageRevenueGoalsTool(MaxTool):
     description: str = """
     - Add, update, remove, or list revenue goals for the team.
     - When to use the tool:
+      * When the user asks to list current revenue goals
       * When the user asks to add a new revenue goal
       * When the user asks to update an existing revenue goal
       * When the user asks to remove a revenue goal
-      * When the user asks to list current revenue goals
     """
+    root_system_prompt_template: str = (
+        "The user wants to take actions on revenue goals, act accordingly using the tools available to you."
+    )
     thinking_message: str = "Managing revenue goals"
-    root_system_prompt_template: str = "Current revenue goals are: {current_goals}"
     args_schema: type[BaseModel] = ManageRevenueGoalsArgs
     show_tool_call_message: bool = False
 
@@ -99,6 +106,7 @@ class ManageRevenueGoalsTool(MaxTool):
 
     async def _arun_impl(self, change: str) -> tuple[str, RevenueAnalyticsAssistantGoalsOutput]:
         result = await self._invoke_graph(change)
+        logger.warning(f"THIS IS THE OUTPUT FROM THE GRAPH: {result}")
         if type(result["output"]) is not RevenueAnalyticsAssistantGoalsOutput:
             content = result["intermediate_steps"][-1][0].tool_input
             output = RevenueAnalyticsAssistantGoalsOutput(goals=None)

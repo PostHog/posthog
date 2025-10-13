@@ -1,10 +1,12 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from posthog.schema import RevenueAnalyticsAssistantGoalsOutput, RevenueAnalyticsGoal
 
 from posthog.models import Team, User
-from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
@@ -15,6 +17,8 @@ from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import GOALS_DESCRIPTION_PROMPT, GOALS_EXAMPLES_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class final_answer(base_final_answer[RevenueAnalyticsAssistantGoalsOutput]):
@@ -50,17 +54,23 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
 
     async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
+
+        logger.warning(f"CALLED HANDLE TOOLS: {tool_name}")
         if tool_name == "add_revenue_goal":
-            result = self._add_revenue_goal(tool_input.arguments)
+            result = await self._add_revenue_goal(tool_input.arguments)
+            logger.warning(f"RESULT FROM ADD REVENUE GOAL: {result}")
             return tool_name, result
         elif tool_name == "update_revenue_goal":
-            result = self._update_revenue_goal(tool_input.arguments)
+            result = await self._update_revenue_goal(tool_input.arguments)
+            logger.warning(f"RESULT FROM UPDATE REVENUE GOAL: {result}")
             return tool_name, result
         elif tool_name == "remove_revenue_goal":
-            result = self._remove_revenue_goal(tool_input.arguments)
+            result = await self._remove_revenue_goal(tool_input.arguments)
+            logger.warning(f"RESULT FROM REMOVE REVENUE GOAL: {result}")
             return tool_name, result
         elif tool_name == "list_revenue_goals":
-            result = self._list_revenue_goals()
+            result = await self._list_revenue_goals()
+            logger.warning(f"RESULT FROM LIST REVENUE GOALS: {result}")
             return tool_name, result
 
         return await super().handle_tools(tool_name, tool_input)
@@ -72,10 +82,11 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
         """Returns the list of tools available in this toolkit."""
         return [*self._get_custom_tools(), ask_user_for_help]
 
+    @database_sync_to_async(thread_sensitive=False)
     def _add_revenue_goal(self, args: add_revenue_goal) -> str:
         """Add a new revenue goal."""
         try:
-            config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
+            config = self._team.revenue_analytics_config
             current_goals = config.goals
 
             # Add the new goal
@@ -87,10 +98,11 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
         except Exception as e:
             return f"❌ Failed to add revenue goal: {str(e)}"
 
+    @database_sync_to_async(thread_sensitive=False)
     def _update_revenue_goal(self, args: update_revenue_goal) -> str:
         """Update an existing revenue goal."""
         try:
-            config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
+            config = self._team.revenue_analytics_config
             current_goals = config.goals
 
             # Find and update the goal
@@ -111,10 +123,11 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
         except Exception as e:
             return f"❌ Failed to update revenue goal: {str(e)}"
 
+    @database_sync_to_async(thread_sensitive=False)
     def _remove_revenue_goal(self, args: remove_revenue_goal) -> str:
         """Remove a revenue goal."""
         try:
-            config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
+            config = self._team.revenue_analytics_config
             current_goals = config.goals
 
             # Filter out the goal with the specified name
@@ -130,10 +143,11 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
         except Exception as e:
             return f"❌ Failed to remove revenue goal: {str(e)}"
 
+    @database_sync_to_async(thread_sensitive=False)
     def _list_revenue_goals(self) -> str:
         """List all revenue goals."""
         try:
-            config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
+            config = self._team.revenue_analytics_config
             goals = config.goals
 
             if not goals:
