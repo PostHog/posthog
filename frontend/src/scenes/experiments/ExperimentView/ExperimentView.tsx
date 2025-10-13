@@ -264,18 +264,7 @@ export function ExperimentView(): JSX.Element {
 
                     {usesNewQueryRunner ? (
                         <>
-                            <MetricSourceModal isSecondary={true} />
-                            <MetricSourceModal isSecondary={false} />
-                        </>
-                    ) : (
-                        <>
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
-                        </>
-                    )}
-
-                    {usesNewQueryRunner ? (
-                        <>
+                            <MetricSourceModal />
                             <ExperimentMetricModal
                                 experimentId={experimentId}
                                 onSave={(metric, context) => {
@@ -323,6 +312,8 @@ export function ExperimentView(): JSX.Element {
                         </>
                     ) : (
                         <>
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
                             <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
                             <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                         </>
