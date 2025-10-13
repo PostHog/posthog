@@ -2,7 +2,7 @@
 
 import graphlib  # type: ignore[import,unused-ignore]
 from collections.abc import AsyncGenerator, Callable, Iterator
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import dlt
 from dateutil import parser
@@ -38,9 +38,7 @@ from .typing import (
 from .utils import exclude_keys  # noqa: F401
 
 
-def convert_types(
-    data: Iterator[Any] | list[Any], types: dict[str, dict[str, Any]] | None
-) -> Iterator[dict[str, Any]]:
+def convert_types(data: Iterator[Any] | list[Any], types: dict[str, dict[str, Any]] | None) -> Iterator[dict[str, Any]]:
     if types is None:
         yield from data
         return

@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from itertools import groupby
-from typing import Optional
 
 import structlog
 import posthoganalytics

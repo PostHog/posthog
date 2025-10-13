@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 
