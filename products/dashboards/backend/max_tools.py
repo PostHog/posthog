@@ -95,10 +95,10 @@ IMPORTANT: When adding insights, you must provide a complete description of what
         result_message = ""
 
         if dashboard_name:
-            result_message += await self._handle_dashboard_name_update(dashboard, dashboard_name)
+            result_message += await self._handle_dashboard_name_update(dashboard, dashboard_name) + " "
 
         if dashboard_description:
-            result_message += await self._handle_dashboard_description_update(dashboard, dashboard_description)
+            result_message += await self._handle_dashboard_description_update(dashboard, dashboard_description) + " "
 
         if insights_to_add:
             state.search_insights_queries = insights_to_add
@@ -143,7 +143,7 @@ IMPORTANT: When adding insights, you must provide a complete description of what
             capture_exception(e)
             result_message += f"Dashboard description was not updated."
         else:
-            result_message += f"Dashboard description was updated  successfully."
+            result_message += f"Dashboard description was updated successfully."
         return result_message
 
     async def _handle_insights_addition(self, state: AssistantState, insights_to_add: list[InsightQuery]) -> str:

@@ -146,8 +146,8 @@ export const TOOL_DEFINITIONS: Omit<
         product: Scene.Messaging,
     },
     edit_current_dashboard: {
-        name: 'Edit the dashboard',
-        description: "Edit the dashboard you're viewing",
+        name: 'Add insight to dashboard',
+        description: "Add insight to the dashboard you're viewing",
         product: Scene.Dashboard,
     },
     filter_revenue_analytics: {

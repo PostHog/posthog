@@ -276,7 +276,7 @@ class DashboardCreationNode(AssistantNode):
 
         return query_metadata
 
-    def _get_dashboard(self, dashboard_id: int | None, dashboard_name: str) -> Dashboard:
+    def _get_or_create_dashboard(self, dashboard_id: int | None, dashboard_name: str) -> Dashboard:
         if dashboard_id is None:
             dashboard = Dashboard.objects.create(
                 name=dashboard_name,
@@ -299,7 +299,7 @@ class DashboardCreationNode(AssistantNode):
         def create_dashboard_sync():
             all_insights: list[Insight] = []
 
-            dashboard = self._get_dashboard(dashboard_id, dashboard_name)
+            dashboard = self._get_or_create_dashboard(dashboard_id, dashboard_name)
 
             # Add insights to the dashboard via DashboardTile
             all_insights = list(Insight.objects.filter(id__in=insights, team=self._team))
