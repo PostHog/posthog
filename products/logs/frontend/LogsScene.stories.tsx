@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs, sampleOne, uuid } from 'lib/utils'
+import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -11,8 +11,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 
+const delayIfNotTestRunner = async (): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, inStorybookTestRunner() ? 0 : 200 + Math.random() * 1000))
-    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 1000))
 }
 
 const keysAndValues: Record<string, string[]> = {
