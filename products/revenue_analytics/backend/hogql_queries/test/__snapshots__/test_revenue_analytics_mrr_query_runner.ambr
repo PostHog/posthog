@@ -175,7 +175,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -546,7 +546,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -966,7 +966,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -1017,7 +1017,7 @@
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                       WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+                       WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
                     ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), equals(revenue_analytics_customer.country, 'US'))) AS subquery
               GROUP BY breakdown_by,
@@ -1457,7 +1457,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
