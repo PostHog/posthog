@@ -36,7 +36,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
             result = self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)
             return tool_name, result
 
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         class final_answer(base_final_answer[RevenueAnalyticsAssistantFilters]):

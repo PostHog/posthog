@@ -264,7 +264,7 @@ class YourToolkit(TaxonomyAgentToolkit):
         if tool_name == "hello_world":
             result = hello_world_tool(tool_input.arguments.name)
             return tool_name, result
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         return [final_answer, hello_world]

@@ -63,7 +63,7 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
             result = self._list_revenue_goals()
             return tool_name, result
 
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         return [final_answer, add_revenue_goal, update_revenue_goal, remove_revenue_goal, list_revenue_goals]
