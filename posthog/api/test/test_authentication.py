@@ -556,9 +556,9 @@ class TestPasswordResetAPI(APIBaseTest):
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertLessEqual(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
-                    response.json().items(),
+                self.assertDictContainsSubset(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"},
+                    response.json(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -576,9 +576,9 @@ class TestPasswordResetAPI(APIBaseTest):
                 else:
                     # Fourth request should fail
                     self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                    self.assertLessEqual(
-                        {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
-                        response.json().items(),
+                    self.assertDictContainsSubset(
+                        {"attr": None, "code": "throttled", "type": "throttled_error"},
+                        response.json(),
                     )
 
     # Token validation

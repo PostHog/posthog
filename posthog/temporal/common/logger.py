@@ -706,8 +706,9 @@ class KafkaLogProducerFromQueueAsync:
 
 def configure_default_ssl_context():
     """Setup a default SSL context for Kafka."""
-    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-    context.check_hostname = False
+    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context.options |= ssl.OP_NO_SSLv2
+    context.options |= ssl.OP_NO_SSLv3
     context.verify_mode = ssl.CERT_OPTIONAL
     context.load_default_certs()
     return context

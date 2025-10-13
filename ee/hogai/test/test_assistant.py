@@ -206,9 +206,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
-                self.assertLessEqual(
-                    msg_dict.items(),
-                    cast(BaseModel, output_msg).model_dump(exclude_none=True).items(),
+                self.assertDictContainsSubset(
+                    msg_dict,
+                    cast(BaseModel, output_msg).model_dump(exclude_none=True),
                     f"Message content mismatch at index {i}",
                 )
             else:
@@ -223,7 +223,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 else expected_message
             )
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
-            self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
+            self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
 
     @patch(
         "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",

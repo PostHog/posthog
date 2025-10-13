@@ -166,9 +166,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
             self.assertEqual(response.status_code, 200, response.content)
-            self.assertLessEqual(
-                {"name": "whatever2", "description": "A great cohort!"}.items(), response.json().items()
-            )
+            self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
             self.assertEqual(patch_calculate_cohort.call_count, 2)
 
             self.assertIn(f" user_id:{self.user.id} ", insert_statements[0])
@@ -1640,12 +1638,12 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "detail": "Cohorts cannot reference other cohorts in a loop.",
                 "type": "validation_error",
-            }.items(),
-            response.json().items(),
+            },
+            response.json(),
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
@@ -1668,12 +1666,12 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "detail": "Cohorts cannot reference other cohorts in a loop.",
                 "type": "validation_error",
-            }.items(),
-            response.json().items(),
+            },
+            response.json(),
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
@@ -1777,9 +1775,9 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertLessEqual(
-            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}.items(),
-            response.json().items(),
+        self.assertDictContainsSubset(
+            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"},
+            response.json(),
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
@@ -2184,12 +2182,12 @@ email@example.org,
         )
 
         self.assertEqual(update_response.status_code, 400, response.content)
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "detail": "Must contain a 'properties' key with type and values",
                 "type": "validation_error",
-            }.items(),
-            update_response.json().items(),
+            },
+            update_response.json(),
         )
 
     @patch("posthog.api.cohort.report_user_action")
@@ -2290,14 +2288,14 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400)
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
                 "attr": "filters",
-            }.items(),
-            response.json().items(),
+            },
+            response.json(),
         )
 
         response = self.client.patch(
@@ -2325,14 +2323,14 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400)
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
-            }.items(),
-            response.json().items(),
+            },
+            response.json(),
         )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())

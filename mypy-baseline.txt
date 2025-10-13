@@ -663,7 +663,6 @@ posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict ent
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "PathsFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "StickinessFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py:0: error: Name "filter" already defined on line 0  [no-redef]
-posthog/hogql_queries/query_runner.py:0: error: "type[Q]" has no attribute "__value__"  [attr-defined]
 posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "TestQueryRunner"  [misc]
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible default for argument "source" (default has type "None", argument has type "Expr")  [assignment]

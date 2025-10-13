@@ -1,3 +1,5 @@
+from typing import TypeAlias
+
 from posthog.schema import PropertyGroupFilter
 
 from posthog.hogql import ast
@@ -6,7 +8,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.types import AnyPropertyFilter
 
-type PropertiesType = list[AnyPropertyFilter] | PropertyGroupFilter | None
+PropertiesType: TypeAlias = list[AnyPropertyFilter] | PropertyGroupFilter | None
 
 
 class Properties:

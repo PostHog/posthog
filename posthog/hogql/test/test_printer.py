@@ -570,7 +570,7 @@ class TestPrinter(BaseTest):
             self.assertEqual(printed_expr % context.values, unoptimized_expr % unoptimized_context.values)
 
         if expected_context_values is not None:
-            self.assertLessEqual(expected_context_values.items(), context.values.items())
+            self.assertDictContainsSubset(expected_context_values, context.values)
 
         if expected_skip_indexes_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise

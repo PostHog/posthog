@@ -1,14 +1,25 @@
 import sys
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Literal, Optional
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-type ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
-type ConstantSupportedPrimitive = int | float | str | bool | date | datetime | UUID | None
-type ConstantSupportedData = (
+ConstantDataType: TypeAlias = Literal[
+    "int",
+    "float",
+    "str",
+    "bool",
+    "array",
+    "tuple",
+    "date",
+    "datetime",
+    "uuid",
+    "unknown",
+]
+ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
+ConstantSupportedData: TypeAlias = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
 

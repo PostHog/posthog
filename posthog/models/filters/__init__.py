@@ -1,3 +1,5 @@
+from typing import TypeAlias
+
 from .filter import Filter
 from .path_filter import PathFilter
 from .properties_timeline_filter import PropertiesTimelineFilter
@@ -13,6 +15,6 @@ __all__ = [
     "AnyFilter",
 ]
 
-type AnyFilter = Filter | PathFilter | RetentionFilter | StickinessFilter | PropertiesTimelineFilter
+AnyFilter: TypeAlias = Filter | PathFilter | RetentionFilter | StickinessFilter | PropertiesTimelineFilter
 
-type AnyInsightFilter = Filter | PathFilter | RetentionFilter | StickinessFilter
+AnyInsightFilter: TypeAlias = Filter | PathFilter | RetentionFilter | StickinessFilter

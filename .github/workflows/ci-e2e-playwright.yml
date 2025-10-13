@@ -248,14 +248,6 @@ jobs:
                   path: playwright/test-results
                   retention-days: 30
 
-            - name: Archive docker-server logs
-              if: failure()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: docker-server-logs
-                  path: /tmp/logs/server.txt
-                  retention-days: 5
-
     playwright:
         name: Playwright E2E tests
         needs: [changes]
@@ -313,7 +305,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.12.11
+                  python-version: 3.11.13
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv

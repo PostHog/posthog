@@ -121,8 +121,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 #
 # ---------------------------------------------------------
 #
-# Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.12.11-slim-bookworm AS posthog-build
+FROM python:3.11.13-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -184,7 +183,7 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.12
+FROM unit:1.33.0-python3.11
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1

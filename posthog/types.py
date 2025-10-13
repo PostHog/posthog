@@ -1,4 +1,4 @@
-from typing import Union
+from typing import TypeAlias, Union
 
 from posthog.schema import (
     ActionsNode,
@@ -41,16 +41,23 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 
-type FilterType = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
+FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 """Legacy insight filters."""
 
-type InsightQueryNode = Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+InsightQueryNode: TypeAlias = Union[
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+]
 
-type InsightActorsQueryNode = Union[
+InsightActorsQueryNode: TypeAlias = Union[
     InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery
 ]
 
-type AnyPropertyFilter = Union[
+AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,
     PersonPropertyFilter,
     ElementPropertyFilter,
@@ -71,5 +78,5 @@ type AnyPropertyFilter = Union[
     LogPropertyFilter,
 ]
 
-type EntityNode = Union[EventsNode, ActionsNode, DataWarehouseNode]
-type ExclusionEntityNode = Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]
+EntityNode: TypeAlias = Union[EventsNode, ActionsNode, DataWarehouseNode]
+ExclusionEntityNode: TypeAlias = Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]

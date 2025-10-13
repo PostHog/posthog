@@ -5041,7 +5041,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -5070,10 +5070,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
+            },
+            sorted_flags[0],
         )
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -5088,10 +5088,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
+            },
+            sorted_flags[1],
         )
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Group feature",
                 "key": "group-feature",
@@ -5102,11 +5102,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[2].items(),
+            },
+            sorted_flags[2],
         )
 
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Inactive feature",
                 "key": "inactive-flag",
@@ -5114,8 +5114,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": False,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[3].items(),
+            },
+            sorted_flags[3],
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
@@ -5297,7 +5297,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -5337,11 +5337,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
+            },
+            sorted_flags[0],
         )
 
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -5362,13 +5362,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
+            },
+            sorted_flags[1],
         )
 
         # When send_cohorts is true, no transformations happen, so all relevant cohorts are returned
         self.assertEqual(
-            response_data["cohorts"].items(),
+            response_data["cohorts"],
             {
                 str(cohort_valid_for_ff.pk): {
                     "type": "OR",
@@ -5405,7 +5405,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                         }
                     ],
                 },
-            }.items(),
+            },
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -5568,7 +5568,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
         self.assertEqual(
-            response_data["cohorts"].items(),
+            response_data["cohorts"],
             {
                 str(cohort_valid_for_ff.pk): {
                     "type": "OR",
@@ -5616,10 +5616,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                         }
                     ],
                 },
-            }.items(),
+            },
         )
 
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -5653,11 +5653,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
+            },
+            sorted_flags[0],
         )
 
-        self.assertLessEqual(
+        self.assertDictContainsSubset(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature-2",
@@ -5678,8 +5678,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
+            },
+            sorted_flags[1],
         )
 
 

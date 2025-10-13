@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 from uuid import UUID
 
 from django.db import models
@@ -70,7 +70,7 @@ ExtractErrors = {
     "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
-type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]
+DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
 class DataWarehouseTableManager(models.Manager):
