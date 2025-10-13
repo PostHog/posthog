@@ -1,3 +1,3 @@
 pub mod hermesmap;
-pub mod proguard_file;
+pub mod proguard;
 pub mod sourcemap;

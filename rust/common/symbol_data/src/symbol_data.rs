@@ -7,7 +7,7 @@ const VERSION: u32 = 1;
 pub enum SymbolDataType {
     SourceAndMap = 2,
     HermesMap = 3,
-    ProguardFile = 4,
+    ProguardMapping = 4,
 }
 
 pub trait SymbolData: Sized {
