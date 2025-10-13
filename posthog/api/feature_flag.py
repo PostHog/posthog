@@ -401,6 +401,12 @@ class FeatureFlagSerializer(
             # mypy cannot tell that self.instance is a FeatureFlag
             return self.instance.filters
 
+        groups = filters.get("groups", [])
+        if isinstance(groups, list) and len(groups) == 0:
+            raise serializers.ValidationError(
+                "Feature flag filters must contain at least one condition set. Empty 'groups' array is not allowed."
+            )
+
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
         def properties_all_match(predicate):
@@ -617,6 +623,7 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
         project_id = self.context["project_id"]
 
         # Skip validation for flags with flag dependencies since the evaluation
@@ -627,7 +634,7 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 

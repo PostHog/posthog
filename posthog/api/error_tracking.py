@@ -1,5 +1,6 @@
 import json
 import hashlib
+from datetime import datetime
 from typing import Any, Optional, Protocol, TypeVar
 
 from django.conf import settings
@@ -365,24 +366,43 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return min_distance_threshold, model_name, embedding_version
 
-    def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
+    def _get_issues_library_data(
+        self,
+        fingerprints: list[str],
+        earliest_timestamp: Optional[datetime] = None,
+        latest_timestamp: Optional[datetime] = None,
+    ) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
-        query = """
+        params: dict[str, Any] = {}
+        params["team_id"] = self.team.pk
+        params["fingerprints"] = fingerprints
+
+        timestamp_filter = ""
+        if earliest_timestamp and latest_timestamp:
+            timestamp_filter = "AND timestamp >= %(earliest_timestamp)s AND timestamp <= %(latest_timestamp)s"
+            params["earliest_timestamp"] = earliest_timestamp
+            params["latest_timestamp"] = latest_timestamp
+        elif earliest_timestamp:
+            timestamp_filter = "AND timestamp >= %(earliest_timestamp)s"
+            params["earliest_timestamp"] = earliest_timestamp
+        elif latest_timestamp:
+            timestamp_filter = "AND timestamp <= %(latest_timestamp)s"
+            params["latest_timestamp"] = latest_timestamp
+
+        query = f"""
             SELECT mat_$exception_fingerprint, MIN(mat_$lib)
               FROM events
              WHERE team_id = %(team_id)s
                AND event = '$exception'
                AND mat_$exception_fingerprint IN %(fingerprints)s
                AND mat_$lib != ''
+               {timestamp_filter}
              GROUP BY mat_$exception_fingerprint
         """
 
         results = sync_execute(
             query,
-            {
-                "team_id": self.team.pk,
-                "fingerprints": fingerprints,
-            },
+            params,
         )
 
         if not results or len(results) == 0:
@@ -403,6 +423,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             if fingerprint in fingerprint_to_library:
                 issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
         return issue_to_library
+
+    def _get_timestamp_range(self, issues) -> tuple[Optional[datetime], Optional[datetime]]:
+        """Calculate timestamp range from issues for query optimization."""
+        issue_timestamps = [issue.created_at for issue in issues if issue.created_at is not None]
+        if issue_timestamps:
+            earliest_timestamp = min(issue_timestamps)
+            latest_timestamp = max(issue_timestamps)
+        else:
+            earliest_timestamp = None
+            latest_timestamp = None
+        return earliest_timestamp, latest_timestamp
 
     def _serialize_issues_to_similar_issues(self, issues, library_data: dict[str, str]):
         """Serialize ErrorTrackingIssue objects to similar issues format."""
@@ -511,8 +542,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issues or len(issues) == 0:
             return Response([])
 
-        # Get library data for the similar fingerprints
-        fingerprint_to_library = self._get_issues_library_data(similar_fingerprints)
+        # Calculate timestamp range from the issues to optimize the ClickHouse query
+        earliest_timestamp, latest_timestamp = self._get_timestamp_range(issues)
+
+        # Get library data for the similar fingerprints with timestamp range filter for performance
+        fingerprint_to_library = self._get_issues_library_data(
+            similar_fingerprints, earliest_timestamp, latest_timestamp
+        )
 
         # Build mapping from issue_id to library using existing data
         issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)

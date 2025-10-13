@@ -29,6 +29,7 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
 import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
@@ -135,6 +136,7 @@ export function Editor(): JSX.Element {
         NotebookNodeMap,
         NotebookNodeTaskCreate,
         NotebookNodeLLMTrace,
+        NotebookNodeIssues,
     ]
 
     if (hasCollapsibleSections) {
