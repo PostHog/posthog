@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconCake,
-    IconCheck,
     IconConfetti,
     IconCopy,
     IconDay,
@@ -72,7 +71,7 @@ function ThemeDropdown(): JSX.Element {
 
     return (
         <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger asChild>
                 <ButtonPrimitive menuItem>
                     <IconPalette />
                     Color theme {themeMode}
@@ -211,7 +210,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 truncate: true,
                             }}
                         >
-                            <IconCheck className="text-tertiary" />
                             {currentOrganization ? (
                                 <UploadedLogo
                                     name={currentOrganization.name}
@@ -234,7 +232,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     </DropdownMenuItem>
 
                     <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
+                        <DropdownMenuSubTrigger asChild>
                             <ButtonPrimitive menuItem>
                                 <IconBlank />
                                 Other organizations
@@ -321,7 +319,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     {featureFlags[FEATURE_FLAGS.GAME_CENTER] && (
                         <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
+                            <DropdownMenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
                                     <IconCake />
                                     Game center
