@@ -78,7 +78,7 @@ class SessionReplayEvents:
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
-        return result[0][0] > 0
+        return result and result[0][0] > 0
 
     def sessions_found_with_timestamps(
         self, session_ids: list[str], team: Team
@@ -317,7 +317,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days),
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
-                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
             PREWHERE

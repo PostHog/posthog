@@ -1914,7 +1914,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
-                first_timestamp=(self.an_hour_ago - relativedelta(days=32)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=30)),
                 # an illegally long session but it started 22 days ago
                 last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
@@ -1924,7 +1924,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
-                first_timestamp=(self.an_hour_ago - relativedelta(days=29)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=27)),
                 last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
                 team_id=self.team.id,
             )
@@ -3843,6 +3843,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": "user2",
                 "duration": 3600,
                 "end_time": ANY,
+                "expiry_time": ANY,
                 "first_url": "https://not-provided-by-test.com",
                 "inactive_seconds": 3600.0,
                 "keypress_count": 0,
@@ -3851,6 +3852,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "start_time": ANY,
                 "team_id": self.team.id,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             }
         ]
 
