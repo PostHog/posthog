@@ -1,4 +1,3 @@
-
 from posthog.constants import AGGREGATION_GROUP_TYPE_INDEX
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict

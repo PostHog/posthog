@@ -2364,15 +2364,15 @@ class TestExperimentCRUD(APILicensedTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(experiment_id), type="experiment").first()
         assert fs_entry is not None, "Expected a FileSystem entry for the newly created experiment."
-        assert (
-            "Special Folder/Experiments" in fs_entry.path
-        ), f"Expected path to contain 'Special Folder/Experiments', got {fs_entry.path}"
+        assert "Special Folder/Experiments" in fs_entry.path, (
+            f"Expected path to contain 'Special Folder/Experiments', got {fs_entry.path}"
+        )
 
         ff_entry = FileSystem.objects.filter(team=self.team, ref=str(ff_id), type="feature_flag").first()
         assert ff_entry is not None, "Expected a FileSystem entry for the newly created feature flag."
-        assert (
-            "Special Folder/Experiments" in ff_entry.path
-        ), f"Expected path to contain 'Special Folder/Experiments', got {ff_entry.path}"
+        assert "Special Folder/Experiments" in ff_entry.path, (
+            f"Expected path to contain 'Special Folder/Experiments', got {ff_entry.path}"
+        )
 
     def test_list_endpoint_excludes_deleted_experiments(self):
         """Test that list endpoint doesn't return soft-deleted experiments"""

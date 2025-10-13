@@ -741,9 +741,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return self._respond_with_cached_results(self.calculate_funnel_persons(request))
 
     @cached_by_filters
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, str | None, str | None, int]]:  # noqa: UP006
+    def calculate_funnel_persons(self, request: request.Request) -> dict[str, tuple[List, str | None, str | None, int]]:  # noqa: UP006
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
         funnel_actor_class = get_funnel_actor_class(filter)
@@ -772,9 +770,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return self._respond_with_cached_results(self.calculate_trends_persons(request))
 
     @cached_by_filters
-    def calculate_trends_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, str | None, str | None, int]]:  # noqa: UP006
+    def calculate_trends_persons(self, request: request.Request) -> dict[str, tuple[List, str | None, str | None, int]]:  # noqa: UP006
         filter = Filter(request=request, team=self.team)
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)

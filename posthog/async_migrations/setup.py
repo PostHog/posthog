@@ -1,4 +1,3 @@
-
 from django.core.exceptions import ImproperlyConfigured
 
 from infi.clickhouse_orm.utils import import_submodules

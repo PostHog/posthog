@@ -1,4 +1,3 @@
-
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START

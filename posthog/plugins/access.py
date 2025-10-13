@@ -4,9 +4,7 @@ from uuid import UUID
 from posthog.models.organization import Organization
 
 
-def has_plugin_access_level(
-    organization_or_id: Union[Organization, str, UUID] | None, min_access_level: int
-) -> bool:
+def has_plugin_access_level(organization_or_id: Union[Organization, str, UUID] | None, min_access_level: int) -> bool:
     if organization_or_id is None:
         return False
     organization: Organization = (

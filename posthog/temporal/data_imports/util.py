@@ -1,4 +1,3 @@
-
 from django.conf import settings
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention

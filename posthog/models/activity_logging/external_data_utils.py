@@ -1,4 +1,3 @@
-
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 

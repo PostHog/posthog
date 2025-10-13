@@ -139,9 +139,9 @@ async def test_interceptor_calls_histogram_metrics(
         )
 
         number_of_record_calls = mocked_meter.return_value.create_histogram_timedelta.return_value.record.call_count
-        assert (
-            number_of_record_calls == 2
-        ), f"expected to have recorded two metrics: for workflow and activity execution latency, but only found {number_of_record_calls}"
+        assert number_of_record_calls == 2, (
+            f"expected to have recorded two metrics: for workflow and activity execution latency, but only found {number_of_record_calls}"
+        )
 
         number_of_add_calls = mocked_meter.return_value.create_counter.return_value.add.call_count
         expected_calls = [mock.call(1)] * number_of_add_calls

@@ -192,9 +192,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         except Exception as e:
             capture_exception(e)
 
-    def dashboard_filters(
-        self, dashboard: Dashboard | None = None, dashboard_filters_override: dict | None = None
-    ):
+    def dashboard_filters(self, dashboard: Dashboard | None = None, dashboard_filters_override: dict | None = None):
         # query date range is set in a different function, see dashboard_query
         if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
             dashboard_filters = {

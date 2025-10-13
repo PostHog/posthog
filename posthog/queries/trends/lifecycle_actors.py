@@ -1,4 +1,3 @@
-
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.lifecycle import LifecycleEventQuery
@@ -24,8 +23,8 @@ class LifecycleActors(ActorBaseQuery):
         return (
             LIFECYCLE_PEOPLE_SQL.format(
                 events_query=events_query,
-                limit=f'{"LIMIT %(limit)s" if limit_actors else ""}',
-                offset=f'{"OFFSET %(offset)s" if limit_actors else ""}',
+                limit=f"{'LIMIT %(limit)s' if limit_actors else ''}",
+                offset=f"{'OFFSET %(offset)s' if limit_actors else ''}",
             ),
             {
                 **event_params,

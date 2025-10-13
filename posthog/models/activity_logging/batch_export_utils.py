@@ -1,5 +1,3 @@
-
-
 def get_batch_export_destination_type(batch_export) -> str:
     """Get destination type from BatchExport"""
     destination_type = ""

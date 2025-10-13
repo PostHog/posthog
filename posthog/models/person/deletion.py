@@ -1,4 +1,3 @@
-
 from django.db import router, transaction
 
 import structlog

@@ -450,9 +450,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         expected_columns = 10
         actual_columns = len(response.columns) if response.columns else 0
-        assert (
-            actual_columns == expected_columns
-        ), f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        assert actual_columns == expected_columns, (
+            f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 

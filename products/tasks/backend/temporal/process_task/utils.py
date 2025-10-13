@@ -1,4 +1,3 @@
-
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.common.utils import asyncify
 

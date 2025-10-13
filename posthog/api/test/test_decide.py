@@ -493,9 +493,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ],
         ]
     )
-    def test_session_recording_masking_config(
-        self, _name: str, config: dict | None, expected: dict | None, *args
-    ):
+    def test_session_recording_masking_config(self, _name: str, config: dict | None, expected: dict | None, *args):
         self._update_team(
             {
                 "session_recording_opt_in": True,

@@ -91,9 +91,7 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 
 class HogQLCohortQuery:
-    def __init__(
-        self, cohort_query: CohortQuery | None = None, cohort: Cohort | None = None, team: Team | None = None
-    ):
+    def __init__(self, cohort_query: CohortQuery | None = None, cohort: Cohort | None = None, team: Team | None = None):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.team = team or cohort.team

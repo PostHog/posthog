@@ -1,4 +1,3 @@
-
 import structlog
 import pydantic_core
 from pydantic import BaseModel

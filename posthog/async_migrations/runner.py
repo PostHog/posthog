@@ -1,4 +1,3 @@
-
 import structlog
 from semantic_version.base import SimpleSpec
 

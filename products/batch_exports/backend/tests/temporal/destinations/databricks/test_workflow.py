@@ -135,9 +135,9 @@ class DatabricksDestinationTest(BaseDestinationTest):
         config = self.get_destination_config(team_id)
 
         with self.cursor(team_id, integration) as cursor:
-            cursor.execute(f'USE CATALOG `{config["catalog"]}`')
-            cursor.execute(f'USE SCHEMA `{config["schema"]}`')
-            cursor.execute(f'SELECT * FROM `{config["table_name"]}`')
+            cursor.execute(f"USE CATALOG `{config['catalog']}`")
+            cursor.execute(f"USE SCHEMA `{config['schema']}`")
+            cursor.execute(f"SELECT * FROM `{config['table_name']}`")
             rows = cursor.fetchall()
             assert cursor.description is not None
             columns = {index: metadata[0] for index, metadata in enumerate(cursor.description)}
@@ -240,13 +240,13 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         destination_test = DatabricksDestinationTest()
         destination_config = destination_test.get_destination_config(ateam.pk)
         with destination_test.cursor(ateam.pk, integration) as cursor:
-            cursor.execute(f'USE CATALOG `{destination_config["catalog"]}`')
-            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS `{destination_config["schema"]}`')
-            cursor.execute(f'USE SCHEMA `{destination_config["schema"]}`')
+            cursor.execute(f"USE CATALOG `{destination_config['catalog']}`")
+            cursor.execute(f"CREATE SCHEMA IF NOT EXISTS `{destination_config['schema']}`")
+            cursor.execute(f"USE SCHEMA `{destination_config['schema']}`")
 
             yield
 
-            cursor.execute(f'DROP SCHEMA IF EXISTS `{destination_config["schema"]}` CASCADE')
+            cursor.execute(f"DROP SCHEMA IF EXISTS `{destination_config['schema']}` CASCADE")
 
     @pytest.fixture
     def simulate_unexpected_error(self):

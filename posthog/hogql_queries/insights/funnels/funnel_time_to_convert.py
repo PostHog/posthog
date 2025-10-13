@@ -58,11 +58,11 @@ class FunnelTimeToConvert(FunnelBase):
 
         if not (0 < to_step < len(query.series)):
             raise ValidationError(
-                f'Filter parameter {FUNNEL_TO_STEP} can only be one of {", ".join(map(str, range(1, len(query.series))))} for time to convert!'
+                f"Filter parameter {FUNNEL_TO_STEP} can only be one of {', '.join(map(str, range(1, len(query.series))))} for time to convert!"
             )
 
         steps_average_conversion_time_identifiers = [
-            f"step_{step+1}_average_conversion_time_inner" for step in range(from_step, to_step)
+            f"step_{step + 1}_average_conversion_time_inner" for step in range(from_step, to_step)
         ]
         steps_average_conversion_time_expression_sum = " + ".join(steps_average_conversion_time_identifiers)
 
@@ -91,9 +91,10 @@ class FunnelTimeToConvert(FunnelBase):
                 ( SELECT bin_width_seconds FROM histogram_params ) AS bin_width_seconds,
                 /* bin_count is only made available as an identifier if it had to be calculated */
                 {
-                    f"( SELECT {bin_count_identifier} FROM histogram_params ) AS {bin_count_identifier},"
-                    if bin_count_expression else ""
-                }
+                f"( SELECT {bin_count_identifier} FROM histogram_params ) AS {bin_count_identifier},"
+                if bin_count_expression
+                else ""
+            }
                 ( SELECT from_seconds FROM histogram_params ) AS histogram_from_seconds,
                 ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds,
                 ( SELECT average_conversion_time FROM histogram_params ) AS histogram_average_conversion_time
@@ -104,7 +105,9 @@ class FunnelTimeToConvert(FunnelBase):
             FROM (
                 /* Calculating bins from step runs */
                 SELECT
-                    histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
+                    histogram_from_seconds + floor(({
+                steps_average_conversion_time_expression_sum
+            } - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
                     count() AS person_count
                 FROM step_runs
                 GROUP BY bin_from_seconds
@@ -112,7 +115,9 @@ class FunnelTimeToConvert(FunnelBase):
             RIGHT OUTER JOIN (
                 /* Making sure bin_count bins are returned */
                 /* Those not present in the results query due to lack of data simply get person_count 0 */
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM numbers(ifNull({bin_count_identifier}, 0) + 1)
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM numbers(ifNull({
+                bin_count_identifier
+            }, 0) + 1)
             ) fill
             -- USING (bin_from_seconds)
             ON results.bin_from_seconds = fill.bin_from_seconds

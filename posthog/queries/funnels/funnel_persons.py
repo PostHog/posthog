@@ -1,4 +1,3 @@
-
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.actor_base_query import ActorBaseQuery

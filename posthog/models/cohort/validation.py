@@ -201,9 +201,7 @@ class CohortTypeValidationSerializer(serializers.Serializer):
         # Recursively determine type
         return self._determine_type_recursive(referenced_data, visited | {cohort_id})
 
-    def _highest_priority_cohort_type(
-        self, current: CohortType | None, new: CohortType | None
-    ) -> CohortType | None:
+    def _highest_priority_cohort_type(self, current: CohortType | None, new: CohortType | None) -> CohortType | None:
         """Return the higher priority cohort type based on complexity hierarchy"""
         if current is None:
             return new

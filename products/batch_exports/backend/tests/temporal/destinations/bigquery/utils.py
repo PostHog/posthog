@@ -104,9 +104,9 @@ async def assert_clickhouse_records_in_bigquery(
                 continue
 
             if k in json_columns:
-                assert (
-                    isinstance(v, dict) or v is None
-                ), f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+                assert isinstance(v, dict) or v is None, (
+                    f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+                )
 
             inserted_record[k] = v
 
@@ -219,7 +219,7 @@ async def assert_clickhouse_records_in_bigquery(
     assert inserted_records == expected_records
 
     if len(inserted_bq_ingested_timestamp) > 0:
-        assert (
-            min_ingested_timestamp is not None
-        ), "Must set `min_ingested_timestamp` for comparison with exported value"
+        assert min_ingested_timestamp is not None, (
+            "Must set `min_ingested_timestamp` for comparison with exported value"
+        )
         assert all(ts >= min_ingested_timestamp for ts in inserted_bq_ingested_timestamp)

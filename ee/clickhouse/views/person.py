@@ -1,4 +1,3 @@
-
 from rest_framework import request, response
 
 from posthog.api.insight import capture_legacy_api_call

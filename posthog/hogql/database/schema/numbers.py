@@ -1,4 +1,3 @@
-
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     FieldOrTable,

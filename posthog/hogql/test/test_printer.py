@@ -2506,7 +2506,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
         )
         assert printed == (
-            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
 
     def test_fails_on_parametric_function_with_no_arguments(self):

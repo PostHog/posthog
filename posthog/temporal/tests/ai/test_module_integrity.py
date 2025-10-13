@@ -18,12 +18,12 @@ class TestAITemporalModuleIntegrity:
         )
         for expected in expected_workflows:
             assert expected in actual_workflow_names, (
-                f"Workflow '{expected}' is missing from ai.WORKFLOWS. " "If this was intentional, update the test."
+                f"Workflow '{expected}' is missing from ai.WORKFLOWS. If this was intentional, update the test."
             )
         # Check for unexpected workflows
         for actual in actual_workflow_names:
             assert actual in expected_workflows, (
-                f"Unexpected workflow '{actual}' found in ai.WORKFLOWS. " "If this was intentional, update the test."
+                f"Unexpected workflow '{actual}' found in ai.WORKFLOWS. If this was intentional, update the test."
             )
 
     def test_activities_remain_unchanged(self):
@@ -49,12 +49,12 @@ class TestAITemporalModuleIntegrity:
         )
         for expected in expected_activities:
             assert expected in actual_activity_names, (
-                f"Activity '{expected}' is missing from ai.ACTIVITIES. " "If this was intentional, update the test."
+                f"Activity '{expected}' is missing from ai.ACTIVITIES. If this was intentional, update the test."
             )
         # Check for unexpected activities
         for actual in actual_activity_names:
             assert actual in expected_activities, (
-                f"Unexpected activity '{actual}' found in ai.ACTIVITIES. " "If this was intentional, update the test."
+                f"Unexpected activity '{actual}' found in ai.ACTIVITIES. If this was intentional, update the test."
             )
 
     def test_all_exports_remain_unchanged(self):
@@ -72,10 +72,10 @@ class TestAITemporalModuleIntegrity:
         )
         for expected in expected_exports:
             assert expected in actual_exports, (
-                f"Export '{expected}' is missing from __all__. " "If this was intentional, update the test."
+                f"Export '{expected}' is missing from __all__. If this was intentional, update the test."
             )
         # Check for unexpected exports
         for actual in actual_exports:
             assert actual in expected_exports, (
-                f"Unexpected export '{actual}' found in __all__. " "If this was intentional, update the test."
+                f"Unexpected export '{actual}' found in __all__. If this was intentional, update the test."
             )

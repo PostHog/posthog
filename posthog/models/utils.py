@@ -378,7 +378,7 @@ class UniqueConstraintByExpression(BaseConstraint):
         table = model._meta.db_table
         return Statement(
             f"""
-            CREATE UNIQUE INDEX {'CONCURRENTLY' if self.concurrently and not table_creation else ''} %(name)s
+            CREATE UNIQUE INDEX {"CONCURRENTLY" if self.concurrently and not table_creation else ""} %(name)s
             ON %(table)s
             %(expression)s
             """,

@@ -484,9 +484,7 @@ class UserAccessControl:
 
         return project_admin_check
 
-    def get_access_source_for_object(
-        self, obj: Model, resource: APIScopeObject | None = None
-    ) -> AccessSource | None:
+    def get_access_source_for_object(self, obj: Model, resource: APIScopeObject | None = None) -> AccessSource | None:
         """
         Determine how the user got access to an object.
         Returns None if the user has no access context.

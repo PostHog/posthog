@@ -35,7 +35,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
                 {self.get_step_counts_query()}
-        ) {'GROUP BY prop' if breakdown_clause != '' else ''}
+        ) {"GROUP BY prop" if breakdown_clause != "" else ""}
         """
 
     def get_step_counts_query(self):
@@ -69,7 +69,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} {breakdown_query} {self._get_person_and_group_properties()} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
-        {'AND exclusion = 0' if exclusion_clause else ''}
+        {"AND exclusion = 0" if exclusion_clause else ""}
         """
 
     def _get_comparison_at_step(self, index: int, level_index: int):

@@ -62,9 +62,7 @@ class OrganizationDomainManager(models.Manager):
                 return True
         return False
 
-    def get_sso_enforcement_for_email_address(
-        self, email: str, organization: Organization | None = None
-    ) -> str | None:
+    def get_sso_enforcement_for_email_address(self, email: str, organization: Organization | None = None) -> str | None:
         """
         Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
         Validates SSO providers are properly configured and all the proper licenses exist.

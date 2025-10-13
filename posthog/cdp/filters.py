@@ -1,4 +1,3 @@
-
 from django.conf import settings
 
 from posthog.hogql.compiler.bytecode import create_bytecode

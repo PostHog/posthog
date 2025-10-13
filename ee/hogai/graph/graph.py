@@ -191,7 +191,8 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
 
     def add_query_planner(
         self,
-        path_map: dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName] | None = None,
+        path_map: dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName]
+        | None = None,
     ):
         query_planner = QueryPlannerNode(self._team, self._user)
         self.add_node(AssistantNodeName.QUERY_PLANNER, query_planner)

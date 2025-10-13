@@ -1,4 +1,3 @@
-
 from inline_snapshot import snapshot
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest

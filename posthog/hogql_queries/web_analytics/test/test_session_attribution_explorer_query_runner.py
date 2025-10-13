@@ -1,4 +1,3 @@
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 from posthog.schema import (

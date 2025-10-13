@@ -300,9 +300,7 @@ def get_entity_query(
         raise ValidationError("Cohort query requires action_id or event_id")
 
 
-def get_date_query(
-    days: str | None, start_time: str | None, end_time: str | None
-) -> tuple[str, dict[str, str]]:
+def get_date_query(days: str | None, start_time: str | None, end_time: str | None) -> tuple[str, dict[str, str]]:
     date_query: str = ""
     date_params: dict[str, str] = {}
     if days:
@@ -425,9 +423,7 @@ def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
     return count
 
 
-def recalculate_cohortpeople(
-    cohort: Cohort, pending_version: int, *, initiating_user_id: int | None
-) -> int | None:
+def recalculate_cohortpeople(cohort: Cohort, pending_version: int, *, initiating_user_id: int | None) -> int | None:
     """
     Recalculate cohort people for all environments of the project.
     NOTE: Currently, this only returns the count for the team where the cohort was created. Instead, it should return for all teams.

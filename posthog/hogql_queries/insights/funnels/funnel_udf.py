@@ -197,9 +197,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
         step_results = ",".join(
-            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i+1}" for i in range(self.context.max_steps)]
+            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i + 1}" for i in range(self.context.max_steps)]
         )
-        step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
+        step_results2 = ",".join([f"sum(step_{i + 1}) AS step_{i + 1}" for i in range(self.context.max_steps)])
 
         conversion_time_arrays = ",".join(
             [
@@ -208,7 +208,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 

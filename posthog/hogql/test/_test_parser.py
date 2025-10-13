@@ -2105,10 +2105,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
         def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
             node = self._select(
-                "select <strong>"
-                "<a href='https://google.com'>Hello <em>{event}</em></a>"
-                "{'a'}"
-                "</strong> from events"
+                "select <strong><a href='https://google.com'>Hello <em>{event}</em></a>{'a'}</strong> from events"
             )
             assert isinstance(node, ast.SelectQuery)
             outer = cast(ast.HogQLXTag, node.select[0])

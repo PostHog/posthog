@@ -1082,9 +1082,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             )
             self.assertFalse(matched_person)
 
-    def _filter_with_date_range(
-        self, date_from: datetime.datetime, date_to: datetime.datetime | None = None
-    ) -> Filter:
+    def _filter_with_date_range(self, date_from: datetime.datetime, date_to: datetime.datetime | None = None) -> Filter:
         data = {
             "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}],
             "date_from": date_from,

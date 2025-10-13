@@ -1,4 +1,3 @@
-
 from django.utils import timezone
 
 from posthog.models.event.sql import SELECT_PROP_VALUES_SQL_WITH_FILTER

@@ -1,4 +1,3 @@
-
 from posthog.test.base import BaseTest
 
 from posthog.schema import DashboardFilter, DateRange, EventPropertyFilter, HogQLFilters, HogQLQuery

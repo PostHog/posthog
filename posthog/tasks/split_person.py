@@ -1,4 +1,3 @@
-
 from celery import shared_task
 
 from posthog.models import Person

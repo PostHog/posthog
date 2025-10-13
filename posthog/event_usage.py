@@ -2,7 +2,6 @@
 Module to centralize event reporting on the server-side.
 """
 
-
 import posthoganalytics
 
 from posthog.models import Organization, User

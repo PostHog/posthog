@@ -479,9 +479,9 @@ class TestNotebookCreation(APIBaseTest):
             assert "test_session_id" in content_text, f"Missing session ID for {millis}ms"
             # Widget timestamp is 5 seconds before the event (max(millis - 5000, 0))
             expected_widget_timestamp = max(expected_timestamp_ms - 5000, 0)
-            assert (
-                f'"timestampMs": {expected_widget_timestamp}' in content_text
-            ), f"Wrong timestamp for {millis}ms -> expected {expected_widget_timestamp}"
+            assert f'"timestampMs": {expected_widget_timestamp}' in content_text, (
+                f"Wrong timestamp for {millis}ms -> expected {expected_widget_timestamp}"
+            )
 
     def test_format_single_sessions_status_empty(self) -> None:
         result: dict[str, Any] = format_single_sessions_status({})

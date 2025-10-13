@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 async def _execute_task_processing_workflow(
     task_id: str, team_id: int, user_id: int | None = None, use_sandbox: bool = False
 ) -> str:
-    workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
+    workflow_id = f"task-processing-{task_id}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
 
     workflow_input: str | TaskProcessingInputs
     if use_sandbox:

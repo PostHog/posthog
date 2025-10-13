@@ -1,4 +1,3 @@
-
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter

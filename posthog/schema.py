@@ -1328,9 +1328,7 @@ class FileSystemEntry(BaseModel):
     field_loading: bool | None = Field(
         default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
-    created_at: str | None = Field(
-        default=None, description="Timestamp when file was added. Used to check persistence"
-    )
+    created_at: str | None = Field(default=None, description="Timestamp when file was added. Used to check persistence")
     href: str | None = Field(default=None, description="Object's URL")
     id: str = Field(..., description="Unique UUID for tree entry")
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
@@ -1338,9 +1336,7 @@ class FileSystemEntry(BaseModel):
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    type: str | None = Field(
-        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
-    )
+    type: str | None = Field(default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc")
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
@@ -1398,9 +1394,7 @@ class FileSystemImport(BaseModel):
         default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
     category: str | None = Field(default=None, description="Category label to place this under")
-    created_at: str | None = Field(
-        default=None, description="Timestamp when file was added. Used to check persistence"
-    )
+    created_at: str | None = Field(default=None, description="Timestamp when file was added. Used to check persistence")
     flag: str | None = None
     href: str | None = Field(default=None, description="Object's URL")
     iconColor: list[str] | None = Field(default=None, description="Color of the icon")
@@ -1412,9 +1406,7 @@ class FileSystemImport(BaseModel):
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    type: str | None = Field(
-        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
-    )
+    type: str | None = Field(default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc")
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
@@ -3401,7 +3393,27 @@ class AssistantRetentionActionsNode(BaseModel):
     )
     id: float = Field(..., description="Action ID from the plan.")
     name: str = Field(..., description="Action name from the plan.")
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = Field(default=None, description="Property filters for the action.")
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Property filters for the action.")
     type: Literal["actions"] = "actions"
 
 
@@ -3413,7 +3425,27 @@ class AssistantRetentionEventsNode(BaseModel):
         default=None, description="Custom name for the event if it is needed to be renamed."
     )
     name: str = Field(..., description="Event name from the plan.")
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = Field(default=None, description="Property filters for the event.")
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Property filters for the event.")
     type: Literal["events"] = "events"
 
 
@@ -4063,9 +4095,7 @@ class HogQuery(BaseModel):
     )
     code: str | None = None
     kind: Literal["HogQuery"] = "HogQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: HogQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -4435,9 +4465,7 @@ class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4460,9 +4488,7 @@ class RevenueAnalyticsMRRQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4485,9 +4511,7 @@ class RevenueAnalyticsMetricsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4517,9 +4541,7 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4542,9 +4564,7 @@ class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4569,9 +4589,7 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -4598,9 +4616,7 @@ class RevenueExampleEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -4626,12 +4642,8 @@ class SavedInsightNode(BaseModel):
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: bool | None = Field(default=None, description="Query is embedded inside another bordered component")
-    expandable: bool | None = Field(
-        default=None, description="Can expand row to show raw event data (default: true)"
-    )
-    full: bool | None = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
-    )
+    expandable: bool | None = Field(default=None, description="Can expand row to show raw event data (default: true)")
+    full: bool | None = Field(default=None, description="Show with most visual options enabled. Used in insight scene.")
     hidePersonsModal: bool | None = None
     hideTooltipOnScroll: bool | None = None
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
@@ -4698,9 +4710,7 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -4727,9 +4737,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -4801,9 +4809,7 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4857,7 +4863,9 @@ class StickinessFilter(BaseModel):
         default=ResultCustomizationBy.VALUE,
         description="Whether result datasets are associated by their values or by their order.",
     )
-    resultCustomizations: Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]] | None = Field(default=None, description="Customizations for the appearance of result datasets.")
+    resultCustomizations: (
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]] | None
+    ) = Field(default=None, description="Customizations for the appearance of result datasets.")
     showLegend: bool | None = None
     showMultipleYAxes: bool | None = None
     showValuesOnSeries: bool | None = None
@@ -4873,9 +4881,7 @@ class StickinessQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4893,9 +4899,7 @@ class SuggestedQuestionsQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["SuggestedQuestionsQuery"] = "SuggestedQuestionsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: SuggestedQuestionsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -5025,9 +5029,7 @@ class TestBasicQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5056,9 +5058,7 @@ class TestCachedBasicQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -5086,9 +5086,7 @@ class TraceQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -5114,9 +5112,7 @@ class TracesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -5167,7 +5163,9 @@ class TrendsFilter(BaseModel):
         default=ResultCustomizationBy.VALUE,
         description="Wether result datasets are associated by their values or by their order.",
     )
-    resultCustomizations: Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]] | None = Field(default=None, description="Customizations for the appearance of result datasets.")
+    resultCustomizations: (
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]] | None
+    ) = Field(default=None, description="Customizations for the appearance of result datasets.")
     showAlertThresholdLines: bool | None = False
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
@@ -5191,9 +5189,7 @@ class TrendsQueryResponse(BaseModel):
     )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5227,9 +5223,7 @@ class UsageMetricsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5287,9 +5281,7 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -5317,9 +5309,7 @@ class WebGoalsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -5346,9 +5336,7 @@ class WebOverviewQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5374,9 +5362,7 @@ class WebPageURLSearchQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5401,9 +5387,7 @@ class WebStatsTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -5446,9 +5430,7 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5474,9 +5456,7 @@ class ActorsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int
     missing_actors_count: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -5500,9 +5480,7 @@ class AnalyticsQueryResponseBase(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5528,7 +5506,27 @@ class AssistantFunnelNodeShared(BaseModel):
             " specified filters for the first time."
         ),
     )
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = None
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = None
 
 
 class AssistantFunnelsActionsNode(BaseModel):
@@ -5547,7 +5545,27 @@ class AssistantFunnelsActionsNode(BaseModel):
         ),
     )
     name: str = Field(..., description="Action name from the plan.")
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = None
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -5569,7 +5587,27 @@ class AssistantFunnelsEventsNode(BaseModel):
             " specified filters for the first time."
         ),
     )
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = None
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -5611,7 +5649,27 @@ class AssistantFunnelsQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = Field(default=[], description="Property filters for all series")
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     samplingFactor: float | None = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
@@ -5630,7 +5688,27 @@ class AssistantInsightsQueryBase(BaseModel):
     filterTestAccounts: bool | None = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = Field(default=[], description="Property filters for all series")
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     samplingFactor: float | None = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
@@ -5706,7 +5784,27 @@ class AssistantRetentionQuery(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["RetentionQuery"] = "RetentionQuery"
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = Field(default=[], description="Property filters for all series")
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     retentionFilter: AssistantRetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: float | None = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
@@ -5720,14 +5818,46 @@ class AssistantTrendsActionsNode(BaseModel):
     custom_name: str | None = None
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
     math_property_type: str | None = None
     name: str = Field(..., description="Action name from the plan.")
     optionalInFunnel: bool | None = None
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = None
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -5738,14 +5868,46 @@ class AssistantTrendsEventsNode(BaseModel):
     custom_name: str | None = None
     event: str | None = Field(default=None, description="The event or `null` for all events.")
     kind: Literal["EventsNode"] = "EventsNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_multiplier: float | None = None
     math_property: str | None = None
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = None
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -5780,7 +5942,27 @@ class AssistantTrendsQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
-    properties: list[Union[Union[AssistantGenericPropertyFilter1, AssistantGenericPropertyFilter2, AssistantGenericPropertyFilter3, AssistantGenericPropertyFilter4, AssistantGenericPropertyFilter5], Union[AssistantGroupPropertyFilter1, AssistantGroupPropertyFilter2, AssistantGroupPropertyFilter3, AssistantGroupPropertyFilter4, AssistantGroupPropertyFilter5]]] | None = Field(default=[], description="Property filters for all series")
+    properties: (
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     samplingFactor: float | None = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
@@ -5824,9 +6006,7 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -5862,9 +6042,7 @@ class CachedActorsQueryResponse(BaseModel):
     last_refresh: datetime
     limit: int
     missing_actors_count: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int
     query_metadata: dict[str, Any] | None = None
@@ -5899,9 +6077,7 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -5933,9 +6109,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -5970,9 +6144,7 @@ class CachedEventsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6032,9 +6204,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6069,9 +6239,7 @@ class CachedFunnelsQueryResponse(BaseModel):
     isUdf: bool | None = None
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6107,9 +6275,7 @@ class CachedGroupsQueryResponse(BaseModel):
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     last_refresh: datetime
     limit: int
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int
     query_metadata: dict[str, Any] | None = None
@@ -6143,9 +6309,7 @@ class CachedLifecycleQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6180,9 +6344,7 @@ class CachedLogsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6215,9 +6377,7 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6253,9 +6413,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6311,9 +6469,7 @@ class CachedPathsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6346,9 +6502,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6381,9 +6535,7 @@ class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6416,9 +6568,7 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6450,9 +6600,7 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6485,9 +6633,7 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6522,9 +6668,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6561,9 +6705,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6600,9 +6742,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6639,9 +6779,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6682,9 +6820,7 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6716,9 +6852,7 @@ class CachedStickinessQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6770,9 +6904,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6807,9 +6939,7 @@ class CachedTraceQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6845,9 +6975,7 @@ class CachedTracesQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -6881,9 +7009,7 @@ class CachedTrendsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6915,9 +7041,7 @@ class CachedUsageMetricsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6949,9 +7073,7 @@ class CachedVectorSearchQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6986,9 +7108,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -7026,9 +7146,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -7065,9 +7183,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7103,9 +7219,7 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7140,9 +7254,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -7178,9 +7290,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7206,9 +7316,7 @@ class CalendarHeatmapResponse(BaseModel):
     )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7229,13 +7337,49 @@ class ConversionGoalFilter1(BaseModel):
     conversion_goal_name: str
     custom_name: str | None = None
     event: str | None = Field(default=None, description="The event or `null` for all events.")
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["EventsNode"] = "EventsNode"
     limit: int | None = None
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -7245,7 +7389,31 @@ class ConversionGoalFilter1(BaseModel):
     name: str | None = None
     optionalInFunnel: bool | None = None
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     schema_map: dict[str, Union[str, Any]]
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -7258,13 +7426,49 @@ class ConversionGoalFilter2(BaseModel):
     conversion_goal_id: str
     conversion_goal_name: str
     custom_name: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -7273,7 +7477,31 @@ class ConversionGoalFilter2(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     schema_map: dict[str, Union[str, Any]]
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -7288,14 +7516,50 @@ class ConversionGoalFilter3(BaseModel):
     custom_name: str | None = None
     distinct_id_field: str
     dw_source_type: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     id: str
     id_field: str
     kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -7304,7 +7568,31 @@ class ConversionGoalFilter3(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     schema_map: dict[str, Union[str, Any]]
     table_name: str
@@ -7319,7 +7607,31 @@ class DashboardFilter(BaseModel):
     breakdown_filter: BreakdownFilter | None = None
     date_from: str | None = None
     date_to: str | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
 
 
 class Response(BaseModel):
@@ -7334,9 +7646,7 @@ class Response(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7364,9 +7674,7 @@ class Response1(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int
     missing_actors_count: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7394,9 +7702,7 @@ class Response2(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7422,9 +7728,7 @@ class Response4(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7451,9 +7755,7 @@ class Response5(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7482,9 +7784,7 @@ class Response6(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7509,9 +7809,7 @@ class Response8(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7536,9 +7834,7 @@ class Response9(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7563,9 +7859,7 @@ class Response10(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7588,9 +7882,7 @@ class Response11(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7613,9 +7905,7 @@ class Response12(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7637,9 +7927,7 @@ class Response13(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7662,9 +7950,7 @@ class Response14(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7689,9 +7975,7 @@ class Response15(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7718,9 +8002,7 @@ class Response17(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7745,9 +8027,7 @@ class Response18(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7773,9 +8053,7 @@ class Response23(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7796,14 +8074,50 @@ class DataWarehouseNode(BaseModel):
     custom_name: str | None = None
     distinct_id_field: str
     dw_source_type: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     id: str
     id_field: str
     kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -7812,7 +8126,31 @@ class DataWarehouseNode(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     table_name: str
     timestamp_field: str
@@ -7877,12 +8215,48 @@ class EntityNode(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: NodeKind
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -7891,7 +8265,31 @@ class EntityNode(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -7930,7 +8328,31 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
-    newFilters: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    newFilters: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
     orderBy: OrderBy
     orderDirection: OrderDirection | None = None
     removedFilterIndexes: list[int] | None = None
@@ -7950,9 +8372,7 @@ class ErrorTrackingQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7988,9 +8408,7 @@ class EventTaxonomyQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8009,13 +8427,49 @@ class EventsNode(BaseModel):
     )
     custom_name: str | None = None
     event: str | None = Field(default=None, description="The event or `null` for all events.")
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["EventsNode"] = "EventsNode"
     limit: int | None = None
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -8025,7 +8479,31 @@ class EventsNode(BaseModel):
     name: str | None = None
     optionalInFunnel: bool | None = None
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8042,9 +8520,7 @@ class EventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8066,12 +8542,48 @@ class ExperimentDataWarehouseNode(BaseModel):
     custom_name: str | None = None
     data_warehouse_join_key: str
     events_join_key: str
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["ExperimentDataWarehouseNode"] = "ExperimentDataWarehouseNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -8080,7 +8592,31 @@ class ExperimentDataWarehouseNode(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     table_name: str
     timestamp_field: str
@@ -8124,7 +8660,31 @@ class FeatureFlagGroupType(BaseModel):
         extra="forbid",
     )
     description: str | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
     rollout_percentage: float | None = None
     sort_key: str | None = None
     users_affected: float | None = None
@@ -8143,9 +8703,7 @@ class FunnelCorrelationResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8165,7 +8723,31 @@ class FunnelExclusionActionsNode(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
@@ -8173,7 +8755,19 @@ class FunnelExclusionActionsNode(BaseModel):
     funnelToStep: int
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -8182,7 +8776,31 @@ class FunnelExclusionActionsNode(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8193,7 +8811,31 @@ class FunnelExclusionEventsNode(BaseModel):
     )
     custom_name: str | None = None
     event: str | None = Field(default=None, description="The event or `null` for all events.")
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
@@ -8201,7 +8843,19 @@ class FunnelExclusionEventsNode(BaseModel):
     funnelToStep: int
     kind: Literal["EventsNode"] = "EventsNode"
     limit: int | None = None
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -8211,7 +8865,31 @@ class FunnelExclusionEventsNode(BaseModel):
     name: str | None = None
     optionalInFunnel: bool | None = None
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8226,9 +8904,7 @@ class FunnelsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     isUdf: bool | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8270,9 +8946,7 @@ class GroupsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8297,7 +8971,31 @@ class HogQLFilters(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
 
 
 class HogQLMetadataResponse(BaseModel):
@@ -8328,9 +9026,7 @@ class HogQLQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
@@ -8352,9 +9048,7 @@ class InsightActorsQueryBase(BaseModel):
     )
     includeRecordings: bool | None = None
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -8369,9 +9063,7 @@ class LifecycleQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8396,9 +9088,7 @@ class LogsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8421,9 +9111,7 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8459,9 +9147,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8516,9 +9202,7 @@ class PathsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8537,17 +9221,63 @@ class PersonsNode(BaseModel):
     )
     cohort: int | None = None
     distinctId: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["PersonsNode"] = "PersonsNode"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     search: str | None = None
     tags: QueryLogTags | None = None
@@ -8607,9 +9337,7 @@ class QueryResponseAlternative1(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8637,9 +9365,7 @@ class QueryResponseAlternative2(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int
     missing_actors_count: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8667,9 +9393,7 @@ class QueryResponseAlternative3(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8707,9 +9431,7 @@ class QueryResponseAlternative5(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8737,9 +9459,7 @@ class QueryResponseAlternative7(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
@@ -8767,9 +9487,7 @@ class QueryResponseAlternative10(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8796,9 +9514,7 @@ class QueryResponseAlternative13(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8823,9 +9539,7 @@ class QueryResponseAlternative19(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8852,9 +9566,7 @@ class QueryResponseAlternative20(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8883,9 +9595,7 @@ class QueryResponseAlternative21(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8910,9 +9620,7 @@ class QueryResponseAlternative23(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8936,9 +9644,7 @@ class QueryResponseAlternative24(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8961,9 +9667,7 @@ class QueryResponseAlternative26(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8986,9 +9690,7 @@ class QueryResponseAlternative27(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9011,9 +9713,7 @@ class QueryResponseAlternative28(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9035,9 +9735,7 @@ class QueryResponseAlternative29(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9060,9 +9758,7 @@ class QueryResponseAlternative30(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9087,9 +9783,7 @@ class QueryResponseAlternative31(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9114,9 +9808,7 @@ class QueryResponseAlternative32(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9142,9 +9834,7 @@ class QueryResponseAlternative33(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9172,9 +9862,7 @@ class QueryResponseAlternative34(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int
     missing_actors_count: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9202,9 +9890,7 @@ class QueryResponseAlternative35(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9234,9 +9920,7 @@ class QueryResponseAlternative36(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
@@ -9263,9 +9947,7 @@ class QueryResponseAlternative37(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9292,9 +9974,7 @@ class QueryResponseAlternative38(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9323,9 +10003,7 @@ class QueryResponseAlternative39(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9350,9 +10028,7 @@ class QueryResponseAlternative41(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9377,9 +10053,7 @@ class QueryResponseAlternative42(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9404,9 +10078,7 @@ class QueryResponseAlternative43(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9429,9 +10101,7 @@ class QueryResponseAlternative44(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9454,9 +10124,7 @@ class QueryResponseAlternative45(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9478,9 +10146,7 @@ class QueryResponseAlternative46(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9503,9 +10169,7 @@ class QueryResponseAlternative47(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9530,9 +10194,7 @@ class QueryResponseAlternative48(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9559,9 +10221,7 @@ class QueryResponseAlternative50(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9586,9 +10246,7 @@ class QueryResponseAlternative51(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9614,9 +10272,7 @@ class QueryResponseAlternative52(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9642,9 +10298,7 @@ class QueryResponseAlternative56(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9668,9 +10322,7 @@ class QueryResponseAlternative57(BaseModel):
     )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9693,9 +10345,7 @@ class QueryResponseAlternative58(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     isUdf: bool | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9717,9 +10367,7 @@ class QueryResponseAlternative60(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9741,9 +10389,7 @@ class QueryResponseAlternative61(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9768,9 +10414,7 @@ class QueryResponseAlternative63(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9797,9 +10441,7 @@ class QueryResponseAlternative65(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9822,9 +10464,7 @@ class QueryResponseAlternative67(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9846,9 +10486,7 @@ class QueryResponseAlternative68(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9870,9 +10508,7 @@ class QueryResponseAlternative69(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9897,9 +10533,7 @@ class QueryResponseAlternative70(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -9922,9 +10556,7 @@ class QueryResponseAlternative72(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9946,9 +10578,7 @@ class QueryResponseAlternative73(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -9978,7 +10608,31 @@ class RetentionEntity(BaseModel):
     kind: RetentionEntityKind | None = None
     name: str | None = None
     order: int | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="filters on the event")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="filters on the event")
     type: EntityType | None = None
     uuid: str | None = None
 
@@ -10040,9 +10694,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseMod
     )
     dateRange: DateRange | None = None
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsGrossRevenueQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10055,9 +10707,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsMRRQueryResponse(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsMRRQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10070,9 +10720,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsMetricsQueryResponse(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10085,9 +10733,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsOverviewQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10100,9 +10746,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     )
     dateRange: DateRange | None = None
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsTopCustomersQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10126,9 +10770,7 @@ class RevenueAnalyticsGrossRevenueQuery(BaseModel):
     dateRange: DateRange | None = None
     interval: SimpleIntervalType
     kind: Literal["RevenueAnalyticsGrossRevenueQuery"] = "RevenueAnalyticsGrossRevenueQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsGrossRevenueQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10143,9 +10785,7 @@ class RevenueAnalyticsMRRQuery(BaseModel):
     dateRange: DateRange | None = None
     interval: SimpleIntervalType
     kind: Literal["RevenueAnalyticsMRRQuery"] = "RevenueAnalyticsMRRQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsMRRQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10160,9 +10800,7 @@ class RevenueAnalyticsMetricsQuery(BaseModel):
     dateRange: DateRange | None = None
     interval: SimpleIntervalType
     kind: Literal["RevenueAnalyticsMetricsQuery"] = "RevenueAnalyticsMetricsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10175,9 +10813,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: Literal["RevenueAnalyticsOverviewQuery"] = "RevenueAnalyticsOverviewQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsOverviewQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10191,9 +10827,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     dateRange: DateRange | None = None
     groupBy: RevenueAnalyticsTopCustomersGroupBy
     kind: Literal["RevenueAnalyticsTopCustomersQuery"] = "RevenueAnalyticsTopCustomersQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[RevenueAnalyticsPropertyFilter]
     response: RevenueAnalyticsTopCustomersQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10206,9 +10840,7 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     kind: Literal["RevenueExampleDataWarehouseTablesQuery"] = "RevenueExampleDataWarehouseTablesQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: RevenueExampleDataWarehouseTablesQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10221,9 +10853,7 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     kind: Literal["RevenueExampleEventsQuery"] = "RevenueExampleEventsQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: RevenueExampleEventsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10238,9 +10868,7 @@ class SessionAttributionExplorerQuery(BaseModel):
     groupBy: list[SessionAttributionGroupBy]
     kind: Literal["SessionAttributionExplorerQuery"] = "SessionAttributionExplorerQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: SessionAttributionExplorerQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10258,9 +10886,7 @@ class SessionsTimelineQuery(BaseModel):
         default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
     )
     kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     personId: str | None = Field(default=None, description="Fetch sessions only for a given person")
     response: SessionsTimelineQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10297,9 +10923,7 @@ class TeamTaxonomyQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -10319,7 +10943,31 @@ class TileFilters(BaseModel):
     breakdown_filter: BreakdownFilter | None = None
     date_from: str | None = None
     date_to: str | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
 
 
 class TraceQuery(BaseModel):
@@ -10328,10 +10976,32 @@ class TraceQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: Literal["TraceQuery"] = "TraceQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: TraceQueryResponse | None = None
     tags: QueryLogTags | None = None
     traceId: str
@@ -10346,12 +11016,34 @@ class TracesQuery(BaseModel):
     filterTestAccounts: bool | None = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     personId: str | None = Field(default=None, description="Person who performed the event")
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: TracesQueryResponse | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
@@ -10369,9 +11061,7 @@ class UsageMetricsQuery(BaseModel):
         default=None, description="Group type index. Required with group_key for group queries."
     )
     kind: Literal["UsageMetricsQuery"] = "UsageMetricsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     person_id: str | None = Field(
         default=None, description="Person ID to fetch metrics for. Mutually exclusive with group parameters."
     )
@@ -10389,9 +11079,7 @@ class VectorSearchQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -10427,9 +11115,7 @@ class WebExternalClicksTableQuery(BaseModel):
     includeRevenue: bool | None = None
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: WebExternalClicksTableQueryResponse | None = None
@@ -10452,9 +11138,7 @@ class WebGoalsQuery(BaseModel):
     includeRevenue: bool | None = None
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: WebGoalsQueryResponse | None = None
@@ -10475,9 +11159,7 @@ class WebOverviewQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: WebOverviewQueryResponse | None = None
@@ -10499,9 +11181,7 @@ class WebPageURLSearchQuery(BaseModel):
     includeRevenue: bool | None = None
     kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: WebPageURLSearchQueryResponse | None = None
@@ -10528,9 +11208,7 @@ class WebStatsTableQuery(BaseModel):
     includeScrollDepth: bool | None = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
@@ -10556,9 +11234,7 @@ class WebTrendsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
@@ -10594,9 +11270,7 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -10618,9 +11292,7 @@ class WebVitalsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -10638,13 +11310,49 @@ class ActionsNode(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
-    fixedProperties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
-    math: Union[BaseMathType, FunnelMathType, PropertyMathType, CountPerActorMathType, ExperimentMetricMathType, CalendarHeatmapMathType, Literal["unique_group"], Literal["hogql"]] | None = None
+    math: (
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+        | None
+    ) = None
     math_group_type_index: MathGroupTypeIndex | None = None
     math_hogql: str | None = None
     math_multiplier: float | None = None
@@ -10653,7 +11361,31 @@ class ActionsNode(BaseModel):
     math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -10665,9 +11397,7 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     groupTypeIndex: int | None = None
     kind: Literal["ActorsPropertyTaxonomyQuery"] = "ActorsPropertyTaxonomyQuery"
     maxPropertyValues: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[str]
     response: ActorsPropertyTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -10745,9 +11475,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -10786,9 +11514,7 @@ class CachedHogQLQueryResponse(BaseModel):
     last_refresh: datetime
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
@@ -10849,9 +11575,7 @@ class CachedRetentionQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -10889,9 +11613,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
     last_refresh: datetime
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
@@ -10928,9 +11650,7 @@ class CachedWebVitalsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -10961,9 +11681,7 @@ class Response3(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
@@ -10991,9 +11709,7 @@ class Response19(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11037,9 +11753,7 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11061,9 +11775,7 @@ class EventTaxonomyQuery(BaseModel):
     event: str | None = None
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
     maxPropertyValues: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[str] | None = None
     response: EventTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -11163,9 +11875,7 @@ class GroupsQuery(BaseModel):
     group_type_index: int
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
     properties: list[Union[GroupPropertyFilter, HogQLPropertyFilter]] | None = None
@@ -11183,9 +11893,7 @@ class HogQLASTQuery(BaseModel):
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: dict[str, Any]
     response: HogQLQueryResponse | None = None
@@ -11206,9 +11914,7 @@ class HogQLQuery(BaseModel):
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str
     response: HogQLQueryResponse | None = None
@@ -11273,9 +11979,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: MarketingAnalyticsAggregatedQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
@@ -11305,9 +12009,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     includeRevenue: bool | None = None
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[list[Union[str, MarketingAnalyticsOrderByEnum]]] | None = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
@@ -11380,9 +12082,7 @@ class QueryResponseAlternative14(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11405,9 +12105,7 @@ class QueryResponseAlternative59(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11432,12 +12130,34 @@ class RecordingsQuery(BaseModel):
     distinct_ids: list[str] | None = None
     events: list[dict[str, Any]] | None = None
     filter_test_accounts: bool | None = None
-    having_predicates: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    having_predicates: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
     kind: Literal["RecordingsQuery"] = "RecordingsQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     operand: FilterLogicalOperator | None = FilterLogicalOperator.AND_
     order: RecordingOrder | None = RecordingOrder.START_TIME
@@ -11451,7 +12171,31 @@ class RecordingsQuery(BaseModel):
         ),
     )
     person_uuid: str | None = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     tags: QueryLogTags | None = None
@@ -11468,9 +12212,7 @@ class RetentionQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11501,10 +12243,35 @@ class StickinessQuery(BaseModel):
         default=None, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
     )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: StickinessQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -11522,9 +12289,7 @@ class TeamTaxonomyQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TeamTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -11550,10 +12315,35 @@ class TrendsQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -11571,9 +12361,7 @@ class VectorSearchQuery(BaseModel):
     embedding: list[float]
     embeddingVersion: float | None = None
     kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: VectorSearchQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -11593,9 +12381,7 @@ class WebTrendsQuery(BaseModel):
     kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
     limit: int | None = None
     metrics: list[WebTrendsMetric]
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
@@ -11618,9 +12404,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     includeRevenue: bool | None = None
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
     metric: WebVitalsMetric
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
@@ -11651,9 +12435,7 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: datetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -11721,10 +12503,35 @@ class CalendarHeatmapQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["CalendarHeatmapQuery"] = "CalendarHeatmapQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: CalendarHeatmapResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -11746,9 +12553,7 @@ class Response20(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11837,9 +12642,7 @@ class ErrorTrackingIssueCorrelationQuery(BaseModel):
     )
     events: list[str]
     kind: Literal["ErrorTrackingIssueCorrelationQuery"] = "ErrorTrackingIssueCorrelationQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ErrorTrackingIssueCorrelationQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -11856,9 +12659,7 @@ class ErrorTrackingQuery(BaseModel):
     issueId: str | None = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy
     orderDirection: OrderDirection | None = None
@@ -11887,9 +12688,7 @@ class ExperimentExposureQuery(BaseModel):
     feature_flag: dict[str, Any]
     holdout: ExperimentHoldoutType | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ExperimentExposureQueryResponse | None = None
     start_date: str | None = None
     tags: QueryLogTags | None = None
@@ -11969,7 +12768,9 @@ class ExperimentQueryResponse(BaseModel):
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
     stats_version: int | None = None
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] | None = None
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] | None = (
+        None
+    )
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]] | None = None
 
 
@@ -12001,17 +12802,40 @@ class FunnelsQuery(BaseModel):
     filterTestAccounts: bool | None = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
-    funnelsFilter: FunnelsFilter | None = Field(
-        default=None, description="Properties specific to the funnels insight"
-    )
+    funnelsFilter: FunnelsFilter | None = Field(default=None, description="Properties specific to the funnels insight")
     interval: IntervalType | None = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -12032,10 +12856,35 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: CalendarHeatmapResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12053,10 +12902,35 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12074,10 +12948,35 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: LifecycleQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12095,10 +12994,35 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: PathsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12116,10 +13040,35 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: RetentionQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12137,10 +13086,35 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12181,10 +13155,35 @@ class LifecycleQuery(BaseModel):
     lifecycleFilter: LifecycleFilter | None = Field(
         default=None, description="Properties specific to the lifecycle insight"
     )
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: LifecycleQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
@@ -12202,9 +13201,7 @@ class LogsQuery(BaseModel):
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy2 | None = None
     response: LogsQueryResponse | None = None
@@ -12262,7 +13259,9 @@ class QueryResponseAlternative17(BaseModel):
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
     stats_version: int | None = None
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] | None = None
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] | None = (
+        None
+    )
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]] | None = None
 
 
@@ -12311,10 +13310,35 @@ class RetentionQuery(BaseModel):
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["RetentionQuery"] = "RetentionQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: RetentionQueryResponse | None = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -12330,9 +13354,7 @@ class StickinessActorsQuery(BaseModel):
     day: Union[str, int] | None = None
     includeRecordings: bool | None = None
     kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     operator: StickinessOperator | None = None
     response: ActorsQueryResponse | None = None
     series: int | None = None
@@ -12416,7 +13438,9 @@ class CachedExperimentQueryResponse(BaseModel):
     significant: bool | None = None
     stats_version: int | None = None
     timezone: str
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] | None = None
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] | None = (
+        None
+    )
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]] | None = None
 
 
@@ -12502,9 +13526,7 @@ class ExperimentQuery(BaseModel):
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     response: ExperimentQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -12520,9 +13542,7 @@ class ExperimentTrendsQuery(BaseModel):
     exposure_query: TrendsQuery | None = None
     fingerprint: str | None = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     response: ExperimentTrendsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -12564,9 +13584,7 @@ class FunnelsActorsQuery(BaseModel):
     )
     includeRecordings: bool | None = None
     kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ActorsQueryResponse | None = None
     source: FunnelsQuery
     tags: QueryLogTags | None = None
@@ -12587,11 +13605,36 @@ class PathsQuery(BaseModel):
         default=None, description="Used for displaying paths in relation to funnel steps."
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
-    properties: Union[list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]], PropertyGroupFilter] | None = Field(default=[], description="Property filters for all series")
+    properties: (
+        Union[
+            list[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
     response: PathsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -12835,9 +13878,7 @@ class ExperimentFunnelsQuery(BaseModel):
     fingerprint: str | None = None
     funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     response: ExperimentFunnelsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -12866,9 +13907,7 @@ class InsightVizNode(BaseModel):
         extra="forbid",
     )
     embedded: bool | None = Field(default=None, description="Query is embedded inside another bordered component")
-    full: bool | None = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
-    )
+    full: bool | None = Field(default=None, description="Show with most visual options enabled. Used in insight scene.")
     hidePersonsModal: bool | None = None
     hideTooltipOnScroll: bool | None = None
     kind: Literal["InsightVizNode"] = "InsightVizNode"
@@ -12908,9 +13947,7 @@ class WebVitalsQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]] | None = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: WebGoalsQueryResponse | None = None
@@ -12928,9 +13965,7 @@ class DatabaseSchemaQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12943,7 +13978,10 @@ class EndpointRequest(BaseModel):
     description: str | None = None
     is_active: bool | None = None
     name: str | None = None
-    query: Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]] | None = None
+    query: (
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+        | None
+    ) = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -12952,12 +13990,34 @@ class FunnelCorrelationActorsQuery(BaseModel):
     )
     funnelCorrelationPersonConverted: bool | None = None
     funnelCorrelationPersonEntity: Union[EventsNode, ActionsNode, DataWarehouseNode] | None = None
-    funnelCorrelationPropertyValues: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = None
+    funnelCorrelationPropertyValues: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = None
     includeRecordings: bool | None = None
     kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ActorsQueryResponse | None = None
     source: FunnelCorrelationQuery
     tags: QueryLogTags | None = None
@@ -12976,9 +14036,7 @@ class InsightActorsQuery(BaseModel):
         default=None, description="An interval selected out of available intervals in source query."
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ActorsQueryResponse | None = None
     series: int | None = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
@@ -13008,7 +14066,35 @@ class SessionBatchEventsQuery(BaseModel):
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    fixedProperties: list[Union[PropertyGroupFilter, PropertyGroupFilterValue, Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                PropertyGroupFilter,
+                PropertyGroupFilterValue,
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
@@ -13017,13 +14103,35 @@ class SessionBatchEventsQuery(BaseModel):
     )
     kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
     personId: str | None = Field(default=None, description="Show events for a given person")
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: SessionBatchEventsQueryResponse | None = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     session_ids: list[str] = Field(
@@ -13039,7 +14147,9 @@ class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fixedProperties: list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]] | None = Field(
+    fixedProperties: (
+        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]] | None
+    ) = Field(
         default=None,
         description=(
             "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in"
@@ -13048,12 +14158,16 @@ class ActorsQuery(BaseModel):
     )
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
-    properties: Union[list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]], PropertyGroupFilterValue] | None = Field(
+    properties: (
+        Union[
+            list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]],
+            PropertyGroupFilterValue,
+        ]
+        | None
+    ) = Field(
         default=None,
         description=(
             "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in"
@@ -13063,7 +14177,10 @@ class ActorsQuery(BaseModel):
     response: ActorsQueryResponse | None = None
     search: str | None = None
     select: list[str] | None = None
-    source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, HogQLQuery] | None = None
+    source: (
+        Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, HogQLQuery]
+        | None
+    ) = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13077,19 +14194,69 @@ class EventsQuery(BaseModel):
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    fixedProperties: list[Union[PropertyGroupFilter, PropertyGroupFilterValue, Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]]] | None = Field(
+    fixedProperties: (
+        list[
+            Union[
+                PropertyGroupFilter,
+                PropertyGroupFilterValue,
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    FlagPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ],
+            ]
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["EventsQuery"] = "EventsQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
     personId: str | None = Field(default=None, description="Show events for a given person")
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, ElementPropertyFilter, EventMetadataPropertyFilter, SessionPropertyFilter, CohortPropertyFilter, RecordingPropertyFilter, LogEntryPropertyFilter, GroupPropertyFilter, FeaturePropertyFilter, FlagPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter, DataWarehousePropertyFilter, DataWarehousePersonPropertyFilter, ErrorTrackingIssueFilter, LogPropertyFilter, RevenueAnalyticsPropertyFilter]] | None = Field(default=None, description="Properties configurable in the interface")
+    properties: (
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
     response: EventsQueryResponse | None = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: InsightActorsQuery | None = Field(default=None, description="source for querying events for insights")
@@ -13116,9 +14283,7 @@ class DataTableNode(BaseModel):
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: bool | None = Field(default=None, description="Uses the embedded version of LemonTable")
-    expandable: bool | None = Field(
-        default=None, description="Can expand row to show raw event data (default: true)"
-    )
+    expandable: bool | None = Field(default=None, description="Can expand row to show raw event data (default: true)")
     full: bool | None = Field(default=None, description="Show with most visual options enabled. Used in scenes.")
     hiddenColumns: list[str] | None = Field(
         default=None, description="Columns that aren't shown in the table, even if in columns or returned data"
@@ -13128,7 +14293,34 @@ class DataTableNode(BaseModel):
         default=None, description="Columns that are sticky when scrolling horizontally"
     )
     propertiesViaUrl: bool | None = Field(default=None, description="Link properties via the URL (default: false)")
-    response: Union[dict[str, Any], Response, Response1, Response2, Response3, Response4, Response5, Response6, Response8, Response9, Response10, Response11, Response12, Response13, Response14, Response15, Response17, Response18, Response19, Response20, Response21, Response22, Response23] | None = None
+    response: (
+        Union[
+            dict[str, Any],
+            Response,
+            Response1,
+            Response2,
+            Response3,
+            Response4,
+            Response5,
+            Response6,
+            Response8,
+            Response9,
+            Response10,
+            Response11,
+            Response12,
+            Response13,
+            Response14,
+            Response15,
+            Response17,
+            Response18,
+            Response19,
+            Response20,
+            Response21,
+            Response22,
+            Response23,
+        ]
+        | None
+    ) = None
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None, description="Show a button to configure the table's columns if possible"
@@ -13200,12 +14392,57 @@ class HogQLAutocomplete(BaseModel):
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
     language: HogLanguage = Field(..., description="Language to validate")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
     response: HogQLAutocompleteResponse | None = None
-    sourceQuery: Union[EventsNode, ActionsNode, PersonsNode, EventsQuery, ActorsQuery, GroupsQuery, InsightActorsQuery, InsightActorsQueryOptions, SessionsTimelineQuery, HogQuery, HogQLQuery, HogQLMetadata, HogQLAutocomplete, RevenueAnalyticsGrossRevenueQuery, RevenueAnalyticsMetricsQuery, RevenueAnalyticsMRRQuery, RevenueAnalyticsOverviewQuery, RevenueAnalyticsTopCustomersQuery, MarketingAnalyticsTableQuery, MarketingAnalyticsAggregatedQuery, WebOverviewQuery, WebStatsTableQuery, WebExternalClicksTableQuery, WebGoalsQuery, WebVitalsQuery, WebVitalsPathBreakdownQuery, WebPageURLSearchQuery, WebTrendsQuery, WebAnalyticsExternalSummaryQuery, SessionAttributionExplorerQuery, RevenueExampleEventsQuery, RevenueExampleDataWarehouseTablesQuery, ErrorTrackingQuery, ErrorTrackingIssueCorrelationQuery, LogsQuery, ExperimentFunnelsQuery, ExperimentTrendsQuery, CalendarHeatmapQuery, RecordingsQuery, TracesQuery, TraceQuery, VectorSearchQuery, UsageMetricsQuery] | None = Field(default=None, description="Query in whose context to validate.")
+    sourceQuery: (
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            EventsQuery,
+            ActorsQuery,
+            GroupsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsOverviewQuery,
+            RevenueAnalyticsTopCustomersQuery,
+            MarketingAnalyticsTableQuery,
+            MarketingAnalyticsAggregatedQuery,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebExternalClicksTableQuery,
+            WebGoalsQuery,
+            WebVitalsQuery,
+            WebVitalsPathBreakdownQuery,
+            WebPageURLSearchQuery,
+            WebTrendsQuery,
+            WebAnalyticsExternalSummaryQuery,
+            SessionAttributionExplorerQuery,
+            RevenueExampleEventsQuery,
+            RevenueExampleDataWarehouseTablesQuery,
+            ErrorTrackingQuery,
+            ErrorTrackingIssueCorrelationQuery,
+            LogsQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
+            CalendarHeatmapQuery,
+            RecordingsQuery,
+            TracesQuery,
+            TraceQuery,
+            VectorSearchQuery,
+            UsageMetricsQuery,
+        ]
+        | None
+    ) = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -13215,19 +14452,62 @@ class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    debug: bool | None = Field(
-        default=None, description="Enable more verbose output, usually run from the /debug page"
-    )
+    debug: bool | None = Field(default=None, description="Enable more verbose output, usually run from the /debug page")
     filters: HogQLFilters | None = Field(default=None, description="Extra filters applied to query via {filters}")
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     language: HogLanguage = Field(..., description="Language to validate")
-    modifiers: HogQLQueryModifiers | None = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
     response: HogQLMetadataResponse | None = None
-    sourceQuery: Union[EventsNode, ActionsNode, PersonsNode, EventsQuery, ActorsQuery, GroupsQuery, InsightActorsQuery, InsightActorsQueryOptions, SessionsTimelineQuery, HogQuery, HogQLQuery, HogQLMetadata, HogQLAutocomplete, RevenueAnalyticsGrossRevenueQuery, RevenueAnalyticsMetricsQuery, RevenueAnalyticsMRRQuery, RevenueAnalyticsOverviewQuery, RevenueAnalyticsTopCustomersQuery, MarketingAnalyticsTableQuery, MarketingAnalyticsAggregatedQuery, WebOverviewQuery, WebStatsTableQuery, WebExternalClicksTableQuery, WebGoalsQuery, WebVitalsQuery, WebVitalsPathBreakdownQuery, WebPageURLSearchQuery, WebTrendsQuery, WebAnalyticsExternalSummaryQuery, SessionAttributionExplorerQuery, RevenueExampleEventsQuery, RevenueExampleDataWarehouseTablesQuery, ErrorTrackingQuery, ErrorTrackingIssueCorrelationQuery, LogsQuery, ExperimentFunnelsQuery, ExperimentTrendsQuery, CalendarHeatmapQuery, RecordingsQuery, TracesQuery, TraceQuery, VectorSearchQuery, UsageMetricsQuery] | None = Field(
+    sourceQuery: (
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            EventsQuery,
+            ActorsQuery,
+            GroupsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsOverviewQuery,
+            RevenueAnalyticsTopCustomersQuery,
+            MarketingAnalyticsTableQuery,
+            MarketingAnalyticsAggregatedQuery,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebExternalClicksTableQuery,
+            WebGoalsQuery,
+            WebVitalsQuery,
+            WebVitalsPathBreakdownQuery,
+            WebPageURLSearchQuery,
+            WebTrendsQuery,
+            WebAnalyticsExternalSummaryQuery,
+            SessionAttributionExplorerQuery,
+            RevenueExampleEventsQuery,
+            RevenueExampleDataWarehouseTablesQuery,
+            ErrorTrackingQuery,
+            ErrorTrackingIssueCorrelationQuery,
+            LogsQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
+            CalendarHeatmapQuery,
+            RecordingsQuery,
+            TracesQuery,
+            TraceQuery,
+            VectorSearchQuery,
+            UsageMetricsQuery,
+        ]
+        | None
+    ) = Field(
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
     )
@@ -13773,7 +15053,19 @@ class Option(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fields: list[Union[SourceFieldInputConfig, SourceFieldSwitchGroupConfig, SourceFieldSelectConfig, SourceFieldOauthConfig, SourceFieldFileUploadConfig, SourceFieldSSHTunnelConfig]] | None = None
+    fields: (
+        list[
+            Union[
+                SourceFieldInputConfig,
+                SourceFieldSwitchGroupConfig,
+                SourceFieldSelectConfig,
+                SourceFieldOauthConfig,
+                SourceFieldFileUploadConfig,
+                SourceFieldSSHTunnelConfig,
+            ]
+        ]
+        | None
+    ) = None
     label: str
     value: str
 

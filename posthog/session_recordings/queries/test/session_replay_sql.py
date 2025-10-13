@@ -61,9 +61,7 @@ SELECT
 """
 
 
-def _sensible_first_timestamp(
-    first_timestamp: str | datetime | None, last_timestamp: str | datetime | None
-) -> str:
+def _sensible_first_timestamp(first_timestamp: str | datetime | None, last_timestamp: str | datetime | None) -> str:
     """
     Normalise the first timestamp to be used in the session replay summary.
     If it is not provided but there is a last_timestamp, use an hour before that last_timestamp
@@ -86,9 +84,7 @@ def _sensible_first_timestamp(
     return format_clickhouse_timestamp(cast_timestamp_or_now(sensible_timestamp))
 
 
-def _sensible_last_timestamp(
-    first_timestamp: str | datetime | None, last_timestamp: str | datetime | None
-) -> str:
+def _sensible_last_timestamp(first_timestamp: str | datetime | None, last_timestamp: str | datetime | None) -> str:
     """
     Normalise the last timestamp to be used in the session replay summary.
     If it is not provided but there is a first_timestamp, use an hour after that last_timestamp

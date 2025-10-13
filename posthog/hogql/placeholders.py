@@ -1,4 +1,3 @@
-
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.utils import deserialize_hx_ast, is_simple_value

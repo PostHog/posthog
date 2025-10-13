@@ -28,7 +28,7 @@ def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutio
             break
 
         queryset.model.objects.filter(id__in=list(flat_queryset)).delete()
-        context.log.debug(f"{batch_length} {token_type} deleted, {current_no-batch_length} left")
+        context.log.debug(f"{batch_length} {token_type} deleted, {current_no - batch_length} left")
 
         queryset = queryset.model.objects.filter(query)
         time.sleep(CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL)

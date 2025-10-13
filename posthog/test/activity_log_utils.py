@@ -643,9 +643,7 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # User
-    def create_user_via_invite(
-        self, email: str | None = None, org_id: str | None = None, **kwargs
-    ) -> dict[str, Any]:
+    def create_user_via_invite(self, email: str | None = None, org_id: str | None = None, **kwargs) -> dict[str, Any]:
         """Create a user by sending an organization invite."""
         if not email:
             email = f"user-{uuid4()}@test.com"

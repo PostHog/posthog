@@ -309,9 +309,7 @@ def calculate_cohort_from_list(
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: int | None = None
-) -> None:
+def insert_cohort_from_insight_filter(cohort_id: int, filter_data: dict[str, Any], team_id: int | None = None) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.

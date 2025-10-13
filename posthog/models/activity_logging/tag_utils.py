@@ -1,4 +1,3 @@
-
 from posthog.models.tagged_item import RELATED_OBJECTS
 
 

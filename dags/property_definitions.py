@@ -121,7 +121,7 @@ def ingest_event_properties(
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
+        (arrayJoin({DetectPropertyTypeExpression("properties")}) as property).1 as name,
         property.2 as property_type,
         replaceAll(event, '\\0', '\ufffd') as event,  -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L172
         NULL as group_type_index,
@@ -176,7 +176,7 @@ def ingest_person_properties(
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
+        (arrayJoin({DetectPropertyTypeExpression("properties")}) as property).1 as name,
         property.2 as property_type,
         NULL as event,
         NULL as group_type_index,
@@ -226,7 +226,7 @@ def ingest_group_properties(
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin({DetectPropertyTypeExpression('group_properties')}) as property).1 as name,
+        (arrayJoin({DetectPropertyTypeExpression("group_properties")}) as property).1 as name,
         property.2 as property_type,
         NULL as event,
         group_type_index,

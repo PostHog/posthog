@@ -1,4 +1,3 @@
-
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyQueryResponse,

@@ -1,4 +1,3 @@
-
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser

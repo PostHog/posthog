@@ -69,9 +69,7 @@ class UpdateProxyRecordInputs:
     status: str
     message: str | None
 
-    def __init__(
-        self, organization_id: uuid.UUID, proxy_record_id: uuid.UUID, status: str, message: str | None = None
-    ):
+    def __init__(self, organization_id: uuid.UUID, proxy_record_id: uuid.UUID, status: str, message: str | None = None):
         self.organization_id = organization_id
         self.proxy_record_id = proxy_record_id
         self.status = status

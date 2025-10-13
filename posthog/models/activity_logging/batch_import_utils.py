@@ -1,4 +1,3 @@
-
 from posthog.models.user import User
 
 

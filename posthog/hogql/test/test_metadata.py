@@ -1,4 +1,3 @@
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.test import override_settings

@@ -839,9 +839,7 @@ def _get_all_feature_flags(
     property_value_overrides: dict[str, Union[str, int]] | None = None,
     group_property_value_overrides: dict[str, dict[str, Union[str, int]]] | None = None,
     skip_database_flags: bool = False,
-) -> tuple[
-    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None
-]:
+) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
     if property_value_overrides is None:
@@ -898,9 +896,7 @@ def get_all_feature_flags_with_details(
     group_property_value_overrides: dict[str, dict[str, Union[str, int]]] | None = None,
     flag_keys: list[str] | None = None,
     only_evaluate_survey_feature_flags: bool = False,  # If True, only evaluate flags starting with SURVEY_TARGETING_FLAG_PREFIX
-) -> tuple[
-    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None
-]:
+) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, dict[str, FeatureFlagDetails] | None]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
     if property_value_overrides is None:

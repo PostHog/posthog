@@ -1,4 +1,3 @@
-
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status

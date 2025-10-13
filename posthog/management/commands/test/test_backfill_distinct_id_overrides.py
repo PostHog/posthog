@@ -38,7 +38,7 @@ class ExecuteBackfillTestCase(ClickhouseTestMixin, BaseTest):
         read_columns = ["team_id", "distinct_id", "person_id", "version"]
         distinct_id_override_rows = sync_execute(
             f"""
-                SELECT {', '.join(read_columns)}
+                SELECT {", ".join(read_columns)}
                 FROM person_distinct_id_overrides
                 WHERE team_id = %(team_id)s
             """,

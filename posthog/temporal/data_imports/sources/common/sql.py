@@ -46,7 +46,7 @@ class TableBase:
         This consists of the parents and name concatenated, separated by a ".".
         """
         if self.parents:
-            return f'{".".join(self.parents)}.{self.name}'
+            return f"{'.'.join(self.parents)}.{self.name}"
         else:
             return self.name
 

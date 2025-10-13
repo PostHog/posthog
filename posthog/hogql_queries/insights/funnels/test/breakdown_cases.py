@@ -71,7 +71,7 @@ def funnel_breakdown_test_factory(
                     **(
                         {
                             "action_id": None,
-                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
+                            "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
                         }
                         if funnel_order_type == FunnelOrderType.UNORDERED
                         else {}
@@ -2796,7 +2796,7 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, Funn
                     **(
                         {
                             "action_id": None,
-                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
+                            "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
                         }
                         if funnel_order_type == FunnelOrderType.UNORDERED
                         else {}

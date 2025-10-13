@@ -1,4 +1,3 @@
-
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.models import Team

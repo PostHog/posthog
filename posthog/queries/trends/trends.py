@@ -99,7 +99,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         label_to_payload = {}
         if cached_result:
             for payload in cached_result:
-                label_to_payload[f'{payload["label"]}_{payload["action"]["order"]}'] = payload
+                label_to_payload[f"{payload['label']}_{payload['action']['order']}"] = payload
 
         return new_filter, label_to_payload
 
@@ -115,7 +115,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             new_res = []
 
             for payload in result:
-                cached_series = cached_result.pop(f'{payload["label"]}_{entity_order}')
+                cached_series = cached_result.pop(f"{payload['label']}_{entity_order}")
                 data = cached_series["data"]
                 data.pop()
                 data.append(payload["data"].pop())
