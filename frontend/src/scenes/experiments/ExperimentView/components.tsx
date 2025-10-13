@@ -423,7 +423,7 @@ export function PageHeaderCustom(): JSX.Element {
         (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
     const shouldShowStopButton =
-        !isExperimentDraft && isExperimentRunning && featureFlags[FEATURE_FLAGS.EXPERIMENTS_HIDE_STOP_BUTTON] === 'test'
+        !isExperimentDraft && isExperimentRunning && featureFlags[FEATURE_FLAGS.EXPERIMENTS_HIDE_STOP_BUTTON] !== 'test'
 
     return (
         <>
