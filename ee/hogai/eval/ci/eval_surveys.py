@@ -204,7 +204,7 @@ How would you rate the relevance of this survey to the user's instructions? Choo
                 "partial": 0.4,
                 "irrelevant": 0.0,
             },
-            model="gpt-4o",
+            model="gpt-4.1",
             **kwargs,
         )
 
@@ -285,7 +285,7 @@ How would you rate the overall quality of these survey questions for IN-APP use?
                 "partial": 0.4,
                 "irrelevant": 0.0,
             },
-            model="gpt-4o",
+            model="gpt-4.1",
             **kwargs,
         )
 
@@ -586,7 +586,7 @@ How would you rate the AI's understanding and implementation of feature flag tar
                 "partial": 0.4,
                 "irrelevant": 0.0,
             },
-            model="gpt-4o",
+            model="gpt-4.1",
             **kwargs,
         )
 

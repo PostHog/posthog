@@ -36,7 +36,7 @@ class ConversationCompactionManager(ABC):
     """
     APPROXIMATE_TOKEN_LENGTH = 4
     """
-    Determines the approximate number of tokens per character.
+    Determines the approximate number of characters per token.
     """
 
     def find_window_boundary(

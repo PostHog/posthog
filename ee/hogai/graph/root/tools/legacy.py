@@ -1,3 +1,4 @@
+# The module contains tools that are deprecated and will be replaced in the future with MaxTool implementations.
 from pydantic import BaseModel, Field
 
 from ee.hogai.utils.types.base import InsightQuery

@@ -474,6 +474,14 @@ async def eval_root(call_root, pytestconfig):
                     id="call_doc_search_35",
                 ),
             ),
+            EvalCase(
+                input="How do I delete events from PostHog?",
+                expected=AssistantToolCall(
+                    name="search_documentation",
+                    args={},
+                    id="call_doc_search_36",
+                ),
+            ),
             # Ensure calls insights, not documentation
             EvalCase(
                 input="Show me all events where the default $browser property equals Chrome",

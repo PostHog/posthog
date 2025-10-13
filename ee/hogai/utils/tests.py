@@ -40,8 +40,9 @@ class AnthropicTokenCounterMixin(TokenCounterMixin):
 
 
 class FakeChatAnthropic(AnthropicTokenCounterMixin, FakeMessagesListChatModel):
-    # Emulate the token counter since the actual token counter is a HTTP request.
-    model: str = "claude-sonnet-4-5"
+    model: str = (
+        "gpt-4o"  # Do not change `gpt-4o`. Emulate the token counter since the actual token counter is a HTTP request.
+    )
 
 
 class FakeOpenAIRunnableLambdaWithTokenCounter(TokenCounterMixin, RunnableLambda):
@@ -49,4 +50,6 @@ class FakeOpenAIRunnableLambdaWithTokenCounter(TokenCounterMixin, RunnableLambda
 
 
 class FakeAnthropicRunnableLambdaWithTokenCounter(AnthropicTokenCounterMixin, RunnableLambda):
-    model: str = "claude-sonnet-4-5"
+    model: str = (
+        "gpt-4o"  # Do not change `gpt-4o`. Emulate the token counter since the actual token counter is a HTTP request.
+    )
