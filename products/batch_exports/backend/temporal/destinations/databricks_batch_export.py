@@ -470,7 +470,12 @@ class DatabricksClient:
 
     async def adelete_table(self, table_name: str):
         """Asynchronously delete the Databricks delta table if it exists."""
-        await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
+        try:
+            await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to delete table: {err.message}")
+            raise
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
@@ -557,10 +562,15 @@ class DatabricksClient:
 
     async def adelete_volume(self, volume: str):
         """Asynchronously delete a Databricks volume."""
-        await self.execute_query(
-            f"DROP VOLUME IF EXISTS `{volume}`",
-            fetch_results=False,
-        )
+        try:
+            await self.execute_query(
+                f"DROP VOLUME IF EXISTS `{volume}`",
+                fetch_results=False,
+            )
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to delete volume: {err.message}")
+            raise
 
     async def aget_table_columns(self, table_name: str) -> list[str]:
         """Asynchronously get the columns of a Databricks table.
