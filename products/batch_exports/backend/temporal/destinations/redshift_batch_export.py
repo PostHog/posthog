@@ -237,18 +237,21 @@ class RedshiftClient(PostgreSQLClient):
                 merge_condition=merge_condition,
             )
         else:
-            merge_query = sql.SQL(
-                """\
-            MERGE INTO {final_table}
-            USING {stage_table} AS stage
-            ON {merge_condition}
-            REMOVE DUPLICATES
-            """
-            ).format(
-                final_table=final_table_identifier,
-                stage_table=stage_table_identifier,
-                merge_condition=merge_condition,
-            )
+            select_stage_table_fields = sql.SQL(",".join(field[0] for field in final_table_fields))
+
+        merge_query = sql.SQL(
+            """\
+        MERGE INTO {final_table}
+        USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
+        ON {merge_condition}
+        REMOVE DUPLICATES
+        """
+        ).format(
+            final_table=final_table_identifier,
+            select_stage_table_fields=select_stage_table_fields,
+            stage_table=stage_table_identifier,
+            merge_condition=merge_condition,
+        )
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
@@ -1284,7 +1287,6 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
             except psycopg.errors.UndefinedTable:
                 table_fields = list(table_schemas.table_schema)
-                stage_table_fields = list(table_schemas.stage_table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
             async with (
@@ -1298,7 +1300,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 redshift_client.managed_table(
                     inputs.table.schema_name,
                     stage_table_name,
-                    stage_table_fields,
+                    table_schemas.stage_table_schema,
                     create=merge_settings.requires_merge,
                     delete=merge_settings.requires_merge,
                     primary_key=primary_key,
