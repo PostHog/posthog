@@ -1,5 +1,6 @@
 """LLM Analytics capture tests - tests multipart blob upload and S3 storage."""
 
+import gzip
 import json
 import uuid
 import logging
@@ -144,6 +145,31 @@ class TestLLMAnalytics:
         response.raise_for_status()
         logger.info("Multipart request sent successfully")
 
+        # Verify response contains accepted parts
+        response_data = response.json()
+        assert "accepted_parts" in response_data
+        accepted_parts = response_data["accepted_parts"]
+        assert len(accepted_parts) == 3, f"Expected 3 parts, got {len(accepted_parts)}"
+
+        # Verify each part has correct details
+        event_json = json.dumps(event_data)
+        input_json = json.dumps(input_blob)
+        output_json = json.dumps(output_blob)
+
+        assert accepted_parts[0]["name"] == "event"
+        assert accepted_parts[0]["length"] == len(event_json)
+        assert accepted_parts[0]["content-type"] == "application/json"
+
+        assert accepted_parts[1]["name"] == "event.properties.$ai_input"
+        assert accepted_parts[1]["length"] == len(input_json)
+        assert accepted_parts[1]["content-type"] == "application/json"
+
+        assert accepted_parts[2]["name"] == "event.properties.$ai_output_choices"
+        assert accepted_parts[2]["length"] == len(output_json)
+        assert accepted_parts[2]["content-type"] == "application/json"
+
+        logger.info("Response validation successful: all parts accepted with correct lengths")
+
         # Step 5: Wait for event to appear in query API
         logger.info("Step 5: Waiting for event to be processed")
         event = client.wait_for_event(
@@ -271,6 +297,36 @@ class TestLLMAnalytics:
         response.raise_for_status()
         logger.info("Multipart request sent successfully")
 
+        # Verify response contains accepted parts
+        response_data = response.json()
+        assert "accepted_parts" in response_data
+        accepted_parts = response_data["accepted_parts"]
+        assert len(accepted_parts) == 4, f"Expected 4 parts, got {len(accepted_parts)}"
+
+        # Verify each part has correct details
+        event_json = json.dumps(event_data)
+        properties_json = json.dumps(properties_data)
+        input_json = json.dumps(input_blob)
+        output_json = json.dumps(output_blob)
+
+        assert accepted_parts[0]["name"] == "event"
+        assert accepted_parts[0]["length"] == len(event_json)
+        assert accepted_parts[0]["content-type"] == "application/json"
+
+        assert accepted_parts[1]["name"] == "event.properties"
+        assert accepted_parts[1]["length"] == len(properties_json)
+        assert accepted_parts[1]["content-type"] == "application/json"
+
+        assert accepted_parts[2]["name"] == "event.properties.$ai_input"
+        assert accepted_parts[2]["length"] == len(input_json)
+        assert accepted_parts[2]["content-type"] == "application/json"
+
+        assert accepted_parts[3]["name"] == "event.properties.$ai_output_choices"
+        assert accepted_parts[3]["length"] == len(output_json)
+        assert accepted_parts[3]["content-type"] == "application/json"
+
+        logger.info("Response validation successful: all parts accepted with correct lengths")
+
         logger.info("Step 5: Waiting for event to be processed")
         event = client.wait_for_event(
             project_id=project_id, event_name="$ai_generation", distinct_id=distinct_id, timeout=30
@@ -308,6 +364,151 @@ class TestLLMAnalytics:
 
         logger.info("All event properties verified successfully")
         logger.info("Separate properties part handled correctly")
+        logger.info("Test completed successfully")
+        logger.info("=" * 60)
+
+    def test_ai_generation_event_with_gzip_compression(self, shared_org_project):
+        """Test $ai_generation event with gzip compression for the entire request."""
+        logger.info("\n" + "=" * 60)
+        logger.info("STARTING TEST: $ai_generation Event with Gzip Compression")
+        logger.info("=" * 60)
+
+        client = shared_org_project["client"]
+        project_id = shared_org_project["project_id"]
+        project_api_key = shared_org_project["api_key"]
+
+        logger.info("Step 1: Using shared organization and project")
+
+        logger.info("Step 2: Preparing $ai_generation event")
+        distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": distinct_id,
+            "timestamp": "2024-01-15T10:30:00Z",
+            "properties": {
+                "$ai_model": "gpt-4-compressed",
+                "$ai_provider": "openai",
+                "$ai_completion_tokens": 75,
+                "$ai_prompt_tokens": 30,
+                "compression": "gzip",
+            },
+        }
+
+        input_blob = {
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Explain compression in simple terms."},
+            ],
+        }
+
+        output_blob = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Compression reduces data size by encoding information more efficiently.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        logger.info("Step 3: Creating multipart request")
+        boundary = f"----WebKitFormBoundary{uuid.uuid4().hex[:16]}"
+
+        fields = {
+            "event": ("event", json.dumps(event_data), "application/json"),
+            "event.properties.$ai_input": (
+                f"blob_{uuid.uuid4().hex[:8]}",
+                json.dumps(input_blob),
+                "application/json",
+            ),
+            "event.properties.$ai_output_choices": (
+                f"blob_{uuid.uuid4().hex[:8]}",
+                json.dumps(output_blob),
+                "application/json",
+            ),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields, boundary=boundary)
+
+        logger.info("Step 4: Compressing request body with gzip")
+        uncompressed_body = multipart_data.to_string()
+        compressed_body = gzip.compress(uncompressed_body)
+
+        logger.debug("Uncompressed size: %d bytes", len(uncompressed_body))
+        logger.debug("Compressed size: %d bytes", len(compressed_body))
+        logger.debug("Compression ratio: %.2f%%", (1 - len(compressed_body) / len(uncompressed_body)) * 100)
+
+        logger.info("Step 5: Sending compressed multipart request to /i/v0/ai endpoint")
+        capture_url = f"{client.base_url}/i/v0/ai"
+        headers = {
+            "Content-Type": multipart_data.content_type,
+            "Content-Encoding": "gzip",
+            "Authorization": f"Bearer {project_api_key}",
+        }
+
+        response = requests.post(capture_url, data=compressed_body, headers=headers)
+        response.raise_for_status()
+        logger.info("Compressed multipart request sent successfully")
+
+        # Verify response contains accepted parts
+        response_data = response.json()
+        assert "accepted_parts" in response_data
+        accepted_parts = response_data["accepted_parts"]
+        assert len(accepted_parts) == 3, f"Expected 3 parts, got {len(accepted_parts)}"
+
+        # Verify each part has correct details (lengths should match uncompressed data)
+        event_json = json.dumps(event_data)
+        input_json = json.dumps(input_blob)
+        output_json = json.dumps(output_blob)
+
+        assert accepted_parts[0]["name"] == "event"
+        assert accepted_parts[0]["length"] == len(event_json)
+        assert accepted_parts[0]["content-type"] == "application/json"
+
+        assert accepted_parts[1]["name"] == "event.properties.$ai_input"
+        assert accepted_parts[1]["length"] == len(input_json)
+        assert accepted_parts[1]["content-type"] == "application/json"
+
+        assert accepted_parts[2]["name"] == "event.properties.$ai_output_choices"
+        assert accepted_parts[2]["length"] == len(output_json)
+        assert accepted_parts[2]["content-type"] == "application/json"
+
+        logger.info("Response validation successful: decompressed parts have correct lengths")
+
+        logger.info("Step 6: Waiting for event to be processed")
+        event = client.wait_for_event(
+            project_id=project_id, event_name="$ai_generation", distinct_id=distinct_id, timeout=30
+        )
+
+        assert event is not None, "$ai_generation event not found after 30 seconds"
+        logger.info("Event found in query API")
+
+        logger.info("Step 7: Verifying event properties")
+        assert event.get("event") == "$ai_generation"
+        assert event.get("distinct_id") == distinct_id
+
+        event_properties = event.get("properties", {})
+
+        assert event_properties.get("$ai_model") == "gpt-4-compressed"
+        assert event_properties.get("$ai_provider") == "openai"
+        assert event_properties.get("compression") == "gzip"
+
+        assert "$ai_input" in event_properties
+        assert "$ai_output_choices" in event_properties
+
+        ai_input_url = event_properties["$ai_input"]
+        ai_output_url = event_properties["$ai_output_choices"]
+
+        assert ai_input_url.startswith("s3://")
+        assert ai_output_url.startswith("s3://")
+        assert "range=" in ai_input_url
+        assert "range=" in ai_output_url
+
+        logger.info("All event properties verified successfully")
+        logger.info("Gzip compression handled correctly")
         logger.info("Test completed successfully")
         logger.info("=" * 60)
 

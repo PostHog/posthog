@@ -20,6 +20,7 @@ use limiters::token_dropper::TokenDropper;
 use futures::StreamExt;
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -943,4 +944,57 @@ async fn test_combined_event_properties_exceeds_960kb_returns_400() {
 
     let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// ----------------------------------------------------------------------------
+// Compression Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_gzip_compressed_request() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "test-gzip"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Get the multipart body
+    let boundary = form.boundary().to_string();
+    let content_type = format!("multipart/form-data; boundary={}", boundary);
+
+    let mut stream = form.into_stream();
+    let mut body = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        body.extend_from_slice(&chunk.unwrap());
+    }
+
+    // Compress the body with gzip
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&body).unwrap();
+    let compressed_body = encoder.finish().unwrap();
+
+    // Send compressed request
+    let response = test_client
+        .post("/i/v0/ai")
+        .header("Content-Type", content_type)
+        .header("Content-Encoding", "gzip")
+        .header("Authorization", "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")
+        .body(compressed_body)
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify response (lengths should match uncompressed data)
+    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
+    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
+    assert_eq!(accepted_parts.len(), 2);
+    assert_eq!(accepted_parts[0]["name"], "event");
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[1]["name"], "event.properties");
+    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 25);
 }

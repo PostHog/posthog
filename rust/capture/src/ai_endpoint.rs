@@ -2,11 +2,13 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Json;
+use flate2::read::GzDecoder;
 use futures::stream;
 use multer::{Multipart, parse_boundary};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
+use std::io::Read;
 use tracing::{debug, warn};
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
@@ -40,6 +42,19 @@ pub async fn ai_handler(
         warn!("AI endpoint received empty body");
         return Err(CaptureError::EmptyPayload);
     }
+
+    // Check for Content-Encoding header and decompress if needed
+    let content_encoding = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let decompressed_body = if content_encoding.eq_ignore_ascii_case("gzip") {
+        debug!("Decompressing gzip-encoded request body");
+        decompress_gzip(&body)?
+    } else {
+        body
+    };
 
     // Check content type - must be multipart/form-data
     let content_type = headers
@@ -76,11 +91,11 @@ pub async fn ai_handler(
     validate_token(token)?;
 
     // Parse multipart data and collect part information
-    let accepted_parts = parse_multipart_data(&body, &boundary).await?;
+    let accepted_parts = parse_multipart_data(&decompressed_body, &boundary).await?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and parsed successfully");
-    debug!("Body size: {} bytes", body.len());
+    debug!("Body size: {} bytes", decompressed_body.len());
     debug!("Content-Type: {}", content_type);
     debug!("Boundary: {}", boundary);
     debug!("Token: {}...", &token[..std::cmp::min(8, token.len())]);
@@ -98,6 +113,20 @@ pub async fn options() -> Result<CaptureResponse, CaptureError> {
         status: CaptureResponseCode::Ok,
         quota_limited: None,
     })
+}
+
+/// Decompress gzip-encoded body using streaming decompression
+fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
+    let mut decoder = GzDecoder::new(&compressed[..]);
+    let mut decompressed = Vec::new();
+
+    decoder.read_to_end(&mut decompressed).map_err(|e| {
+        warn!("Failed to decompress gzip body: {}", e);
+        CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {}", e))
+    })?;
+
+    debug!("Decompressed {} bytes to {} bytes", compressed.len(), decompressed.len());
+    Ok(Bytes::from(decompressed))
 }
 
 /// Parse multipart data and validate structure
