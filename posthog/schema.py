@@ -1288,6 +1288,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    SHOPIFY = "Shopify"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2346,6 +2347,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class TimeWindowMode(StrEnum):
+    STRICT_CALENDAR_DATES = "strict_calendar_dates"
+    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
 
 
 class RetentionPeriod(StrEnum):
@@ -10914,6 +10920,9 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
+    timeWindowMode: Optional[TimeWindowMode] = Field(
+        default=None, description="The time window mode to use for retention calculations"
+    )
     totalIntervals: Optional[int] = 8
 
 
