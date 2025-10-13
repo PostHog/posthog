@@ -97,7 +97,7 @@ dependencies = [
     "pymssql==2.3.5",
     "pymysql==1.1.1",
     "pymongo==4.13.2",
-    "pyodbc==5.1.0",
+    "pyodbc==5.2.0",
     "python-dateutil>=2.8.2",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
