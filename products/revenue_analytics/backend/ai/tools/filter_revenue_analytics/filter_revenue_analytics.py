@@ -70,7 +70,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
             values = find_values_for_revenue_analytics_property(property_name, self._team)
 
-        return self._format_property_values(values, sample_count=len(values))
+        return self._format_property_values(property_name, values, sample_count=len(values))
 
 
 class RevenueAnalyticsFilterNode(
