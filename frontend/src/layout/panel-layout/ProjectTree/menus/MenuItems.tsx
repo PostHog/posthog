@@ -197,7 +197,12 @@ export function MenuItems({
                 <>
                     <MenuSub key="new">
                         <MenuSubTrigger asChild data-attr="tree-item-menu-open-new-menu-button">
-                            <ButtonPrimitive menuItem>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                }}
+                            >
                                 New...
                                 <IconChevronRight className="ml-auto size-3" />
                             </ButtonPrimitive>
