@@ -41,7 +41,7 @@ export const retentionOptionDescriptions = {
         "Users are only counted if their very first occurrence of this event ever matches your filters. If their first-ever event doesn't match, they're excluded entirely.",
 }
 
-export const RETENTION_TIME_WINDOW_MODE_OPTIONS: LemonSelectOptions<RetentionFilter['timeWindowMode']> = [
+export const RETENTION_TIME_WINDOW_MODE_OPTIONS: LemonSelectOptions<NonNullable<RetentionFilter['timeWindowMode']>> = [
     {
         value: 'strict_calendar_dates',
         label: 'Strict calendar intervals',
