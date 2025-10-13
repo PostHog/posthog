@@ -632,14 +632,42 @@ class _Printer(Visitor[str]):
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
-        if len(node.exprs) == 1:
-            return self.visit(node.exprs[0])
-        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
+        """
+        optimizations:
+        1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
+        2. and(expr0, 0, expr2, ...) <=> 0
+        """
+        exprs = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "0":  # optimization 2
+                return "0"
+            if printed != "1":  # optimization 1
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "1"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"and({', '.join(exprs)})"
 
     def visit_or(self, node: ast.Or):
-        if len(node.exprs) == 1:
-            return self.visit(node.exprs[0])
-        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+        """
+        optimizations:
+        1. or(expr0, 1, expr2, ...) <=> 1
+        2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
+        """
+        exprs = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "1":
+                return "1"
+            if printed != "0":
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "0"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
@@ -1261,7 +1289,13 @@ class _Printer(Visitor[str]):
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
-                    args = [self.visit(arg) for arg in node_args]
+                    args = []
+                    for arg in node_args:
+                        printed_arg = self.visit(arg)
+                        if node.name == "and" and printed_arg == "1":
+                            pass
+                        else:
+                            args.append(printed_arg)
 
                 # Some of these `isinstance` checks are here just to make our type system happy
                 # We have some guarantees in place to ensure that the arguments are string/constants anyway
