@@ -60,7 +60,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
         if last_human_message_index is not None:
             messages = messages[: last_human_message_index + 1]
-        return [system_prompt] + messages[-29:]
+        return [system_prompt, *messages[-29:]]
 
     def _get_model(self):  # type: ignore
         return MaxChatOpenAI(
