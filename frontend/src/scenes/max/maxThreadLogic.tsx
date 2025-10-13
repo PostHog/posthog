@@ -706,7 +706,7 @@ async function onEventImplementation(
                         toolResult.page_key,
                         breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
                     )
-                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool(s)
+                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool
                 }
             }
             actions.addMessage({
