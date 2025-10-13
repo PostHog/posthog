@@ -205,9 +205,9 @@ export function MetricRowGroup({
 
     // Handle loading, API errors, or missing result
     // Note: If result has validation_failures but no API error, we'll show the data with inline warnings
-    const hasValidationFailuresOnly = !error && result && hasValidationFailures(result)
+    const hasResultWithValidationFailures = result && hasValidationFailures(result)
 
-    if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasValidationFailuresOnly)) {
+    if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasResultWithValidationFailures)) {
         return (
             <tr
                 className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
