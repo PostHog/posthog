@@ -146,7 +146,7 @@ export const TOOL_DEFINITIONS: Omit<
         product: Scene.Messaging,
     },
     edit_current_dashboard: {
-        name: 'Add insight to dashboard',
+        name: 'Add insight to the dashboard',
         description: "Add insight to the dashboard you're viewing",
         product: Scene.Dashboard,
     },
