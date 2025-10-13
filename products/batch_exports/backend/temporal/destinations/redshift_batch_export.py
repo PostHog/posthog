@@ -991,7 +991,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     redshift_schema=inputs.table.schema_name,
                     table_columns=[field[0] for field in table_fields],
                     known_json_columns=table_schemas.super_columns,
-                    use_super=inputs.table.properties_data_type != "varchar",
+                    use_super=False,
                     redshift_client=redshift_client,
                 )
                 result = await run_consumer_from_stage(
