@@ -213,6 +213,7 @@ class AddIndexAnalyzer(OperationAnalyzer):
     default_score = 0
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         if hasattr(op, "index"):
             concurrent = getattr(op.index, "concurrent", False)
             if not concurrent:
@@ -220,14 +221,14 @@ class AddIndexAnalyzer(OperationAnalyzer):
                     type=self.operation_type,
                     score=4,
                     reason="Non-concurrent index creation locks table",
-                    details={},
+                    details={"model": model_name},
                     guidance="Use migrations.AddIndex with index=models.Index(..., name='...', fields=[...]) and set concurrent=True in the index. In PostgreSQL this requires a separate migration with atomic=False.",
                 )
         return OperationRisk(
             type=self.operation_type,
             score=0,
             reason="Concurrent index is safe",
-            details={},
+            details={"model": model_name},
         )
 
 
@@ -236,11 +237,12 @@ class AddConstraintAnalyzer(OperationAnalyzer):
     default_score = 3
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         return OperationRisk(
             type=self.operation_type,
             score=3,
             reason="Adding constraint may lock table (use NOT VALID pattern)",
-            details={},
+            details={"model": model_name},
             guidance="""Add constraints without locking in 2 steps:
 1. Add constraint with `NOT VALID` using RunSQL: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) NOT VALID`
 2. In a separate migration, validate: `ALTER TABLE ... VALIDATE CONSTRAINT ...`
