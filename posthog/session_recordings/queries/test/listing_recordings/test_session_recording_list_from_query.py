@@ -1891,16 +1891,16 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "that searching from 20 days ago excludes sessions past TTL",
-                20,
+                "that searching from 28 days ago excludes sessions past TTL",
+                28,
             ),
             (
-                "that searching from 21 days ago still excludes sessions past TTL",
-                21,
+                "that searching from 29 days ago still excludes sessions past TTL",
+                29,
             ),
             (
-                "that even searching from 22 days ago (exactly at TTL boundary) excludes sessions past TTL",
-                22,
+                "that even searching from 30 days ago (exactly at TTL boundary) excludes sessions past TTL",
+                30,
             ),
         ]
     )
@@ -1910,21 +1910,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-            # Create a session past TTL (22 days old)
+            # Create a session past TTL (32 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
-                first_timestamp=(self.an_hour_ago - relativedelta(days=22)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=32)),
                 # an illegally long session but it started 22 days ago
                 last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
             )
 
-            # Create a session within TTL (19 days old)
+            # Create a session within TTL (29 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
-                first_timestamp=(self.an_hour_ago - relativedelta(days=19)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=29)),
                 last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
                 team_id=self.team.id,
             )
