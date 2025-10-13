@@ -1,7 +1,7 @@
 import re
 from datetime import timedelta
 from decimal import Decimal
-from functools import cached_property, lru_cache
+from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -24,6 +24,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
