@@ -148,7 +148,7 @@ export function FeatureFlagVariantsForm({
             </div>
             {variants.map((variant: MultivariateFlagVariant, index: number) => (
                 <div key={index} className="VariantFormList__row grid gap-2">
-                    <div className="flex items-center justify-center">
+                    <div className="flex mt-2 justify-center">
                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                     </div>
                     <div className="col-span-4">
@@ -224,7 +224,7 @@ export function FeatureFlagVariantsForm({
                             )}
                         </div>
                     </div>
-                    <div className="flex items-center justify-center">
+                    <div className="flex justify-center items-start mt-1.5">
                         {variants.length > 1 && onRemoveVariant && (
                             <LemonButton
                                 icon={<IconTrash />}
