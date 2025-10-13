@@ -308,6 +308,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Experiment = 'experiment',
+    WebAnalytics = 'web_analytics',
 }
 
 interface UserBaseType {
@@ -4543,6 +4544,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'web_analytics'
     | 'webhook'
     | 'warehouse_view'
     | 'warehouse_table'
@@ -4814,11 +4816,14 @@ export type SchemaIncrementalFieldsResponse = {
     full_refresh_available: boolean
 }
 
+// numeric is snowflake specific and objectid is mongodb specific
+export type IncrementalFieldType = 'integer' | 'numeric' | 'datetime' | 'date' | 'timestamp' | 'objectid'
+
 export interface IncrementalField {
-    label: string
-    type: string
-    field: string
-    field_type: string
+    label: string // the field name shown in the UI
+    type: IncrementalFieldType // the field type shown in the UI
+    field: string // the actual database field name
+    field_type: IncrementalFieldType // the actual database field type
 }
 
 export interface ExternalDataSourceSyncSchema {

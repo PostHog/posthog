@@ -40,7 +40,7 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
+        actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
         values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
     })),
 
@@ -134,6 +134,11 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
+
+                    if (values.richContentEditor?.isEmpty()) {
+                        console.error('Failed to create a comment because the content was empty')
+                        return existingComments
+                    }
 
                     let itemContext: Record<string, any> | undefined = {
                         ...values.itemContext?.context,
@@ -254,8 +259,12 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
         sendComposedContentSuccess: () => {
+            actions.scrollToLastComment()
             actions.incrementCommentCount()
             values.richContentEditor?.clear()
+        },
+        loadCommentsSuccess: () => {
+            actions.scrollToLastComment()
         },
     })),
 
