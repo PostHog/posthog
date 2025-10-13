@@ -2,14 +2,17 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import Tag, Team
+from posthog.models import OrganizationMembership, Tag, Team
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 
 
 class TestTeamDefaultEvaluationTags(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/default_evaluation_tags/"
+        # Make user an admin for DELETE operations
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.url = f"/api/environments/{self.team.id}/default_evaluation_tags/"
 
     def test_get_empty_default_evaluation_tags(self):
         """Test getting default evaluation tags when none exist"""
@@ -60,7 +63,7 @@ class TestTeamDefaultEvaluationTags(APIBaseTest):
         TeamDefaultEvaluationTag.objects.create(team=self.team, tag=tag)
 
         # Remove it
-        response = self.client.delete(self.url, {"tag_name": "to-remove"}, format="json")
+        response = self.client.delete(self.url + "?tag_name=to-remove")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["success"])
 
@@ -69,7 +72,7 @@ class TestTeamDefaultEvaluationTags(APIBaseTest):
 
     def test_remove_nonexistent_tag(self):
         """Test removing a tag that doesn't exist"""
-        response = self.client.delete(self.url, {"tag_name": "nonexistent"}, format="json")
+        response = self.client.delete(self.url + "?tag_name=nonexistent")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["error"], "Tag not found")
 
@@ -114,7 +117,7 @@ class TestTeamDefaultEvaluationTags(APIBaseTest):
 
         # Create another team and try to access/modify tags
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        other_url = f"/api/projects/{other_team.id}/default_evaluation_tags/"
+        other_url = f"/api/environments/{other_team.id}/default_evaluation_tags/"
 
         # Verify other team has no tags
         response2 = self.client.get(other_url)

@@ -973,7 +973,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         elif request.method == "DELETE":
             # Remove a default evaluation tag
-            tag_name = request.data.get("tag_name", "").strip().lower()
+            # Handle both request.data and query params for DELETE (test client compatibility)
+            tag_name = request.data.get("tag_name", "") or request.GET.get("tag_name", "")
+            tag_name = tag_name.strip().lower()
             if not tag_name:
                 return response.Response({"error": "tag_name is required"}, status=400)
 
