@@ -1,3 +1,5 @@
+import { humanFriendlyNumber } from 'lib/utils'
+
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
 // Long name for each currency
@@ -340,6 +342,21 @@ export const getCurrencySymbol = (currency: string): { symbol: string; isPrefix:
     const isPrefix = symbol ? parts[0].type === 'currency' : true
 
     return { symbol: symbol ?? currency, isPrefix }
+}
+
+/** Format a number as a currency string, including the currency symbol.
+ *
+ * @param amount - The amount to format.
+ * @param currency - The currency to format the amount in.
+ * @returns The formatted currency string.
+ *
+ * Example:
+ * formatCurrency(1234.56, 'USD') // '$1,234.56'
+ * formatCurrency(1234.56, 'EUR') // '€1,234.56'
+ */
+export const formatCurrency = (amount: number, currency: CurrencyCode): string => {
+    const { symbol, isPrefix } = getCurrencySymbol(currency)
+    return `${isPrefix ? symbol : ''}${humanFriendlyNumber(amount, 2, 2)}${isPrefix ? '' : ' ' + symbol}`
 }
 
 export const DEFAULT_CURRENCY = CurrencyCode.USD
