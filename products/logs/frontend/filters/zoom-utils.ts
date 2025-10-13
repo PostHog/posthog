@@ -37,10 +37,11 @@ export const zoomDateRange = (
         : dayjs().subtract(1, 'hour')
     const end = dateRange.date_to ? (dateStringToDayJs(dateRange.date_to) ?? dayjs()) : dayjs()
 
-    const diff = end.diff(start, 'minutes')
+    const diffMins = end.diff(start, 'minutes')
+    const centerDate = start.add(diffMins * 0.5, 'minutes')
 
-    const newStart = start.add(diff * multiplier * 0.5, 'minutes')
-    const newEnd = end.add(diff * multiplier * 0.5, 'minutes')
+    const newStart = centerDate.subtract(diffMins * 0.5 * multiplier, 'minutes')
+    const newEnd = centerDate.add(diffMins * 0.5 * multiplier, 'minutes')
 
     return {
         date_from: newStart.format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
