@@ -80,6 +80,24 @@ git reset --soft $MASTER_HASH
 # - All other files at master state
 # - Commit history is clean master history
 
+# CRITICAL: Configure migration_config.json BEFORE running script
+# Set ONLY your target product to "todo", all others to "skip"
+cat > model_migration/migration_config.json <<EOF
+{
+    "migrations": [
+        {
+            "name": "error_tracking",
+            "status": "todo",
+            "models": ["ErrorTrackingIssue", "ErrorTrackingGroup", ...]
+        },
+        {
+            "name": "experiments",
+            "status": "skip"
+        }
+    ]
+}
+EOF
+
 # Run the migration script (will pause for review)
 python model_migration/migrate_models.py --single
 
@@ -88,6 +106,12 @@ python model_migration/migrate_models.py --single
 # 1. Check git status and git diff
 # 2. Verify import transformations are correct
 # 3. Fix any issues (see "Common Obstacles" section below)
+# 4. DO NOT commit yet - manual fixes needed first
+
+# Fix known issues (see "Common Script Pitfalls" section):
+# - App config naming (Error_TrackingConfig → ErrorTrackingConfig)
+# - ForeignKey cross-app references ("posthog.Role" → "ee.Role")
+# - Any stale imports script missed
 
 # When script pauses, test the migration plan
 python manage.py migrate --plan
@@ -487,6 +511,232 @@ The key insight: Step 3 merge **corrects** the potentially messy step 1 merge by
 - **While scripts are changing**: Use hybrid workflow (documented above)
 - **Once scripts are stable**: Consider switching to simple merge workflow
 - **For very large migrations**: Consider breaking into smaller PRs per product
+
+## Key Learnings and Pitfalls
+
+### Validation is Critical
+
+Always validate migrations by running them from scratch before final merge:
+
+1. **Start Fresh from Latest Master**
+    - Pick latest master commit hash
+    - Create fresh branch from baseline with soft reset technique
+    - Run entire migration workflow from scratch
+    - This catches script bugs, missing manual fixes, stale logic
+
+2. **Compare Fresh vs PR Branch**
+    - Use git diff to compare branches
+    - Isolate master merge issues from migration issues
+    - Confirms original work was done correctly
+
+3. **Test Migrations Actually Work**
+    - Run `python manage.py migrate --plan`
+    - Apply migrations to database
+    - Verify ContentType updates with SQL queries
+    - Create test migration in new app location to prove it works
+    - **CRITICAL**: Revert any test migrations before committing (fields, migration files)
+    - Only commit actual migration work, never testing artifacts
+
+### Replacement Merge Strategy
+
+When you need to completely replace PR branch with fresh validated output:
+
+```bash
+# Checkout PR branch
+git checkout chore/models-migrations-<product>
+
+# Start merge but use "ours" strategy (keeps PR branch history)
+git merge -s ours --no-commit chore/models-migrations-<product>-fresh
+
+# Replace entire tree with fresh branch content
+git read-tree -u --reset chore/models-migrations-<product>-fresh
+
+# CRITICAL: Remove model_migration/ folder before committing
+git rm -rf model_migration/ 2>/dev/null || true
+
+# Commit the merge
+git commit -m "merge: adopt fresh migration validation branch"
+```
+
+**Why this works**:
+
+- Creates merge commit (preserves git history)
+- Tree is identical to fresh branch (complete replacement)
+- Safer than force push - can be reverted
+- Preserves PR and review comments
+
+**When to use**:
+
+- Fresh validation reveals issues in original PR
+- Want to be 100% certain output is correct
+- Need to replace everything to be safe
+- Don't want to manually cherry-pick fixes
+
+### Common Script Pitfalls
+
+1. **LibCST Timeout During Cleanup**
+    - Script may timeout after 2 minutes during validation/cleanup step
+    - All migration work is usually complete before timeout
+    - Can safely continue if files were moved and migrations generated
+    - Check what got committed before timeout interrupted
+
+2. **App Config Naming Bug**
+    - Script uses `.title()` which creates `Error_TrackingConfig`
+    - Always manually fix to proper PascalCase: `ErrorTrackingConfig`
+    - Known issue, must be fixed every time
+
+3. **ForeignKey Cross-App References**
+    - Script doesn't detect which app a model belongs to
+    - `ForeignKey("User")` should be `"posthog.User"`
+    - `ForeignKey("Role")` should be `"ee.Role"` (not posthog)
+    - Check all ForeignKey definitions after script runs
+
+4. **Stale Imports**
+    - API imports may not be updated (`posthog.api.X` → `products.X.backend.api.X`)
+    - Remote config imports need manual fixing
+    - Query runner imports need manual fixing
+    - grep for old import paths after migration
+
+5. **Test Snapshots**
+    - API test snapshots contain import paths
+    - Update snapshot files to reference new paths
+    - Check `__snapshots__/*.ambr` files
+
+6. **posthog/models/**init**.py Cleanup**
+    - Must manually remove exported model names
+    - Script doesn't clean this up automatically
+
+7. **tach.toml Updates**
+    - Add new product to posthog dependencies
+    - Create new module definition for product
+    - Script doesn't handle this
+
+8. **CASCADE Fix for Tests**
+    - When models reference each other across apps, tests need CASCADE
+    - Add to `NonAtomicBaseTest._fixture_teardown()` in `posthog/test/base.py`
+    - Use `allow_cascade=True` in flush command
+    - Required for PostgreSQL FK constraints
+
+### Testing Strategy
+
+After migration, verify everything works:
+
+```bash
+# Run migration plan (doesn't execute)
+python manage.py migrate --plan
+
+# Check migrations applied
+python manage.py showmigrations | rg error_tracking
+
+# Verify ContentType updates in database
+psql -d posthog -c "SELECT app_label, model FROM django_content_type WHERE model LIKE 'errortracking%' ORDER BY model;"
+
+# OPTIONAL: Create test migration to prove new app location works
+# This is for validation only - DO NOT COMMIT these changes
+
+# 1. Add test field to model
+echo "test_migration_field = models.CharField(max_length=100, null=True)" >> products/<product>/backend/models.py
+
+# 2. Create and run migration
+python manage.py makemigrations <product>
+python manage.py migrate <product>
+
+# 3. Verify field exists
+psql -d posthog -c "\d posthog_<modelname>;" | rg test_migration
+
+# 4. CRITICAL: Revert all test changes before committing
+git checkout products/<product>/backend/models.py
+git clean -fd products/<product>/backend/migrations/
+# Restore max_migration.txt if you modified it
+git checkout products/<product>/backend/migrations/max_migration.txt
+
+# Run product tests
+pytest products/<product>/backend/
+
+# Check for stale imports
+rg "from posthog.models.<product>" --type py
+rg "from posthog.api.<product>" --type py
+```
+
+**IMPORTANT**: Test migrations are for validation only. Never commit:
+
+- Test fields added to models
+- Test migration files (000X*test*\*.py)
+- Modified max_migration.txt from testing
+
+Always revert these before committing.
+
+### Manual File Organization
+
+After script runs, manually organize product-specific files:
+
+1. **API files**: `posthog/api/X.py` → `products/X/backend/api/X.py`
+2. **HogQL query runners**: `posthog/hogql_queries/X_*.py` → `products/X/backend/hogql_queries/`
+3. **Test files**: Move with their corresponding modules
+4. **Update all imports** in moved files and files that import them
+
+Leave these in shared locations:
+
+- HogQL schema definitions (`posthog/hogql/database/schema/`)
+- Email templates (`posthog/templates/email/`)
+
+### Common Mistakes to Avoid
+
+Based on real issues encountered:
+
+1. **Running Wrong Product Migration**
+    - ❌ Don't assume config is correct - always verify migration_config.json
+    - ✅ Explicitly set target product to "todo", all others to "skip"
+    - ✅ Check config before running script
+
+2. **Committing Test Artifacts**
+    - ❌ Don't commit test migration files (000X*test*\*.py)
+    - ❌ Don't commit test fields added to models
+    - ✅ Always revert test changes before committing
+    - ✅ Use `git status` to verify no test artifacts staged
+
+3. **Including model_migration/ in Commits**
+    - ❌ Don't commit model_migration/ folder to product branches
+    - ✅ Use `git add -A ':(exclude)model_migration/'` when committing
+    - ✅ Verify with `git status` after adding files
+    - ✅ Remove with `git rm -rf model_migration/` if accidentally staged
+
+4. **Blindly Accepting Merge Conflicts**
+    - ❌ Don't use `-X theirs` blindly - script may have bugs
+    - ❌ Don't assume fresh branch is always correct
+    - ✅ Review each conflict carefully
+    - ✅ Check for accidentally deleted code
+    - ✅ Validate merge result with `git diff --stat`
+
+5. **Forgetting Manual Fixes**
+    - ❌ Don't assume script output is complete
+    - ✅ Always check for known issues after script runs
+    - ✅ Follow debugging checklist below
+    - ✅ Test imports and migrations before committing
+
+6. **Pushing Too Early**
+    - ❌ Don't push until validation is complete
+    - ✅ Validate locally first (migrations, tests, imports)
+    - ✅ Use `--force-with-lease` when force pushing
+    - ✅ Coordinate with team if branch is shared
+
+### Debugging Checklist
+
+When something doesn't work:
+
+- [ ] App config class name is PascalCase without underscores
+- [ ] All ForeignKey references have proper app labels
+- [ ] posthog/models/**init**.py doesn't export moved models
+- [ ] All imports updated from posthog.models.X to products.X.backend.models
+- [ ] All imports updated from posthog.api.X to products.X.backend.api.X
+- [ ] API files moved to products/X/backend/api/
+- [ ] HogQL query runners moved to products/X/backend/hogql_queries/
+- [ ] Test snapshot paths updated
+- [ ] tach.toml includes new product module
+- [ ] CASCADE fix added to test base class if needed
+- [ ] No stale import references left in codebase
+- [ ] Migrations have correct dependencies
+- [ ] ContentType updates in both migrations (remove from posthog, add to new app)
 
 ## Cleanup
 
