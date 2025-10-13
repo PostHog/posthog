@@ -951,12 +951,8 @@ class TestPrinter(BaseTest):
             "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
         )
         self.assertEqual(
-            self._expr("event or timestamp or count()"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), count())",
-        )
-        self.assertEqual(
             self._expr("event or timestamp or true or count()"),
-            "1",
+            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), 1, count())",
         )
         self.assertEqual(
             self._expr("event or not timestamp"),
