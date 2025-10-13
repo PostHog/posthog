@@ -47,7 +47,6 @@ jobs:
               with:
                   enable-cache: true
                   version: 0.8.19
-                  pyproject-file: 'pyproject.toml'
 
             - name: Install python dependencies
               shell: bash
