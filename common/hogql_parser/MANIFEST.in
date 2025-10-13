@@ -1,0 +1,2 @@
+include README.md
+recursive-include hogql_parser-stubs *.pyi
