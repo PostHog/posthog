@@ -24,6 +24,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -1527,14 +1528,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 return [
                     {
                         key: Scene.Experiments,
-                        name: 'Experiments',
+                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
                         path: urls.experiments(),
-                        iconType: 'experiment',
+                        iconType: sceneConfigurations[Scene.Experiments].iconType || 'default_icon_type',
                     },
                     {
                         key: [Scene.Experiment, experimentId],
-                        name: experiment?.name || '',
-                        iconType: 'experiment',
+                        name: experiment?.name || 'New Experiment',
+                        iconType: sceneConfigurations[Scene.Experiment].iconType || 'default_icon_type',
                     },
                 ]
             },

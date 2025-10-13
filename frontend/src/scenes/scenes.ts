@@ -88,6 +88,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Ingest, transform, and send data between hundreds of tools.',
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp',
+        iconType: 'data_pipeline',
     },
     [Scene.DataPipelinesNew]: {
         projectBased: true,
@@ -149,6 +150,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiment',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
+        iconType: 'experiment',
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
@@ -167,6 +169,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiments',
         defaultDocsPath: '/docs/experiments',
         activityScope: ActivityScope.EXPERIMENT,
+        description:
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
+        iconType: 'experiment',
     },
     [Scene.ExploreEvents]: { projectBased: true, name: 'Explore', defaultDocsPath: '/docs/data/events' },
     [Scene.FeatureFlag]: {
