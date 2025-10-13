@@ -158,15 +158,27 @@ async fn main() -> Result<()> {
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
     // Initialize tracing with structured output similar to feature-flags
-    let log_layer = fmt::layer()
-        .with_span_events(
-            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-        )
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_level(true)
-        .with_ansi(false)
-        .with_filter(EnvFilter::from_default_env());
+    let log_layer = {
+        let base = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if config.otel_log_level == tracing::Level::DEBUG {
+            // local dev: pretty-print output to console
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(EnvFilter::from_default_env())
+            .boxed()
+        } else {
+            // production: use JSON format Loki/Grafana can extract useful filter tags from
+            base.json()
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
+        }
+    };
 
     // OpenTelemetry layer if configured
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
