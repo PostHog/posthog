@@ -670,7 +670,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 currentPlatformAddon.plans?.[0]?.plan_key
             actions.switchFlatrateSubscriptionPlan({
                 from_product_key: String(currentPlatformAddon.type),
-                from_plan_key: String(currentPlanKey || ''),
+                from_plan_key: String(currentPlanKey),
                 to_product_key: props.product.type,
                 to_plan_key: String(upgradePlan.plan_key),
             })
@@ -686,7 +686,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 currentPlatformAddon.plans?.[0]?.plan_key
             actions.switchFlatrateSubscriptionPlan({
                 from_product_key: String(currentPlatformAddon.type),
-                from_plan_key: String(currentPlanKey || ''),
+                from_plan_key: String(currentPlanKey),
                 to_product_key: props.product.type,
                 to_plan_key: String(targetPlan.plan_key),
             })
