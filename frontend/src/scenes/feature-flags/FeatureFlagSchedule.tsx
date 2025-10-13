@@ -92,6 +92,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
 
+    const { variants: displayVariants, payloads: displayPayloads } = getScheduledVariantsPayloads(
+        featureFlag,
+        schedulePayload
+    )
+
+    const variantErrors = displayVariants.map(({ key: variantKey }) => ({
+        key: validateFeatureFlagKey(variantKey),
+    }))
+
     const columns: LemonTableColumns<ScheduledChangeType> = [
         {
             title: 'Change',
@@ -266,9 +275,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
                             featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] &&
                             (() => {
-                                const { variants: displayVariants, payloads: displayPayloads } =
-                                    getScheduledVariantsPayloads(featureFlag, schedulePayload)
-
                                 return (
                                     <div className="border rounded p-4">
                                         <FeatureFlagVariantsForm
@@ -326,9 +332,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                                 }
                                                 setSchedulePayload(null, null, null, currentVariants, newPayloads)
                                             }}
-                                            variantErrors={displayVariants.map(({ key: variantKey }) => ({
-                                                key: validateFeatureFlagKey(variantKey),
-                                            }))}
+                                            variantErrors={variantErrors}
                                         />
                                     </div>
                                 )
@@ -342,7 +346,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
                                           ? 'Fix release condition errors'
-                                          : undefined
+                                          : variantErrors.some((error) => error.key != null)
+                                            ? 'Fix schedule variant changes errors'
+                                            : undefined
                                 }
                             >
                                 Schedule
