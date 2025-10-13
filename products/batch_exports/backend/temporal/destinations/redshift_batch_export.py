@@ -780,7 +780,6 @@ def _get_table_schemas(
     model: BatchExportModel | BatchExportSchema | None,
     record_batch_schema: pa.Schema,
     properties_data_type: str,
-    copy: bool = False,
 ) -> TableSchemas:
     """Return the schemas used for main and stage tables."""
     known_super_columns = {"properties", "set", "set_once", "person_properties"}
@@ -810,7 +809,8 @@ def _get_table_schemas(
             record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
         )
 
-    if copy is True:
+    if properties_type == "SUPER":
+        # Update stage schema to first load as VARBYTE, and later JSON_PARSE to SUPER
         stage_table_schema: Fields = [
             (field[0], field[1] if field[0] not in known_super_columns else "VARBYTE(16777216)")
             for field in table_schema
@@ -837,7 +837,7 @@ MergeSettings = RequiredMergeSettings | NotRequiredMergeSettings
 
 def _get_merge_settings(
     model: BatchExportModel | BatchExportSchema | None,
-    copy: bool = False,
+    use_super: bool = False,
 ) -> MergeSettings:
     """Return merge settings for models that require merging."""
     merge_key: Fields
@@ -872,7 +872,7 @@ def _get_merge_settings(
         return RequiredMergeSettings(
             requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
         )
-    elif isinstance(model, BatchExportModel) and model.name == "events" and copy is True:
+    elif isinstance(model, BatchExportModel) and model.name == "events" and use_super is True:
         merge_key = [("uuid", "TEXT")]
         update_key = [("timestamp", "TIMESTAMP")]
         primary_key = [("uuid", "TEXT")]
@@ -1184,11 +1184,10 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             model=model,
             record_batch_schema=record_batch_schema,
             properties_data_type=inputs.table.properties_data_type,
-            copy=True,
         )
 
-        merge_settings = _get_merge_settings(model=model, copy=True)
-        assert isinstance(merge_settings, RequiredMergeSettings)
+        use_super = inputs.table.properties_data_type != "varchar"
+        merge_settings = _get_merge_settings(model=model, use_super=use_super)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -1266,15 +1265,16 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     authorization=inputs.copy.authorization,
                 )
 
-                await redshift_client.amerge_tables(
-                    final_table_name=redshift_table,
-                    final_table_fields=table_fields,
-                    stage_table_name=redshift_stage_table,
-                    schema=inputs.table.schema_name,
-                    merge_key=merge_settings.merge_key,
-                    update_key=merge_settings.update_key,
-                    stage_fields_cast_to_json=json_columns,
-                )
+                if merge_settings.requires_merge is True:
+                    await redshift_client.amerge_tables(
+                        final_table_name=redshift_table,
+                        final_table_fields=table_fields,
+                        stage_table_name=redshift_stage_table,
+                        schema=inputs.table.schema_name,
+                        merge_key=merge_settings.merge_key,
+                        update_key=merge_settings.update_key,
+                        stage_fields_cast_to_json=json_columns if use_super else (),
+                    )
 
                 external_logger.info(f"Finished copying file/s {len(consumer.files_uploaded)} into Redshift")
 
