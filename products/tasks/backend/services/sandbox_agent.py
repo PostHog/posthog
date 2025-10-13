@@ -90,7 +90,7 @@ class SandboxAgent:
         return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}'"
+        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
     async def destroy(self) -> None:
         await self.sandbox.destroy()
