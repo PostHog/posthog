@@ -339,6 +339,11 @@ describe('the feature flag release conditions logic', () => {
             // and computation resolves to rollout percentage
             expect(logic.values.computeBlastRadiusPercentage(75, 'B')).toEqual(75)
             expect(logic.values.computeBlastRadiusPercentage(100, 'C')).toBeCloseTo(25, 2)
+
+            logic.actions.setTotalUsers(500_000_000)
+            logic.actions.setAffectedUsers('A', 249_999_000)
+            expect(logic.values.computeBlastRadiusPercentage(100, 'A')).toEqual(49.9998)
+            expect(logic.values.computeBlastRadiusPercentage(5, 'C')).toEqual(0)
         })
 
         describe('API calls', () => {
