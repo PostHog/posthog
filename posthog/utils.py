@@ -211,11 +211,12 @@ def relative_date_parse_with_delta_mapping(
     )
 
     if match_group_dict["kind"] == "w":
+        current_dt = (now or dt.datetime.now()).astimezone(timezone_info)
         # Get the weekday index (Monday=0, Sunday=6)
-        weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).weekday()
+        weekday_index = current_dt.weekday()
         if team_week_start_day == 0:
             # Get the weekday index for monday (Monday=1, Sunday=7)
-            weekday_index = (now or dt.datetime.now()).astimezone(timezone_info).isoweekday()
+            weekday_index = current_dt.isoweekday()
             # Sunday should be set as zero when week start day is sunday
             if weekday_index == 7:
                 weekday_index = 0
