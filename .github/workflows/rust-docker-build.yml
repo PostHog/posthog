@@ -8,7 +8,7 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
-            - 'jose-sequeira/publish-potential-duplicates-kafka-dedup'
+
 jobs:
     build:
         name: build ${{ matrix.image }}
