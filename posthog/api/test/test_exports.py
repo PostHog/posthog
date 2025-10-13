@@ -633,7 +633,10 @@ class TestExports(APIBaseTest):
             assert results[0]["id"] == csv_export.id
             assert results[0]["export_format"] == "text/csv"
 
-    def test_video_export_monthly_limit(self) -> None:
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_monthly_limit(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that video exports are limited to 10 per calendar month"""
         # Create 9 video exports this month (we're at the limit - 1)
         for i in range(9):
             ExportedAsset.objects.create(
@@ -670,10 +673,13 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
         self.assertEqual(error_data["type"], "validation_error")
-        self.assertIn("export_limit_exceeded", error_data["detail"])
+        self.assertEqual(error_data["attr"], "export_limit_exceeded")
         self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
 
-    def test_video_export_limit_only_applies_to_full_videos(self) -> None:
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_limit_only_applies_to_full_videos(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that the limit only applies to full video exports (mode=video), not clips"""
         # Create 10 video exports this month (at the limit)
         for i in range(10):
             ExportedAsset.objects.create(
@@ -724,8 +730,10 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_video_export_limit_resets_monthly(self) -> None:
+    def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the video export limit resets at the beginning of each month"""
 
         # Create 10 video exports in January (at the limit)
