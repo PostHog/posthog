@@ -97,27 +97,27 @@ The `/i/v0/ai` endpoint accepts multipart POST requests with the following struc
 **Multipart Parts:**
 
 1. **Event Part** (required)
-   - `Content-Disposition: form-data; name="event"`
-   - `Content-Type: application/json`
+   - `Content-Disposition: form-data; name="event"` (required)
+   - `Content-Type: application/json` (required)
    - Body: Standard PostHog event JSON payload (without properties, or with properties that will be rejected if `event.properties` part is also present)
 
 2. **Event Properties Part** (optional)
-   - `Content-Disposition: form-data; name="event.properties"`
-   - `Content-Type: application/json`
+   - `Content-Disposition: form-data; name="event.properties"` (required)
+   - `Content-Type: application/json` (required)
    - Body: JSON object containing event properties
    - Cannot be used together with embedded properties in the event part (request will be rejected with 400 Bad Request)
    - Properties from this part are merged into the event as the `properties` field
 
 3. **Blob Parts** (optional, multiple allowed)
    - `Content-Disposition: form-data; name="event.properties.<property_name>"; filename="<blob_id>"` (required)
-   - `Content-Type: application/octet-stream` (or `application/json`, `text/plain`, etc.) (optional, defaults to `application/octet-stream`)
+   - `Content-Type: application/octet-stream | application/json | text/plain` (required)
    - Body: Binary blob data
    - The part name follows the JSON path in the event object (e.g., `event.properties.$ai_input_state`)
 
 **Allowed Part Headers:**
 
 - `Content-Disposition` (required for all parts)
-- `Content-Type` (optional for blob parts, defaults to `application/octet-stream`)
+- `Content-Type` (required for all parts)
 - No other headers are supported on individual parts (e.g., `Content-Encoding` is not allowed on parts)
 
 **Note:** Individual parts cannot have their own compression. To compress the entire request payload, use the `Content-Encoding: gzip` header at the HTTP request level.
@@ -306,17 +306,21 @@ s3://posthog-llm-analytics/llma/1y/789/2024-01-15/event_678_t1u3v.multipart
 
 ### Content Types
 
-#### Supported Content Types
+#### Supported Content Types for Blob Parts
 
 The following content types are accepted for blob parts:
 
-- `application/octet-stream` - Default for binary data
-- `application/json` - JSON formatted LLM context
-- `text/plain` - Plain text LLM inputs/outputs
+- `application/octet-stream` - For binary data
+- `application/json` - For JSON formatted LLM context
+- `text/plain` - For plain text LLM inputs/outputs
+
+The event and event.properties parts must use `application/json`.
 
 #### Content Type Handling
 
-- Blob parts may include a Content-Type header (defaults to `application/octet-stream` if not specified)
+- All parts must include a Content-Type header
+- Blob parts with unsupported content types are rejected with 400 Bad Request
+- Blob parts missing Content-Type header are rejected with 400 Bad Request
 - The Content-Type is stored within the multipart file for each part
 - Content-Type is used by the evaluation service to determine how to parse each blob within the multipart file
 

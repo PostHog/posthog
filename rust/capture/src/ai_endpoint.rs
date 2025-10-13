@@ -132,6 +132,15 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
     Ok(Bytes::from(decompressed))
 }
 
+/// Validate blob part content type
+fn is_valid_blob_content_type(content_type: &str) -> bool {
+    // Supported content types for blob parts
+    content_type == "application/octet-stream"
+        || content_type == "application/json"
+        || content_type == "text/plain"
+        || content_type.starts_with("text/plain;") // Allow text/plain with charset
+}
+
 /// Parse multipart data and validate structure
 async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_bytes: usize) -> Result<Vec<PartInfo>, CaptureError> {
     // Size limits
@@ -193,18 +202,8 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
             CaptureError::RequestDecodingError(format!("Failed to read field data: {}", e))
         })?;
 
-        // Create part info
-        let part_info = PartInfo {
-            name: field_name.clone(),
-            length: field_data.len(),
-            content_type,
-            content_encoding,
-        };
-
         // Track sum of all part sizes
         sum_of_parts_bytes += field_data.len();
-
-        accepted_parts.push(part_info);
 
         // Check if this is the event JSON part
         if field_name == "event" {
@@ -253,10 +252,38 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
                     format!("Duplicate blob property: {}", field_name),
                 ));
             }
+
+            // Validate content type for blob parts - it's required
+            match &content_type {
+                Some(ref ct) => {
+                    let ct_lower = ct.to_lowercase();
+                    if !is_valid_blob_content_type(&ct_lower) {
+                        return Err(CaptureError::RequestDecodingError(
+                            format!("Unsupported content type for blob part '{}': '{}'. Supported types: application/octet-stream, application/json, text/plain",
+                                    field_name, ct),
+                        ));
+                    }
+                }
+                None => {
+                    return Err(CaptureError::RequestDecodingError(
+                        format!("Missing required Content-Type header for blob part '{}'", field_name),
+                    ));
+                }
+            }
+
             debug!("Blob part '{}' processed successfully", field_name);
         } else {
             warn!("Unknown multipart field: {}", field_name);
         }
+
+        // Create and store part info after all validation
+        let part_info = PartInfo {
+            name: field_name.clone(),
+            length: field_data.len(),
+            content_type,
+            content_encoding,
+        };
+        accepted_parts.push(part_info);
     }
 
     // Validate that we have at least the event part

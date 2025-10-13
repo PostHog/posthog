@@ -1035,6 +1035,124 @@ async fn test_request_body_exceeds_110_percent_limit_returns_413() {
 }
 
 // ----------------------------------------------------------------------------
+// Content Type Validation Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_blob_with_application_octet_stream_content_type() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    let blob_data = vec![0u8, 1u8, 2u8, 3u8];
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties)
+        .part(
+            "event.properties.$ai_binary_data",
+            Part::bytes(blob_data)
+                .mime_str("application/octet-stream")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_blob_with_application_json_content_type() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    let blob_data = json!({"key": "value"}).to_string();
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties)
+        .part(
+            "event.properties.$ai_input",
+            Part::bytes(blob_data.into_bytes())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_blob_with_text_plain_content_type() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    let blob_data = "This is plain text data";
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties)
+        .part(
+            "event.properties.$ai_output",
+            Part::bytes(blob_data.as_bytes().to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_blob_with_invalid_content_type_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    let blob_data = vec![0u8, 1u8, 2u8, 3u8];
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties)
+        .part(
+            "event.properties.$ai_data",
+            Part::bytes(blob_data)
+                .mime_str("application/xml")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_blob_without_content_type_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    let blob_data = vec![0u8, 1u8, 2u8, 3u8];
+
+    // Create a part without Content-Type (reqwest doesn't set it if we don't call mime_str)
+    let form = create_ai_event_form("$ai_generation", "test_user", properties)
+        .part(
+            "event.properties.$ai_data",
+            Part::bytes(blob_data),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// ----------------------------------------------------------------------------
 // Compression Tests
 // ----------------------------------------------------------------------------
 

@@ -539,3 +539,131 @@ class TestLLMAnalytics:
             headers={"Content-Type": multipart_data.content_type, "Authorization": "Bearer invalid_key_123"},
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
+
+    def test_ai_generation_event_with_different_content_types(self, client, project_id, api_key):
+        """Test sending events with blobs using different supported content types."""
+        base_distinct_id = f"user_{uuid.uuid4()}"
+
+        # Send Event 1: application/json blob
+        logger.info("Sending event with application/json blob")
+        distinct_id_json = f"{base_distinct_id}_json"
+        event_data_json = {
+            "event": "$ai_generation",
+            "distinct_id": distinct_id_json,
+            "$set": {"test_user": True, "content_type_test": "json"},
+        }
+        properties_data_json = {
+            "$ai_model": "gpt-4",
+            "$ai_model_parameters": {"temperature": 0.7},
+        }
+        json_blob_data = {"context": "This is JSON formatted LLM input", "tokens": 150}
+
+        fields_json = {
+            "event": ("event", json.dumps(event_data_json), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data_json), "application/json"),
+            "event.properties.$ai_input": ("blob_json", json.dumps(json_blob_data), "application/json"),
+        }
+
+        multipart_data_json = MultipartEncoder(fields=fields_json)
+        response_json = requests.post(
+            f"{client.base_url}/i/v0/ai",
+            data=multipart_data_json,
+            headers={"Content-Type": multipart_data_json.content_type, "Authorization": f"Bearer {api_key}"},
+        )
+        assert response_json.status_code == 200, f"Expected 200, got {response_json.status_code}: {response_json.text}"
+        response_data_json = response_json.json()
+        assert len(response_data_json["accepted_parts"]) == 3
+        parts_by_name_json = {part["name"]: part for part in response_data_json["accepted_parts"]}
+        assert parts_by_name_json["event.properties.$ai_input"]["content-type"] == "application/json"
+
+        # Send Event 2: text/plain blob
+        logger.info("Sending event with text/plain blob")
+        distinct_id_text = f"{base_distinct_id}_text"
+        event_data_text = {
+            "event": "$ai_generation",
+            "distinct_id": distinct_id_text,
+            "$set": {"test_user": True, "content_type_test": "text"},
+        }
+        properties_data_text = {
+            "$ai_model": "gpt-4",
+            "$ai_model_parameters": {"temperature": 0.5},
+        }
+        text_blob_data = "This is plain text LLM output with multiple lines.\nSecond line here.\nThird line."
+
+        fields_text = {
+            "event": ("event", json.dumps(event_data_text), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data_text), "application/json"),
+            "event.properties.$ai_output": ("blob_text", text_blob_data, "text/plain"),
+        }
+
+        multipart_data_text = MultipartEncoder(fields=fields_text)
+        response_text = requests.post(
+            f"{client.base_url}/i/v0/ai",
+            data=multipart_data_text,
+            headers={"Content-Type": multipart_data_text.content_type, "Authorization": f"Bearer {api_key}"},
+        )
+        assert response_text.status_code == 200, f"Expected 200, got {response_text.status_code}: {response_text.text}"
+        response_data_text = response_text.json()
+        assert len(response_data_text["accepted_parts"]) == 3
+        parts_by_name_text = {part["name"]: part for part in response_data_text["accepted_parts"]}
+        assert parts_by_name_text["event.properties.$ai_output"]["content-type"] == "text/plain"
+
+        # Send Event 3: application/octet-stream blob
+        logger.info("Sending event with application/octet-stream blob")
+        distinct_id_binary = f"{base_distinct_id}_binary"
+        event_data_binary = {
+            "event": "$ai_generation",
+            "distinct_id": distinct_id_binary,
+            "$set": {"test_user": True, "content_type_test": "binary"},
+        }
+        properties_data_binary = {
+            "$ai_model": "gpt-4",
+            "$ai_model_parameters": {"temperature": 0.9},
+        }
+        binary_blob_data = bytes([0x00, 0x01, 0x02, 0x03, 0x04, 0xFF, 0xFE, 0xFD])
+
+        fields_binary = {
+            "event": ("event", json.dumps(event_data_binary), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data_binary), "application/json"),
+            "event.properties.$ai_embedding_vector": ("blob_binary", binary_blob_data, "application/octet-stream"),
+        }
+
+        multipart_data_binary = MultipartEncoder(fields=fields_binary)
+        response_binary = requests.post(
+            f"{client.base_url}/i/v0/ai",
+            data=multipart_data_binary,
+            headers={"Content-Type": multipart_data_binary.content_type, "Authorization": f"Bearer {api_key}"},
+        )
+        assert (
+            response_binary.status_code == 200
+        ), f"Expected 200, got {response_binary.status_code}: {response_binary.text}"
+        response_data_binary = response_binary.json()
+        assert len(response_data_binary["accepted_parts"]) == 3
+        parts_by_name_binary = {part["name"]: part for part in response_data_binary["accepted_parts"]}
+        assert (
+            parts_by_name_binary["event.properties.$ai_embedding_vector"]["content-type"] == "application/octet-stream"
+        )
+
+        logger.info("All three events sent successfully, now querying to verify storage")
+
+        # Query and verify Event 1 (JSON blob)
+        event_json = client.wait_for_event(project_id, "$ai_generation", distinct_id_json)
+        assert event_json is not None, "Event with JSON blob not found"
+        assert event_json["properties"]["$ai_model"] == "gpt-4"
+        logger.info(f"Event 1 (JSON blob) verified: {distinct_id_json}")
+
+        # Query and verify Event 2 (text blob)
+        event_text = client.wait_for_event(project_id, "$ai_generation", distinct_id_text)
+        assert event_text is not None, "Event with text blob not found"
+        assert event_text["properties"]["$ai_model"] == "gpt-4"
+        logger.info(f"Event 2 (text blob) verified: {distinct_id_text}")
+
+        # Query and verify Event 3 (binary blob)
+        event_binary = client.wait_for_event(project_id, "$ai_generation", distinct_id_binary)
+        assert event_binary is not None, "Event with binary blob not found"
+        assert event_binary["properties"]["$ai_model"] == "gpt-4"
+        logger.info(f"Event 3 (binary blob) verified: {distinct_id_binary}")
+
+        logger.info("All three content type events verified successfully")
+
+        # TODO: Verify blob properties have S3 URLs once S3 upload is implemented
