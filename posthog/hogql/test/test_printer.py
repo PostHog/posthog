@@ -1169,12 +1169,16 @@ class TestPrinter(BaseTest):
 
     def test_select_prewhere(self):
         self.assertEqual(
+            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
+            f"SELECT 1 FROM events PREWHERE 0 WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+        self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2"),
             f"SELECT 1 FROM events PREWHERE 0 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
-            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("select 1 from events prewhere 1 == 2 where event='name'"),
+            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_order_by(self):
