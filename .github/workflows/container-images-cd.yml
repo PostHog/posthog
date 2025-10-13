@@ -272,7 +272,7 @@ jobs:
             - name: Check for changes that affect analytics platform temporal worker
               id: check_changes_analytics_platform_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/tasks/exporter.py$|^posthog/tasks/exports/|^ee/tasks/subscriptions/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/tasks/exporter.py$|^ee/api/subscription.py$|^posthog/temporal/schedule.py$|^posthog/tasks/exports/|^ee/tasks/subscriptions/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Billing Temporal Worker Cloud deployment
               if: steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
