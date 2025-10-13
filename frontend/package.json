@@ -227,7 +227,7 @@
         "typescript": "5.2.2",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
-        "vite": "^6.3.5",
+        "vite": "^7.1.9",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
