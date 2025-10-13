@@ -283,6 +283,7 @@ class RedshiftClient(PostgreSQLClient):
         {credentials}
         MANIFEST
         FORMAT AS PARQUET
+        SERIALIZETOJSON
         """
         ).format(
             table_name=table_identifier,
@@ -782,7 +783,7 @@ def _get_table_schemas(
     properties_data_type: str,
 ) -> TableSchemas:
     """Return the schemas used for main and stage tables."""
-    known_super_columns = {"properties", "set", "set_once", "person_properties", "urls"}
+    known_super_columns = {"properties", "set", "set_once", "person_properties"}
     if properties_data_type != "varchar":
         properties_type = "SUPER"
 

@@ -131,8 +131,13 @@ async def assert_clickhouse_records_in_redshift(
                 # either a dict or a set (depending if it's empty or not). Either way
                 # we can cast them to list.
                 if column in event and event.get(column, None) is not None:
-                    value = ast.literal_eval(json.loads(event[column]))
-                    event[column] = list(value)
+                    load_result = json.loads(event[column])
+
+                    if not isinstance(load_result, list):
+                        value = ast.literal_eval(load_result)
+                        event[column] = list(value)
+                    else:
+                        event[column] = load_result
 
             inserted_records.append(event)
 
