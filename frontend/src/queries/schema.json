@@ -12925,6 +12925,7 @@
         },
         "FileSystemIconType": {
             "enum": [
+                "default_icon_type",
                 "dashboard",
                 "llm_analytics",
                 "product_analytics",

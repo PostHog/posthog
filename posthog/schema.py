@@ -1345,6 +1345,7 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
+    DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
