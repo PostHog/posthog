@@ -1,16 +1,21 @@
-import './sparkline-loading.scss'
-
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -33,47 +38,15 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparkline, logsLoading, sparklineLoading } = useValues(logsLogic)
+    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading } = useValues(logsLogic)
     const { runQuery } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
 
-    const labels: string[] = []
-    let lastTime = ''
-    let i = -1
-    const timeseries = Object.entries(
-        sparkline.reduce((accumulator, currentItem) => {
-            if (currentItem.time !== lastTime) {
-                labels.push(humanFriendlyDetailedTime(currentItem.time))
-                lastTime = currentItem.time
-                i++
-            }
-            const key = currentItem.level
-            if (!accumulator[key]) {
-                accumulator[key] = Array(sparkline.length)
-            }
-            accumulator[key][i] = currentItem.count
-            return accumulator
-        }, {})
-    )
-        .map(([level, data]) => ({
-            name: level,
-            values: data as number[],
-            color: {
-                fatal: 'danger-dark',
-                error: 'danger',
-                warn: 'warning',
-                info: 'brand-blue',
-                debug: 'muted',
-                trace: 'muted-alt',
-            }[level],
-        }))
-        .filter((series) => series.values.reduce((a, b) => a + b) > 0)
-
     return (
-        <SceneContent className="overflow-hidden h-screen">
+        <SceneContent className="h-screen">
             <SceneTitleSection
                 name="Logs"
                 resourceType={{
@@ -82,9 +55,13 @@ export function LogsScene(): JSX.Element {
             />
             <SceneDivider />
             <Filters />
-            <div className={sparklineLoading ? 'sparkline-loading' : ''}>
-                <Sparkline labels={labels} data={timeseries} className="w-full" />
-                {sparklineLoading && <div className="sparkline-loading-overlay" />}
+            <div className="relative h-48 flex flex-col">
+                {sparklineData.data.length > 0 ? (
+                    <Sparkline labels={sparklineData.labels} data={sparklineData.data} className="w-full" />
+                ) : !sparklineLoading ? (
+                    <div className="flex-1text-muted text-center">No data</div>
+                ) : null}
+                {sparklineLoading && <SpinnerOverlay />}
             </div>
             <SceneDivider />
             <DisplayOptions />

@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -7,6 +7,7 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
@@ -249,6 +250,47 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setSparklineAbortController(null)
                     return response
                 },
+            },
+        ],
+    })),
+
+    selectors(() => ({
+        sparklineData: [
+            (s) => [s.sparkline],
+            (sparkline) => {
+                let lastTime = ''
+                let i = -1
+                const labels: string[] = []
+                const data = Object.entries(
+                    sparkline.reduce((accumulator, currentItem) => {
+                        if (currentItem.time !== lastTime) {
+                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            lastTime = currentItem.time
+                            i++
+                        }
+                        const key = currentItem.level
+                        if (!accumulator[key]) {
+                            accumulator[key] = Array(sparkline.length)
+                        }
+                        accumulator[key][i] = currentItem.count
+                        return accumulator
+                    }, {})
+                )
+                    .map(([level, data]) => ({
+                        name: level,
+                        values: data as number[],
+                        color: {
+                            fatal: 'danger-dark',
+                            error: 'danger',
+                            warn: 'warning',
+                            info: 'brand-blue',
+                            debug: 'muted',
+                            trace: 'muted-alt',
+                        }[level],
+                    }))
+                    .filter((series) => series.values.reduce((a, b) => a + b) > 0)
+
+                return { data, labels }
             },
         ],
     })),
