@@ -100,7 +100,8 @@ class Person(models.Model):
 
         for distinct_id in distinct_ids:
             if not distinct_id == main_distinct_id:
-                with transaction.atomic():
+                # Use the same database as the Person model (handles persons_db_writer routing in production)
+                with transaction.atomic(using=self._state.db or "default"):
                     pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
                     person, _ = Person.objects.get_or_create(
                         uuid=uuidFromDistinctId(self.team_id, distinct_id),
