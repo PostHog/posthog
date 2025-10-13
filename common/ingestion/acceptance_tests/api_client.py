@@ -194,7 +194,7 @@ class PostHogTestClient:
         event_name: str,
         distinct_id: Optional[str] = None,
         timeout: int = 30,
-        poll_interval: float = 0.5,
+        poll_interval: float = 5.0,
     ) -> Optional[dict[str, Any]]:
         """Poll for an event to appear in the query API."""
         start_time = time.time()
