@@ -171,6 +171,7 @@ export function DashboardHeader(): JSX.Element | null {
                     {user?.is_staff && <DashboardTemplateEditor />}
                 </>
             )}
+
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneTags
@@ -338,6 +339,7 @@ export function DashboardHeader(): JSX.Element | null {
                     </>
                 )}
             </ScenePanel>
+
             <SceneTitleSection
                 name={dashboard?.name}
                 description={dashboard?.description}
@@ -413,12 +415,12 @@ export function DashboardHeader(): JSX.Element | null {
                                     </>
                                 )}
                                 {dashboard ? (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Dashboard}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={dashboard.user_access_level}
-                                    >
-                                        <>
+                                    <>
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Dashboard}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={dashboard.user_access_level}
+                                        >
                                             <LemonButton
                                                 onClick={() => {
                                                     push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -428,7 +430,13 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Add text card
                                             </LemonButton>
+                                        </AccessControlAction>
 
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Dashboard}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={dashboard.user_access_level}
+                                        >
                                             <MaxTool
                                                 identifier="edit_current_dashboard"
                                                 context={{
@@ -453,8 +461,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                     Add insight
                                                 </LemonButton>
                                             </MaxTool>
-                                        </>
-                                    </AccessControlAction>
+                                        </AccessControlAction>
+                                    </>
                                 ) : null}
                             </div>
                         )}
