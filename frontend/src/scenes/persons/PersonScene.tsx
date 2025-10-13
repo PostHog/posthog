@@ -141,7 +141,7 @@ export function PersonScene(): JSX.Element | null {
             <SceneTitleSection
                 name="Person"
                 resourceType={{
-                    type: sceneConfigurations[Scene.Person].iconType!,
+                    type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}
                 forceBackTo={{
                     name: sceneConfigurations[Scene.Persons].name,

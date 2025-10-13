@@ -345,7 +345,7 @@ export function DashboardHeader(): JSX.Element | null {
                 name={dashboard?.name}
                 description={dashboard?.description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Dashboard].iconType!,
+                    type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
                 onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
                 onDescriptionChange={(value) =>

@@ -40,7 +40,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 name={sceneConfigurations[Scene.ExploreEvents].name}
                 description={sceneConfigurations[Scene.ExploreEvents].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.ExploreEvents].iconType!,
+                    type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

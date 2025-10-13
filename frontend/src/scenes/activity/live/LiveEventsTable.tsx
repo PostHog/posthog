@@ -102,7 +102,7 @@ export function LiveEventsTable(): JSX.Element {
                 name={sceneConfigurations[Scene.LiveEvents].name}
                 description={sceneConfigurations[Scene.LiveEvents].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.LiveEvents].iconType!,
+                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

@@ -47,7 +47,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 name={sceneConfigurations[Scene.Persons].name}
                 description={sceneConfigurations[Scene.Persons].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Persons].iconType!,
+                    type: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonMenu

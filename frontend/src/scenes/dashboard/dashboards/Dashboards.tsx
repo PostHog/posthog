@@ -57,7 +57,7 @@ export function Dashboards(): JSX.Element {
                 name={sceneConfigurations[Scene.Dashboards].name}
                 description={sceneConfigurations[Scene.Dashboards].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Dashboards].iconType!,
+                    type: sceneConfigurations[Scene.Dashboards].iconType || 'default_icon_type',
                 }}
                 actions={
                     <>

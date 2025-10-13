@@ -54,7 +54,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                 {
                     key: 'persons',
                     name: sceneConfigurations[Scene.Persons].name,
-                    iconType: sceneConfigurations[Scene.Persons].iconType!,
+                    iconType: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
                 },
             ],
         ],

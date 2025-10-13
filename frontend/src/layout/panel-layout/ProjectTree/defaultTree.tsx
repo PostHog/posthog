@@ -6,6 +6,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconCircleDashed,
     IconCode2,
     IconCursor,
     IconDashboard,
@@ -52,6 +53,9 @@ import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-ge
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+    default_icon_type: {
+        icon: <IconCircleDashed />,
+    },
     dashboard: {
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
