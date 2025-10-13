@@ -160,18 +160,18 @@ async fn main() -> Result<()> {
     // Initialize tracing with structured output similar to feature-flags
     let log_layer = {
         let base = fmt::layer()
-            .with_span_events(
-                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-            )
             .with_target(true)
             .with_thread_ids(true)
             .with_level(true);
 
         if config.otel_log_level == tracing::Level::DEBUG {
             // local dev: pretty-print output to console
-            base.with_ansi(true)
-                .with_filter(EnvFilter::from_default_env())
-                .boxed()
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(EnvFilter::from_default_env())
+            .boxed()
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
