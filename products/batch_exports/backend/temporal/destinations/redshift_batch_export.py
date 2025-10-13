@@ -154,7 +154,7 @@ class RedshiftClient(PostgreSQLClient):
         update_key: Fields,
         final_table_fields: Fields,
         update_when_matched: Fields = (),
-        stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
+        stage_fields_cast_to_json: collections.abc.Container[str] | None = None,
     ) -> None:
         """Merge two tables in Redshift."""
         if schema:
@@ -209,7 +209,7 @@ class RedshiftClient(PostgreSQLClient):
             delete_extra_conditions=delete_extra_conditions,
         )
 
-        if stage_fields_cast_to_json:
+        if stage_fields_cast_to_json is not None:
             select_stage_table_fields = sql.SQL(
                 ",".join(
                     f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_json else field[0]
@@ -764,6 +764,7 @@ class TableSchemas(typing.NamedTuple):
     table_schema: Fields
     stage_table_schema: Fields
     super_columns: set[str]
+    use_super: bool
 
 
 def _get_table_schemas(
@@ -775,9 +776,11 @@ def _get_table_schemas(
     known_super_columns = {"properties", "set", "set_once", "person_properties"}
     if properties_data_type != "varchar":
         properties_type = "SUPER"
+        use_super = True
 
     else:
         properties_type = "VARCHAR(65535)"
+        use_super = False
 
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
         table_schema: Fields = [
@@ -808,7 +811,7 @@ def _get_table_schemas(
     else:
         stage_table_schema = table_schema
 
-    return TableSchemas(table_schema, stage_table_schema, known_super_columns)
+    return TableSchemas(table_schema, stage_table_schema, known_super_columns, use_super)
 
 
 class RequiredMergeSettings(typing.NamedTuple):
@@ -946,9 +949,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         table_schemas = _get_table_schemas(
             model=model, record_batch_schema=record_batch_schema, properties_data_type=inputs.table.properties_data_type
         )
-
-        use_super = inputs.table.properties_data_type != "varchar"
-        merge_settings = _get_merge_settings(model=model, use_super=use_super)
+        merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -991,7 +992,6 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     redshift_schema=inputs.table.schema_name,
                     table_columns=[field[0] for field in table_fields],
                     known_json_columns=table_schemas.super_columns,
-                    use_super=False,
                     redshift_client=redshift_client,
                 )
                 result = await run_consumer_from_stage(
@@ -1011,9 +1011,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                         schema=inputs.table.schema_name,
                         merge_key=merge_settings.merge_key,
                         update_key=merge_settings.update_key,
-                        stage_fields_cast_to_json=("properties", "person_properties", "set", "set_once")
-                        if use_super
-                        else (),
+                        stage_fields_cast_to_json=table_schemas.super_columns if table_schemas.use_super else None,
                     )
 
                 return result
@@ -1167,21 +1165,19 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
-        json_columns = ("properties", "person_properties", "set", "set_once")
-        transformer = ParquetStreamTransformer(
-            schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=json_columns),
-            compression="zstd",
-            include_inserted_at=False,
-        )
-
         table_schemas = _get_table_schemas(
             model=model,
             record_batch_schema=record_batch_schema,
             properties_data_type=inputs.table.properties_data_type,
         )
 
-        use_super = inputs.table.properties_data_type != "varchar"
-        merge_settings = _get_merge_settings(model=model, use_super=use_super)
+        transformer = ParquetStreamTransformer(
+            schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=table_schemas.super_columns),
+            compression="zstd",
+            include_inserted_at=False,
+        )
+
+        merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -1200,7 +1196,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
             transformer=transformer,
             schema=record_batch_schema,
             max_file_size_bytes=1024,
-            json_columns=json_columns,
+            json_columns=table_schemas.super_columns,
         )
 
         if result.error is not None:
@@ -1270,7 +1266,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                         schema=inputs.table.schema_name,
                         merge_key=merge_settings.merge_key,
                         update_key=merge_settings.update_key,
-                        stage_fields_cast_to_json=json_columns if use_super else (),
+                        stage_fields_cast_to_json=table_schemas.super_columns if table_schemas.use_super else None,
                     )
 
                 external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
