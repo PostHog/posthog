@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common_kafka::kafka_producer::KafkaContext;
 use common_types::{CapturedEvent, RawEvent};
 use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{FutureProducer, FutureRecord};
@@ -10,17 +11,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+use crate::duplicate_event::DuplicateEvent;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
-    DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_TOTAL_COUNTER,
-    TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
-    TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
-    UNIQUE_EVENTS_TOTAL_COUNTER, UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
-    UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, UUID_DEDUP_FIELD_DIFFERENCES_COUNTER,
-    UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM, UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
-    UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM, UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM,
+    DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
+    DUPLICATE_EVENTS_TOTAL_COUNTER, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
+    TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
+    TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM, TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
+    TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM, UNIQUE_EVENTS_TOTAL_COUNTER,
+    UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
+    UUID_DEDUP_FIELD_DIFFERENCES_COUNTER, UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+    UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM, UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM,
+    UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM,
 };
 use crate::rocksdb::dedup_metadata::DedupFieldName;
 use crate::store::deduplication_store::{
@@ -44,10 +47,75 @@ struct MessageContext<'a> {
 #[derive(Debug, Clone)]
 pub struct DeduplicationConfig {
     pub output_topic: Option<String>,
+    pub duplicate_events_topic: Option<String>,
     pub producer_config: ClientConfig,
     pub store_config: DeduplicationStoreConfig,
     pub producer_send_timeout: Duration,
     pub flush_interval: Duration,
+}
+
+#[derive(Clone)]
+pub struct DuplicateEventProducerWrapper {
+    producer: Arc<FutureProducer<KafkaContext>>,
+    topic: String,
+}
+
+impl DuplicateEventProducerWrapper {
+    pub fn new(topic: String, producer: Arc<FutureProducer<KafkaContext>>) -> Result<Self> {
+        Ok(Self { producer, topic })
+    }
+
+    pub async fn send(
+        &self,
+        duplicate_event: DuplicateEvent,
+        kafka_key: &str,
+        timeout: Duration,
+        metrics: &MetricsHelper,
+    ) -> Result<()> {
+        // Serialize and publish
+        let payload =
+            serde_json::to_vec(&duplicate_event).context("Failed to serialize duplicate event")?;
+
+        // Send and await the result
+        let delivery_result = self
+            .producer
+            .send(
+                FutureRecord::to(&self.topic)
+                    .key(kafka_key)
+                    .payload(&payload),
+                Timeout::After(timeout),
+            )
+            .await;
+
+        match delivery_result {
+            Ok(_) => {
+                // Track successful publish
+                metrics
+                    .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
+                    .with_label("topic", &self.topic)
+                    .with_label("status", "success")
+                    .increment(1);
+                Ok(())
+            }
+            Err((e, _)) => {
+                // Track failed publish
+                metrics
+                    .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
+                    .with_label("topic", &self.topic)
+                    .with_label("status", "failure")
+                    .increment(1);
+
+                // Log error but don't fail the main processing
+                error!(
+                    "Failed to publish duplicate event to topic {}: {}",
+                    self.topic, e
+                );
+                // We could choose to return the error or just log it
+                // For now, let's not fail the main event processing
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Processor that handles deduplication of events using per-partition stores
@@ -57,7 +125,10 @@ pub struct DeduplicationProcessor {
     config: DeduplicationConfig,
 
     /// Kafka producer for publishing non-duplicate events
-    producer: Option<Arc<FutureProducer>>,
+    producer: Option<Arc<FutureProducer<KafkaContext>>>,
+
+    /// Kafka producer for publishing duplicate detection results
+    duplicate_producer: Option<DuplicateEventProducerWrapper>,
 
     /// Store manager that handles concurrent store creation and access
     store_manager: Arc<StoreManager>,
@@ -65,17 +136,16 @@ pub struct DeduplicationProcessor {
 
 impl DeduplicationProcessor {
     /// Create a new deduplication processor with a store manager
-    pub fn new(config: DeduplicationConfig, store_manager: Arc<StoreManager>) -> Result<Self> {
-        let producer: Option<Arc<FutureProducer>> = match &config.output_topic {
-            Some(topic) => Some(Arc::new(config.producer_config.create().with_context(
-                || format!("Failed to create Kafka producer for output topic '{topic}'"),
-            )?)),
-            None => None,
-        };
-
+    pub fn new(
+        config: DeduplicationConfig,
+        store_manager: Arc<StoreManager>,
+        producer: Option<Arc<FutureProducer<KafkaContext>>>,
+        duplicate_producer: Option<DuplicateEventProducerWrapper>,
+    ) -> Result<Self> {
         Ok(Self {
             config,
             producer,
+            duplicate_producer,
             store_manager,
         })
     }
@@ -123,8 +193,9 @@ impl DeduplicationProcessor {
         if let Some(mut metadata) = existing_metadata {
             // Key exists - it's a duplicate
 
-            // Calculate similarity
+            // Calculate similarity and get original event
             let similarity = metadata.calculate_similarity(raw_event)?;
+            let original_event = metadata.get_original_event()?;
 
             // Always update metadata to track all seen events
             metadata.update_duplicate(raw_event);
@@ -134,6 +205,8 @@ impl DeduplicationProcessor {
                 DeduplicationResult::ConfirmedDuplicate(
                     DeduplicationType::Timestamp,
                     DeduplicationResultReason::SameEvent,
+                    similarity,
+                    original_event,
                 )
             } else if similarity.different_fields.len() == 1
                 && similarity.different_fields[0].0 == DedupFieldName::Uuid
@@ -141,17 +214,26 @@ impl DeduplicationProcessor {
                 DeduplicationResult::ConfirmedDuplicate(
                     DeduplicationType::Timestamp,
                     DeduplicationResultReason::OnlyUuidDifferent,
+                    similarity,
+                    original_event,
                 )
             } else {
-                DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
+                DeduplicationResult::PotentialDuplicate(
+                    DeduplicationType::Timestamp,
+                    similarity,
+                    original_event,
+                )
             };
+
+            // Get similarity reference from the result for logging
+            let similarity_ref = dedup_result.get_similarity().unwrap();
 
             // Log the duplicate
             info!(
                 "Timestamp duplicate: {} for key {:?}, Similarity: {:.2}",
                 metadata.get_metrics_summary(),
                 key,
-                similarity.overall_score
+                similarity_ref.overall_score
             );
 
             // Emit metrics
@@ -170,25 +252,25 @@ impl DeduplicationProcessor {
                 metrics
                     .histogram(TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.overall_score);
+                    .record(similarity_ref.overall_score);
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.different_field_count as f64);
+                    .record(similarity_ref.different_field_count as f64);
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.different_property_count as f64);
+                    .record(similarity_ref.different_property_count as f64);
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.properties_similarity);
+                    .record(similarity_ref.properties_similarity);
 
                 // Emit counters for specific fields that differ
-                for (field_name, _, _) in &similarity.different_fields {
+                for (field_name, _, _) in &similarity_ref.different_fields {
                     metrics
                         .counter(TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER)
                         .with_label("lib", &lib_info.name)
@@ -241,8 +323,9 @@ impl DeduplicationProcessor {
         if let Some(mut metadata) = existing_metadata {
             // UUID combination exists - it's a duplicate
 
-            // Calculate similarity
+            // Calculate similarity and get original event
             let similarity = metadata.calculate_similarity(raw_event)?;
+            let original_event = metadata.get_original_event()?;
 
             // Always update metadata to track all seen events
             metadata.update_duplicate(raw_event);
@@ -252,6 +335,8 @@ impl DeduplicationProcessor {
                 DeduplicationResult::ConfirmedDuplicate(
                     DeduplicationType::UUID,
                     DeduplicationResultReason::SameEvent,
+                    similarity,
+                    original_event,
                 )
             } else if similarity.different_fields.len() == 1
                 && similarity.different_fields[0].0 == DedupFieldName::Timestamp
@@ -259,10 +344,19 @@ impl DeduplicationProcessor {
                 DeduplicationResult::ConfirmedDuplicate(
                     DeduplicationType::UUID,
                     DeduplicationResultReason::OnlyTimestampDifferent,
+                    similarity,
+                    original_event,
                 )
             } else {
-                DeduplicationResult::PotentialDuplicate(DeduplicationType::UUID)
+                DeduplicationResult::PotentialDuplicate(
+                    DeduplicationType::UUID,
+                    similarity,
+                    original_event,
+                )
             };
+
+            // Get similarity reference from the result for logging and metrics
+            let similarity_ref = dedup_result.get_similarity().unwrap();
 
             // Log the duplicate
             info!(
@@ -292,25 +386,25 @@ impl DeduplicationProcessor {
                 metrics
                     .histogram(UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.overall_score);
+                    .record(similarity_ref.overall_score);
 
                 metrics
                     .histogram(UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.different_field_count as f64);
+                    .record(similarity_ref.different_field_count as f64);
 
                 metrics
                     .histogram(UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.different_property_count as f64);
+                    .record(similarity_ref.different_property_count as f64);
 
                 metrics
                     .histogram(UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.properties_similarity);
+                    .record(similarity_ref.properties_similarity);
 
                 // Emit counters for specific fields that differ
-                for (field_name, _, _) in &similarity.different_fields {
+                for (field_name, _, _) in &similarity_ref.different_fields {
                     metrics
                         .counter(UUID_DEDUP_FIELD_DIFFERENCES_COUNTER)
                         .with_label("lib", &lib_info.name)
@@ -379,6 +473,18 @@ impl DeduplicationProcessor {
         // Emit metrics for the deduplication result
         self.emit_deduplication_result_metrics(ctx.topic, ctx.partition, &deduplication_result);
 
+        // Publish duplicate event if we have a duplicate producer configured
+        if let Some(ref duplicate_producer) = self.duplicate_producer {
+            self.publish_duplicate_event(
+                duplicate_producer,
+                &raw_event,
+                &deduplication_result,
+                &ctx.key,
+                &metrics,
+            )
+            .await?;
+        }
+
         let is_duplicate = deduplication_result.is_duplicate();
 
         if is_duplicate {
@@ -413,7 +519,7 @@ impl DeduplicationProcessor {
 
     async fn publish_event(
         &self,
-        producer: &FutureProducer,
+        producer: &FutureProducer<KafkaContext>,
         original_payload: &[u8],
         original_headers: Option<&OwnedHeaders>,
         key: String,
@@ -646,6 +752,38 @@ impl MessageProcessor for DeduplicationProcessor {
 }
 
 impl DeduplicationProcessor {
+    /// Publish duplicate event to the duplicate events topic
+    async fn publish_duplicate_event(
+        &self,
+        producer_wrapper: &DuplicateEventProducerWrapper,
+        source_event: &RawEvent,
+        deduplication_result: &DeduplicationResult,
+        kafka_key: &str,
+        metrics: &MetricsHelper,
+    ) -> Result<()> {
+        // Only publish for actual duplicates (not New or Skipped)
+        if !deduplication_result.is_duplicate() {
+            return Ok(());
+        }
+
+        // Create the duplicate event
+        let duplicate_event = match DuplicateEvent::from_result(source_event, deduplication_result)
+        {
+            Some(event) => event,
+            None => return Ok(()), // Couldn't create duplicate event
+        };
+
+        // Send using the wrapper's send method
+        producer_wrapper
+            .send(
+                duplicate_event,
+                kafka_key,
+                self.config.producer_send_timeout,
+                metrics,
+            )
+            .await
+    }
+
     /// Emit metrics for deduplication results
     fn emit_deduplication_result_metrics(
         &self,
@@ -663,14 +801,14 @@ impl DeduplicationProcessor {
                     .with_label("result_type", "new")
                     .increment(1);
             }
-            DeduplicationResult::PotentialDuplicate(dedup_type) => {
+            DeduplicationResult::PotentialDuplicate(dedup_type, _, _) => {
                 metrics
                     .counter(DEDUPLICATION_RESULT_COUNTER)
                     .with_label("result_type", "potential_duplicate")
                     .with_label("dedup_type", &dedup_type.to_string().to_lowercase())
                     .increment(1);
             }
-            DeduplicationResult::ConfirmedDuplicate(dedup_type, reason) => {
+            DeduplicationResult::ConfirmedDuplicate(dedup_type, reason, _, _) => {
                 metrics
                     .counter(DEDUPLICATION_RESULT_COUNTER)
                     .with_label("result_type", "confirmed_duplicate")
@@ -696,6 +834,7 @@ impl DeduplicationProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use serde_json::json;
     use std::collections::HashMap;
     use tempfile::TempDir;
@@ -714,6 +853,7 @@ mod tests {
 
         let config = DeduplicationConfig {
             output_topic: Some("deduplicated-events".to_string()),
+            duplicate_events_topic: None,
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
@@ -786,7 +926,7 @@ mod tests {
     async fn test_timestamp_deduplication_new_event() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -815,7 +955,7 @@ mod tests {
     async fn test_timestamp_deduplication_exact_duplicate() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -844,20 +984,22 @@ mod tests {
         let result2 = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
+                DeduplicationResultReason::SameEvent,
+                _,
+                _
             )
-        );
+        ));
     }
 
     #[tokio::test]
     async fn test_timestamp_deduplication_only_uuid_different() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -896,20 +1038,22 @@ mod tests {
         let result2 = processor
             .check_timestamp_duplicate(&event2, &store, &metrics)
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::OnlyUuidDifferent
+                DeduplicationResultReason::OnlyUuidDifferent,
+                _,
+                _
             )
-        );
+        ));
     }
 
     #[tokio::test]
     async fn test_timestamp_deduplication_potential_duplicate() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -956,17 +1100,17 @@ mod tests {
         let result2 = processor
             .check_timestamp_duplicate(&event2, &store, &metrics)
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
-            DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
-        );
+            DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp, _, _)
+        ));
     }
 
     #[tokio::test]
     async fn test_uuid_deduplication_new_event() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -995,7 +1139,7 @@ mod tests {
     async fn test_uuid_deduplication_only_timestamp_different() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -1035,20 +1179,22 @@ mod tests {
         let result2 = processor
             .check_uuid_duplicate(&event2, &store, &metrics)
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::UUID,
-                DeduplicationResultReason::OnlyTimestampDifferent
+                DeduplicationResultReason::OnlyTimestampDifferent,
+                _,
+                _
             )
-        );
+        ));
     }
 
     #[tokio::test]
     async fn test_combined_deduplication_flow() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -1080,13 +1226,15 @@ mod tests {
             .deduplicate_event(&event, &store, &metrics)
             .await
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
+                DeduplicationResultReason::SameEvent,
+                _,
+                _
             )
-        );
+        ));
 
         // Event with different timestamp but same UUID should detect timestamp first
         let event3 = RawEvent {
@@ -1104,20 +1252,22 @@ mod tests {
             .deduplicate_event(&event3, &store, &metrics)
             .await
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result3,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::UUID,
-                DeduplicationResultReason::OnlyTimestampDifferent
+                DeduplicationResultReason::OnlyTimestampDifferent,
+                _,
+                _
             )
-        );
+        ));
     }
 
     #[tokio::test]
     async fn test_deduplication_without_uuid() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -1148,20 +1298,22 @@ mod tests {
             .deduplicate_event(&event, &store, &metrics)
             .await
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
+                DeduplicationResultReason::SameEvent,
+                _,
+                _
             )
-        );
+        ));
     }
 
     #[tokio::test]
     async fn test_deduplication_with_library_metrics() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = DeduplicationProcessor::new(config, store_manager).unwrap();
+        let processor = DeduplicationProcessor::new(config, store_manager, None, None).unwrap();
 
         let store = processor
             .get_or_create_store("test-topic", 0)
@@ -1193,12 +1345,14 @@ mod tests {
         let result2 = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             result2,
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
+                DeduplicationResultReason::SameEvent,
+                _,
+                _
             )
-        );
+        ));
     }
 }

@@ -18,6 +18,8 @@ from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -36,7 +38,9 @@ class ActionStepJSONSerializer(serializers.Serializer):
     url_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
 
 
-class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
+class ActionSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
+):
     steps = ActionStepJSONSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
@@ -65,6 +69,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "pinned_at",
             "creation_context",
             "_create_in_folder",
+            "user_access_level",
         ]
         read_only_fields = [
             "team_id",
@@ -140,6 +145,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -163,7 +169,7 @@ class ActionViewSet(
         # better pagination in the taxonomic filter and on the actions page
         actions = self.filter_queryset(self.get_queryset())
         actions_list: list[dict[Any, Any]] = self.serializer_class(
-            actions, many=True, context={"request": request}
+            actions, many=True, context={"request": request, "view": self}
         ).data  # type: ignore
         return Response({"results": actions_list})
 

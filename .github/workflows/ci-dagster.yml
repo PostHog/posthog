@@ -82,7 +82,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
               id: setup-uv
@@ -102,6 +101,16 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
@@ -110,7 +119,13 @@ jobs:
 
             - name: Run migrations
               run: |
+                  # Run Django migrations first
                   python manage.py migrate
+                  # Then run persons migrations using sqlx
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
               run: |
