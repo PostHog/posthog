@@ -48,6 +48,7 @@ import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -77,6 +78,23 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                 }
                 return null
             })}
+        </div>
+    )
+}
+
+const MarketingTiles = (props: { tiles?: QueryTile[]; compact?: boolean }): JSX.Element => {
+    const { tiles, compact = false } = props
+
+    return (
+        <div
+            className={clsx(
+                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+            )}
+        >
+            {tiles?.map((tile, i) => (
+                <QueryTileItem key={i} tile={tile} />
+            ))}
         </div>
     )
 }
@@ -412,6 +430,7 @@ const MainContent = (): JSX.Element => {
 const MarketingDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
 
     const feedbackBanner = (
         <LemonBanner
@@ -452,8 +471,8 @@ const MarketingDashboard = (): JSX.Element => {
             />
         )
     } else {
-        // if the user has sources configured and the feature flag is enabled, show the tiles
-        component = <Tiles />
+        // if the user has sources configured and the feature flag is enabled, show the marketing tiles
+        component = <MarketingTiles tiles={marketingTiles} />
     }
 
     return (

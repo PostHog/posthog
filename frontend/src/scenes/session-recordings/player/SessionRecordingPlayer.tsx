@@ -10,7 +10,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { useIsMouseMoving } from 'lib/hooks/useIsMouseMoving'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -221,12 +220,11 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const showMeta = !(hidePlayerElements || (noMeta && !isFullScreen))
 
     const isHovering = useIsHovering(playerRef)
-    const isMovingRecently = useIsMouseMoving(playerRef, 1500)
 
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
-        setIsHovering(isHovering && isMovingRecently)
-    }, [isHovering, isMovingRecently])
+        setIsHovering(isHovering)
+    }, [isHovering])
 
     useEffect(() => {
         // just once per recording clear the flag that forces the player chrome to show

@@ -36,6 +36,7 @@ const getMaxZIndex = (element: Element): number => {
 
 export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
+
     connect(() => ({
         values: [actionsTabLogic, ['actionForm'], currentPageLogic, ['href']],
         actions: [actionsTabLogic, ['selectAction', 'newAction']],
@@ -510,48 +511,66 @@ export const elementsLogic = kea<elementsLogicType>([
                     actions.setRelativePositionCompensation(relativePositionCompensation)
                 }
             }, 100)
-            cache.onClick = () => actions.updateRects()
-            cache.onScrollResize = () => {
-                window.clearTimeout(cache.clickDelayTimeout)
+            // Add event listeners using disposables
+            cache.disposables.add(() => {
+                const onClick = (): void => actions.updateRects()
+                window.addEventListener('click', onClick)
+                return () => window.removeEventListener('click', onClick)
+            }, 'clickListener')
+
+            const onScrollResize = (): void => {
+                // Clear any existing timeout
+                cache.disposables.dispose('clickDelayTimeout')
                 actions.updateRects()
-                cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
+
+                // Add new timeout
+                cache.disposables.add(() => {
+                    const timeout = window.setTimeout(actions.updateRects, 100)
+                    return () => window.clearTimeout(timeout)
+                }, 'clickDelayTimeout')
+
                 cache.updateRelativePosition()
             }
-            cache.onKeyDown = (e: KeyboardEvent) => {
-                if (e.keyCode !== 27) {
-                    return
+
+            cache.disposables.add(() => {
+                window.addEventListener('resize', onScrollResize)
+                return () => window.removeEventListener('resize', onScrollResize)
+            }, 'resizeListener')
+
+            cache.disposables.add(() => {
+                const onKeyDown = (e: KeyboardEvent): void => {
+                    if (e.keyCode !== 27) {
+                        return
+                    }
+                    if (values.hoverElement) {
+                        actions.setHoverElement(null)
+                    }
+                    if (values.selectedElement) {
+                        actions.setSelectedElement(null)
+                        return
+                    }
+                    if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
+                        heatmapToolbarMenuLogic.actions.disableHeatmap()
+                        return
+                    }
+                    if (values.inspectEnabled) {
+                        actions.disableInspect()
+                        return
+                    }
+                    if (values.heatmapEnabled) {
+                        heatmapToolbarMenuLogic.actions.disableHeatmap()
+                        return
+                    }
                 }
-                if (values.hoverElement) {
-                    actions.setHoverElement(null)
-                }
-                if (values.selectedElement) {
-                    actions.setSelectedElement(null)
-                    return
-                }
-                if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
-                    heatmapToolbarMenuLogic.actions.disableHeatmap()
-                    return
-                }
-                if (values.inspectEnabled) {
-                    actions.disableInspect()
-                    return
-                }
-                if (values.heatmapEnabled) {
-                    heatmapToolbarMenuLogic.actions.disableHeatmap()
-                    return
-                }
-            }
-            window.addEventListener('click', cache.onClick)
-            window.addEventListener('resize', cache.onScrollResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-            window.document.addEventListener('scroll', cache.onScrollResize, true)
+                window.addEventListener('keydown', onKeyDown)
+                return () => window.removeEventListener('keydown', onKeyDown)
+            }, 'keydownListener')
+
+            cache.disposables.add(() => {
+                window.document.addEventListener('scroll', onScrollResize, true)
+                return () => window.document.removeEventListener('scroll', onScrollResize, true)
+            }, 'scrollListener')
             cache.updateRelativePosition()
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('resize', cache.onScrollResize)
-            window.removeEventListener('keydown', cache.onKeyDown)
-            window.document.removeEventListener('scroll', cache.onScrollResize, true)
         },
     })),
 ])

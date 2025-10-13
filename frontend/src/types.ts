@@ -299,13 +299,16 @@ export type WithAccessControl = {
 export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
+    Action = 'action',
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Survey = 'survey',
     Experiment = 'experiment',
+    WebAnalytics = 'web_analytics',
 }
 
 interface UserBaseType {
@@ -342,6 +345,8 @@ export interface UserType extends UserBaseType {
         plugin_disabled: boolean
         project_weekly_digest_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
+        error_tracking_issue_assigned: boolean
+        discussions_mentioned: boolean
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -404,6 +409,8 @@ export interface NotificationSettings {
     plugin_disabled: boolean
     project_weekly_digest_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
+    error_tracking_issue_assigned: boolean
+    discussions_mentioned: boolean
 }
 
 export interface PluginAccess {
@@ -690,7 +697,7 @@ export interface ProductIntentType {
 // scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
 export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
 
-export interface ActionType {
+export interface ActionType extends WithAccessControl {
     count?: number
     created_at: string
     deleted?: boolean
@@ -3176,7 +3183,7 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
-export interface Survey {
+export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
     name: string
@@ -4334,6 +4341,7 @@ export const INTEGRATION_KINDS = [
     'clickup',
     'reddit-ads',
     'databricks',
+    'tiktok-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4536,6 +4544,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'web_analytics'
     | 'webhook'
     | 'warehouse_view'
     | 'warehouse_table'
@@ -4598,6 +4607,7 @@ export type AccessControlResponseType = {
     available_access_levels: AccessControlLevel[]
     user_access_level: AccessControlLevel
     default_access_level: AccessControlLevel
+    minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
 }
 
@@ -4679,6 +4689,8 @@ export type CommentType = {
     /** only on the type to support patching for soft delete */
     deleted?: boolean
 }
+
+export type CommentCreationParams = { mentions?: number[]; slug?: string }
 
 export interface DataWarehouseCredential {
     access_key: string
@@ -4804,11 +4816,14 @@ export type SchemaIncrementalFieldsResponse = {
     full_refresh_available: boolean
 }
 
+// numeric is snowflake specific and objectid is mongodb specific
+export type IncrementalFieldType = 'integer' | 'numeric' | 'datetime' | 'date' | 'timestamp' | 'objectid'
+
 export interface IncrementalField {
-    label: string
-    type: string
-    field: string
-    field_type: string
+    label: string // the field name shown in the UI
+    type: IncrementalFieldType // the field type shown in the UI
+    field: string // the actual database field name
+    field_type: IncrementalFieldType // the actual database field type
 }
 
 export interface ExternalDataSourceSyncSchema {
@@ -5254,6 +5269,13 @@ export type BillingTableTierRow = {
     total: string
     projectedTotal: string | ReactNode
     subrows: ProductPricingTierSubrows
+}
+
+export type BillingInvoiceItemRow = {
+    description: string
+    dateRange?: string
+    amount: string
+    isBold?: boolean
 }
 
 export type AvailableOnboardingProducts = Record<
@@ -5840,4 +5862,53 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Session Summaries
+export interface SessionSummaryResponse {
+    patterns: EnrichedSessionGroupSummaryPattern[]
+}
+
+export interface EnrichedSessionGroupSummaryPattern {
+    pattern_id: number
+    pattern_name: string
+    pattern_description: string
+    severity: 'low' | 'medium' | 'high' | 'critical'
+    indicators: string[]
+    events: PatternAssignedEventSegmentContext[]
+    stats: EnrichedSessionGroupSummaryPatternStats
+}
+
+export interface EnrichedSessionGroupSummaryPatternStats {
+    occurences: number
+    sessions_affected: number
+    sessions_affected_ratio: number
+    segments_success_ratio: number
+}
+
+export interface PatternAssignedEventSegmentContext {
+    segment_name: string
+    segment_outcome: string
+    segment_success: boolean
+    segment_index: number
+    previous_events_in_segment: EnrichedPatternAssignedEvent[]
+    target_event: EnrichedPatternAssignedEvent
+    next_events_in_segment: EnrichedPatternAssignedEvent[]
+}
+
+export interface EnrichedPatternAssignedEvent {
+    event_id: string
+    event_uuid: string
+    session_id: string
+    description: string
+    abandonment: boolean
+    confusion: boolean
+    exception: string | null
+    timestamp: string
+    milliseconds_since_start: number
+    window_id: string | null
+    current_url: string | null
+    event: string
+    event_type: string | null
+    event_index: number
 }
