@@ -17,7 +17,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc(%(hogql_val_3)s, start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc(%(hogql_val_3)s, start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff(%(hogql_val_4)s, toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -53,7 +53,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc(%(hogql_val_3)s, start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc(%(hogql_val_3)s, start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff(%(hogql_val_4)s, toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -101,7 +101,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc(%(hogql_val_3)s, start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc(%(hogql_val_3)s, start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff(%(hogql_val_4)s, toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -149,7 +149,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc(%(hogql_val_3)s, start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc(%(hogql_val_3)s, start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff(%(hogql_val_4)s, toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -185,7 +185,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc(%(hogql_val_3)s, start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc(%(hogql_val_3)s, start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff(%(hogql_val_4)s, toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -221,7 +221,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -261,7 +261,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -307,7 +307,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -347,7 +347,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -393,7 +393,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -433,7 +433,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -479,7 +479,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -519,7 +519,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -565,7 +565,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -605,7 +605,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -666,7 +666,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -706,7 +706,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -767,7 +767,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -807,7 +807,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -868,7 +868,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -908,7 +908,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -969,7 +969,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1009,7 +1009,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1055,7 +1055,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1095,7 +1095,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1141,7 +1141,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1181,7 +1181,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1227,7 +1227,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1267,7 +1267,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1313,7 +1313,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1356,7 +1356,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1399,7 +1399,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1442,7 +1442,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1485,7 +1485,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1534,7 +1534,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -1583,7 +1583,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(addDays(dateTrunc('DAY', start_time), 1), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
