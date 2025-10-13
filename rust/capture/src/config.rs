@@ -105,6 +105,10 @@ pub struct Config {
     // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
     pub verbose_sample_percent: f32,
+
+    // AI endpoint size limits
+    #[envconfig(default = "26214400")] // 25MB in bytes
+    pub ai_max_sum_of_parts_bytes: usize,
 }
 
 #[derive(Envconfig, Clone)]

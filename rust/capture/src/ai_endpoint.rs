@@ -31,7 +31,7 @@ pub struct AIEndpointResponse {
 }
 
 pub async fn ai_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
@@ -42,6 +42,9 @@ pub async fn ai_handler(
         warn!("AI endpoint received empty body");
         return Err(CaptureError::EmptyPayload);
     }
+
+    // Note: Request body size limit is enforced by Axum's DefaultBodyLimit layer
+    // (110% of ai_max_sum_of_parts_bytes to account for multipart overhead)
 
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers
@@ -91,7 +94,7 @@ pub async fn ai_handler(
     validate_token(token)?;
 
     // Parse multipart data and collect part information
-    let accepted_parts = parse_multipart_data(&decompressed_body, &boundary).await?;
+    let accepted_parts = parse_multipart_data(&decompressed_body, &boundary, state.ai_max_sum_of_parts_bytes).await?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and parsed successfully");
@@ -130,7 +133,7 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
 }
 
 /// Parse multipart data and validate structure
-async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInfo>, CaptureError> {
+async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_bytes: usize) -> Result<Vec<PartInfo>, CaptureError> {
     // Size limits
     const MAX_EVENT_SIZE: usize = 32 * 1024; // 32KB
     const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
@@ -151,6 +154,7 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
     let mut properties_json: Option<Value> = None;
     let mut event_size: usize = 0;
     let mut properties_size: usize = 0;
+    let mut sum_of_parts_bytes: usize = 0;
 
     // Parse each part
     while let Some(field) = multipart.next_field().await.map_err(|e| {
@@ -197,6 +201,9 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
             content_encoding,
         };
 
+        // Track sum of all part sizes
+        sum_of_parts_bytes += field_data.len();
+
         accepted_parts.push(part_info);
 
         // Check if this is the event JSON part
@@ -206,7 +213,7 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
 
             // Check event size limit
             if event_size > MAX_EVENT_SIZE {
-                return Err(CaptureError::RequestDecodingError(
+                return Err(CaptureError::EventTooBig(
                     format!("Event part size ({} bytes) exceeds maximum allowed size ({} bytes)",
                             event_size, MAX_EVENT_SIZE),
                 ));
@@ -262,9 +269,17 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
     // Check combined size limit
     let combined_size = event_size + properties_size;
     if combined_size > MAX_COMBINED_SIZE {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::EventTooBig(
             format!("Combined event and properties size ({} bytes) exceeds maximum allowed size ({} bytes)",
                     combined_size, MAX_COMBINED_SIZE),
+        ));
+    }
+
+    // Check sum of all parts limit
+    if sum_of_parts_bytes > max_sum_of_parts_bytes {
+        return Err(CaptureError::EventTooBig(
+            format!("Sum of all parts ({} bytes) exceeds maximum allowed size ({} bytes)",
+                    sum_of_parts_bytes, max_sum_of_parts_bytes),
         ));
     }
 

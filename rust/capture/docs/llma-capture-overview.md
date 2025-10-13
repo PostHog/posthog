@@ -424,10 +424,14 @@ The capture service enforces strict validation on incoming events:
    - Nested property paths are supported (e.g., `event.properties.nested.$ai_input`)
 
 5. **Size Limits**
-   - Maximum total payload size enforced for security (e.g., 100MB default)
-   - Limits can be configured per team to accommodate different use cases
-   - Event JSON payload has a separate maximum size limit
-   - Individual blob parts have maximum size limits
+   All size limit violations return 413 Payload Too Large:
+   - **Request body**: Maximum 27.5MB (110% of sum of all parts limit, enforced by Axum)
+     - Computed as 110% of `AI_MAX_SUM_OF_PARTS_BYTES` to account for multipart overhead
+     - This is the first check, applied before any request processing
+   - **Event part**: Maximum 32KB (enforced by handler)
+   - **Event + properties combined**: Maximum 960KB (1MB - 64KB, enforced by handler)
+   - **Sum of all parts** (event, properties, and all blobs): Maximum 25MB (default, configurable via `AI_MAX_SUM_OF_PARTS_BYTES`, enforced by handler)
+   - These limits are configurable via environment variables and can be adjusted per deployment
 
 6. **Strict Schema Validation**
    - Each `$ai_` event type has a strictly defined schema

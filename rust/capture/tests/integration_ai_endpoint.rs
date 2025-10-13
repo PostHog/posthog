@@ -135,6 +135,7 @@ fn setup_ai_test_router() -> Router {
         None,
         false,
         0.0_f32,
+        26_214_400, // 25MB default for AI endpoint
     )
 }
 
@@ -884,7 +885,7 @@ async fn test_properties_both_embedded_and_separate_returns_400() {
 // ----------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_event_exceeds_32kb_returns_400() {
+async fn test_event_exceeds_32kb_returns_413() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
@@ -907,11 +908,11 @@ async fn test_event_exceeds_32kb_returns_400() {
     );
 
     let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[tokio::test]
-async fn test_combined_event_properties_exceeds_960kb_returns_400() {
+async fn test_combined_event_properties_exceeds_960kb_returns_413() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
@@ -943,7 +944,94 @@ async fn test_combined_event_properties_exceeds_960kb_returns_400() {
         );
 
     let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_sum_of_all_parts_exceeds_25mb_returns_413() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    // Create a blob that, combined with event and properties, exceeds 25MB
+    // Event ~52 bytes + properties ~24 bytes + blob ~25MB = exceeds limit
+    let large_blob = vec![0u8; 25 * 1024 * 1024];
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input",
+            Part::bytes(large_blob)
+                .mime_str("application/octet-stream")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_request_body_exceeds_110_percent_limit_returns_413() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test"
+    });
+
+    // Create a blob that's just barely over 25MB
+    // This will result in a request body that exceeds 27.5MB (110% limit)
+    // once multipart overhead is added
+    let large_blob = vec![0u8; (25 * 1024 * 1024) + (3 * 1024 * 1024)]; // 28MB
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input",
+            Part::bytes(large_blob)
+                .mime_str("application/octet-stream")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+
+    // Axum's DefaultBodyLimit returns 413 Payload Too Large when the body exceeds the limit
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 // ----------------------------------------------------------------------------
