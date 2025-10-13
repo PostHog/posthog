@@ -270,7 +270,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'A catalog of all the people behind your events',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
-        description: 'A catalog of all the people behind your events',
         iconType: 'persons',
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
