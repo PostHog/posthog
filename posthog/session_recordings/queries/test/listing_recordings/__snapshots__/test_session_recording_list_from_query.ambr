@@ -267,13 +267,13 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
   ORDER BY start_time DESC
@@ -313,13 +313,13 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
   ORDER BY start_time DESC
@@ -359,13 +359,13 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
   ORDER BY start_time DESC
@@ -405,13 +405,13 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
   ORDER BY start_time DESC
@@ -451,13 +451,13 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
   ORDER BY start_time DESC
@@ -497,13 +497,13 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0)
   ORDER BY start_time DESC
@@ -4186,7 +4186,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -4196,7 +4195,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -4355,7 +4353,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -4365,7 +4362,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -4524,7 +4520,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -4534,7 +4529,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -4693,7 +4687,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -4703,7 +4696,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -11579,7 +11571,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -11589,7 +11580,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -11748,7 +11738,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -11758,7 +11747,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -11917,7 +11905,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -11927,7 +11914,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -12086,7 +12072,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -12096,7 +12081,6 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.2
   '''
-
   SELECT DISTINCT p.id
   FROM
     (SELECT *
