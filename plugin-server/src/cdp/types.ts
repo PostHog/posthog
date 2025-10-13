@@ -104,6 +104,24 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+
+    variables: HogFunctionInvocationGlobalVariables
+}
+
+/**
+ * A map of key value variables that persist across actions in a flow
+ * These variables can be used to store loop state or pass data between actions
+ *
+ * Action's can read and write to these variables. Any value stored in the variables
+ * map must be JSON serializable, and limited to 1KB in size.
+ *
+ * After execution, every action will have a corresponding entry in the map with
+ * the key `$action/{actionId}` containing the result of the action.
+ */
+export type HogFunctionInvocationGlobalVariables = {
+    version: 1
+} & {
+    [key: string]: { result: any; error?: any }
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {

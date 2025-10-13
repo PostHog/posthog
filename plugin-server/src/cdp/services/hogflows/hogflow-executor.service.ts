@@ -154,9 +154,16 @@ export class HogFlowExecutorService {
                 }
             }
 
+            // Telemetry - we accumulate all logs and metrics from each action execution
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            if (nextInvocation.state.currentAction) {
+                result.invocation.state.globals[`$action/${nextInvocation.state.currentAction.id}`] = {
+                    result: result.execResult,
+                    error: result.error,
+                }
+            }
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
