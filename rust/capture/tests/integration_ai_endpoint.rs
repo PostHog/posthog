@@ -877,3 +877,70 @@ async fn test_properties_both_embedded_and_separate_returns_400() {
     let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// ----------------------------------------------------------------------------
+// Size Limit Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_event_exceeds_32kb_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    // Create event with large properties that exceed 32KB
+    let large_value = "x".repeat(33 * 1024);
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "properties": {
+            "$ai_model": "test",
+            "large_field": large_value
+        }
+    });
+
+    let form = Form::new().part(
+        "event",
+        Part::bytes(serde_json::to_vec(&event_data).unwrap())
+            .mime_str("application/json")
+            .unwrap(),
+    );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_combined_event_properties_exceeds_960kb_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    // Create event and properties that together exceed 960KB
+    // 961KB to ensure we exceed the limit
+    let large_value = "x".repeat(961 * 1024);
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test",
+        "large_field": large_value
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

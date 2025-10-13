@@ -102,6 +102,10 @@ pub async fn options() -> Result<CaptureResponse, CaptureError> {
 
 /// Parse multipart data and validate structure
 async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInfo>, CaptureError> {
+    // Size limits
+    const MAX_EVENT_SIZE: usize = 32 * 1024; // 32KB
+    const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
+
     // Create a stream from the body data - need to own the data
     let body_owned = body.to_vec();
     let body_stream = stream::once(async move { Ok::<Vec<u8>, std::io::Error>(body_owned) });
@@ -116,6 +120,8 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
     let mut seen_property_names = HashSet::new();
     let mut event_json: Option<Value> = None;
     let mut properties_json: Option<Value> = None;
+    let mut event_size: usize = 0;
+    let mut properties_size: usize = 0;
 
     // Parse each part
     while let Some(field) = multipart.next_field().await.map_err(|e| {
@@ -167,6 +173,15 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
         // Check if this is the event JSON part
         if field_name == "event" {
             has_event_part = true;
+            event_size = field_data.len();
+
+            // Check event size limit
+            if event_size > MAX_EVENT_SIZE {
+                return Err(CaptureError::RequestDecodingError(
+                    format!("Event part size ({} bytes) exceeds maximum allowed size ({} bytes)",
+                            event_size, MAX_EVENT_SIZE),
+                ));
+            }
 
             // Parse the event JSON (without validating properties yet)
             let event_json_str = std::str::from_utf8(&field_data).map_err(|e| {
@@ -181,6 +196,8 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
 
             debug!("Event part parsed successfully");
         } else if field_name == "event.properties" {
+            properties_size = field_data.len();
+
             // Parse the properties JSON
             let properties_json_str = std::str::from_utf8(&field_data).map_err(|e| {
                 warn!("Properties part is not valid UTF-8: {}", e);
@@ -210,6 +227,15 @@ async fn parse_multipart_data(body: &[u8], boundary: &str) -> Result<Vec<PartInf
     if !has_event_part {
         return Err(CaptureError::RequestDecodingError(
             "Missing required 'event' part in multipart data".to_string(),
+        ));
+    }
+
+    // Check combined size limit
+    let combined_size = event_size + properties_size;
+    if combined_size > MAX_COMBINED_SIZE {
+        return Err(CaptureError::RequestDecodingError(
+            format!("Combined event and properties size ({} bytes) exceeds maximum allowed size ({} bytes)",
+                    combined_size, MAX_COMBINED_SIZE),
         ));
     }
 
