@@ -51,7 +51,7 @@ The assistant did not use the read_taxonomy tool because it is an informational 
 
 
 class ReadEvents(BaseModel):
-    """Returns the list of available events."""
+    """Returns the list of available events. Events are sorted by their popularity where the most popular events are at the top."""
 
     kind: Literal["events"] = "events"
 
