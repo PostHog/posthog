@@ -336,15 +336,22 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
-        category: 'Definitions',
+        category: 'Schema',
         iconType: 'event_definition',
         href: urls.eventDefinitions(),
     },
     {
         path: 'Property definitions',
-        category: 'Definitions',
+        category: 'Schema',
         iconType: 'property_definition',
         href: urls.propertyDefinitions(),
+    },
+    {
+        path: 'Property groups',
+        category: 'Schema',
+        iconType: 'event_definition',
+        href: urls.schemaManagement(),
+        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     {
         path: 'Annotations',
