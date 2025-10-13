@@ -1782,4 +1782,99 @@ mod tests {
             "acme-corp"
         );
     }
+
+    #[test]
+    fn test_job_id_in_amplitude_event() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::sync::Arc;
+
+        let test_job_id = Uuid::now_v7();
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        assert_eq!(result.len(), 1);
+
+        let data: RawEvent = serde_json::from_str(&result[0].inner.data).unwrap();
+        assert_eq!(
+            data.properties.get("$import_job_id"),
+            Some(&json!(test_job_id.to_string()))
+        );
+    }
+
+    #[test]
+    fn test_job_id_in_group_identify_event() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let test_job_id = Uuid::now_v7();
+
+        let mut groups = HashMap::new();
+        groups.insert("company".to_string(), vec!["acme-corp".to_string()]);
+
+        let mut group_properties = HashMap::new();
+        let mut company_props = HashMap::new();
+        company_props.insert("acme-corp".to_string(), {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), json!("Acme Corporation"));
+            props
+        });
+        group_properties.insert("company".to_string(), company_props);
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            groups,
+            group_properties,
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        let group_identify_data: serde_json::Value =
+            serde_json::from_str(&result[0].inner.data).unwrap();
+        assert_eq!(group_identify_data["event"], "$groupidentify");
+        assert_eq!(
+            group_identify_data["properties"]["$import_job_id"],
+            json!(test_job_id.to_string())
+        );
+
+        let original_data: serde_json::Value = serde_json::from_str(&result[1].inner.data).unwrap();
+        assert_eq!(
+            original_data["properties"]["$import_job_id"],
+            json!(test_job_id.to_string())
+        );
+    }
 }
