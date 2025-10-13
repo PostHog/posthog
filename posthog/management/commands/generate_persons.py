@@ -2,7 +2,7 @@ import random
 from typing import Any
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import router, transaction
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
@@ -63,8 +63,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Generating {count} persons for team: {team.name}"))
 
         # Generate persons
+        # Use the correct database for Person writes (handles persons_db_writer routing in production)
+        db_alias = router.db_for_write(Person) or "default"
         persons_created = 0
-        with transaction.atomic():
+        with transaction.atomic(using=db_alias):
             for i in range(count):
                 person_data = self._generate_person_data(i, identified_ratio)
 

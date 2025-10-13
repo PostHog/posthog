@@ -14,16 +14,15 @@ import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
-    // TODO: Re-enable email action once we have full SES support
-    // {
-    //     type: 'function_email',
-    //     name: 'Email',
-    //     description: 'Send an email to the user.',
-    //     config: {
-    //         template_id: 'template-email',
-    //         inputs: {},
-    //     },
-    // },
+    {
+        type: 'function_email',
+        name: 'Email',
+        description: 'Send an email to the user.',
+        config: {
+            template_id: 'template-email',
+            inputs: {},
+        },
+    },
     {
         type: 'function_sms',
         name: 'SMS',

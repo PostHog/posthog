@@ -7,7 +7,10 @@ use crate::{
     config::Config,
     error::UnhandledError,
     frames::FrameId,
-    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES},
+    metric_consts::{
+        FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
+        SUSPICIOUS_FRAMES_DETECTED,
+    },
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
@@ -73,6 +76,14 @@ impl Resolver {
         );
 
         record.save(pool).await?;
+
+        if frame.is_suspicious() {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
+        }
+
+        if resolved.suspicious {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved").increment(1);
+        }
 
         self.cache.insert(frame.frame_id(team_id), record);
         Ok(resolved)
