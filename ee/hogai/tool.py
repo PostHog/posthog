@@ -160,4 +160,4 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        raise NotImplementedError
+        return cls(team=team, user=user, state=state, config=config)

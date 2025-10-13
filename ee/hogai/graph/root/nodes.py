@@ -244,8 +244,8 @@ class RootNode(AssistantNode):
 
         # Initialize the static toolkit
         dynamic_tools = (
-            initialize_tool(tool, team=self._team, user=self._user, state=state, config=config)
-            for tool in (
+            tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+            for tool_class in (
                 ReadTaxonomyTool,
                 ReadDataTool,
                 SearchTool,
@@ -275,7 +275,7 @@ class RootNode(AssistantNode):
             if ContextualMaxToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             awaited_contextual_tools.append(
-                initialize_tool(ContextualMaxToolClass, team=self._team, user=self._user, state=state, config=config)
+                ContextualMaxToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
             )
 
         available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
@@ -351,7 +351,7 @@ class RootNodeTools(AssistantNode):
             # when the tool has been removed from the backend since the user's frontend was loaded
             try:
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[tool_call.name]  # type: ignore
-                tool = await initialize_tool(ToolClass, team=self._team, user=self._user)
+                tool = await ToolClass.create_tool_class(team=self._team, user=self._user)
                 content = tool.thinking_message
             except KeyError:
                 content = f"Running tool {tool_call.name}"
@@ -419,7 +419,7 @@ class RootNodeTools(AssistantNode):
             )
 
         # Initialize the tool and process it
-        tool_class = await initialize_tool(ToolClass, team=self._team, user=self._user, state=state, config=config)
+        tool_class = await ToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
         try:
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
@@ -506,22 +506,3 @@ class RootNodeTools(AssistantNode):
             else:
                 return "search_documentation"
         return "end"  # If last message is an AssistantToolCallMessage, frontend will restart after tool applied
-
-
-ToolClass = TypeVar("ToolClass", bound="MaxTool")
-
-
-async def initialize_tool(
-    tool_class: type[ToolClass],
-    *,
-    team: Team,
-    user: User,
-    state: AssistantState | None = None,
-    config: RunnableConfig | None = None,
-) -> ToolClass:
-    try:
-        if hasattr(tool_class, "create_tool_class"):
-            return await tool_class.create_tool_class(team=team, user=user, state=state, config=config)
-    except NotImplementedError:
-        pass
-    return tool_class(team=team, user=user, state=state, config=config)
