@@ -344,7 +344,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
                                           ? 'Fix release condition errors'
-                                          : !areVariantRolloutsValid
+                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                                              !areVariantRolloutsValid
                                             ? `Percentage rollouts for variants must sum to 100 (currently ${variantRolloutSum}).`
                                             : undefined
                                 }
