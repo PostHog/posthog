@@ -136,7 +136,7 @@ class SessionReplayEvents:
         )
         if not result:
             return []
-        sessions_found: list[tuple[str, datetime, datetime]] = [tuple(row) for row in result]
+        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result]
         return sessions_found
 
     @staticmethod
@@ -315,7 +315,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
-                max(retention_period_days),
+                max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
@@ -469,7 +469,7 @@ class SessionReplayEvents:
         query = """
                 SELECT
                     session_id,
-                    max(retention_period_days),
+                    max(retention_period_days) as retention_period_days,
                     dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
                 FROM
                     session_replay_events
