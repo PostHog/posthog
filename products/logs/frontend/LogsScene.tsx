@@ -55,9 +55,9 @@ export function LogsScene(): JSX.Element {
             />
             <SceneDivider />
             <Filters />
-            <div className="relative h-48 flex flex-col">
+            <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
-                    <Sparkline labels={sparklineData.labels} data={sparklineData.data} className="w-full" />
+                    <Sparkline labels={sparklineData.labels} data={sparklineData.data} className="w-full flex-1" />
                 ) : !sparklineLoading ? (
                     <div className="flex-1text-muted text-center">No data</div>
                 ) : null}
