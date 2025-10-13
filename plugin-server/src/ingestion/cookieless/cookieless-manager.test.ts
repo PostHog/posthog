@@ -13,6 +13,7 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
+import { isOkResult } from '../pipelines/results'
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
@@ -279,25 +280,44 @@ describe('CookielessManager', () => {
 
         async function processEvent(
             event: PipelineEvent,
-            headers: { token?: string; distinct_id?: string; timestamp?: string } = {}
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            } = { force_disable_person_processing: false }
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
-            expect(response.length).toBeLessThanOrEqual(1)
-            return response[0]?.event
+            expect(response.length).toBe(1)
+            const result = response[0]
+            return isOkResult(result) ? result.value.event : undefined
         }
 
         async function processEventWithHeaders(
             event: PipelineEvent,
-            headers: { token?: string; distinct_id?: string; timestamp?: string }
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            }
         ): Promise<{
             event: PipelineEvent | undefined
-            headers: { token?: string; distinct_id?: string; timestamp?: string }
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            }
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
-            expect(response.length).toBeLessThanOrEqual(1)
+            expect(response.length).toBe(1)
+            const result = response[0]
             return {
-                event: response[0]?.event,
-                headers: response[0]?.headers || {},
+                event: isOkResult(result) ? result.value.event : undefined,
+                headers: isOkResult(result)
+                    ? result.value.headers || { force_disable_person_processing: false }
+                    : { force_disable_person_processing: false },
             }
         }
 
@@ -398,6 +418,7 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(event, testHeaders)
@@ -411,6 +432,7 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
@@ -424,6 +446,7 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 // Test with alias event which should be dropped
@@ -431,7 +454,7 @@ describe('CookielessManager', () => {
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({})
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
             })
         })
 
@@ -567,19 +590,21 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({})
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
             })
             it('should preserve headers when passing through non-cookieless events', async () => {
                 const testHeaders = {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)

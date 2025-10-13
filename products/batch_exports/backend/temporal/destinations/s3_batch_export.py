@@ -24,7 +24,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, S3BatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
@@ -37,9 +37,16 @@ from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorde
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ParquetStreamTransformer,
+    get_json_stream_transformer,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
@@ -77,7 +84,7 @@ SUPPORTED_COMPRESSIONS = {
 }
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class UnsupportedFileFormatError(Exception):
@@ -128,9 +135,10 @@ def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
 
 def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     template_variables = get_allowed_template_variables(inputs)
+
     try:
         return inputs.prefix.format(**template_variables)
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         EXTERNAL_LOGGER.warning(
             f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
         )
@@ -283,7 +291,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
         except OverBillingLimitError:
@@ -397,16 +405,24 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
+        json_columns = ("properties", "person_properties", "set", "set_once")
+        if inputs.file_format.lower() == "jsonlines":
+            transformer = get_json_stream_transformer(compression=inputs.compression, include_inserted_at=True)
+        else:
+            transformer = ParquetStreamTransformer(
+                schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=json_columns),
+                compression=inputs.compression,
+                include_inserted_at=True,
+            )
+
         return await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
+            transformer=transformer,
             schema=record_batch_schema,
-            file_format=inputs.file_format,
-            compression=inputs.compression,
-            include_inserted_at=True,
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-            json_columns=("properties", "person_properties", "set", "set_once"),
+            json_columns=json_columns,
         )
 
 

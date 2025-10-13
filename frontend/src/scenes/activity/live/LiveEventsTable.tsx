@@ -4,11 +4,9 @@ import { useActions, useValues } from 'kea'
 import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -80,11 +78,9 @@ const columns: LemonTableColumns<LiveEvent> = [
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
                 tabs={[
@@ -99,7 +95,7 @@ export function LiveEventsTable(): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
             <SceneTitleSection
                 name="Live events"

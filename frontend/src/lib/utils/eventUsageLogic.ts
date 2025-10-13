@@ -37,7 +37,6 @@ import {
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
-    AccessLevel,
     CohortType,
     DashboardMode,
     DashboardTile,
@@ -54,7 +53,6 @@ import {
     MultipleSurveyQuestion,
     PersonType,
     QueryBasedInsightModel,
-    Resource,
     type SDK,
     Survey,
     SurveyQuestionType,
@@ -563,16 +561,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportBillingDowngradeClicked: (plan: string) => ({ plan }),
+        reportBillingAddonPlanSwitchStarted: (
+            fromProduct: string,
+            toProduct: string,
+            reason: 'upgrade' | 'downgrade'
+        ) => ({
+            fromProduct,
+            toProduct,
+            reason,
+        }),
         reportRoleCreated: (role: string) => ({ role }),
-        reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
-            resourceType,
-            roleName,
-            accessLevel,
-        }),
-        reportRoleCustomAddedToAResource: (resourceType: Resource, rolesLength: number) => ({
-            resourceType,
-            rolesLength,
-        }),
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
             optionType,
         }),
@@ -1253,6 +1251,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingDowngradeClicked: ({ plan }) => {
             posthog.capture('billing downgrade button clicked', {
                 plan,
+            })
+        },
+        reportBillingAddonPlanSwitchStarted: ({ fromProduct, toProduct, reason }) => {
+            const eventName =
+                reason === 'upgrade'
+                    ? 'billing addon subscription upgrade clicked'
+                    : 'billing addon subscription downgrade clicked'
+            posthog.capture(eventName, {
+                from_product: fromProduct,
+                to_product: toProduct,
             })
         },
         reportRoleCreated: ({ role }) => {

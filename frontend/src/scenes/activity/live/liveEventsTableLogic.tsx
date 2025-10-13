@@ -3,13 +3,11 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb, LiveEvent } from '~/types'
 
@@ -123,20 +121,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.featureFlags],
-            (featureFlags): Breadcrumb[] => [
-                ...(featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-                    ? []
-                    : [
-                          {
-                              key: 'Activity',
-                              name: `Activity`,
-                              path: urls.activity(),
-                          },
-                      ]),
+            () => [],
+            (): Breadcrumb[] => [
                 {
                     key: Scene.LiveEvents,
                     name: 'Live',
+                    iconType: 'dashboard',
                 },
             ],
         ],
@@ -220,9 +210,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             } finally {
-                cache.statsTimer = setTimeout(() => {
-                    actions.pollStats()
-                }, 1500)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.pollStats()
+                    }, 1500)
+                    return () => clearTimeout(timerId)
+                }, 'statsTimer')
             }
         },
         addEvents: ({ events }) => {
@@ -245,9 +238,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         beforeUnmount: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
-            }
-            if (cache.statsTimer) {
-                clearTimeout(cache.statsTimer)
             }
         },
     })),

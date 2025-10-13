@@ -241,6 +241,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                         <LemonInput
                             placeholder={name}
                             className="flex-1"
+                            value={invitesToSend[index].first_name}
                             onChange={(v) => {
                                 updateInviteAtIndex({ first_name: v }, index)
                             }}

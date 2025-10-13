@@ -9,7 +9,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -20,7 +19,6 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -50,6 +48,7 @@ import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -79,6 +78,23 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                 }
                 return null
             })}
+        </div>
+    )
+}
+
+const MarketingTiles = (props: { tiles?: QueryTile[]; compact?: boolean }): JSX.Element => {
+    const { tiles, compact = false } = props
+
+    return (
+        <div
+            className={clsx(
+                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+            )}
+        >
+            {tiles?.map((tile, i) => (
+                <QueryTileItem key={i} tile={tile} />
+            ))}
         </div>
     )
 }
@@ -139,6 +155,8 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
 
             <WebQuery
+                attachTo={webAnalyticsLogic}
+                uniqueKey={`WebAnalytics.${tile.tileId}`}
                 query={query}
                 insightProps={insightProps}
                 control={control}
@@ -173,6 +191,8 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 id: tab.id,
                 content: (
                     <WebQuery
+                        attachTo={webAnalyticsLogic}
+                        uniqueKey={`WebAnalytics.${tile.tileId}.${tab.id}`}
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
@@ -410,6 +430,7 @@ const MainContent = (): JSX.Element => {
 const MarketingDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
 
     const feedbackBanner = (
         <LemonBanner
@@ -450,8 +471,8 @@ const MarketingDashboard = (): JSX.Element => {
             />
         )
     } else {
-        // if the user has sources configured and the feature flag is enabled, show the tiles
-        component = <Tiles />
+        // if the user has sources configured and the feature flag is enabled, show the marketing tiles
+        component = <MarketingTiles tiles={marketingTiles} />
     }
 
     return (
@@ -527,7 +548,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <LemonTabs<ProductTab>
@@ -539,10 +559,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...pageReportsTab(featureFlags),
                 ...marketingTab(featureFlags),
             ]}
-            sceneInset={newSceneLayout}
-            className={cn({
-                '-mt-4': newSceneLayout,
-            })}
+            sceneInset
+            className="-mt-4"
         />
     )
 }

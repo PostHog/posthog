@@ -556,9 +556,9 @@ class TestPasswordResetAPI(APIBaseTest):
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"},
-                    response.json(),
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -576,9 +576,9 @@ class TestPasswordResetAPI(APIBaseTest):
                 else:
                     # Fourth request should fail
                     self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                    self.assertDictContainsSubset(
-                        {"attr": None, "code": "throttled", "type": "throttled_error"},
-                        response.json(),
+                    self.assertLessEqual(
+                        {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                        response.json().items(),
                     )
 
     # Token validation
@@ -586,7 +586,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_can_validate_token(self):
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode(), "")
         self.assertEqual(response.headers["Content-Length"], "0")
 
@@ -639,13 +639,12 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(response.content.decode(), "")
-
-        # assert the user gets logged in automatically
-        response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.CONFIG_EMAIL)
+        self.assertEqual(response.content.decode(), f'{{"success":true,"email":"{self.user.email}"}}')
+
+        # assert the user DOES NOT get logged in automatically
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # check password was changed
         self.user.refresh_from_db()
@@ -793,14 +792,14 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_e2e_test_special_handlers(self):
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         with self.settings(E2E_TESTING=True):
             response = self.client.post(
                 "/api/reset/e2e_test_user/",
                 {"token": "e2e_test_token", "password": "a12345678"},
             )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestPersonalAPIKeyAuthentication(APIBaseTest):

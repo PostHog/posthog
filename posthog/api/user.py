@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.contrib.auth import login, update_session_auth_hash
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -52,7 +52,8 @@ from posthog.auth import (
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
+from posthog.event_usage import report_user_deleted_account, report_user_updated, report_user_verified_email
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
@@ -443,6 +444,10 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
+    def perform_destroy(self, user: User) -> None:
+        report_user_deleted_account(user)
+        super().perform_destroy(user)
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
@@ -477,8 +482,6 @@ class UserViewSet(
         user.save()
         report_user_verified_email(user)
 
-        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
-        report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
     @action(
@@ -583,6 +586,7 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+        set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
 

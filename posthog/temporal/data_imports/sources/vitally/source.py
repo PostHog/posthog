@@ -77,14 +77,15 @@ class VitallySource(BaseSource[VitallySourceConfig]):
             partition_mode="datetime",
             partition_format="month",
             partition_keys=["created_at"],
-            sort_mode="desc",
+            sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
-            caption="",
+            iconPath="/static/services/vitally.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/vitally",
             fields=cast(
                 list[FieldType],
                 [

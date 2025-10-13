@@ -1,27 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
-import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { HogFunctionTypeType, ProductKey } from '~/types'
 
-import { DataPipelinesNewSceneKind } from './DataPipelinesNewScene'
+import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 export type DataPipelinesHogFunctionsProps = {
     kind: HogFunctionTypeType
     additionalKinds?: HogFunctionTypeType[]
+    action?: JSX.Element
 }
 
 export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; description: string }>> = {
@@ -40,7 +37,11 @@ export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; des
     },
 }
 
-export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelinesHogFunctionsProps): JSX.Element {
+export function DataPipelinesHogFunctions({
+    kind,
+    additionalKinds,
+    action,
+}: DataPipelinesHogFunctionsProps): JSX.Element {
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
@@ -53,6 +54,8 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
         useActions(nonHogFunctionsLogic)
 
+    const { hogFunctionTemplatesBatchExports } = useValues(nonHogFunctionTemplatesLogic)
+
     useEffect(() => {
         if (kind === 'destination') {
             loadHogFunctionPluginsDestinations()
@@ -64,22 +67,10 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
         }
     }, [kind]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const newButton = (
-        <LemonButton
-            to={urls.dataPipelinesNew(kind as DataPipelinesNewSceneKind)}
-            type="primary"
-            icon={<IconPlusSmall />}
-            size="small"
-        >
-            New {humanizedKind}
-        </LemonButton>
-    )
-
     const productInfoMapping = MAPPING[kind]
 
     return (
-        <div className="flex flex-col gap-4">
-            <PageHeader buttons={newButton} />
+        <SceneContent>
             {productInfoMapping ? (
                 <ProductIntroduction
                     productName={`Pipeline ${humanizedKind}s`}
@@ -87,7 +78,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                     productKey={productInfoMapping.key}
                     description={productInfoMapping.description}
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={newButton}
+                    actionElementOverride={action}
                     isEmpty={hogFunctions.length === 0 && !loading}
                 />
             ) : null}
@@ -107,8 +98,13 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
             </SceneSection>
             <SceneDivider />
             <SceneSection title={`Create a new ${humanizedKind}`}>
-                <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} hideComingSoonByDefault />
+                <HogFunctionTemplateList
+                    type={kind}
+                    additionalTypes={additionalKinds}
+                    manualTemplates={kind === 'destination' ? hogFunctionTemplatesBatchExports : undefined}
+                    hideComingSoonByDefault
+                />
             </SceneSection>
-        </div>
+        </SceneContent>
     )
 }

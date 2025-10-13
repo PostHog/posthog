@@ -1,6 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
@@ -8,12 +7,10 @@ import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } fr
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -24,22 +21,20 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
-import { QueryTabs } from './QueryTabs'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
-import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
+    tabId: string
 }
 
-export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): JSX.Element {
+    const codeEditorKey = `hogql-editor-${tabId}`
 
     const {
-        allTabs,
-        activeModelUri,
+        activeTab,
         queryInput,
         editingView,
         editingInsight,
@@ -50,35 +45,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         currentDraft,
         changesToSave,
         inProgressViewEdits,
-        activeTab,
     } = useValues(multitabEditorLogic)
 
-    const { activePanelIdentifier, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { activePanelIdentifier } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
-    const {
-        renameTab,
-        selectTab,
-        deleteTab,
-        createTab,
-        setQueryInput,
-        runQuery,
-        setError,
-        setMetadata,
-        setMetadataLoading,
-        saveAsView,
-        saveDraft,
-        updateView,
-    } = useActions(multitabEditorLogic)
+    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
+        useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { sidebarWidth } = useValues(editorSizingLogic)
-    const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -97,52 +76,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const isMaterializedView = editingView?.is_materialized === true
 
-    const renderSidebarButton = (): JSX.Element => {
-        if (activePanelIdentifier !== 'Database') {
-            return (
-                <LemonButton
-                    onClick={() => setActivePanelIdentifier('Database')}
-                    className="rounded-none"
-                    icon={<IconSidebarClose />}
-                    type="tertiary"
-                    size="small"
-                />
-            )
-        }
-
-        if (sidebarWidth === 0) {
-            return (
-                <LemonButton
-                    onClick={() => resetDefaultSidebarWidth()}
-                    className="rounded-none"
-                    icon={<IconSidebarClose />}
-                    type="tertiary"
-                    size="small"
-                />
-            )
-        }
-
-        return <></>
-    }
-
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div
-                className={cn(
-                    'flex flex-row overflow-x-auto z-[var(--z-top-navigation)]',
-                    newSceneLayout && activePanelIdentifier !== 'Database' && !isLayoutPanelVisible && 'rounded-tl'
-                )}
-            >
-                {renderSidebarButton()}
-                <QueryTabs
-                    models={allTabs}
-                    onClick={selectTab}
-                    onClear={deleteTab}
-                    onAdd={createTab}
-                    onRename={renameTab}
-                    activeModelUri={activeModelUri}
-                />
-            </div>
             {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
@@ -162,6 +97,17 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
+                {activePanelIdentifier !== 'Database' ? (
+                    <LemonButton
+                        onClick={() => setActivePanelIdentifier('Database')}
+                        className="rounded-none"
+                        icon={<IconSidebarClose />}
+                        type="tertiary"
+                        size="xsmall"
+                    >
+                        Data warehouse
+                    </LemonButton>
+                ) : null}
                 <RunButton />
                 <LemonDivider vertical />
                 {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
@@ -175,7 +121,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     saveOrUpdateDraft(
                                         {
                                             kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
+                                            query: queryInput ?? '',
                                         },
                                         editingView.id,
                                         currentDraft?.id || undefined,
@@ -185,7 +131,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     saveOrUpdateDraft(
                                         {
                                             kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
+                                            query: queryInput ?? '',
                                         },
                                         undefined,
                                         currentDraft?.id || undefined,
@@ -208,7 +154,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                             id: editingView.id,
                                             query: {
                                                 ...sourceQuery.source,
-                                                query: queryInput,
+                                                query: queryInput ?? '',
                                             },
                                             name: editingView.name,
                                             types: response && 'types' in response ? (response?.types ?? []) : [],
@@ -232,7 +178,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
-                {editingView && !isDraft && activeModelUri && (
+                {editingView && !isDraft && activeTab && (
                     <>
                         {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
                             <LemonButton
@@ -240,7 +186,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 size="xsmall"
                                 id="sql-editor-query-window-save-draft"
                                 onClick={() => {
-                                    saveDraft(activeModelUri, queryInput, editingView.id)
+                                    saveDraft(activeTab, queryInput ?? '', editingView.id)
                                 }}
                             >
                                 Save draft
@@ -252,7 +198,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     id: editingView.id,
                                     query: {
                                         ...sourceQuery.source,
-                                        query: queryInput,
+                                        query: queryInput ?? '',
                                     },
                                     types: response && 'types' in response ? (response?.types ?? []) : [],
                                     shouldRematerialize: isMaterializedView,
@@ -299,8 +245,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
             </div>
             <QueryPane
-                originalValue={originalQueryInput}
-                queryInput={suggestedQueryInput}
+                originalValue={originalQueryInput ?? ''}
+                queryInput={(suggestedQueryInput || queryInput) ?? ''}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
@@ -330,7 +276,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     },
                 }}
             />
-            <InternalQueryWindow />
+            <InternalQueryWindow tabId={tabId} />
             <QueryHistoryModal />
         </div>
     )
@@ -349,7 +295,7 @@ function RunButton(): JSX.Element {
             return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || isUsingIndices || queryInput.trim().length === 0) {
+        if (!metadata || isUsingIndices || queryInput?.trim().length === 0) {
             return ['var(--success)', 'New changes to run']
         }
 
@@ -380,13 +326,13 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow(): JSX.Element | null {
-    const { cacheLoading } = useValues(multitabEditorLogic)
+function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+    const { finishedLoading } = useValues(multitabEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
-    if (cacheLoading) {
+    if (finishedLoading) {
         return null
     }
 
-    return <OutputPane />
+    return <OutputPane tabId={tabId} />
 }

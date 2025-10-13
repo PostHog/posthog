@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -9,12 +9,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
-import { type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -33,12 +34,30 @@ export interface ExperimentsFilters {
     order?: string
 }
 
+export interface FeatureFlagModalFilters {
+    active?: string
+    created_by_id?: number
+    search?: string
+    order?: string
+    page?: number
+    evaluation_runtime?: string
+}
+
 const DEFAULT_FILTERS: ExperimentsFilters = {
     search: undefined,
     status: 'all',
     created_by_id: undefined,
     page: 1,
     order: undefined,
+}
+
+const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
+    active: undefined,
+    created_by_id: undefined,
+    search: undefined,
+    order: undefined,
+    page: 1,
+    evaluation_runtime: undefined,
 }
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
@@ -80,6 +99,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
     actions({
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
         setExperimentsFilters: (filters: Partial<ExperimentsFilters>, replace?: boolean) => ({ filters, replace }),
+        setFeatureFlagModalFilters: (filters: Partial<FeatureFlagModalFilters>, replace?: boolean) => ({
+            filters,
+            replace,
+        }),
+        resetFeatureFlagModalFilters: true,
     }),
     reducers({
         filters: [
@@ -91,6 +115,18 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                     return { ...state, ...filters }
                 },
+            },
+        ],
+        featureFlagModalFilters: [
+            DEFAULT_MODAL_FILTERS,
+            {
+                setFeatureFlagModalFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                },
+                resetFeatureFlagModalFilters: () => DEFAULT_MODAL_FILTERS,
             },
         ],
         tab: [
@@ -107,6 +143,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
              */
             await breakpoint(300)
             actions.loadExperiments()
+        },
+        setFeatureFlagModalFilters: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadFeatureFlagModalFeatureFlags()
+        },
+        resetFeatureFlagModalFilters: () => {
+            actions.loadFeatureFlagModalFeatureFlags()
         },
     })),
     loaders(({ values }) => ({
@@ -163,6 +206,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 },
             },
         ],
+        featureFlagModalFeatureFlags: [
+            { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
+            {
+                loadFeatureFlagModalFeatureFlags: async () => {
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
+                            ...values.featureFlagModalParamsFromFilters,
+                        })}`
+                    )
+                    return response
+                },
+            },
+        ],
     })),
     selectors(() => ({
         count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
@@ -174,6 +230,51 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 offset: filters.page ? (filters.page - 1) * EXPERIMENTS_PER_PAGE : 0,
                 archived: tab === ExperimentsTabs.Archived,
             }),
+        ],
+        featureFlagModalParamsFromFilters: [
+            (s) => [s.featureFlagModalFilters],
+            (filters: FeatureFlagModalFilters) => ({
+                ...filters,
+                limit: FLAGS_PER_PAGE,
+                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+            }),
+        ],
+        featureFlagModalPageFromURL: [
+            () => [router.selectors.searchParams],
+            (searchParams) => {
+                return parseInt(searchParams['ff_page']) || 1
+            },
+        ],
+        featureFlagModalPagination: [
+            (s) => [s.featureFlagModalFilters, s.featureFlagModalFeatureFlags, s.featureFlagModalPageFromURL],
+            (filters, featureFlags, urlPage): PaginationManual => {
+                const currentPage = Math.max(filters.page || 1, urlPage)
+
+                const hasNextPage = featureFlags.count > currentPage * FLAGS_PER_PAGE
+                const hasPreviousPage = currentPage > 1
+                const needsPagination = featureFlags.count > FLAGS_PER_PAGE
+
+                return {
+                    controlled: true,
+                    pageSize: FLAGS_PER_PAGE,
+                    currentPage,
+                    entryCount: featureFlags.count,
+                    onForward:
+                        needsPagination && hasNextPage
+                            ? () => {
+                                  experimentsLogic.actions.setFeatureFlagModalFilters({ page: currentPage + 1 })
+                              }
+                            : undefined,
+                    onBackward:
+                        needsPagination && hasPreviousPage
+                            ? () => {
+                                  experimentsLogic.actions.setFeatureFlagModalFilters({
+                                      page: Math.max(1, currentPage - 1),
+                                  })
+                              }
+                            : undefined,
+                }
+            },
         ],
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
@@ -207,11 +308,34 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadExperiments()
-        },
-    })),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'experiments',
+                    name: 'Experiments',
+                    iconType: 'experiment',
+                },
+            ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.EXPERIMENT,
+            }),
+        ],
+    }),
+    afterMount(({ actions, values }) => {
+        actions.loadExperiments()
+        // Sync modal page with URL on mount
+        const urlPage = values.featureFlagModalPageFromURL
+        if (urlPage !== 1) {
+            actions.setFeatureFlagModalFilters({ page: urlPage })
+        } else {
+            actions.loadFeatureFlagModalFeatureFlags()
+        }
+    }),
     actionToUrl(({ values }) => {
         const changeUrl = ():
             | [
@@ -234,9 +358,38 @@ export const experimentsLogic = kea<experimentsLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
         }
 
+        const changeFeatureFlagModalUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  },
+              ]
+            | void => {
+            const searchParams: Record<string, string | number> = {
+                ...values.filters,
+            }
+
+            if (values.tab !== ExperimentsTabs.All) {
+                searchParams['tab'] = values.tab
+            }
+
+            // Add feature flag modal page to URL if not page 1
+            const modalPage = values.featureFlagModalFilters.page || 1
+            if (modalPage !== 1) {
+                searchParams['ff_page'] = modalPage
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
         return {
             setExperimentsFilters: changeUrl,
             setExperimentsTab: changeUrl,
+            setFeatureFlagModalFilters: changeFeatureFlagModalUrl,
+            resetFeatureFlagModalFilters: changeFeatureFlagModalUrl,
         }
     }),
     urlToAction(({ actions, values }) => ({

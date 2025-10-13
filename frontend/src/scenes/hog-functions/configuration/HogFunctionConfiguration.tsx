@@ -13,20 +13,15 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 
-import { AvailableFeature } from '~/types'
-
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
-import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import {
@@ -37,7 +32,6 @@ import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
-import { InlineEditableField } from './components/InlineEditableField'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -53,7 +47,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         loading,
         loaded,
         hogFunction,
-        showPaygate,
         template,
         templateHasChanged,
         type,
@@ -64,18 +57,12 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         showTesting,
     } = useValues(logic)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
 
     if (!loaded) {
         return <NotFound object="Hog function" />
-    }
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
     const templateInfo =
@@ -150,83 +137,33 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
                             <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-                                {!newSceneLayout ? (
-                                    <>
-                                        <div className="flex flex-row gap-2 items-start">
-                                            <LemonField name="icon_url" className="h-10">
-                                                {({ value, onChange }) => (
-                                                    <HogFunctionIconEditable
-                                                        logicKey={id ?? templateId ?? 'new'}
-                                                        src={value}
-                                                        onChange={(val) => onChange(val)}
-                                                    />
-                                                )}
-                                            </LemonField>
-
-                                            <div className="flex flex-col flex-1 justify-center items-start min-h-10">
-                                                <LemonField name="name">
-                                                    <InlineEditableField className="font-semibold" />
-                                                </LemonField>
-                                            </div>
-
-                                            <div className="flex flex-row gap-2 items-center h-10">
-                                                {template && <HogFunctionStatusTag status={template.status} />}
-                                                {hogFunction && (
-                                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
-                                                )}
-                                                <LemonField name="enabled">
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            onChange={() => onChange(!value)}
-                                                            checked={value}
-                                                            disabled={loading}
-                                                            tooltip={
-                                                                <>
-                                                                    {value
-                                                                        ? 'Enabled. Events will be processed.'
-                                                                        : 'Disabled. Events will not be processed.'}
-                                                                </>
-                                                            }
-                                                        />
-                                                    )}
-                                                </LemonField>
-                                            </div>
-                                        </div>
-                                        <LemonField name="description">
-                                            <InlineEditableField multiline />
-                                        </LemonField>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="flex items-center justify-between">
-                                            <LemonLabel>Status</LemonLabel>
-                                            {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
-                                        </div>
-                                        <LemonField name="enabled">
-                                            {({ value, onChange }) => (
-                                                <LemonSwitch
-                                                    onChange={() => onChange(!value)}
-                                                    checked={value}
-                                                    disabled={loading}
-                                                    bordered
-                                                    fullWidth
-                                                    label={
-                                                        <span className="flex flex-1">
-                                                            {configuration.enabled ? 'Enabled' : 'Disabled'}
-                                                        </span>
-                                                    }
-                                                    tooltip={
-                                                        <>
-                                                            {value
-                                                                ? 'Enabled. Events will be processed.'
-                                                                : 'Disabled. Events will not be processed.'}
-                                                        </>
-                                                    }
-                                                />
-                                            )}
-                                        </LemonField>
-                                    </>
-                                )}
+                                <div className="flex items-center justify-between">
+                                    <LemonLabel>Status</LemonLabel>
+                                    {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                </div>
+                                <LemonField name="enabled">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            onChange={() => onChange(!value)}
+                                            checked={value}
+                                            disabled={loading}
+                                            bordered
+                                            fullWidth
+                                            label={
+                                                <span className="flex flex-1">
+                                                    {configuration.enabled ? 'Enabled' : 'Disabled'}
+                                                </span>
+                                            }
+                                            tooltip={
+                                                <>
+                                                    {value
+                                                        ? 'Enabled. Events will be processed.'
+                                                        : 'Disabled. Events will not be processed.'}
+                                                </>
+                                            }
+                                        />
+                                    )}
+                                </LemonField>
 
                                 {templateInfo}
                             </div>
@@ -234,11 +171,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
                             {showFilters && <HogFunctionFilters />}
                             {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
-                            {newSceneLayout && templateInfo && (
-                                <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-                                    {templateInfo}
-                                </div>
-                            )}
                         </div>
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">

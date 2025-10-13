@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_types::error_tracking::{FrameData, FrameId};
 use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,10 +9,10 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, go::RawGoFrame, js::RawJSFrame, node::RawNodeFrame,
-        python::RawPythonFrame,
+        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
+        js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
-    metric_consts::PER_FRAME_TIME,
+    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
     symbol_store::Catalog,
 };
@@ -27,37 +28,49 @@ pub mod resolver;
 pub enum RawFrame {
     #[serde(rename = "python")]
     Python(RawPythonFrame),
+    #[serde(rename = "ruby")]
+    Ruby(RawRubyFrame),
     #[serde(rename = "web:javascript")]
     JavaScriptWeb(RawJSFrame),
     #[serde(rename = "node:javascript")]
     JavaScriptNode(RawNodeFrame),
     #[serde(rename = "go")]
     Go(RawGoFrame),
+    #[serde(rename = "hermes")]
+    Hermes(RawHermesFrame),
+    #[serde(rename = "java")]
+    Java(RawJavaFrame),
+    #[serde(rename = "custom")]
+    Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
-    #[serde(rename = "custom")]
-    Custom(CustomFrame),
 }
 
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
+            RawFrame::JavaScriptWeb(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
+            RawFrame::LegacyJS(frame) => {
+                // TODO: monitor this metric and remove the legacy frame type when it hits 0
+                metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::JavaScriptNode(frame) => {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+            RawFrame::Ruby(frame) => (Ok(frame.into()), "ruby"),
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
+            RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
+            RawFrame::Java(frame) => (Ok(frame.into()), "java"),
         };
 
         // The raw id of the frame is set after it's resolved
         let res = res.map(|mut f| {
-            f.raw_id = self.frame_id();
+            f.raw_id = self.frame_id(team_id);
             f
         });
 
@@ -76,21 +89,34 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(frame) => frame.chunk_id.clone(),
+            RawFrame::Hermes(frame) => frame.chunk_id.clone(),
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Go(_) => None,
+            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) | RawFrame::Java(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
 
-    pub fn frame_id(&self) -> String {
-        match self {
+    pub fn frame_id(&self, team_id: i32) -> FrameId {
+        let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
+            RawFrame::Hermes(raw) => raw.frame_id(),
+            RawFrame::Java(raw) => raw.frame_id(),
+        };
+
+        FrameId::new(hash_id, team_id)
+    }
+
+    pub fn is_suspicious(&self) -> bool {
+        match self {
+            RawFrame::JavaScriptWeb(frame) => frame.is_suspicious(),
+            _ => false,
         }
     }
 }
@@ -99,7 +125,8 @@ impl RawFrame {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
     // Properties used in processing
-    pub raw_id: String,       // The raw frame id this was resolved from
+    #[serde(flatten)]
+    pub raw_id: FrameId, // The raw frame id this was resolved from
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known
@@ -117,6 +144,9 @@ pub struct Frame {
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
+
+    #[serde(default)] // Defaults to false
+    pub suspicious: bool, // We mark some frames as suspicious if we think they might be from our own SDK code.
 
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging
     // purposes, all production code should assume this is None
@@ -146,8 +176,8 @@ pub struct ContextLine {
 
 impl FingerprintComponent for Frame {
     fn update(&self, fp: &mut FingerprintBuilder) {
-        let get_part = |s: &str, p: Vec<&str>| FingerprintRecordPart::Frame {
-            raw_id: s.to_string(),
+        let get_part = |s: &FrameId, p: Vec<&str>| FingerprintRecordPart::Frame {
+            raw_id: s.raw_id.to_string(),
             pieces: p.into_iter().map(String::from).collect(),
         };
 
@@ -220,7 +250,7 @@ impl ContextLine {
 
 impl std::fmt::Display for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Frame {}:", self.raw_id)?;
+        writeln!(f, "Frame {}:", self.raw_id.raw_id)?;
 
         // Function name and location
         write!(
@@ -281,6 +311,23 @@ impl std::fmt::Display for Frame {
         }
 
         Ok(())
+    }
+}
+
+impl From<Frame> for FrameData {
+    fn from(frame: Frame) -> Self {
+        FrameData {
+            raw_id: frame.raw_id.raw_id,
+            synthetic: frame.synthetic,
+            resolved_name: frame.resolved_name,
+            mangled_name: frame.mangled_name,
+            source: frame.source,
+            resolved: frame.resolved,
+            in_app: frame.in_app,
+            line: frame.line,
+            column: frame.column,
+            lang: frame.lang,
+        }
     }
 }
 

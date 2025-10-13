@@ -22,13 +22,16 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
+    MESSAGING = "messaging"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    EXPERIMENTS = "experiments"
 
 
 class Feature(StrEnum):
+    BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"
     INSIGHT = "insight"
@@ -101,6 +104,8 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    exported_asset_id: Optional[int] = None
+    export_format: Optional[str] = None
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None

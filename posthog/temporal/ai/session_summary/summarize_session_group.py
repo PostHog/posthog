@@ -133,7 +133,7 @@ async def fetch_session_batch_events_activity(
     # Disable thread-sensitive as we can get metadata for lots of sessions here
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata, thread_sensitive=False)(
         session_ids=session_ids_to_fetch,
-        team_id=inputs.team_id,
+        team=team,
         recordings_min_timestamp=datetime.fromisoformat(inputs.min_timestamp_str),
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )

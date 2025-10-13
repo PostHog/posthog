@@ -3,6 +3,7 @@ import './FeatureFlag.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
@@ -40,13 +41,7 @@ import {
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                to={urls.cohort(property.value)}
-                sideIcon={<IconOpenInNew />}
-                targetBlank
-            >
+            <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
                 {property.cohort_name || `ID ${property.value}`}
             </LemonButton>
         )
@@ -204,10 +199,7 @@ export function FeatureFlagReleaseConditions({
                                             disabledReason={
                                                 index === filterGroups.length - 1
                                                     ? 'Cannot move last condition set down'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index + 1] === undefined
-                                                      ? 'Cannot move condition sets while calculating affected users'
-                                                      : null
+                                                    : null
                                             }
                                             onClick={() => moveConditionSetDown(index)}
                                         />
@@ -216,14 +208,7 @@ export function FeatureFlagReleaseConditions({
                                             icon={<IconArrowUp />}
                                             noPadding
                                             tooltip="Move condition set up in precedence"
-                                            disabledReason={
-                                                index === 0
-                                                    ? 'Cannot move first condition set up'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index - 1] === undefined
-                                                      ? 'Cannot move condition sets while calculating affected users'
-                                                      : null
-                                            }
+                                            disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
                                             onClick={() => moveConditionSetUp(index)}
                                         />
                                     </div>
@@ -362,7 +347,7 @@ export function FeatureFlagReleaseConditions({
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
                                               ) : (
-                                                  <></>
+                                                  <Fragment key={index} />
                                               )
                                           })
                                         : null
@@ -430,12 +415,13 @@ export function FeatureFlagReleaseConditions({
                                     )}
                                 />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
-                                {affectedUsers[index] !== undefined ? (
+                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
-                                            computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(
-                                                2
-                                            ) * 1
+                                            computeBlastRadiusPercentage(
+                                                group.rollout_percentage,
+                                                group.sort_key
+                                            ).toPrecision(2) * 1
                                             // Multiplying by 1 removes trailing zeros after the decimal
                                             // point added by toPrecision
                                         }% `}
@@ -444,7 +430,7 @@ export function FeatureFlagReleaseConditions({
                                     <Spinner className="mr-1" />
                                 )}{' '}
                                 {(() => {
-                                    const affectedUserCount = affectedUsers[index]
+                                    const affectedUserCount = group.sort_key ? affectedUsers[group.sort_key] : undefined
                                     if (
                                         affectedUserCount !== undefined &&
                                         affectedUserCount >= 0 &&
@@ -490,6 +476,7 @@ export function FeatureFlagReleaseConditions({
                                                 value: variant.key,
                                             }))}
                                             data-attr="feature-flags-variant-override-select"
+                                            truncateText={{ maxWidthClass: 'max-w-[7rem]' }}
                                         />
                                     </div>
                                 </div>
@@ -577,17 +564,6 @@ export function FeatureFlagReleaseConditions({
                             Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
                             - the first matching set is used. A condition matches when all property filters pass AND the
                             target falls within the rollout percentage.
-                        </div>
-                        <div className="text-secondary">
-                            {aggregationTargetName === 'users' && (
-                                <>
-                                    {' '}
-                                    Cohort-based targeting{' '}
-                                    <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-cohort-as-a-feature-flag-target">
-                                        doesn't support dynamic behavioral cohorts.
-                                    </Link>{' '}
-                                </>
-                            )}
                         </div>
                     </>
                 )

@@ -23,13 +23,10 @@ import {
 
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
-const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
-    // allows altering v1 polling interval in tests
-    realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
     accessToken?: string
@@ -50,18 +47,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
-        pollRealtimeSnapshots: true,
-        stopRealtimePolling: true,
     }),
     reducers(() => ({
-        isRealtimePolling: [
-            false as boolean,
-            {
-                pollRealtimeSnapshots: () => true,
-                stopRealtimePolling: () => false,
-            },
-        ],
-
         snapshotsBySourceSuccessCount: [
             0,
             {
@@ -96,7 +83,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
-                    if (!response.sources) {
+                    if (!response || !response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
@@ -133,8 +120,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                                 throw new Error('Missing key')
                             }
                             params = { blob_key: source.blob_key, source: 'blob' }
-                        } else if (source.source === SnapshotSourceType.realtime) {
-                            params = { source: 'realtime' }
                         } else if (source.source === SnapshotSourceType.blob_v2) {
                             params = { source: 'blob_v2', blob_key: source.blob_key }
                         } else if (source.source === SnapshotSourceType.file) {
@@ -151,15 +136,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     if (props.accessToken) {
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
-                    const response = await api.recordings
-                        .getSnapshots(props.sessionRecordingId, params, headers)
-                        .catch((e) => {
-                            if (sources[0].source === 'realtime' && e.status === 404) {
-                                // Realtime source is not always available, so a 404 is expected
-                                return []
-                            }
-                            throw e
-                        })
+                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
@@ -216,19 +193,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 : keyForSource(snapshotsForSource.source)
             const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
 
-            // Cache the last response count to detect if we're getting the same data over and over
-            const newSnapshotsCount = snapshots.length
-
-            if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                // if we're getting no results from realtime polling, we can increment faster
-                // so that we stop polling sooner
-                const increment = newSnapshotsCount === 0 ? 2 : 1
-                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
-            } else {
-                cache.lastSnapshotsUnchangedCount = 0
-            }
-            cache.lastSnapshotsCount = newSnapshotsCount
-
             if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
                 // We got only a single source to load, loaded it successfully, but it had no snapshots.
                 posthog.capture('recording_snapshots_v2_empty_response', {
@@ -251,7 +215,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
                 }
 
                 if (!props.blobV2PollingDisabled) {
@@ -266,27 +230,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 if (nextSourceToLoad) {
                     return actions.loadSnapshotsForSource([nextSourceToLoad])
                 }
-
-                // If we have a realtime source, start polling it
-                const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
-                if (realTimeSource) {
-                    actions.pollRealtimeSnapshots()
-                }
-            }
-        },
-        pollRealtimeSnapshots: () => {
-            // always make sure we've cleared up the last timeout
-            clearTimeout(cache.realTimePollingTimeoutID)
-            cache.realTimePollingTimeoutID = null
-
-            // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
-            // we could change this or add to it e.g. only poll if browser is visible to user
-            if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
-                cache.realTimePollingTimeoutID = setTimeout(() => {
-                    actions.loadSnapshotsForSource([{ source: SnapshotSourceType.realtime }])
-                }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
-            } else {
-                actions.stopRealtimePolling()
             }
         },
     })),
@@ -306,9 +249,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
 
                 // Default behavior for non-v2 recordings
-                // if there's a realTimePollingTimeoutID, don't signal that we're loading
-                // we don't want the UI to flip to "loading" every time we poll
-                return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
+                return snapshotSourcesLoading || snapshotsForSourceLoading
             },
         ],
 
@@ -328,11 +269,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
     })),
     beforeUnmount(({ cache }) => {
-        // Clear the cache
-        if (cache.realTimePollingTimeoutID) {
-            clearTimeout(cache.realTimePollingTimeoutID)
-            cache.realTimePollingTimeoutID = undefined
-        }
         cache.snapshotsBySource = undefined
     }),
 ])

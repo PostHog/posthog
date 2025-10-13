@@ -8,7 +8,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
 export const issueActionsLogic = kea<issueActionsLogicType>([
-    path(['scenes', 'error-tracking', 'issueActionsLogic']),
+    path(['products', 'error_tracking', 'components', 'IssueActions', 'issueActionsLogic']),
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
@@ -27,79 +27,79 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         updateIssueName: (id: string, name: string) => ({ id, name }),
         updateIssueDescription: (id: string, description: string) => ({ id, description }),
 
-        mutationSuccess: () => {},
-        mutationFailure: (error: unknown) => ({ error }),
+        mutationSuccess: (mutationName: string) => ({ mutationName }),
+        mutationFailure: (mutationName: string, error: unknown) => ({ mutationName, error }),
     }),
 
     listeners(({ actions }) => {
-        async function runMutation(cb: () => Promise<void>): Promise<void> {
+        async function runMutation(mutationName: string, cb: () => Promise<void>): Promise<void> {
             try {
                 await cb()
-                actions.mutationSuccess()
+                actions.mutationSuccess(mutationName)
             } catch (e: unknown) {
-                actions.mutationFailure(e)
+                actions.mutationFailure(mutationName, e)
             }
         }
         return {
             mergeIssues: async ({ ids }) => {
                 const [firstId, ...otherIds] = ids
                 if (firstId && otherIds.length > 0) {
-                    await runMutation(async () => {
+                    await runMutation('mergeIssues', async () => {
                         posthog.capture('error_tracking_issue_merged', { primary: firstId })
                         await api.errorTracking.mergeInto(firstId, otherIds)
                     })
                 }
             },
             splitIssue: async ({ id, fingerprints, exclusive }) => {
-                await runMutation(async () => {
+                await runMutation('splitIssues', async () => {
                     posthog.capture('error_tracking_issue_split', { issueId: id })
                     await api.errorTracking.split(id, fingerprints, exclusive)
                 })
             },
             resolveIssues: async ({ ids }) => {
-                await runMutation(async () => {
+                await runMutation('resolveIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_resolve')
                     await api.errorTracking.bulkMarkStatus(ids, 'resolved')
                 })
             },
             suppressIssues: async ({ ids }) => {
-                await runMutation(async () => {
+                await runMutation('suppressIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_suppress')
                     await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
                 })
             },
             activateIssues: async ({ ids }) => {
-                await runMutation(async () => {
+                await runMutation('activateIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_activate')
                     await api.errorTracking.bulkMarkStatus(ids, 'active')
                 })
             },
             assignIssues: async ({ ids, assignee }) => {
-                await runMutation(async () => {
+                await runMutation('assignIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_assign')
                     await api.errorTracking.bulkAssign(ids, assignee)
                 })
             },
             updateIssueAssignee: async ({ id, assignee }) => {
-                await runMutation(async () => {
+                await runMutation('updateIssueAssignee', async () => {
                     posthog.capture('error_tracking_issue_update_assignee')
                     await api.errorTracking.assignIssue(id, assignee)
                 })
             },
             updateIssueStatus: async ({ id, status }) => {
-                await runMutation(async () => {
+                await runMutation('updateIssueStatus', async () => {
                     posthog.capture('error_tracking_issue_update_status')
                     await api.errorTracking.updateIssue(id, { status })
                 })
             },
             updateIssueName: async ({ id, name }) => {
-                await runMutation(async () => {
+                await runMutation('updateIssueName', async () => {
                     posthog.capture('error_tracking_issue_update_name')
                     await api.errorTracking.updateIssue(id, { name })
                 })
             },
             updateIssueDescription: async ({ id, description }) => {
-                await runMutation(async () => {
+                await runMutation('updateIssueDescription', async () => {
                     posthog.capture('error_tracking_issue_update_description')
                     await api.errorTracking.updateIssue(id, { description })
                 })

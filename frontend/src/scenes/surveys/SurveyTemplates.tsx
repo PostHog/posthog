@@ -1,12 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -106,35 +103,21 @@ export function SurveyTemplates(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <SurveyFeedbackButton />
-                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
-                            Create blank survey
-                        </LemonButton>
-                    </>
-                }
-            />
-            {newSceneLayout && (
-                <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
-                    <SceneBreadcrumbBackButton
-                        forceBackTo={{
-                            key: Scene.Surveys,
-                            name: 'Surveys',
-                            path: urls.surveys(),
-                        }}
-                    />
-                </div>
-            )}
+            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                <SceneBreadcrumbBackButton
+                    forceBackTo={{
+                        key: Scene.Surveys,
+                        name: 'Surveys',
+                        path: urls.surveys(),
+                    }}
+                />
+            </div>
             <div className="space-y-4">
                 <p className="text-center text-base">
                     Choose a template based on your goal, or{' '}
-                    <Link to={urls.survey('new')} className="text-primary-3000">
+                    <Link to={urls.survey('new')} className="text-primary-3000" data-attr="new-blank-survey">
                         start from scratch with a blank survey
                     </Link>
                     .

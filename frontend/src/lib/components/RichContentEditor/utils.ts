@@ -4,11 +4,13 @@ import {
     JSONContent,
     RichContentEditorType,
     RichContentNode,
+    RichContentNodeType,
     TTEditor,
 } from './types'
 
 export function createEditor(editor: TTEditor): RichContentEditorType {
     return {
+        isEmpty: () => editor.isEmpty,
         getJSON: () => editor.getJSON(),
         getEndPosition: () => editor.state.doc.content.size,
         getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
@@ -20,11 +22,13 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         setSelection: (position: number) => editor.commands.setNodeSelection(position),
         setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
         focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+        clear: () => editor.commands.clearContent(),
         chain: () => editor.chain().focus(),
         destroy: () => editor.destroy(),
         getMarks: (type: string) => getMarks(editor, type),
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
+        getMentions: () => getMentions(editor),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
         insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
         insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -139,4 +143,16 @@ function getMarks(editor: TTEditor, type: string): { id: string; pos: number }[]
     })
 
     return results
+}
+
+function getMentions(editor: TTEditor): number[] {
+    const mentions: number[] = []
+
+    editor.state.doc.descendants((node) => {
+        if (node.type.name === RichContentNodeType.Mention) {
+            mentions.push(node.attrs.id)
+        }
+    })
+
+    return mentions
 }

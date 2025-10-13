@@ -10,12 +10,12 @@ version = 1
 # the `[install]` section.
 [install]
 # Python - Python itself is installed on activation via `uv sync`
-uv = { pkg-path = "uv", pkg-group = "uv", version = "0.7.8" }
+uv = { pkg-path = "uv", pkg-group = "uv", version = "0.8.19" }
 xmlsec = { pkg-path = "xmlsec", version = "1.3.6" }
 freetds = { pkg-path = "freetds" } # For pymssql
 # Node
-nodejs = { pkg-path = "nodejs_22", pkg-group = "nodejs", version = "22.17.0" } # Same as in Dockerfile
-corepack = { pkg-path = "corepack_22", pkg-group = "nodejs", version = "22.17.0" }
+nodejs = { pkg-path = "nodejs_22", pkg-group = "nodejs", version = "22.17.0" } # Same maj.min ver as in Dockerfile; diverges from patch ver
+corepack = { pkg-path = "corepack_22", pkg-group = "nodejs", version = "22.17.0" } # Same maj.min as in Dockerfile; diverges from patch ver
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 nodemon = { pkg-path = "nodemon" }

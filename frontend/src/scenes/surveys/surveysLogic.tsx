@@ -22,8 +22,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -341,12 +342,6 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     selectors({
-        isOnNewSceneLayout: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-            },
-        ],
         isOnNewEmptyStateExperiment: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -403,6 +398,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
+                    iconType: 'survey',
                 },
             ],
         ],
@@ -419,6 +415,12 @@ export const surveysLogic = kea<surveysLogicType>([
             (currentTeam) => {
                 return !currentTeam?.surveys_opt_in
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.SURVEY,
+            }),
         ],
     }),
     actionToUrl(({ values }) => ({

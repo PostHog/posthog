@@ -13,6 +13,7 @@ describe('sourceWizardLogic', () => {
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
                 Test: {
                     name: 'Stripe',
+                    iconPath: '',
                     caption: null,
                     fields: [
                         {
@@ -34,6 +35,7 @@ describe('sourceWizardLogic', () => {
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
                 Test: {
                     name: 'Stripe',
+                    iconPath: '',
                     caption: null,
                     fields: [
                         {
@@ -56,6 +58,7 @@ describe('sourceWizardLogic', () => {
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
                 Test: {
                     name: 'Stripe',
+                    iconPath: '',
                     caption: null,
                     fields: [
                         {
@@ -92,6 +95,7 @@ describe('sourceWizardLogic', () => {
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
                 Test: {
                     name: 'Stripe',
+                    iconPath: '',
                     caption: null,
                     fields: [
                         {
@@ -121,6 +125,7 @@ describe('sourceWizardLogic', () => {
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
                 Test: {
                     name: 'Stripe',
+                    iconPath: '',
                     caption: null,
                     fields: [
                         {

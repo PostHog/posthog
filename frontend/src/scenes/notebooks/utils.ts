@@ -48,6 +48,8 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Person]: customOrTitleSerializer,
         [NotebookNodeType.Query]: customOrTitleSerializer,
         [NotebookNodeType.Recording]: customOrTitleSerializer,
+        [NotebookNodeType.LLMTrace]: customOrTitleSerializer,
+        [NotebookNodeType.Issues]: customOrTitleSerializer,
         [NotebookNodeType.RecordingPlaylist]: customOrTitleSerializer,
         [NotebookNodeType.ReplayTimestamp]: customOrTitleSerializer,
         [NotebookNodeType.Survey]: customOrTitleSerializer,
@@ -59,6 +61,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Mention]: customOrTitleSerializer,
         [NotebookNodeType.Embed]: customOrTitleSerializer,
         [NotebookNodeType.Latex]: customOrTitleSerializer,
+        [NotebookNodeType.TaskCreate]: customOrTitleSerializer,
     }
 
     return getText(node, {

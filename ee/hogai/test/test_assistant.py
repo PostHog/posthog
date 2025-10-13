@@ -3,7 +3,7 @@ from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 
@@ -47,6 +47,9 @@ from posthog.schema import (
     MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
+    TaskExecutionItem,
+    TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -55,6 +58,7 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
@@ -155,7 +159,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant = Assistant.create(
             self.team,
             conversation or self.conversation,
-            new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
+            new_message=HumanMessage(content=message, ui_context=ui_context) if message is not None else None,
             user=self.user,
             is_new_conversation=is_new_conversation,
             initial_state=tool_call_partial_state,
@@ -202,9 +206,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
-                self.assertDictContainsSubset(
-                    msg_dict,
-                    cast(BaseModel, output_msg).model_dump(exclude_none=True),
+                self.assertLessEqual(
+                    msg_dict.items(),
+                    cast(BaseModel, output_msg).model_dump(exclude_none=True).items(),
                     f"Message content mismatch at index {i}",
                 )
             else:
@@ -219,7 +223,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 else expected_message
             )
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
-            self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
+            self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
 
     @patch(
         "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
@@ -239,7 +243,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run",
+        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
         return_value=PartialAssistantState(
             messages=[AssistantMessage(content="Foobar")],
         ),
@@ -1337,7 +1341,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     async def test_insights_tool_mode_flow(
         self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -1590,7 +1594,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         second_message = human_messages[1]
         self.assertEqual(second_message.ui_context, ui_context_2)
 
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
@@ -1655,7 +1659,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
-            message=None,
+            message="Hello",
             mode=AssistantMode.ASSISTANT,
             contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
@@ -1676,7 +1680,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     visible=False,
                 ),
             ),
-            ("message", AssistantMessage(content="Everything is fine")),
         ]
         self.assertConversationEqual(output, expected_output)
 
@@ -1701,10 +1704,68 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ui_payload={"create_and_query_insight": query.model_dump()},
                 visible=False,
             ),
-            AssistantMessage(content="Everything is fine"),
         ]
         state = cast(AssistantState, state)
         self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)
+
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_continue_generation_without_new_message(self, root_mock):
+        """Test that the assistant can continue generation without a new message (askMax(null) scenario)"""
+        root_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Based on the previous analysis, I can provide insights.")]
+        )
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .compile()
+        )
+
+        # First, set up the conversation with existing messages and tool call result
+        config: RunnableConfig = {"configurable": {"thread_id": self.conversation.id}}
+        await graph.aupdate_state(
+            config,
+            {
+                "messages": [
+                    HumanMessage(content="Analyze trends"),
+                    AssistantMessage(
+                        content="Let me analyze",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="tool-1",
+                                name="create_and_query_insight",
+                                args={"query_description": "test"},
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(
+                        content="Tool execution complete",
+                        tool_call_id="tool-1",
+                    ),
+                ]
+            },
+        )
+
+        # Continue without a new user message (simulates askMax(null))
+        output, _ = await self._run_assistant_graph(
+            test_graph=graph,
+            conversation=self.conversation,
+            is_new_conversation=False,
+            message=None,  # This simulates askMax(null)
+            mode=AssistantMode.ASSISTANT,
+        )
+
+        # Verify the assistant continued generation with the expected message
+        assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertTrue(len(assistant_messages) > 0, "Expected at least one assistant message")
+        # The root node should have generated the continuation message we mocked
+        final_message = assistant_messages[-1]
+        self.assertEqual(
+            final_message.content,
+            "Based on the previous analysis, I can provide insights.",
+            "Expected the root node to generate continuation message",
+        )
 
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):
@@ -1813,9 +1874,42 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant._reasoning_headline_chunk = None
         reasoning = {"summary": [{"text": "****"}]}
         result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "")  # Should return empty headline
+        self.assertEqual(result, "")  # Should return empty string
         self.assertIsNone(assistant._reasoning_headline_chunk)
         self.assertEqual(assistant._last_reasoning_headline, "")
+
+        # Test 11: Multiple bold sections - should capture everything between first and last markers, filtering internal markers
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**I'm** analyzing data and **considering multiple options**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "I'm analyzing data and considering multiple options")
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+        self.assertEqual(assistant._last_reasoning_headline, "I'm analyzing data and considering multiple options")
+
+        # Test 12: Simple headline
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**OK**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "OK")
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+
+        # Test 13: Headline with exactly 3 words
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**Three word headline**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "Three word headline")
+        self.assertEqual(assistant._last_reasoning_headline, "Three word headline")
+
+        # Test 14: Text with nested bold for emphasis - captures everything between outermost markers, filters internal markers
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**I'm considering **multiple** important options**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "I'm considering multiple important options")
+        self.assertEqual(assistant._last_reasoning_headline, "I'm considering multiple important options")
 
     def test_process_value_update_returns_ack_event(self):
         """Test that _process_value_update returns an ACK event for state updates."""
@@ -1896,7 +1990,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
 
         update: GraphMessageUpdateTuple = ("messages", (list_chunk, langgraph_state))
-        assistant._process_message_update(update)
+        async_to_sync(assistant._aprocess_message_update)(update)
 
         # Verify the chunks were reset to list format
         assert isinstance(assistant._chunks.content, list)
@@ -1908,7 +2002,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
 
         update = ("messages", (string_chunk, langgraph_state))
-        assistant._process_message_update(update)
+        async_to_sync(assistant._aprocess_message_update)(update)
 
         # Verify the chunks were reset to string format
         assert isinstance(assistant._chunks.content, str)  # type: ignore
@@ -1929,14 +2023,60 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
         langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
         update: GraphMessageUpdateTuple = ("messages", (chunk1, langgraph_state))
-        assistant._process_message_update(update)
+        async_to_sync(assistant._aprocess_message_update)(update)
 
         # Add second list chunk
         chunk2 = AIMessageChunk(content=[{"type": "text", "text": " second part"}])
         update = ("messages", (chunk2, langgraph_state))
-        result = assistant._process_message_update(update)
+        result = async_to_sync(assistant._aprocess_message_update)(update)
         result = cast(AssistantMessage, result)
 
         # Verify the content was extracted correctly
         assert result is not None
         assert result.content == "First part second part"
+
+    def test_deep_research_persists_reasoning_messages(self):
+        assistant = Assistant.create(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            mode=AssistantMode.DEEP_RESEARCH,
+        )
+
+        reasoning_message = ReasoningMessage(content="streamed reasoning")
+        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.PLANNER}
+        update: GraphMessageUpdateTuple = ("messages", (reasoning_message, langgraph_state))
+
+        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
+            result = async_to_sync(assistant._aprocess_message_update)(update)
+
+        assert result is reasoning_message
+        mock_persist.assert_awaited_once_with(DeepResearchNodeName.PLANNER, reasoning_message)
+
+    def test_deep_research_persists_task_execution_messages(self):
+        assistant = Assistant.create(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            mode=AssistantMode.DEEP_RESEARCH,
+        )
+
+        task_message = TaskExecutionMessage(
+            tasks=[
+                TaskExecutionItem(
+                    description="Write summary",
+                    id="t1",
+                    prompt="Write a summary",
+                    status=TaskExecutionStatus.IN_PROGRESS,
+                    task_type="summary",
+                )
+            ]
+        )
+        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.TASK_EXECUTOR}
+        update: GraphMessageUpdateTuple = ("messages", (task_message, langgraph_state))
+
+        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
+            result = async_to_sync(assistant._aprocess_message_update)(update)
+
+        assert result is task_message
+        mock_persist.assert_awaited_once_with(DeepResearchNodeName.TASK_EXECUTOR, task_message)

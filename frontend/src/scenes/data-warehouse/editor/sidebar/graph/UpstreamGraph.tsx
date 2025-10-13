@@ -17,7 +17,6 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React, { useEffect, useMemo, useState } from 'react'
 
 import { IconArchive, IconPencil, IconTarget } from '@posthog/icons'
@@ -33,12 +32,13 @@ import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseVie
 import { multitabEditorLogic } from '../../multitabEditorLogic'
 
 interface UpstreamGraphProps {
-    codeEditorKey: string
+    tabId: string
 }
 
 interface LineageNodeProps {
     data: LineageNodeType & { isCurrentView?: boolean }
     edges: { source: string; target: string }[]
+    tabId: string
 }
 
 const MAT_VIEW_HEIGHT = 92
@@ -53,9 +53,8 @@ const RANK_SEP = 160
 
 const BRAND_YELLOW = '#f9bd2b'
 
-function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
-    const { editView } = useActions(multitabEditorLogic({ key: codeEditorKey }))
+function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
+    const { editView } = useActions(multitabEditorLogic({ tabId }))
     const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
 
     const getNodeType = (type: string, lastRunAt?: string): string => {
@@ -134,8 +133,8 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
     )
 }
 
-const getNodeTypes = (edges: { source: string; target: string }[]): NodeTypes => ({
-    lineageNode: (props) => <LineageNode {...props} edges={edges} />,
+const getNodeTypes = (edges: { source: string; target: string }[], tabId: string): NodeTypes => ({
+    lineageNode: (props) => <LineageNode {...props} tabId={tabId} edges={edges} />,
 })
 
 const getLayoutedElements = (
@@ -192,8 +191,8 @@ const getLayoutedElements = (
     return { nodes: layoutedNodes, edges: layoutedEdges }
 }
 
-function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Element {
-    const { upstream, editingView } = useValues(multitabEditorLogic({ key: codeEditorKey }))
+function UpstreamGraphContent({ tabId }: UpstreamGraphProps): JSX.Element {
+    const { upstream, editingView } = useValues(multitabEditorLogic({ tabId }))
     const { fitView } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -208,7 +207,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
         return getLayoutedElements(upstream.nodes, upstream.edges, editingView?.name)
     }, [upstream, editingView?.name])
 
-    const nodeTypes = useMemo(() => getNodeTypes(edges), [edges])
+    const nodeTypes = useMemo(() => getNodeTypes(edges, tabId), [edges, tabId])
 
     const coloredEdges: Edge[] = edges.map((edge) => {
         const isHighlighted =
@@ -233,8 +232,14 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
     // Fit view when nodes change
     useEffect(() => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null
         if (nodes.length > 0) {
-            setTimeout(() => fitView({ padding: 0.1 }), 100)
+            timeoutId = setTimeout(() => fitView({ padding: 0.1 }), 100)
+        }
+        return () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId)
+            }
         }
     }, [nodes, fitView])
 
@@ -277,11 +282,11 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
     )
 }
 
-export function UpstreamGraph({ codeEditorKey }: UpstreamGraphProps): JSX.Element {
+export function UpstreamGraph({ tabId }: UpstreamGraphProps): JSX.Element {
     return (
         <div className="h-[500px] border border-border rounded-md overflow-hidden">
             <ReactFlowProvider>
-                <UpstreamGraphContent codeEditorKey={codeEditorKey} />
+                <UpstreamGraphContent tabId={tabId} />
             </ReactFlowProvider>
         </div>
     )

@@ -24,8 +24,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { now } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -33,21 +32,14 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
-    SessionRecordingDataLogicProps,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+    SessionRecordingDataCoordinatorLogicProps,
+    sessionRecordingDataCoordinatorLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AvailableFeature,
-    ExporterFormat,
-    RecordingSegment,
-    SessionPlayerData,
-    SessionPlayerState,
-    SessionRecordingType,
-} from '~/types'
+import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -64,6 +56,13 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+
+export interface ResourceErrorDetails {
+    resourceType: string
+    resourceUrl: string
+    message: string
+    error?: any
+}
 
 export interface PlayerTimeTracking {
     state: 'buffering' | 'playing' | 'paused' | 'errored' | 'ended' | 'unknown'
@@ -104,9 +103,10 @@ export enum SessionRecordingPlayerMode {
     Screenshot = 'screenshot',
     Video = 'video',
 }
-const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
+export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
+
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCoordinatorLogicProps {
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -202,6 +202,7 @@ const updatePlayerTimeTracking = (
         bufferTime: newBufferTime,
     }
 }
+
 const updatePlayerTimeTrackingIfChanged = (
     current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state']
@@ -212,6 +213,121 @@ const updatePlayerTimeTrackingIfChanged = (
 
     return updatePlayerTimeTracking(current, newState)
 }
+
+function wrapFetchAndReport({
+    fetch,
+    onError,
+}: {
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    onError: (errorDetails: ResourceErrorDetails) => void
+}) {
+    // we wrap fetch in the player iframe so we can react to errors loading resources
+    return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        try {
+            const response = await fetch(input, init)
+            if (!response.ok) {
+                onError({
+                    resourceType: 'fetch',
+                    resourceUrl:
+                        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+                    message: `Failed to load resource: ${response.status} ${response.statusText}`,
+                })
+            }
+            return response
+        } catch (error: any) {
+            console.error('Error in wrapped fetch', error)
+            throw error
+        }
+    }
+}
+
+function isHTMLElement(target: EventTarget | null): target is HTMLElement {
+    return !!target && 'tagName' in target && typeof target.tagName === 'string'
+}
+
+function isHtmlImageElement(target: HTMLElement): target is HTMLImageElement {
+    return target.tagName.toLowerCase() === 'img' && 'src' in target && typeof (target as any).src === 'string'
+}
+
+function isHtmlStyleLinkElement(target: HTMLElement): target is HTMLLinkElement {
+    return (
+        target.tagName.toLowerCase() === 'link' &&
+        'href' in target &&
+        typeof (target as any).href === 'string' &&
+        (target as HTMLLinkElement).rel === 'stylesheet'
+    )
+}
+
+function registerErrorListeners({
+    iframeWindow,
+    onError,
+}: {
+    iframeWindow: Window
+    onError: (error: ResourceErrorDetails) => void
+}): () => void {
+    // Create named listener functions so we can remove them later
+    const resourceErrorListener = (e: ErrorEvent): void => {
+        const t = e.target
+        if (!isHTMLElement(t)) {
+            return
+        }
+
+        const tag = t.tagName.toLowerCase()
+        if (isHtmlImageElement(t)) {
+            onError({
+                resourceType: 'img',
+                resourceUrl: t.src,
+                message: 'Failed to load image',
+                error: e.error,
+            })
+        } else if (isHtmlStyleLinkElement(t)) {
+            onError({
+                resourceType: 'stylesheet',
+                resourceUrl: t.href,
+                message: 'Failed to load stylesheet',
+                error: e.error,
+            })
+        } else {
+            onError({
+                resourceType: tag,
+                resourceUrl: (t as any).src || (t as any).href || '',
+                message: `Failed to load resource of type ${tag}. ${typeof t}`,
+                error: e,
+            })
+        }
+    }
+
+    const runtimeErrorListener = (e: ErrorEvent): void => {
+        onError({
+            resourceType: 'js',
+            resourceUrl: e.filename,
+            message: e.message,
+            error: e.error,
+        })
+    }
+
+    const cspViolationListener = (e: SecurityPolicyViolationEvent): void => {
+        onError({
+            resourceType: 'csp',
+            resourceUrl: e.blockedURI,
+            message: `CSP violation: ${e.violatedDirective}`,
+            error: null,
+        })
+    }
+
+    // Add listeners
+    iframeWindow.addEventListener('error', resourceErrorListener, /* capture */ true)
+    iframeWindow.addEventListener('error', runtimeErrorListener)
+    iframeWindow.document.addEventListener('securitypolicyviolation', cspViolationListener)
+
+    // Return cleanup function
+    return () => {
+        iframeWindow.removeEventListener('error', resourceErrorListener, true)
+        iframeWindow.removeEventListener('error', runtimeErrorListener)
+        iframeWindow.document.removeEventListener('securitypolicyviolation', cspViolationListener)
+    }
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -219,8 +335,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'isRealtimePolling'],
-            sessionRecordingDataLogic(props),
+            ['snapshotsLoaded', 'snapshotsLoading'],
+            sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
                 'sessionPlayerData',
@@ -243,8 +359,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions: [
             snapshotDataLogic(props),
             ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
-            sessionRecordingDataLogic(props),
-            ['maybeLoadRecordingMeta', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
+            sessionRecordingDataCoordinatorLogic(props),
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -285,18 +401,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         initializePlayerFromStart: true,
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
+        caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => ({ errorDetails }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
-        getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
+        getClip: (format: ExporterFormat, duration: number = 5, filename?: string) => ({ format, duration, filename }),
         exportRecording: (
             format: ExporterFormat,
             timestamp: number = 0,
             mode: SessionRecordingPlayerMode = SessionRecordingPlayerMode.Screenshot,
-            duration: number = 5
-        ) => ({ format, timestamp, mode, duration }),
+            duration: number = 5,
+            filename?: string
+        ) => ({ format, timestamp, mode, duration, filename }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -310,13 +428,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
-        loadSimilarRecordings: true,
-        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
-        showNextRecordingConfirmation: true,
-        hideNextRecordingConfirmation: true,
-        confirmNextRecording: true,
-        loadRecordingMeta: true,
-        setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
         schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
@@ -325,6 +436,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
+        setIsHovering: (isHovering: boolean) => ({ isHovering }),
+        allowPlayerChromeToHide: true,
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -564,24 +677,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
             },
         ],
-        showingNextRecordingConfirmation: [
+        isHovering: [
             false,
             {
-                showNextRecordingConfirmation: () => true,
-                hideNextRecordingConfirmation: () => false,
-                confirmNextRecording: () => false,
+                setIsHovering: (_, { isHovering }) => isHovering,
             },
         ],
-        similarRecordingsCount: [
-            0,
+        forceShowPlayerChrome: [
+            true,
             {
-                loadSimilarRecordingsSuccess: (_, { count }) => count,
-            },
-        ],
-        similarRecordings: [
-            [] as string[],
-            {
-                setSimilarRecordings: (_, { results }) => results,
+                setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
+                allowPlayerChromeToHide: () => {
+                    return false
+                },
             },
         ],
     })),
@@ -717,6 +825,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
+        currentPlayerTimeSeconds: [
+            (s) => [s.currentPlayerTime],
+            (currentPlayerTime) => Math.floor(currentPlayerTime / 1000),
+        ],
+
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
             (s) => [s.sessionPlayerData, s.currentSegment],
@@ -837,10 +950,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return null
                 }
                 const snapshot = snapshots[currIndex]
-                return {
+
+                const resolution = {
                     width: snapshot.data?.['width'],
                     height: snapshot.data?.['height'],
                 }
+
+                // For video export: expose resolution via global variable
+                if (typeof window !== 'undefined') {
+                    ;(window as any).__POSTHOG_RESOLUTION__ = resolution
+                }
+
+                return resolution
             },
             {
                 resultEqualityCheck: (prev, next) => {
@@ -850,8 +971,39 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
+        hoverModeIsEnabled: [
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
+            (logicProps, isCommenting, showingClipParams): boolean => {
+                return (
+                    !!logicProps.mode &&
+                    ModesWithInteractions.includes(logicProps.mode) &&
+                    !isCommenting &&
+                    !showingClipParams
+                )
+            },
+        ],
+        showPlayerChrome: [
+            (s) => [s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
+            (hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+                if (!hoverModeIsEnabled) {
+                    // we always show the UI in non-hover mode
+                    return true
+                }
+
+                // we default to showing the UI until a timer hides it
+                // or the user has hovered over the player
+                if (forceShowPlayerChrome) {
+                    return true
+                }
+                return isHovering
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        caughtAssetErrorFromIframe: ({ errorDetails }) => {
+            // eslint-disable-next-line no-console
+            console.log('caughtAssetErrorFromIframe', errorDetails)
+        },
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             actions.setIsCommenting(true)
             if (comment) {
@@ -945,7 +1097,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // we override the console in the player, with one which stores its data instead of logging
             // there is a debounced logger hidden inside that.
-            // we have to cache those timers so that we can clear them in the beforeUnmount
             // rrweb can log so much that it becomes a performance issue
             // this overridden logging avoids some recordings freezing the browser
             // outside of standard mode, we swallow the logs completely
@@ -953,7 +1104,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 props.mode === SessionRecordingPlayerMode.Standard
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
-            cache.consoleDebounceTimers = logging.timers
+
+            cache.disposables.add(() => {
+                return () => {
+                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                        if (timer) {
+                            clearTimeout(timer)
+                        }
+                    })
+                    ;(window as any)[`__posthog_player_logs`] = undefined
+                    ;(window as any)[`__posthog_player_warnings`] = undefined
+                }
+            }, 'consoleTimers')
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
@@ -969,6 +1131,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 logger: logging.logger,
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+
+            // Listen for resource errors from rrweb
+            replayer.on('fullsnapshot-rebuilded', () => {
+                const iframeContentWindow = replayer.iframe.contentWindow
+                const iframeFetch = replayer.iframe.contentWindow?.fetch
+
+                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
+                    // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
+                    // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
+                    iframeContentWindow.fetch = wrapFetchAndReport({
+                        fetch: iframeFetch,
+                        onError: (errorDetails: ResourceErrorDetails) => {
+                            actions.caughtAssetErrorFromIframe(errorDetails)
+                        },
+                    })
+                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                }
+
+                if (iframeContentWindow) {
+                    cache.disposables.add(() => {
+                        return registerErrorListeners({
+                            iframeWindow: iframeContentWindow,
+                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                        })
+                    }, 'iframeErrorListeners')
+                }
+            })
 
             actions.setPlayer({ replayer, windowId })
         },
@@ -1150,7 +1339,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 props.playerKey?.startsWith('file-') ||
                 values.wasMarkedViewed ||
-                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+                (props.mode && !ModesWithInteractions.includes(props.mode))
             ) {
                 return
             }
@@ -1174,15 +1363,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
-        setEndReached: async ({ reached }) => {
+        setEndReached: ({ reached }) => {
             if (reached) {
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
                     actions.markViewed(0)
-                }
-                if (values.similarRecordingsCount > 0) {
-                    actions.showNextRecordingConfirmation()
                 }
             }
         },
@@ -1334,12 +1520,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
-            cache.timer = requestAnimationFrame(actions.updateAnimation)
+
+            cache.disposables.add(() => {
+                const timerId = requestAnimationFrame(actions.updateAnimation)
+                return () => cancelAnimationFrame(timerId)
+            }, 'animationTimer')
         },
         stopAnimation: () => {
-            if (cache.timer) {
-                cancelAnimationFrame(cache.timer)
-            }
+            cache.disposables.dispose('animationTimer')
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
@@ -1431,7 +1619,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: ({ format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5 }) => {
+        exportRecording: ({
+            format,
+            timestamp = 0,
+            mode = SessionRecordingPlayerMode.Screenshot,
+            duration = 5,
+            filename = '',
+        }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
@@ -1443,7 +1637,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: iframe?.width ? Number(iframe.width) : 1400,
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',
-                filename: `replay-${values.sessionRecordingId}`,
+                filename: filename || `replay-${values.sessionRecordingId}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         },
         takeScreenshot: async () => {
@@ -1451,13 +1645,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
             actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
-        getClip: async ({ format, duration = 5 }) => {
+        getClip: async ({ format, duration = 5, filename }) => {
             // Center the clip around current time, minus 1 second offset for player start
             const timestamp = Math.max(
                 0,
                 Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
             )
-            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
+            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration, filename)
         },
         exportRecordingToVideoFile: async () => {
             const duration = values.sessionPlayerData?.durationMs
@@ -1499,59 +1693,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
-        showNextRecordingConfirmation: () => {
-            if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNext()
-            }
-        },
-        confirmNextRecording: async () => {
-            // Mark all similar recordings as viewed
-            await Promise.all(
-                values.similarRecordings.map((recordingId: SessionRecordingType['id']) =>
-                    api.recordings.update(recordingId, {
-                        viewed: true,
-                    })
-                )
-            )
-            actions.hideNextRecordingConfirmation()
-            if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNext()
-            }
-        },
-        loadSimilarRecordings: async () => {
-            if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_SIMILAR_RECORDINGS]) {
-                const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
-                actions.loadSimilarRecordingsSuccess(response.count)
-                actions.setSimilarRecordings(response.results)
-            }
-        },
-        maybeLoadRecordingMeta: async (_, breakpoint) => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-
-            breakpoint()
-
-            try {
-                actions.loadSimilarRecordings()
-            } catch (e) {
-                console.error('Failed to load recording meta', e)
-                actions.setPlayerError('Failed to load recording meta')
-            }
-        },
-        loadRecordingMeta: async () => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-        },
         schedulePlayerTimeTracking: () => {
             const currentState = values.playingTimeTracking.state
             const interval = currentState === 'playing' ? 5000 : 30000
 
-            cache.playerTimeTrackingTimer = setTimeout(() => {
-                actions.updatePlayerTimeTracking()
-                actions.schedulePlayerTimeTracking()
-            }, interval)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.updatePlayerTimeTracking()
+                    actions.schedulePlayerTimeTracking()
+                }, interval)
+                return () => clearTimeout(timerId)
+            }, 'playerTimeTracking')
         },
     })),
 
@@ -1603,14 +1755,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.stopAnimation()
 
         cache.hasInitialized = false
-        document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
-
-        if (cache.playerTimeTrackingTimer) {
-            clearTimeout(cache.playerTimeTrackingTimer)
-        }
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1632,16 +1779,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
         )
-
-        if (cache.consoleDebounceTimers) {
-            Object.values(cache.consoleDebounceTimers as BuiltLogging['timers']).forEach((timer) => {
-                if (timer) {
-                    clearTimeout(timer)
-                }
-            })
-        }
-        ;(window as any)[`__posthog_player_logs`] = undefined
-        ;(window as any)[`__posthog_player_warnings`] = undefined
     }),
 
     afterMount(({ props, actions, cache }) => {
@@ -1650,14 +1787,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.pausedMediaElements = []
-        cache.fullScreenListener = () => {
-            actions.setIsFullScreen(document.fullscreenElement !== null)
-        }
-
-        document.addEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.disposables.add(() => {
+            const fullScreenListener = (): void => {
+                actions.setIsFullScreen(document.fullscreenElement !== null)
+            }
+            document.addEventListener('fullscreenchange', fullScreenListener)
+            return () => document.removeEventListener('fullscreenchange', fullScreenListener)
+        }, 'fullscreenListener')
 
         if (props.sessionRecordingId) {
-            actions.maybeLoadRecordingMeta()
+            actions.loadRecordingData()
         }
 
         cache.openTime = performance.now()

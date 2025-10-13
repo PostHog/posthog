@@ -163,7 +163,15 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                 : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
                   ? '&'
                   : '→'
-        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
+        summary = `${query.series
+            .map((s) => {
+                let eventName = getDisplayNameFromEntityNode(s)
+                if (s.optionalInFunnel) {
+                    eventName += ' (optional)'
+                }
+                return eventName
+            })
+            .join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
         if (query.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {

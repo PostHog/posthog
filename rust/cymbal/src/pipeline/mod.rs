@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use billing::apply_billing_limits;
-use chrono::{DateTime, NaiveDateTime, Utc};
 use clean::clean_set_props;
 use common_kafka::{
     kafka_consumer::Offset, kafka_messages::ingest_warning::IngestionWarning,
@@ -21,9 +20,10 @@ use crate::{
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     metric_consts::{
         BILLING_LIMITS_TIME, CLEAN_PROPS_TIME, EMIT_INGESTION_WARNINGS_TIME,
-        EXCEPTION_PROCESSING_TIME, GEOIP_TIME, PERSON_PROCESSING_TIME, PREPARE_EVENTS_TIME,
-        TEAM_LOOKUP_TIME,
+        EXCEPTION_PROCESSING_TIME, GEOIP_TIME, GROUP_TYPE_MAPPING_TIME, PERSON_PROCESSING_TIME,
+        PREPARE_EVENTS_TIME, TEAM_LOOKUP_TIME,
     },
+    pipeline::group::map_group_types,
     teams::do_team_lookups,
 };
 
@@ -32,6 +32,7 @@ pub mod clean;
 pub mod errors;
 pub mod exception;
 pub mod geoip;
+pub mod group;
 pub mod person;
 pub mod prep;
 
@@ -93,6 +94,11 @@ pub async fn handle_batch(
     geoip_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
+    let gtm_time = common_metrics::timing_guard(GROUP_TYPE_MAPPING_TIME, &[]);
+    let buffer = map_group_types(buffer, &context).await?;
+    gtm_time.label("outcome", "success").fin();
+    assert_eq!(start_count, buffer.len());
+
     // We do exception processing before person processing so we can drop based on issue
     // suppression before doing the more expensive pipeline stage
     let exception_time = common_metrics::timing_guard(EXCEPTION_PROCESSING_TIME, &[]);
@@ -141,24 +147,6 @@ pub fn filter_by_team_id(
         .collect()
 }
 
-// Equivalent to the JS:'yyyy-MM-dd HH:mm:ss.u'
-const CH_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.3f";
-pub fn parse_ts_assuming_utc(input: &str) -> Result<DateTime<Utc>, EventError> {
-    let mut parsed = DateTime::parse_from_rfc3339(input).map(|d| d.to_utc());
-
-    if parsed.is_err() {
-        // If we can't parse a timestamp, try parsing it as a naive datetime
-        // and assuming UTC
-        parsed = NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S%.f").map(|d| d.and_utc())
-    }
-
-    parsed.map_err(|e| EventError::InvalidTimestamp(input.to_string(), e.to_string()))
-}
-
-pub fn format_ch_timestamp(ts: DateTime<Utc>) -> String {
-    ts.format(CH_FORMAT).to_string()
-}
-
 pub async fn emit_ingestion_warnings(
     context: &AppContext,
     warnings: Vec<IngestionWarning>,
@@ -177,10 +165,10 @@ pub async fn emit_ingestion_warnings(
 #[cfg(test)]
 mod test {
 
-    use common_types::{ClickHouseEvent, PersonMode};
+    use common_types::{format::parse_datetime_assuming_utc, ClickHouseEvent, PersonMode};
     use uuid::Uuid;
 
-    use crate::{app_context::FilterMode, pipeline::parse_ts_assuming_utc};
+    use crate::app_context::FilterMode;
 
     use super::filter_by_team_id;
 
@@ -212,12 +200,12 @@ mod test {
             person_mode: PersonMode::Propertyless,
         };
 
-        let ts = parse_ts_assuming_utc(&event.timestamp).unwrap();
+        let ts = parse_datetime_assuming_utc(&event.timestamp).unwrap();
         assert_eq!(ts.to_rfc3339(), "2021-08-02T12:34:56.789+00:00");
 
         event.timestamp = "invalid".to_string();
 
-        let ts = parse_ts_assuming_utc(&event.timestamp);
+        let ts = parse_datetime_assuming_utc(&event.timestamp);
         assert!(ts.is_err());
     }
 

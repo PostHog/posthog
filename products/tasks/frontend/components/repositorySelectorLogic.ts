@@ -14,10 +14,10 @@ export interface AvailableRepo {
 export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
     path(['products', 'tasks', 'frontend', 'components', 'repositorySelectorLogic']),
 
-    connect({
+    connect(() => ({
         actions: [integrationsLogic, ['loadIntegrations', 'loadGitHubRepositories']],
         values: [integrationsLogic, ['integrations', 'getGitHubRepositories']],
-    }),
+    })),
 
     actions({
         setAvailableRepos: (repos: AvailableRepo[]) => ({ repos }),

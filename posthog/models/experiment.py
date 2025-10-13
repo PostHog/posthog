@@ -164,3 +164,32 @@ class ExperimentToSavedMetric(models.Model):
 
     def __str__(self):
         return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"
+
+
+class ExperimentMetricResult(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+    metric_uuid = models.CharField(max_length=255)
+    fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
+    query_from = models.DateTimeField()
+    query_to = models.DateTimeField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    result = models.JSONField(null=True, blank=True, default=None)
+    query_id = models.CharField(max_length=255, null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["experiment", "metric_uuid", "query_to"]
+        indexes = [
+            models.Index(fields=["experiment", "metric_uuid", "query_to"]),
+        ]
+
+    def __str__(self):
+        return f"ExperimentMetricResult({self.experiment_id}, {self.metric_uuid}, {self.query_from}, {self.status})"

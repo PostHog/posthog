@@ -37,7 +37,6 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                 <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
                 <FloatingSuggestionsDisplay
                     type="secondary"
-                    showSuggestions
                     dataProcessingAccepted={dataProcessingAccepted}
                     additionalSuggestions={[
                         <LemonButton

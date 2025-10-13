@@ -84,9 +84,28 @@ posthog/management/commands/generate_source_configs.py @PostHog/team-data-wareho
 posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
 posthog/hogql/** @PostHog/team-data-warehouse
 
+# Team error tracking
+
+products/error_tracking/** @PostHog/team-error-tracking
+posthog/models/error_tracking/ @PostHog/team-error-tracking
+posthog/api/error_tracking.py @PostHog/team-error-tracking
+posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
+posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
+
+# Notebooks
+
+frontend/src/scenes/notebooks/ @daibhin
+frontend/src/lib/components/RichContentEditor/ @daibhin
+
 # Own all .py files under session recordings
+
 posthog/session_recordings/**/*.py @PostHog/team-replay
 ee/session_recordings/**/*.py @PostHog/team-replay
 
 # Own everything in mobile replay (all file types)
+
 ee/frontend/mobile-replay @PostHog/team-replay
+
+# DevEx
+
+posthog/management/migration_analysis/ @PostHog/DevEx

@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
@@ -25,8 +24,11 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import type { ActionFilter, Group } from '~/types'
+import type { ActionFilter } from '~/types'
 import {
     ActivityScope,
     FilterLogicalOperator,
@@ -90,11 +92,18 @@ export function Group(): JSX.Element {
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <>
-            <PageHeader
-                caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name={groupData.group_key}
+                resourceType={{ type: 'group' }}
+                forceBackTo={{
+                    name: 'People / Projects',
+                    key: 'groups',
+                    path: urls.groups(groupTypeIndex),
+                }}
+                actions={
                     <NotebookSelectButton
+                        size="small"
                         type="secondary"
                         resource={{
                             type: NotebookNodeType.Group,
@@ -106,7 +115,11 @@ export function Group(): JSX.Element {
                     />
                 }
             />
+            <SceneDivider />
+            <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
+            <SceneDivider />
             <LemonTabs
+                sceneInset
                 activeKey={groupTab ?? 'overview'}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
@@ -262,6 +275,6 @@ export function Group(): JSX.Element {
                     },
                 ]}
             />
-        </>
+        </SceneContent>
     )
 }

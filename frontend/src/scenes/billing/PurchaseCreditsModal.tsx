@@ -9,18 +9,54 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { BillingGauge } from './BillingGauge'
-import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingGaugeItemKind } from './types'
 
+function floatDiscountToText(discount: number): string {
+    return `${Math.floor(discount * 100)}%`
+}
+
+function generateBillingGaugeItemsFromCreditBrackets(creditInputValue: number, creditBrackets: any[]): any[] {
+    return [
+        ...creditBrackets.map((bracket) => ({
+            type: BillingGaugeItemKind.FreeTier,
+            text:
+                creditInputValue >= bracket.annual_credit_from_inclusive &&
+                creditInputValue < (bracket.annual_credit_to_exclusive || Infinity) ? (
+                    <>
+                        <IconCheckCircle className="text-success" /> {floatDiscountToText(bracket.discount)} off
+                    </>
+                ) : (
+                    `${floatDiscountToText(bracket.discount)} off`
+                ),
+            value: bracket.annual_credit_from_inclusive,
+            prefix: '$',
+        })),
+        {
+            type: BillingGaugeItemKind.CurrentUsage,
+            text: 'Credits purchased',
+            prefix: '$',
+            value: creditInputValue,
+        },
+    ]
+}
+
 export const PurchaseCreditsModal = (): JSX.Element | null => {
     const { showPurchaseCreditsModal, submitCreditForm } = useActions(billingLogic)
-    const { creditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
+    const {
+        creditOverview,
+        isCreditFormSubmitting,
+        creditForm,
+        creditDiscount,
+        creditBrackets,
+        estimatedMonthlyCreditAmountUsd,
+    } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const creditInputValue: number = +creditForm.creditInput || 0
-    const estimatedMonthlyCreditAmountUsd =
-        creditOverview.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+    const billingGaugeItems = generateBillingGaugeItemsFromCreditBrackets(creditInputValue, creditBrackets)
+    const maxDiscount = Math.max(...creditBrackets.map((b) => b.discount))
+
     return (
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
@@ -38,15 +74,12 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                     <LemonButton type="primary" onClick={() => submitCreditForm()} loading={isCreditFormSubmitting}>
                         Buy{' '}
                         {creditForm.creditInput
-                            ? `$${Math.round(creditInputValue - creditInputValue * creditDiscount).toLocaleString(
-                                  'en-US',
-                                  {
-                                      minimumFractionDigits: 0,
-                                      maximumFractionDigits: 0,
-                                  }
-                              )}`
+                            ? `$${Math.round(creditInputValue).toLocaleString('en-US', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 0,
+                              })}`
                             : ''}{' '}
-                        credits
+                        credits {creditDiscount > 0 ? `at ${floatDiscountToText(creditDiscount)} off` : ''}
                     </LemonButton>
                 </>
             }
@@ -54,14 +87,15 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
             <Form formKey="creditForm" logic={billingLogic} enableFormOnSubmit>
                 <div className="flex flex-col gap-3.5">
                     <p className="mb-0">
-                        We're giving you the option to buy usage credits in advance at discount of up to 30%.
+                        We're giving you the option to buy usage credits in advance at discount of up to{' '}
+                        {floatDiscountToText(maxDiscount)}.
                     </p>
 
                     <p className="mb-0">
                         Based on your usage, we think you'll use{' '}
                         <b>
                             $
-                            {(+estimatedMonthlyCreditAmountUsd).toLocaleString('en-US', {
+                            {(+estimatedMonthlyCreditAmountUsd!).toLocaleString('en-US', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                             })}
@@ -69,7 +103,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         of credits per month, for a total of{' '}
                         <b>
                             $
-                            {(+estimatedMonthlyCreditAmountUsd * 12).toLocaleString('en-US', {
+                            {(+estimatedMonthlyCreditAmountUsd! * 12).toLocaleString('en-US', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                             })}
@@ -102,66 +136,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                     </LemonField>
 
                     <BillingGauge
-                        items={[
-                            {
-                                type: BillingGaugeItemKind.FreeTier,
-                                text:
-                                    creditInputValue >= 3000 && creditInputValue < 20000 ? (
-                                        <>
-                                            <IconCheckCircle className="text-success" /> 10% off
-                                        </>
-                                    ) : (
-                                        '10% off'
-                                    ),
-                                value: 3000,
-                                prefix: '$',
-                            },
-                            {
-                                type: BillingGaugeItemKind.FreeTier,
-                                text:
-                                    creditInputValue >= 20000 && creditInputValue < 60000 ? (
-                                        <>
-                                            <IconCheckCircle className="text-success" /> 20% off
-                                        </>
-                                    ) : (
-                                        '20% off'
-                                    ),
-                                value: 20000,
-                                prefix: '$',
-                            },
-                            {
-                                type: BillingGaugeItemKind.FreeTier,
-                                text:
-                                    creditInputValue >= 60000 && creditInputValue < 100000 ? (
-                                        <>
-                                            <IconCheckCircle className="text-success" /> 25% off
-                                        </>
-                                    ) : (
-                                        '25% off'
-                                    ),
-                                prefix: '$',
-                                value: 60000,
-                            },
-                            {
-                                type: BillingGaugeItemKind.FreeTier,
-                                text:
-                                    creditInputValue >= 100000 ? (
-                                        <>
-                                            <IconCheckCircle className="text-success" /> 35% off
-                                        </>
-                                    ) : (
-                                        '35% off'
-                                    ),
-                                prefix: '$',
-                                value: 100000,
-                            },
-                            {
-                                type: BillingGaugeItemKind.CurrentUsage,
-                                text: 'Credits purchased',
-                                prefix: '$',
-                                value: creditInputValue,
-                            },
-                        ]}
+                        items={billingGaugeItems}
                         // @ts-expect-error
                         product={{
                             percentage_usage: 0.3,
@@ -218,23 +193,8 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 item: "Credits you'll receive",
                                 value: (
                                     <span className="flex deprecated-space-x-2">
-                                        <span className="line-through">
-                                            $
-                                            {creditInputValue.toLocaleString('en-US', {
-                                                minimumFractionDigits: 0,
-                                                maximumFractionDigits: 0,
-                                            })}
-                                        </span>
-                                        <span className="italic">${creditDiscount * 100}% off</span>
-                                    </span>
-                                ),
-                            },
-                            {
-                                item: 'Discount',
-                                value: (
-                                    <span className="text-success-light">
-                                        -$
-                                        {Math.round(creditInputValue * creditDiscount).toLocaleString('en-US', {
+                                        $
+                                        {creditInputValue.toLocaleString('en-US', {
                                             minimumFractionDigits: 0,
                                             maximumFractionDigits: 0,
                                         })}
@@ -242,9 +202,22 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 ),
                             },
                             {
+                                item: 'Discount',
+                                value: (
+                                    <span className="text-success-light flex gap-1">
+                                        -$
+                                        {Math.round(creditInputValue * creditDiscount).toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                        })}
+                                        <span className="italic text-secondary">${creditDiscount * 100}% off!</span>
+                                    </span>
+                                ),
+                            },
+                            {
                                 item: 'Due today',
                                 value: (
-                                    <span className="font-semibold">
+                                    <span className="font-semibold flex gap-1">
                                         $
                                         {Math.round(
                                             creditInputValue - creditInputValue * creditDiscount

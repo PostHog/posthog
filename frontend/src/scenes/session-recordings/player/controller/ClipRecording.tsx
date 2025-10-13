@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -48,7 +48,8 @@ function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: num
 }
 
 export function ClipOverlay(): JSX.Element | null {
-    const { currentPlayerTime, sessionPlayerData, showingClipParams } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerTime, sessionPlayerData, showingClipParams, sessionRecordingId } =
+        useValues(sessionRecordingPlayerLogic)
     const { getClip, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
     const [duration, setDuration] = useState(5)
     const [format, setFormat] = useState(ExporterFormat.MP4)
@@ -58,6 +59,8 @@ export function ClipOverlay(): JSX.Element | null {
         sessionPlayerData.durationMs,
         duration
     )
+
+    const filename = `replay-${sessionRecordingId}-${startClip}-${endClip}`
 
     if (!showingClipParams) {
         return null
@@ -112,7 +115,7 @@ export function ClipOverlay(): JSX.Element | null {
 
             <LemonButton
                 onClick={() => {
-                    getClip(format, duration)
+                    getClip(format, duration, filename)
                     setShowingClipParams(false)
                 }}
                 type="primary"
@@ -128,11 +131,27 @@ export function ClipOverlay(): JSX.Element | null {
     )
 }
 
-export function ClipRecording({ className }: { className?: string }): JSX.Element {
-    const { showingClipParams, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+/**
+ * Only exists because its parameters change once a second rather than on every player tick
+ * so reduces the number of re-renders of the button itself
+ */
+function ClipRecording_({ current, className }: { current: string; className?: string }): JSX.Element {
+    const { showingClipParams } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
 
-    const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, 5)
+    const tooltipContent = useMemo(
+        () => (
+            <div className="flex items-center gap-2">
+                <span>
+                    Create clip around {current} <KeyboardShortcut x />
+                </span>
+                <LemonTag type="warning" size="small">
+                    BETA
+                </LemonTag>
+            </div>
+        ),
+        [current]
+    )
 
     return (
         <LemonButton
@@ -143,19 +162,18 @@ export function ClipRecording({ className }: { className?: string }): JSX.Elemen
                 setPause()
                 setShowingClipParams(!showingClipParams)
             }}
-            tooltip={
-                <div className="flex items-center gap-2">
-                    <span>
-                        Create clip around {current} <KeyboardShortcut x />
-                    </span>
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
-                </div>
-            }
+            tooltip={tooltipContent}
             icon={<IconRecordingClip className={cn('text-xl', className)} />}
             data-attr="replay-clip"
             tooltipPlacement="top"
         />
     )
+}
+
+export function ClipRecording({ className }: { className?: string }): JSX.Element {
+    const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+
+    const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, 5)
+
+    return <ClipRecording_ current={current} className={className} />
 }

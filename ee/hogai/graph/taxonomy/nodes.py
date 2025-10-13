@@ -19,6 +19,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
 from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
@@ -31,7 +32,7 @@ from .prompts import (
 )
 from .toolkit import TaxonomyAgentToolkit
 from .tools import TaxonomyTool
-from .types import EntityType, TaxonomyAgentState
+from .types import EntityType, TaxonomyAgentState, TaxonomyNodeName
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
@@ -40,9 +41,9 @@ TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateTyp
 
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyReasoningNodeMixin,
     TaxonomyNodeBound,
     StateClassMixin,
-    TaxonomyReasoningNodeMixin,
     ABC,
 ):
     """Base node for taxonomy agents."""
@@ -51,6 +52,10 @@ class TaxonomyAgentNode(
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return TaxonomyNodeName.LOOP_NODE
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -143,7 +148,7 @@ class TaxonomyAgentNode(
 
 
 class TaxonomyAgentToolsNode(
-    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, TaxonomyReasoningNodeMixin
+    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
 ):
     """Base tools node for taxonomy agents."""
 
@@ -154,7 +159,11 @@ class TaxonomyAgentToolsNode(
         self._toolkit = toolkit_class(team=team)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
 
-    def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
+    @property
+    def node_name(self) -> MaxNodeName:
+        return TaxonomyNodeName.TOOLS_NODE
+
+    async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
         tool_input: TaxonomyTool | None = None
@@ -189,8 +198,12 @@ class TaxonomyAgentToolsNode(
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
         if tool_input and not output:
+            # Taxonomy is a separate graph, so it dispatches its own messages
+            reasoning_message = await self.get_reasoning_message(state)
+            if reasoning_message:
+                await self._write_message(reasoning_message)
             # Use the toolkit to handle tool execution
-            _, output = self._toolkit.handle_tools(tool_input.name, tool_input)
+            _, output = await self._toolkit.handle_tools(tool_input.name, tool_input)
 
         if output:
             tool_msg = LangchainToolMessage(

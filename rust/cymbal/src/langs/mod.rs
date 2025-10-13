@@ -2,9 +2,12 @@ use serde::{Deserialize, Serialize};
 
 pub mod custom;
 pub mod go;
+pub mod hermes;
+pub mod java;
 pub mod js;
 pub mod node;
 pub mod python;
+pub mod ruby;
 pub mod utils;
 
 // Some metadata is common across all languages, so we define it here. In some

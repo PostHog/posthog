@@ -1,9 +1,7 @@
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { FEATURE_FLAGS } from 'lib/constants'
-import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
@@ -71,7 +69,8 @@ export function loadPostHogJS(): void {
             __preview_remote_config: true,
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
-            __preview_lazy_load_replay: true,
+            __preview_eager_load_replay: false,
+            __preview_disable_xhr_credentials: true,
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {
@@ -79,26 +78,11 @@ export function loadPostHogJS(): void {
                 return
             }
 
-            // Show this toast once per week by using YYYY-WW format for the ID
-            const toastId = `toast-feature-flags-error-${getISOWeekString()}`
-            if (window.localStorage.getItem(toastId)) {
-                return
-            }
+            posthog.capture('onFeatureFlags error')
 
-            lemonToast.warning(
-                <div className="flex flex-col gap-2">
-                    <span>We couldn't load our feature flags.</span>
-                    <span>
-                        This could be due to the presence of adblockers running in your browser. This might affect the
-                        platform usability since some features might not be available.
-                    </span>
-                </div>,
-                {
-                    toastId: toastId,
-                    onClose: () => window.localStorage.setItem(toastId, 'true'),
-                    autoClose: false,
-                }
-            )
+            // Track that we failed to load feature flags
+            window.POSTHOG_GLOBAL_ERRORS ||= {}
+            window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
     } else {
         posthog.init('fake_token', {

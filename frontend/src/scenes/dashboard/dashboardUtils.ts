@@ -5,11 +5,19 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { DashboardLayoutSize, InsightModel, QueryBasedInsightModel, TileLayout } from '~/types'
+import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DashboardLayoutSize,
+    InsightModel,
+    QueryBasedInsightModel,
+    TileLayout,
+} from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -111,9 +119,20 @@ export async function getInsightWithRetry(
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
+    tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
 ): Promise<QueryBasedInsightModel | null> {
+    // Check if user has access to this insight before making API calls
+    const canViewInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
+        : true
+
+    if (!canViewInsight) {
+        // Return the insight as-is without making API calls - it should already have minimal data
+        return insight
+    }
+
     let attempt = 0
 
     while (attempt < maxAttempts) {
@@ -125,6 +144,7 @@ export async function getInsightWithRetry(
                 session_id: currentSessionId(),
                 ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
@@ -143,6 +163,7 @@ export async function getInsightWithRetry(
                             session_id: currentSessionId(),
                             ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                             ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
@@ -157,6 +178,7 @@ export async function getInsightWithRetry(
                                     session_id: currentSessionId(),
                                     ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                    ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,

@@ -9,6 +9,7 @@ from structlog.contextvars import bind_contextvars
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import (
+    DataModelingJob,
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
@@ -41,6 +42,7 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
 
 
 async def create_table_from_saved_query(
+    job_id: str,
     saved_query_id: str,
     team_id: int,
 ) -> None:
@@ -57,6 +59,8 @@ async def create_table_from_saved_query(
     )
     saved_query_id_converted = str(uuid.UUID(saved_query_id))
     saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
+
+    job = await DataModelingJob.objects.aget(id=job_id)
 
     try:
         table_name = f"{saved_query.name}"
@@ -92,9 +96,19 @@ async def create_table_from_saved_query(
 
         try:
             if saved_query:
+                existing_size: float = table_created.size_in_s3_mib or 0
+
+                logger.debug(f"Existing size in MiB = {existing_size:.2f}")
+
                 table_size = await calculate_table_size(saved_query, team_id)
 
                 await logger.adebug(f"Total size in MiB = {table_size:.2f}")
+
+                table_size_delta = table_size - existing_size
+                logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
+
+                job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
+                await job.asave()
 
                 table_created.size_in_s3_mib = table_size
                 await asave_datawarehousetable(table_created)

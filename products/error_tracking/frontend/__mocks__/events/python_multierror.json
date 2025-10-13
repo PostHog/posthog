@@ -559,7 +559,7 @@
         "$os_version": "15.3.1",
         "$process_person_profile": false,
         "$lib_version": "3.21.0",
-        "$python_version": "3.11.9",
+        "$python_version": "3.12.11",
         "$exception_message": "Connection closed by server.",
         "$transformations_succeeded": ["GeoIP (0195b934-6d98-0000-4d00-8163a218f25c)"],
         "$exception_type": "ConnectionError",

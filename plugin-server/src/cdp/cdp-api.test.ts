@@ -178,6 +178,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
 
@@ -201,6 +202,43 @@ describe('CDP API', () => {
         })
     })
 
+    it('function will return skipped if no invocations', async () => {
+        mockFetch.mockImplementationOnce(() =>
+            Promise.resolve({
+                status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
+                text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
+            })
+        )
+
+        hogFunction = await insertHogFunction({
+            name: 'test hog function',
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.elements_text_filter,
+        })
+
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({ globals, mock_async_functions: false })
+
+        expect(res.status).toEqual(200)
+
+        expect(res.body.status).toMatchInlineSnapshot(`"skipped"`)
+
+        expect(res.body).toMatchObject({
+            errors: [],
+            logs: [
+                {
+                    level: 'info',
+                    message: 'Mapping trigger not matching filters was ignored.',
+                },
+            ],
+        })
+    })
+
     it('can invoke a function with multiple fetches', async () => {
         mockFetch.mockImplementation(() =>
             Promise.resolve({
@@ -208,6 +246,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
         const res = await supertest(app)
@@ -240,6 +279,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         })
 
@@ -343,6 +383,8 @@ describe('CDP API', () => {
             message: log.message,
         }))
 
+        expect(res.body.status).toMatchInlineSnapshot(`"success"`)
+
         expect(minimalLogs).toMatchObject([
             { level: 'info', message: 'Mapping trigger not matching filters was ignored.' },
             {
@@ -381,6 +423,8 @@ describe('CDP API', () => {
             .send({ globals, mock_async_functions: true })
 
         expect(res.status).toEqual(200)
+
+        expect(res.body.status).toMatchInlineSnapshot(`"success"`)
 
         expect(res.body.logs.map((log: any) => log.message).slice(0, -1)).toMatchInlineSnapshot(`
             [

@@ -57,7 +57,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
 
     actionToUrl(({ values }) => {
         return {
-            setTab: () => [urls.replay(values.tab), router.values.searchParams],
+            setTab: () => [urls.replay(values.tab), router.values.searchParams, router.values.hashParams],
         }
     }),
 
@@ -71,11 +71,13 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                         key: Scene.Replay,
                         name: 'Replay',
                         path: urls.replay(),
+                        iconType: 'session_replay',
                     })
                 }
                 breadcrumbs.push({
                     key: tab,
                     name: humanFriendlyTabName(tab),
+                    iconType: 'session_replay',
                 })
 
                 return breadcrumbs
@@ -83,13 +85,15 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [router.selectors.searchParams],
-            (searchParams: Record<string, any>): SidePanelSceneContext | null => {
+            (searchParams: Record<string, any>): SidePanelSceneContext => {
                 return searchParams.sessionRecordingId
                     ? {
                           activity_scope: ActivityScope.REPLAY,
                           activity_item_id: searchParams.sessionRecordingId,
                       }
-                    : null
+                    : {
+                          activity_scope: ActivityScope.REPLAY,
+                      }
             },
         ],
     })),

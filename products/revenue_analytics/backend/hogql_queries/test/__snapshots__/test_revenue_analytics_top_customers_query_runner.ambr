@@ -7,7 +7,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -46,7 +46,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -109,7 +109,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT NULL AS id,
@@ -139,7 +139,7 @@
                NULL AS currency,
                NULL AS amount
         WHERE 0) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -180,7 +180,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -219,7 +219,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'), 0))
+     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -320,7 +320,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -409,7 +411,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -448,7 +450,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -549,7 +551,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -638,7 +642,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -677,7 +681,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -778,7 +782,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -867,7 +873,7 @@
          'all' AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -906,7 +912,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1009,7 +1015,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1100,7 +1108,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -1139,7 +1147,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1240,7 +1248,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1329,7 +1339,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -1369,7 +1379,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1470,7 +1480,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,
@@ -1559,7 +1571,7 @@
          inner.month AS month
   FROM
     (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-            toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS month,
+            toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS month,
             sum(revenue_analytics_revenue_item.amount) AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
@@ -1598,7 +1610,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1699,7 +1711,9 @@
                   posthog_test_stripe_invoice.discount AS discount,
                   arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                   JSONExtractString(data, 'id') AS invoice_item_id,
-                  JSONExtractString(data, 'amount') AS amount_captured,
+                  JSONExtractUInt(data, 'amount') AS amount_before_discount,
+                  coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0) AS discount_amount,
+                  greatest(minus(amount_before_discount, discount_amount), 0) AS amount_captured,
                   JSONExtractString(data, 'currency') AS currency,
                   JSONExtractString(data, 'price', 'product') AS product_id,
                   fromUnixTimestamp(JSONExtractUInt(data, 'period', 'start')) AS period_start,

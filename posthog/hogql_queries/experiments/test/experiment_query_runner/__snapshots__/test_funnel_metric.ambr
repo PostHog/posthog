@@ -3,16 +3,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -21,7 +31,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -29,6 +39,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -60,16 +71,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -78,7 +99,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -86,6 +107,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -117,16 +139,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -135,7 +167,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -143,6 +175,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -174,16 +207,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'unordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -192,7 +235,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -200,6 +243,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -231,16 +275,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -249,7 +303,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -257,6 +311,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -288,16 +343,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -306,7 +371,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -314,6 +379,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -345,16 +411,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 86400, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -363,7 +439,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -371,6 +447,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -402,16 +479,30 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 5), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 5), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 2), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 3), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 4), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 5), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(3, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(3, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(4, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(4, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(5, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(5, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(6, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(6, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 5), 0), aggregate_funnel_array_v7(6, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(6, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -420,7 +511,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -428,6 +519,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'add to cart'), 1, 0) AS step_1,
                if(equals(events.event, 'checkout started'), 1, 0) AS step_2,
@@ -463,16 +555,27 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 2), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 2), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 2), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(3, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(3, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 2), 0), aggregate_funnel_array_v7(3, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -481,7 +584,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -489,6 +592,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1,
                if(equals(events.event, 'purchase'), 1, 0) AS step_2
@@ -521,16 +625,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -539,7 +653,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -547,6 +661,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), 1, 0) AS step_0,
                if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_2'), 0)), 1, 0) AS step_1
         FROM events
@@ -578,16 +693,26 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 1), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0)), countIf(ifNull(greaterOrEquals((metric_events.value).1, 1), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(2, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(2, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'unordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -596,7 +721,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -604,6 +729,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -635,16 +761,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -653,7 +788,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -661,6 +796,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -691,18 +827,27 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT events.`$group_0` AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -710,6 +855,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
@@ -778,16 +924,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -796,7 +951,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -804,6 +959,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -951,16 +1107,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -969,7 +1134,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -977,6 +1142,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1124,16 +1290,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1142,7 +1317,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1150,6 +1325,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1297,16 +1473,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1325,7 +1510,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1333,6 +1518,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1490,16 +1676,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1518,7 +1713,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1526,6 +1721,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1683,16 +1879,25 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1711,7 +1916,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1719,6 +1924,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1876,18 +2082,27 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1895,6 +2110,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
@@ -2035,18 +2251,27 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -2054,6 +2279,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
@@ -2194,18 +2420,27 @@
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
-         sum(metric_events.value) AS total_sum,
-         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum,
+         countIf(ifNull(equals((metric_events.value).1, 0), 0)) AS total_sum_of_squares,
+         tuple(countIf(ifNull(greaterOrEquals((metric_events.value).1, 0), 0))) AS step_counts,
+         tuple(groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(0, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(0, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((metric_events.value).2, ''), 1), tuple(toString(metric_events.entity_id), metric_events.uuid_to_session[(metric_events.value).2], (metric_events.value).2), tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))), ifNull(equals((metric_events.value).1, minus(1, 1)), isNull((metric_events.value).1)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    and isNull(minus(1, 1))))) AS steps_event_data
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -2213,6 +2448,7 @@
                events.event AS event,
                events.uuid AS uuid,
                events.properties AS properties,
+               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))

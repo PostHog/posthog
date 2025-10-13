@@ -1096,7 +1096,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         tables = db.get_all_tables()
         for table_name in tables:
-            table = getattr(db, table_name)
+            table = db.get_table(table_name)
             assert table is not None
             assert isinstance(table, Table)
             if isinstance(table, LazyTable | DANGEROUS_NoTeamIdCheckTable):

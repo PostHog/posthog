@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use common_types::{Team, TeamId};
+use common_types::{GroupType, Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
 
 use crate::{
@@ -18,11 +18,16 @@ pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
+    pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
 }
 
 impl TeamManager {
     pub fn new(config: &Config) -> Self {
         let cache = CacheBuilder::new(config.max_team_cache_size)
+            .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
+            .build();
+
+        let group_type_indices = CacheBuilder::new(config.max_team_cache_size)
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();
 
@@ -48,6 +53,7 @@ impl TeamManager {
             token_cache: cache,
             assignment_rules,
             grouping_rules,
+            group_type_indices,
         }
     }
 
@@ -117,6 +123,27 @@ impl TeamManager {
         self.grouping_rules.insert(team_id, rules.clone());
         Ok(rules)
     }
+
+    pub async fn get_group_types<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<GroupType>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(indices) = self.group_type_indices.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "group_type_indices", "outcome" => "hit")
+                .increment(1);
+            return Ok(indices.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "group_type_indices", "outcome" => "miss")
+            .increment(1);
+        // If we have no indices for the team, we just put an empty vector in the cache
+        let indices = GroupType::for_team(e, team_id).await?;
+        self.group_type_indices.insert(team_id, indices.clone());
+        Ok(indices)
+    }
 }
 
 pub async fn do_team_lookups(
@@ -142,7 +169,12 @@ pub async fn do_team_lookups(
 
         let m_ctx = context.clone();
         let m_token = token.clone();
-        let fut = async move { m_ctx.team_manager.get_team(&m_ctx.pool, &m_token).await };
+        let fut = async move {
+            m_ctx
+                .team_manager
+                .get_team(&m_ctx.posthog_pool, &m_token)
+                .await
+        };
         let lookup = WithIndices {
             indices: vec![index],
             inner: tokio::spawn(fut),

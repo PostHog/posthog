@@ -8,7 +8,7 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
 4. Define the fields you'd like to collect via the `get_source_config()` method. Look at the other sources in `posthog/temporal/data_imports/sources` for examples. More info on the type of fields available is below
 5. Generate the config class by running `pnpm generate:source-configs`. This will add a new class to the `posthog/temporal/data_imports/sources/generated_configs.py` file. Update all references of `Config` in the below template to your new generated class
 6. Implement the logic of your source. More info on how to do this is below.
-7. Add a new icon for your source in `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx` - follow the existing convention here
+7. Add a new icon for your source - add the icon file in `frontend/public/services/` and add the path to the `SourceConfig` (note: the path should be `/static/services/<source_name>.png`) - this is rendered in the frontend by `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx` -
 8. **Register your source** in `posthog/temporal/data_imports/sources/__init__.py`:
     - Add import: `from .your_source.source import YourSourceClass`
     - Add to `__all__` list: `"YourSourceClass"`
@@ -16,14 +16,19 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
     **This step is REQUIRED** - without it, `@SourceRegistry.register` won't work and your source won't be discoverable.
 
 9. **Re-run config generation** after implementing source logic:
+
     ```bash
     pnpm generate:source-configs
     ```
+
     This updates `generated_configs.py` with your actual implemented source class.
+
 10. **Build schemas** to update types:
+
     ```bash
     pnpm schema:build
     ```
+
     This ensures your source appears in frontend dropdowns and forms.
 
 ### Source file template
@@ -52,8 +57,9 @@ class TemplateSource(BaseSource[Config]): # Replace this after config generation
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SOURCE_TYPE, # Replace this
-            label="Template", # Replace this
-            caption="",
+            label="Template", # Only needed if the readable name is complex
+            caption=None, # Only needed if you wanna inline docs
+            docsUrl=None, # Link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []), # Add source fields here
         )
     def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]: # Replace `Config` with your config class
@@ -205,7 +211,8 @@ If your source uses OAuth (SourceFieldOauthConfig):
     ```
 
 3. **Redirect URI**: Configure in external service:
-    ```
+
+    ```text
     https://localhost:8010/integrations/your-kind/callback
     ```
 

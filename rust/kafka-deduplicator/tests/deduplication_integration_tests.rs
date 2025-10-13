@@ -136,10 +136,10 @@ async fn produce_duplicate_events_with_timestamp(
     for i in 0..count {
         let uuid = Uuid::new_v4();
 
-        // Create properties for the event
+        // Create properties for the event (same for all duplicates within a batch)
         let mut properties = HashMap::new();
-        properties.insert("index".to_string(), json!(i));
         properties.insert("duplicate_test".to_string(), json!(true));
+        properties.insert("batch_id".to_string(), json!(distinct_id)); // Same for all in batch
 
         // Create the CapturedEvent using our helper
         let captured_event =
@@ -247,13 +247,14 @@ async fn test_basic_deduplication() -> Result<()> {
 
     let input_topic = format!("test_dedup_input_{}", Uuid::new_v4());
     let output_topic = format!("test_dedup_output_{}", Uuid::new_v4());
+    let duplicate_topic = format!("test_duplicate_events_{}", Uuid::new_v4());
     let group_id = format!("test_group_{}", Uuid::new_v4());
 
-    println!("Test topics: input={input_topic}, output={output_topic}, group={group_id}");
+    println!("Test topics: input={input_topic}, output={output_topic}, duplicate={duplicate_topic}, group={group_id}");
 
     // Create topics
     println!("Creating Kafka topics...");
-    create_kafka_topics(vec![&input_topic, &output_topic]).await?;
+    create_kafka_topics(vec![&input_topic, &output_topic, &duplicate_topic]).await?;
     println!("Topics created successfully");
 
     // Create temporary directory for RocksDB (keep it alive for test duration)
@@ -263,6 +264,7 @@ async fn test_basic_deduplication() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
+    env::set_var("DUPLICATE_EVENTS_TOPIC", &duplicate_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
     // For tests, we need to read from the beginning since we produce before starting
     env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
@@ -277,7 +279,7 @@ async fn test_basic_deduplication() -> Result<()> {
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
     println!("Service initialized");
 
@@ -292,8 +294,8 @@ async fn test_basic_deduplication() -> Result<()> {
 
     // Run the service with a controlled shutdown
     let shutdown_signal = async {
-        println!("Waiting 5 seconds for processing...");
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        println!("Waiting 10 seconds for processing...");
+        tokio::time::sleep(Duration::from_secs(10)).await;
         println!("Initiating shutdown...");
     };
 
@@ -302,7 +304,7 @@ async fn test_basic_deduplication() -> Result<()> {
         tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
 
     // Wait for service to complete
-    let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(15), service_handle).await;
     println!("Service stopped");
 
     // Consume from output topic to verify deduplication
@@ -310,7 +312,7 @@ async fn test_basic_deduplication() -> Result<()> {
     let output_messages = consume_output_messages(
         &output_topic,
         &format!("verify_{group_id}"),
-        Duration::from_secs(5),
+        Duration::from_secs(10),
     )
     .await?;
     println!(
@@ -319,6 +321,9 @@ async fn test_basic_deduplication() -> Result<()> {
     );
 
     // Should have only 2 unique events (one per distinct_id)
+    // 5 events for user_123 -> 1 unique + 4 duplicates (ConfirmedDuplicate with OnlyUuidDifferent)
+    // 3 events for user_456 -> 1 unique + 2 duplicates (ConfirmedDuplicate with OnlyUuidDifferent)
+    // Total: 2 unique events, 6 filtered duplicates
     assert_eq!(
         output_messages.len(),
         2,
@@ -347,6 +352,92 @@ async fn test_basic_deduplication() -> Result<()> {
             "test-header should be preserved in message {i}"
         );
     }
+
+    // Consume from duplicate events topic to verify duplicate detection
+    println!("Starting to consume from duplicate events topic for verification...");
+    let duplicate_messages = consume_output_messages(
+        &duplicate_topic,
+        &format!("verify_duplicates_{group_id}"),
+        Duration::from_secs(5),
+    )
+    .await?;
+    println!(
+        "Consumed {} duplicate event messages",
+        duplicate_messages.len()
+    );
+
+    // We sent:
+    // - 5 events for user_123: 1 new + 4 confirmed duplicates
+    // - 3 events for user_456: 1 new + 2 confirmed duplicates
+    // Total expected duplicate events: 6
+    assert!(
+        duplicate_messages.len() >= 6,
+        "Expected at least 6 duplicate events, got {}",
+        duplicate_messages.len()
+    );
+
+    // Verify structure of duplicate events
+    for (duplicate_event, _) in &duplicate_messages {
+        // Check required fields
+        assert!(
+            duplicate_event.get("source_message").is_some(),
+            "Missing source_message"
+        );
+        assert!(
+            duplicate_event.get("duplicate_message").is_some(),
+            "Missing duplicate_message"
+        );
+        assert!(
+            duplicate_event.get("similarity_score").is_some(),
+            "Missing similarity_score"
+        );
+        assert!(
+            duplicate_event.get("distinct_fields").is_some(),
+            "Missing distinct_fields"
+        );
+        assert!(duplicate_event.get("type").is_some(), "Missing type field");
+        assert!(
+            duplicate_event.get("is_confirmed").is_some(),
+            "Missing is_confirmed"
+        );
+        assert!(duplicate_event.get("version").is_some(), "Missing version");
+
+        // Verify type is timestamp (since we're sending same timestamp)
+        let dedup_type = duplicate_event
+            .get("type")
+            .and_then(|v| v.as_str())
+            .expect("type should be a string");
+        assert_eq!(
+            dedup_type, "timestamp",
+            "Expected timestamp deduplication type"
+        );
+
+        // Verify these are confirmed duplicates with OnlyUuidDifferent reason
+        let is_confirmed = duplicate_event
+            .get("is_confirmed")
+            .and_then(|v| v.as_bool())
+            .expect("is_confirmed should be a boolean");
+        assert!(is_confirmed, "All duplicates should be confirmed");
+
+        let reason = duplicate_event.get("reason").and_then(|v| v.as_str());
+        assert_eq!(
+            reason,
+            Some("OnlyUuidDifferent"),
+            "Expected OnlyUuidDifferent reason"
+        );
+
+        // Check similarity score is high (should be very similar except UUID)
+        let similarity = duplicate_event
+            .get("similarity_score")
+            .and_then(|v| v.as_f64())
+            .expect("similarity_score should be a number");
+        assert!(
+            similarity > 0.8,
+            "Similarity score should be high for UUID-only differences"
+        );
+    }
+
+    println!("All duplicate event verifications passed!");
 
     Ok(())
 }
@@ -385,7 +476,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     // Create and initialize the service
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
 
     // Produce events with same distinct_id but different event names

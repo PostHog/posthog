@@ -239,7 +239,19 @@ export class LazyPluginVM implements PluginInstance {
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
-                    await this._setupPlugin(vm)
+                    try {
+                        await this._setupPlugin(vm)
+                    } catch (error) {
+                        // Handle the error to prevent unhandled promise rejection
+                        logger.error('🚨', `Plugin setup failed after retry timeout`, {
+                            error: error instanceof Error ? error.message : String(error),
+                            pluginId: this.pluginConfig.plugin?.id,
+                            pluginConfigId: this.pluginConfig.id,
+                            teamId: this.pluginConfig.team_id,
+                        })
+                        // The plugin is already marked as errored and disabled at this point
+                        // so we just need to prevent the process from crashing
+                    }
                 }, nextRetryMs)
             } else {
                 this.inErroredState = true

@@ -2,7 +2,7 @@ import { actions, events, kea, key, listeners, path, props, reducers, selectors 
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
+import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
@@ -15,6 +15,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -99,6 +100,8 @@ export const activityLogTransforms = {
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ACTION:
+            return actionActivityDescriber
         case ActivityScope.ALERT_CONFIGURATION:
             return alertConfigurationActivityDescriber
         case ActivityScope.ANNOTATION:

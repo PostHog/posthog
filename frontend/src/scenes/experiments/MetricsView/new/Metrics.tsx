@@ -4,17 +4,19 @@ import { IconInfo, IconList } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
+import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'
 import { MetricsReorderModal } from '../MetricsReorderModal'
-import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
+import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
-export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const {
         experiment,
         getInsightType,
@@ -30,7 +32,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
-        return <></>
+        return null
     }
 
     const unorderedResults = isSecondary ? secondaryMetricsResults : primaryMetricsResults
@@ -63,6 +65,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const errors = metrics.map((metric) => errorsMap.get(metric.uuid))
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
+    const hasSomeResults =
+        results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
+        hasMinimumExposureForResults
 
     return (
         <div className="mb-4 -mt-2">
@@ -89,6 +94,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
+                        {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>
 
@@ -96,7 +102,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end flex gap-2">
-                                {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
+                                <AddMetricButton
+                                    metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
+                                />
                                 {metrics.length > 1 && (
                                     <LemonButton
                                         type="secondary"
@@ -134,7 +142,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                     metric: metrics[0] as ExperimentMetric,
                                 }}
                                 experiment={experiment}
-                                isSecondary={!!isSecondary}
                             />
                         </div>
                     )}
@@ -150,7 +157,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                     : 'Primary metrics represent the main goal of the experiment and directly measure if your hypothesis was successful.'}
                             </p>
                         </div>
-                        {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
+                        <AddMetricButton
+                            metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
+                        />
                     </div>
                 </div>
             )}

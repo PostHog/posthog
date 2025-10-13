@@ -24,10 +24,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 
@@ -41,10 +41,27 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { accessLevelSatisfied } from '../AccessControlAction'
+import { AccessControlAction } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SharePasswordsTable } from './SharePasswordsTable'
 import { sharingLogic } from './sharingLogic'
+
+function getResourceType(
+    dashboardId?: number,
+    insightShortId?: InsightShortId,
+    recordingId?: string
+): AccessControlResourceType {
+    if (dashboardId) {
+        return AccessControlResourceType.Dashboard
+    }
+    if (insightShortId) {
+        return AccessControlResourceType.Insight
+    }
+    if (recordingId) {
+        return AccessControlResourceType.SessionRecording
+    }
+    return AccessControlResourceType.Project
+}
 
 export const SHARING_MODAL_WIDTH = 600
 
@@ -123,7 +140,12 @@ export function SharingModalContent({
         <div className="deprecated-space-y-4">
             {dashboardId ? (
                 <>
-                    <DashboardCollaboration dashboardId={dashboardId} />
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Dashboard}
+                        callback={() => {
+                            push(urls.dashboard(dashboardId))
+                        }}
+                    />
                     <LemonDivider />
                 </>
             ) : undefined}
@@ -151,25 +173,22 @@ export function SharingModalContent({
                         {!sharingAllowed ? (
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (
-                            <LemonSwitch
-                                id="sharing-switch"
-                                label={`Share ${resource} publicly`}
-                                checked={sharingConfiguration.enabled}
-                                data-attr="sharing-switch"
-                                onChange={(active) => setIsEnabled(active)}
-                                bordered
-                                fullWidth
-                                loading={sharingConfigurationLoading}
-                                accessControl={{
-                                    resourceType: dashboardId
-                                        ? AccessControlResourceType.Dashboard
-                                        : insightShortId
-                                          ? AccessControlResourceType.Insight
-                                          : AccessControlResourceType.Project,
-                                    minAccessLevel: AccessControlLevel.Editor,
-                                    userAccessLevel: userAccessLevel,
-                                }}
-                            />
+                            <AccessControlAction
+                                resourceType={getResourceType(dashboardId, insightShortId, recordingId)}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel}
+                            >
+                                <LemonSwitch
+                                    id="sharing-switch"
+                                    label={`Share ${resource} publicly`}
+                                    checked={sharingConfiguration.enabled}
+                                    data-attr="sharing-switch"
+                                    onChange={(active) => setIsEnabled(active)}
+                                    bordered
+                                    fullWidth
+                                    loading={sharingConfigurationLoading}
+                                />
+                            </AccessControlAction>
                         )}
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (

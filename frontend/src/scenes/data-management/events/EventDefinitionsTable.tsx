@@ -7,7 +7,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -42,7 +41,6 @@ export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -117,6 +115,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                     fullWidth
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="event-definitions-table-view-recordings"
+                                    targetBlank
                                 >
                                     View recordings
                                 </LemonButton>
@@ -139,7 +138,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 }}
             />
             <SceneDivider />
-            <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
+            <LemonBanner type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
                     ? 'custom '
@@ -167,7 +166,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Link>
             </LemonBanner>
 
-            <div className={cn('flex justify-between items-center gap-2', !newSceneLayout && 'mb-4')}>
+            <div className={cn('flex justify-between items-center gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for events"

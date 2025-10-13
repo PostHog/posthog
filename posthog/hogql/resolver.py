@@ -16,8 +16,9 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
+from posthog.hogql.functions.core import compare_types, validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -273,13 +274,16 @@ class Resolver(CloningVisitor):
             isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
-            or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
-            while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
-                select = select.select_query_type
+
+            # Recursion because might be an `ast.BaseTableType` such as `ast.SelectViewType`
+            if isinstance(select, ast.SelectQueryAliasType):
+                return self._asterisk_columns(ast.AsteriskType(table_type=select.select_query_type), chain_prefix)
+
             if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
+
             if isinstance(select, ast.SelectQueryType):
                 return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:
@@ -533,9 +537,8 @@ class Resolver(CloningVisitor):
 
         return_type = None
 
-        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
-            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
-            if signatures:
+        if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
+            if signatures := func_meta.signatures:
                 for sig_arg_types, sig_return_type in signatures:
                     if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
                         return_type = dataclasses.replace(sig_return_type)
@@ -551,9 +554,12 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type.nullable = False
-        elif not isinstance(return_type, ast.UnknownType):
+            return_type.nullable = False  # valid only if at least 1 param is not null
+        elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
+        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+            return_type.nullable = True
 
         node.type = ast.CallType(
             name=node.name,

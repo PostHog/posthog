@@ -20,7 +20,9 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -65,6 +67,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        user_access_control = UserAccessControl(user=user, team=self.team)
+        return user_access_control.assert_access_level_for_resource("revenue_analytics", "viewer")
 
     def where_property_exprs(self, join_from: RevenueAnalyticsBaseView) -> list[ast.Expr]:
         # Some filters are not namespaced and they should simply use the raw property

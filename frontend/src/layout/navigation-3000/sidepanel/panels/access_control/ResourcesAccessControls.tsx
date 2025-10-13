@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
     LemonButton,
@@ -9,6 +9,8 @@ import {
     LemonSelect,
     LemonTable,
     LemonTableColumns,
+    LemonTag,
+    Link,
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
@@ -16,8 +18,9 @@ import {
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { fullName } from 'lib/utils'
+import { getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 
-import { APIScopeObject, AccessControlLevel, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
+import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
 import {
     DefaultResourceAccessControls,
@@ -26,32 +29,91 @@ import {
     resourcesAccessControlLogic,
 } from './resourcesAccessControlLogic'
 
+const SummarizeAccessLevels = ({
+    accessControlByResource,
+}: {
+    accessControlByResource: Record<APIScopeObject, any>
+}): JSX.Element => {
+    const entries = Object.entries(accessControlByResource)
+        .map(([resource, ac]) => ({
+            resource,
+            level: ac?.access_level,
+        }))
+        .filter((entry) => entry.level !== null && entry.level !== undefined)
+
+    if (entries.length === 0) {
+        return <span>No default permissions</span>
+    }
+
+    return (
+        <div className="flex gap-2 flex-wrap">
+            {entries.map(({ resource, level }) => (
+                <LemonTag key={resource} type="default">
+                    {capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}:{' '}
+                    {capitalizeFirstLetter(level)}
+                </LemonTag>
+            ))}
+        </div>
+    )
+}
+
 export function ResourcesAccessControls(): JSX.Element {
     const {
         defaultResourceAccessControls,
         memberResourceAccessControls,
         roleResourceAccessControls,
-        resources,
-        availableLevels,
         canEditRoleBasedAccessControls,
         addableMembers,
         addableRoles,
+        resourceAccessControlsLoading,
+        memberModalOpen,
+        editingMember,
+        roleModalOpen,
+        editingRole,
+        defaultModalOpen,
     } = useValues(resourcesAccessControlLogic)
-    const { updateResourceAccessControls } = useActions(resourcesAccessControlLogic)
-
-    // State for the modals
-    const [memberModalOpen, setMemberModalOpen] = useState(false)
-    const [roleModalOpen, setRoleModalOpen] = useState(false)
+    const {
+        updateResourceAccessControls,
+        openMemberModal,
+        closeMemberModal,
+        openRoleModal,
+        closeRoleModal,
+        openDefaultModal,
+        closeDefaultModal,
+    } = useActions(resourcesAccessControlLogic)
 
     // Default table
     const defaultColumns: LemonTableColumns<DefaultResourceAccessControls> = [
         {
             title: '',
             key: 'default',
-            width: 0,
+            width: 300,
             render: () => 'All roles and members',
         },
-        ...createDefaultResourceColumns(),
+        {
+            title: 'Defaults',
+            key: 'defaults',
+            render: (_, { accessControlByResource }) => {
+                return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
+            },
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 100,
+            align: 'right',
+            render: () => {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={openDefaultModal}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
+                        Edit
+                    </LemonButton>
+                )
+            },
+        },
     ]
 
     // Members table
@@ -59,9 +121,8 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'User',
             key: 'member',
-            width: 0,
+            width: 300,
             render: (_, { organization_member }) => {
-                // organization_member is guaranteed to exist in MemberResourceAccessControls
                 return (
                     <div className="flex items-center gap-2">
                         <ProfilePicture user={organization_member!.user} />
@@ -73,7 +134,30 @@ export function ResourcesAccessControls(): JSX.Element {
                 )
             },
         },
-        ...createMemberResourceColumns(),
+        {
+            title: 'Permissions',
+            key: 'permissions',
+            render: (_, { accessControlByResource }) => {
+                return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
+            },
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 100,
+            align: 'right',
+            render: (_, member) => {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={() => openMemberModal(member)}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
+                        Edit
+                    </LemonButton>
+                )
+            },
+        },
     ]
 
     // Roles table
@@ -81,18 +165,15 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'Role',
             key: 'role',
-            width: 0,
+            width: 300,
             render: (_, { role }) => {
-                // role is guaranteed to exist in RoleResourceAccessControls
                 return <span>{role!.name}</span>
             },
         },
         {
             title: 'Members',
             key: 'members',
-            width: 0,
             render: (_, { role }) => {
-                // role is guaranteed to exist in RoleResourceAccessControls
                 return (
                     <div className="flex space-x-2">
                         {role!.members.length ? (
@@ -112,7 +193,30 @@ export function ResourcesAccessControls(): JSX.Element {
                 )
             },
         },
-        ...createRoleResourceColumns(),
+        {
+            title: 'Permissions',
+            key: 'permissions',
+            render: (_, { accessControlByResource }) => {
+                return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
+            },
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 100,
+            align: 'right',
+            render: (_, role) => {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={() => openRoleModal(role)}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
+                        Edit
+                    </LemonButton>
+                )
+            },
+        },
     ]
 
     return (
@@ -136,7 +240,7 @@ export function ResourcesAccessControls(): JSX.Element {
                         memberResourceAccessControls={memberResourceAccessControls}
                         memberColumns={memberColumns}
                         canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
-                        setMemberModalOpen={setMemberModalOpen}
+                        openMemberModal={openMemberModal}
                     />
 
                     <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
@@ -145,114 +249,81 @@ export function ResourcesAccessControls(): JSX.Element {
                             roleResourceAccessControls={roleResourceAccessControls}
                             roleColumns={roleColumns}
                             canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
-                            setRoleModalOpen={setRoleModalOpen}
+                            openRoleModal={openRoleModal}
                         />
                     </PayGateMini>
                 </div>
             </PayGateMini>
 
-            {/* Modals for adding access controls */}
-            <AddResourceAccessControlModal
-                modalOpen={memberModalOpen}
-                setModalOpen={setMemberModalOpen}
-                placeholder="Search for team members to add…"
-                onAdd={handleAddMemberAccess}
-                options={addableMembers.map((member) => ({
-                    key: member.id,
-                    label: `${fullName(member.user)} ${member.user.email}`,
-                    labelComponent: <UserSelectItem user={member.user} />,
-                }))}
-                type="member"
-            />
+            {/* Modals for adding/editing access controls */}
+            {memberModalOpen && (
+                <ResourceAccessControlModal
+                    key={editingMember?.organization_member?.id || 'new'}
+                    modalOpen={memberModalOpen}
+                    setModalOpen={closeMemberModal}
+                    placeholder="Search for team members to add…"
+                    onSave={handleSaveMemberAccess}
+                    options={addableMembers.map((member) => ({
+                        key: member.id,
+                        label: `${fullName(member.user)} ${member.user.email}`,
+                        labelComponent: <UserSelectItem user={member.user} />,
+                    }))}
+                    type="member"
+                    editingEntry={editingMember}
+                    loading={resourceAccessControlsLoading}
+                />
+            )}
 
-            <AddResourceAccessControlModal
-                modalOpen={roleModalOpen}
-                setModalOpen={setRoleModalOpen}
-                placeholder="Search for roles to add…"
-                onAdd={handleAddRoleAccess}
-                options={addableRoles.map((role) => ({
-                    key: role.id,
-                    label: role.name,
-                }))}
-                type="role"
-            />
+            {roleModalOpen && (
+                <ResourceAccessControlModal
+                    key={editingRole?.role?.id || 'new'}
+                    modalOpen={roleModalOpen}
+                    setModalOpen={closeRoleModal}
+                    placeholder="Search for roles to add…"
+                    onSave={handleSaveRoleAccess}
+                    options={addableRoles.map((role) => ({
+                        key: role.id,
+                        label: role.name,
+                    }))}
+                    type="role"
+                    editingEntry={editingRole}
+                    loading={resourceAccessControlsLoading}
+                />
+            )}
+
+            {defaultModalOpen && (
+                <DefaultResourceAccessControlModal
+                    key="default"
+                    modalOpen={defaultModalOpen}
+                    setModalOpen={closeDefaultModal}
+                    onSave={handleSaveDefaultAccess}
+                    defaultResourceAccessControls={defaultResourceAccessControls}
+                    loading={resourceAccessControlsLoading}
+                />
+            )}
         </div>
     )
 
-    // Generic function to create resource columns for a specific type
-    function createResourceColumnsForType<T extends DefaultResourceAccessControls>(
-        getRole: (item: T) => RoleType | undefined,
-        getMember: (item: T) => OrganizationMemberType | undefined
-    ): LemonTableColumns<T> {
-        return resources.map((resource: APIScopeObject) => ({
-            title: resource.replace(/_/g, ' ') + 's',
-            key: resource,
-            width: 0,
-            render: (_: any, item: T) => {
-                const { accessControlByResource } = item
-                const role = getRole(item)
-                const organization_member = getMember(item)
-                const ac = accessControlByResource[resource]
+    async function handleSaveDefaultAccess(
+        resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
+    ): Promise<void> {
+        const accessControls = []
 
-                const options: { value: string | null; label: string }[] = availableLevels.map(
-                    (level: AccessControlLevel) => ({
-                        value: level,
-                        label: capitalizeFirstLetter(level ?? ''),
-                    })
-                )
-                options.push({
-                    value: null,
-                    label: 'No override',
-                })
+        for (const [resource, level] of Object.entries(resourceLevels)) {
+            accessControls.push({
+                resource: resource as APIScopeObject,
+                organization_member: null,
+                role: null,
+                access_level: level,
+            })
+        }
 
-                return (
-                    <LemonSelect
-                        size="small"
-                        placeholder="No override"
-                        className="my-1 whitespace-nowrap"
-                        value={ac?.access_level}
-                        onChange={(newValue) =>
-                            updateResourceAccessControls([
-                                {
-                                    resource,
-                                    role: role?.id ?? null,
-                                    organization_member: organization_member?.id ?? null,
-                                    access_level: newValue as AccessControlLevel | null,
-                                },
-                            ])
-                        }
-                        options={options}
-                        disabledReason={canEditRoleBasedAccessControls ? undefined : 'You cannot edit this'}
-                    />
-                )
-            },
-        }))
+        if (accessControls.length > 0) {
+            updateResourceAccessControls(accessControls, 'default')
+        }
     }
 
-    // Create specific column creators for each table type
-    function createDefaultResourceColumns(): LemonTableColumns<DefaultResourceAccessControls> {
-        return createResourceColumnsForType<DefaultResourceAccessControls>(
-            () => undefined,
-            () => undefined
-        )
-    }
-
-    function createMemberResourceColumns(): LemonTableColumns<MemberResourceAccessControls> {
-        return createResourceColumnsForType<MemberResourceAccessControls>(
-            () => undefined,
-            (item: MemberResourceAccessControls) => item.organization_member
-        )
-    }
-
-    function createRoleResourceColumns(): LemonTableColumns<RoleResourceAccessControls> {
-        return createResourceColumnsForType<RoleResourceAccessControls>(
-            (item: RoleResourceAccessControls) => item.role,
-            () => undefined
-        )
-    }
-
-    // Function to handle adding a member access control
-    function handleAddMemberAccess(
+    async function handleSaveMemberAccess(
         memberIds: string[],
         resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
     ): Promise<void> {
@@ -260,27 +331,21 @@ export function ResourcesAccessControls(): JSX.Element {
 
         for (const memberId of memberIds) {
             for (const [resource, level] of Object.entries(resourceLevels)) {
-                // Only add entries where a level is explicitly set (not null)
-                if (level !== null) {
-                    accessControls.push({
-                        resource: resource as APIScopeObject,
-                        organization_member: memberId,
-                        role: null,
-                        access_level: level,
-                    })
-                }
+                accessControls.push({
+                    resource: resource as APIScopeObject,
+                    organization_member: memberId,
+                    role: null,
+                    access_level: level,
+                })
             }
         }
 
         if (accessControls.length > 0) {
-            updateResourceAccessControls(accessControls)
+            updateResourceAccessControls(accessControls, 'member')
         }
-        setMemberModalOpen(false)
-        return Promise.resolve()
     }
 
-    // Function to handle adding a role access control
-    function handleAddRoleAccess(
+    async function handleSaveRoleAccess(
         roleIds: string[],
         resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
     ): Promise<void> {
@@ -288,23 +353,18 @@ export function ResourcesAccessControls(): JSX.Element {
 
         for (const roleId of roleIds) {
             for (const [resource, level] of Object.entries(resourceLevels)) {
-                // Only add entries where a level is explicitly set (not null)
-                if (level !== null) {
-                    accessControls.push({
-                        resource: resource as APIScopeObject,
-                        role: roleId,
-                        organization_member: null,
-                        access_level: level,
-                    })
-                }
+                accessControls.push({
+                    resource: resource as APIScopeObject,
+                    role: roleId,
+                    organization_member: null,
+                    access_level: level,
+                })
             }
         }
 
         if (accessControls.length > 0) {
-            updateResourceAccessControls(accessControls)
+            updateResourceAccessControls(accessControls, 'role')
         }
-        setRoleModalOpen(false)
-        return Promise.resolve()
     }
 }
 
@@ -312,12 +372,12 @@ function ResourcesAccessControlMembers({
     memberResourceAccessControls,
     memberColumns,
     canEditRoleBasedAccessControls,
-    setMemberModalOpen,
+    openMemberModal,
 }: {
     memberResourceAccessControls: MemberResourceAccessControls[]
     memberColumns: LemonTableColumns<MemberResourceAccessControls>
     canEditRoleBasedAccessControls: boolean | null
-    setMemberModalOpen: (open: boolean) => void
+    openMemberModal: () => void
 }): JSX.Element {
     return (
         <div className="space-y-2">
@@ -325,7 +385,7 @@ function ResourcesAccessControlMembers({
                 <h3 className="mb-0">Members</h3>
                 <LemonButton
                     type="primary"
-                    onClick={() => setMemberModalOpen(true)}
+                    onClick={() => openMemberModal()}
                     disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
                 >
                     Add
@@ -334,7 +394,7 @@ function ResourcesAccessControlMembers({
             {memberResourceAccessControls.length > 0 ? (
                 <LemonTable columns={memberColumns} dataSource={memberResourceAccessControls} />
             ) : (
-                <LemonTable columns={memberColumns} dataSource={[]} emptyState="No entries" />
+                <LemonTable columns={memberColumns} dataSource={[]} emptyState="No member specific permissions" />
             )}
         </div>
     )
@@ -344,12 +404,12 @@ function ResourcesAccessControlRoles({
     roleResourceAccessControls,
     roleColumns,
     canEditRoleBasedAccessControls,
-    setRoleModalOpen,
+    openRoleModal,
 }: {
     roleResourceAccessControls: RoleResourceAccessControls[]
     roleColumns: LemonTableColumns<RoleResourceAccessControls>
     canEditRoleBasedAccessControls: boolean | null
-    setRoleModalOpen: (open: boolean) => void
+    openRoleModal: () => void
 }): JSX.Element {
     return (
         <div className="space-y-2">
@@ -357,7 +417,7 @@ function ResourcesAccessControlRoles({
                 <h3 className="mb-0">Roles</h3>
                 <LemonButton
                     type="primary"
-                    onClick={() => setRoleModalOpen(true)}
+                    onClick={() => openRoleModal()}
                     disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
                 >
                     Add
@@ -366,17 +426,17 @@ function ResourcesAccessControlRoles({
             {roleResourceAccessControls.length > 0 ? (
                 <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
             ) : (
-                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No entries" />
+                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No role specific permissions" />
             )}
         </div>
     )
 }
 
-function AddResourceAccessControlModal(props: {
+function ResourceAccessControlModal(props: {
     modalOpen: boolean
-    setModalOpen: (open: boolean) => void
+    setModalOpen: () => void
     placeholder: string
-    onAdd: (
+    onSave: (
         newValues: string[],
         resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
     ) => Promise<void>
@@ -386,35 +446,43 @@ function AddResourceAccessControlModal(props: {
         labelComponent?: JSX.Element
     }[]
     type: 'member' | 'role'
+    editingEntry?: MemberResourceAccessControls | RoleResourceAccessControls | null
+    loading?: boolean
 }): JSX.Element | null {
     const { availableLevels, resources, canEditRoleBasedAccessControls } = useValues(resourcesAccessControlLogic)
 
-    const [items, setItems] = useState<string[]>([])
-    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>({})
+    const isEditMode = !!props.editingEntry
 
-    useEffect(() => {
-        if (resources.length > 0) {
-            const initialResourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
-
-            resources.forEach((resource) => {
-                initialResourceLevels[resource] = null // Default to "No override"
-            })
-
-            setResourceLevels(initialResourceLevels)
+    const [items, setItems] = useState<string[]>(() => {
+        if (!isEditMode || !props.editingEntry) {
+            return []
         }
-    }, [resources])
+        const editingId =
+            props.type === 'member'
+                ? (props.editingEntry as MemberResourceAccessControls).organization_member?.id
+                : (props.editingEntry as RoleResourceAccessControls).role?.id
+        return editingId ? [editingId] : []
+    })
 
-    // Check if at least one resource has an access level set
-    const hasAtLeastOneResourceLevel = useMemo(() => {
-        return Object.values(resourceLevels).some((level) => level !== null)
-    }, [resourceLevels])
+    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>(
+        () => {
+            const levels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
+            resources.forEach((resource) => {
+                if (isEditMode && props.editingEntry) {
+                    const ac = props.editingEntry?.accessControlByResource?.[resource]
+                    levels[resource] = ac?.access_level ?? null
+                } else {
+                    levels[resource] = null
+                }
+            })
+            return levels
+        }
+    )
 
-    // Determine if the form is valid and can be submitted
     const isFormValid = useMemo(() => {
-        return items.length > 0 && hasAtLeastOneResourceLevel
-    }, [items.length, hasAtLeastOneResourceLevel])
+        return items.length > 0
+    }, [items.length])
 
-    // Get validation message if form is invalid
     const getValidationMessage = (): string | undefined => {
         if (!canEditRoleBasedAccessControls) {
             return 'You cannot edit this'
@@ -424,26 +492,13 @@ function AddResourceAccessControlModal(props: {
             return `Please select ${props.type === 'member' ? 'members' : 'roles'} to configure`
         }
 
-        if (!hasAtLeastOneResourceLevel) {
-            return 'Please set at least one resource access level'
-        }
-
         return undefined
     }
 
     const onSubmit = isFormValid
-        ? (): void =>
-              void props.onAdd(items, resourceLevels).then(() => {
-                  setItems([])
-                  // Reset resource levels to defaults (null for "No override")
-                  if (resources.length > 0) {
-                      const resetResourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
-                      resources.forEach((resource) => {
-                          resetResourceLevels[resource] = null // Reset to "No override"
-                      })
-                      setResourceLevels(resetResourceLevels)
-                  }
-              })
+        ? (): void => {
+              props.onSave(items, resourceLevels)
+          }
         : undefined
 
     // Update a specific resource's access level
@@ -455,13 +510,21 @@ function AddResourceAccessControlModal(props: {
     }
 
     // Create options for the access level dropdown
-    const getLevelOptions = (): { value: AccessControlLevel | null; label: string }[] => {
-        const options: { value: AccessControlLevel | null; label: string }[] = availableLevels.map((level) => ({
-            value: level as AccessControlLevel,
-            label: capitalizeFirstLetter(level ?? ''),
-        }))
+    const getLevelOptions = (
+        resource: APIScopeObject
+    ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
+        const minimumLevel = getMinimumAccessLevel(resource)
+        const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
+            availableLevels.map((level) => {
+                const isDisabled =
+                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                return {
+                    value: level as AccessControlLevel,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })
 
-        // Add "No override" option
         options.push({
             value: null,
             label: 'No override',
@@ -472,48 +535,89 @@ function AddResourceAccessControlModal(props: {
 
     // Get appropriate title based on the type (member or role)
     const getModalTitle = (): string => {
+        if (isEditMode) {
+            return props.type === 'member' ? 'Edit member resource access' : 'Edit role resource access'
+        }
         return props.type === 'member' ? 'Configure member resource access' : 'Configure role resource access'
+    }
+
+    const getDisplayName = (): string | null => {
+        if (!isEditMode || !props.editingEntry) {
+            return null
+        }
+
+        if (props.type === 'member') {
+            const member = (props.editingEntry as MemberResourceAccessControls).organization_member
+            return member ? `${fullName(member.user)} (${member.user.email})` : null
+        }
+        const role = (props.editingEntry as RoleResourceAccessControls).role
+        return role?.name ?? null
     }
 
     return (
         <LemonModal
             isOpen={props.modalOpen || false}
-            onClose={() => props.setModalOpen(false)}
+            onClose={props.loading ? undefined : props.setModalOpen}
             title={getModalTitle()}
             maxWidth="30rem"
             description={`Set resource access levels for ${props.type === 'member' ? 'members' : 'roles'}`}
             footer={
                 <div className="flex items-center justify-end gap-2">
-                    <LemonButton type="secondary" onClick={() => props.setModalOpen(false)}>
+                    <LemonButton type="secondary" onClick={props.setModalOpen} disabled={props.loading}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={onSubmit} disabledReason={getValidationMessage()}>
+                    <LemonButton
+                        type="primary"
+                        onClick={onSubmit}
+                        disabledReason={getValidationMessage()}
+                        loading={props.loading}
+                    >
                         Save
                     </LemonButton>
                 </div>
             }
         >
             <div className="space-y-4">
-                <div className="flex gap-2 items-center w-full">
-                    <div className="min-w-[16rem] w-full">
-                        <LemonInputSelect
-                            placeholder={props.placeholder}
-                            value={items}
-                            onChange={(newValues: string[]) => setItems(newValues)}
-                            mode="multiple"
-                            options={props.options}
-                            disabled={!canEditRoleBasedAccessControls}
-                        />
+                {isEditMode ? (
+                    <div className="font-medium">{getDisplayName()}</div>
+                ) : (
+                    <div className="flex gap-2 items-center w-full">
+                        <div className="min-w-[16rem] w-full">
+                            <LemonInputSelect
+                                placeholder={props.placeholder}
+                                value={items}
+                                onChange={(newValues: string[]) => setItems(newValues)}
+                                mode="multiple"
+                                options={props.options}
+                                disabled={!canEditRoleBasedAccessControls}
+                            />
+                        </div>
                     </div>
-                </div>
+                )}
 
                 <div className="space-y-2">
-                    <h5 className="mb-2">Resource access levels</h5>
+                    <div className="flex items-center justify-between">
+                        <h5 className="mb-2">Resource access levels</h5>
+                        <Link
+                            to="#"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (!props.loading) {
+                                    const cleared: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
+                                    for (const resource of resources) {
+                                        cleared[resource] = null
+                                    }
+                                    setResourceLevels(cleared)
+                                }
+                            }}
+                            className={props.loading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+                        >
+                            Clear all
+                        </Link>
+                    </div>
                     {resources.map((resource) => (
                         <div key={resource} className="flex gap-2 items-center justify-between">
-                            <div className="font-medium">
-                                {capitalizeFirstLetter(resource?.replace(/_/g, ' ') ?? '') + 's'}
-                            </div>
+                            <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
                             <div className="min-w-[8rem]">
                                 <LemonSelect
                                     placeholder="No override"
@@ -521,13 +625,138 @@ function AddResourceAccessControlModal(props: {
                                     onChange={(newValue) =>
                                         updateResourceLevel(resource, newValue as AccessControlLevel | null)
                                     }
-                                    options={getLevelOptions()}
+                                    options={getLevelOptions(resource)}
                                     disabled={!canEditRoleBasedAccessControls}
                                 />
                             </div>
                         </div>
                     ))}
                 </div>
+            </div>
+        </LemonModal>
+    )
+}
+
+function DefaultResourceAccessControlModal(props: {
+    modalOpen: boolean
+    setModalOpen: () => void
+    onSave: (resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>) => Promise<void>
+    defaultResourceAccessControls: DefaultResourceAccessControls
+    loading?: boolean
+}): JSX.Element | null {
+    const { availableLevels, resources, canEditRoleBasedAccessControls } = useValues(resourcesAccessControlLogic)
+
+    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>(
+        () => {
+            const levels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
+            resources.forEach((resource) => {
+                const ac = props.defaultResourceAccessControls?.accessControlByResource?.[resource]
+                levels[resource] = ac?.access_level ?? null
+            })
+            return levels
+        }
+    )
+
+    const getValidationMessage = (): string | undefined => {
+        if (!canEditRoleBasedAccessControls) {
+            return 'You cannot edit this'
+        }
+        return undefined
+    }
+
+    const onSubmit = (): void => {
+        props.onSave(resourceLevels)
+    }
+
+    const updateResourceLevel = (resource: APIScopeObject, level: AccessControlLevel | null): void => {
+        setResourceLevels((prev) => ({
+            ...prev,
+            [resource]: level,
+        }))
+    }
+
+    const getLevelOptions = (
+        resource: APIScopeObject
+    ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
+        const minimumLevel = getMinimumAccessLevel(resource)
+        const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
+            availableLevels.map((level) => {
+                const isDisabled =
+                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                return {
+                    value: level as AccessControlLevel,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })
+
+        options.push({
+            value: null,
+            label: 'No override',
+        })
+
+        return options
+    }
+
+    return (
+        <LemonModal
+            isOpen={props.modalOpen || false}
+            onClose={props.loading ? undefined : props.setModalOpen}
+            title="Edit project defaults"
+            maxWidth="30rem"
+            description="Set default resource access levels for all roles and members"
+            footer={
+                <div className="flex items-center justify-end gap-2">
+                    <LemonButton type="secondary" onClick={props.setModalOpen} disabled={props.loading}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={onSubmit}
+                        disabledReason={getValidationMessage()}
+                        loading={props.loading}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                    <h5 className="mb-0">Resource access levels</h5>
+                    <Link
+                        to="#"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            if (!props.loading) {
+                                const cleared: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
+                                for (const resource of resources) {
+                                    cleared[resource] = null
+                                }
+                                setResourceLevels(cleared)
+                            }
+                        }}
+                        className={props.loading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+                    >
+                        Clear all
+                    </Link>
+                </div>
+                {resources.map((resource) => (
+                    <div key={resource} className="flex gap-2 items-center justify-between">
+                        <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
+                        <div className="min-w-[8rem]">
+                            <LemonSelect
+                                placeholder="No override"
+                                value={resourceLevels[resource]}
+                                onChange={(newValue) =>
+                                    updateResourceLevel(resource, newValue as AccessControlLevel | null)
+                                }
+                                options={getLevelOptions(resource)}
+                                disabled={!canEditRoleBasedAccessControls}
+                            />
+                        </div>
+                    </div>
+                ))}
             </div>
         </LemonModal>
     )

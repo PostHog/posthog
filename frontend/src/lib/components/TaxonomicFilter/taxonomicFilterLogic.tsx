@@ -12,6 +12,7 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    SelectedProperties,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -19,6 +20,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
@@ -28,8 +30,9 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -118,7 +121,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
-            dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
+            dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
@@ -177,6 +180,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        showNumericalPropsOnly: [
+            () => [(_, props) => props.showNumericalPropsOnly],
+            (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
+        ],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -200,6 +207,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
         ],
+        selectedProperties: [
+            () => [(_, props) => props.selectedProperties],
+            (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
+        ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
@@ -211,6 +222,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
+        ],
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
         taxonomicGroups: [
             (s) => [
@@ -225,6 +240,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
                 s.maxContextOptions,
+                s.hideBehavioralCohorts,
             ],
             (
                 currentTeam: TeamType,
@@ -237,7 +253,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextTaxonomicFilterOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                hideBehavioralCohorts: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -279,7 +296,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Data warehouse tables',
                         searchPlaceholder: 'data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehouse,
-                        logic: dataWarehouseSceneLogic,
+                        logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
@@ -362,7 +379,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -535,7 +553,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(true),
                     },
                     {
@@ -550,6 +569,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        footerMessage: hideBehavioralCohorts ? (
+                            <>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
+                                    Some cohorts excluded due to containing behavioral filters.
+                                </Link>
+                            </>
+                        ) : undefined,
                     },
                     {
                         name: 'Cohorts',
@@ -672,12 +698,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SessionProperties,
                         ...(propertyAllowList
                             ? {
-                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
-                                      (property: string) => ({
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]
+                                      ?.filter(isString)
+                                      ?.map((property: string) => ({
                                           name: property,
                                           value: property,
-                                      })
-                                  ),
+                                      })),
                               }
                             : {
                                   endpoint: `api/environments/${teamId}/sessions/property_definitions`,

@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from django.db import models
@@ -70,7 +70,7 @@ ExtractErrors = {
     "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
-DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
+type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
 class DataWarehouseTableManager(models.Manager):
@@ -174,6 +174,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -185,6 +186,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
+            # See https://github.com/chdb-io/chdb/pull/374 for the fix
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
@@ -241,6 +243,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
             result = sync_execute(
@@ -261,6 +264,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -302,6 +306,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
         except Exception as err:

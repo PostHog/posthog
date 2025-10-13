@@ -15,6 +15,7 @@ import {
     IconFunnels,
     IconGraph,
     IconHogQL,
+    IconHome,
     IconLifecycle,
     IconLive,
     IconMegaphone,
@@ -76,9 +77,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPieChart />,
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
-    embedded_analytics: {
+    endpoints: {
         icon: <IconCode2 />,
-        iconColor: ['var(--color-product-embedded-analytics-light', 'var(--color-product-embedded-analytics-dark'],
+        iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -103,6 +104,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     user_interview: {
         icon: <IconApp />,
         iconColor: ['var(--color-product-user-interviews-light)'],
+    },
+    home: {
+        icon: <IconHome />,
     },
     task: {
         icon: <IconBug />,
@@ -175,33 +179,37 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     group: {
         icon: <IconPeople />,
     },
-    insight_funnel: {
+    'insight/funnels': {
         icon: <IconFunnels />,
         iconColor: ['var(--color-insight-funnel-light)'],
     },
-    insight_trend: {
+    'insight/trends': {
         icon: <IconTrends />,
         iconColor: ['var(--color-insight-trends-light)'],
     },
-    insight_retention: {
+    'insight/retention': {
         icon: <IconRetention />,
         iconColor: ['var(--color-insight-retention-light)'],
     },
-    insight_user_path: {
+    'insight/paths': {
         icon: <IconUserPaths />,
         iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
     },
-    insight_lifecycle: {
+    'insight/lifecycle': {
         icon: <IconLifecycle />,
         iconColor: ['var(--color-insight-lifecycle-light)'],
     },
-    insight_stickiness: {
+    'insight/stickiness': {
         icon: <IconStickiness />,
         iconColor: ['var(--color-insight-stickiness-light)'],
     },
-    insight_hogql: {
+    'insight/hog': {
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
+    },
+    team_activity: {
+        icon: <IconNotification />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
 }
 
@@ -228,7 +236,7 @@ type ProductIconWrapperProps = {
 }
 
 export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIconWrapperProps): JSX.Element => {
-    const [lightColor, darkColor] = getIconColor(type, colorOverride)
+    const [light, dark] = getIconColor(type, colorOverride)
 
     // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
     return (
@@ -236,12 +244,10 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
             className="flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                (colorOverride
-                    ? { '--product-icon-color-light': colorOverride[0], '--product-icon-color-dark': colorOverride[1] }
-                    : {
-                          '--product-icon-color-light': lightColor,
-                          '--product-icon-color-dark': darkColor,
-                      }) as CSSProperties
+                {
+                    '--product-icon-color-light': light,
+                    '--product-icon-color-dark': dark,
+                } as CSSProperties
             }
         >
             {children}
@@ -380,13 +386,6 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
     } as FileSystemImport,
-    {
-        path: `Activity logs`,
-        category: 'Activity',
-        iconType: 'logs',
-        href: urls.advancedActivityLogs(),
-        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
-    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
@@ -432,8 +431,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
                 'var(--color-product-heatmaps-dark)',
             ] as FileSystemIconColor,
             href: urls.heatmaps(),
-            flag: FEATURE_FLAGS.HEATMAPS_UI,
-            tags: ['alpha'],
+            tags: ['beta'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {

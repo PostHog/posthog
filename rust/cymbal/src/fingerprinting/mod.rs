@@ -107,14 +107,15 @@ impl Fingerprint {
 #[cfg(test)]
 mod test {
 
-    use uuid::Uuid;
-
     use crate::{frames::Frame, types::Stacktrace};
+    use common_types::error_tracking::FrameId;
+    use uuid::Uuid;
 
     use super::*;
 
     #[test]
     fn test_some_resolved_frames() {
+        let team_id = 1;
         let mut exception = Exception {
             exception_id: None,
             exception_type: "TypeError".to_string(),
@@ -127,7 +128,7 @@ mod test {
 
         let mut resolved_frames = vec![
             Frame {
-                raw_id: String::new(),
+                raw_id: FrameId::new(String::new(), team_id),
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
@@ -141,9 +142,10 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
             },
             Frame {
-                raw_id: String::new(),
+                raw_id: FrameId::new(String::new(), team_id),
                 mangled_name: "bar".to_string(),
                 line: Some(20),
                 column: Some(15),
@@ -157,11 +159,12 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
             },
         ];
 
         let unresolved_frame = Frame {
-            raw_id: String::new(),
+            raw_id: FrameId::new(String::new(), team_id),
             mangled_name: "xyz".to_string(),
             line: Some(30),
             column: Some(25),
@@ -175,6 +178,7 @@ mod test {
             context: None,
             release: None,
             synthetic: false,
+            suspicious: false,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -209,7 +213,7 @@ mod test {
 
         let resolved_frames = vec![
             Frame {
-                raw_id: String::new(),
+                raw_id: FrameId::new(String::new(), 1),
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
@@ -223,9 +227,10 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
             },
             Frame {
-                raw_id: String::new(),
+                raw_id: FrameId::new(String::new(), 1),
                 mangled_name: "bar".to_string(),
                 line: Some(20),
                 column: Some(15),
@@ -239,9 +244,10 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
             },
             Frame {
-                raw_id: String::new(),
+                raw_id: FrameId::new(String::new(), 1),
                 mangled_name: "xyz".to_string(),
                 line: Some(30),
                 column: Some(25),
@@ -255,6 +261,7 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
             },
         ];
 
@@ -283,7 +290,7 @@ mod test {
         };
 
         let mut resolved_frames = vec![Frame {
-            raw_id: String::new(),
+            raw_id: FrameId::new(String::new(), 1),
             mangled_name: "foo".to_string(),
             line: Some(10),
             column: Some(5),
@@ -297,10 +304,11 @@ mod test {
             context: None,
             release: None,
             synthetic: false,
+            suspicious: false,
         }];
 
         let non_app_frame = Frame {
-            raw_id: String::new(),
+            raw_id: FrameId::new(String::new(), 1),
             mangled_name: "bar".to_string(),
             line: Some(20),
             column: Some(15),
@@ -314,6 +322,7 @@ mod test {
             context: None,
             release: None,
             synthetic: false,
+            suspicious: false,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

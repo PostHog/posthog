@@ -38,7 +38,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AdvancedActivityLogs]: {
         projectBased: true,
         organizationBased: false,
-        name: 'Advanced activity logs',
+        name: 'Activity logs',
+        description:
+            'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -51,12 +53,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
-        layout: 'app-raw',
+        description: 'You can change anything you like and it is persisted to the URL for easy sharing.',
+        layout: 'app-full-scene-height',
         defaultDocsPath: '/blog/introducing-notebooks',
+        hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
-    [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
-    [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
+    [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
+    [Scene.Cohorts]: {
+        projectBased: true,
+        name: 'Cohorts',
+        description: 'A catalog of identified persons and your created cohorts.',
+        defaultDocsPath: '/docs/data/cohorts',
+    },
+    [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
@@ -70,12 +80,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
-        activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
 
     [Scene.DataPipelines]: {
         name: 'Data pipelines',
+        description: 'Ingest, transform, and send data between hundreds of tools.',
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp',
     },
@@ -88,10 +98,32 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataWarehouseSource]: {
         projectBased: true,
         name: 'Data warehouse source',
+        defaultDocsPath: '/docs/cdp/sources',
     },
     [Scene.DataWarehouseSourceNew]: {
         projectBased: true,
         name: 'New data warehouse source',
+        defaultDocsPath: async () => {
+            try {
+                // Importing here to avoid problems with importing logics from such a global file like this one
+                const { sourceWizardLogic } = await import('./data-warehouse/new/sourceWizardLogic')
+                const logic = sourceWizardLogic.findMounted()
+
+                if (logic) {
+                    const { selectedConnector } = logic.values
+
+                    // `docsUrl` includes the full URL, we only need the pathname when opening docs in the sidepanel
+                    if (selectedConnector?.docsUrl) {
+                        const parsedUrl = new URL(selectedConnector.docsUrl)
+                        return parsedUrl.pathname
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get default docs path for new data warehouse source', error)
+            }
+
+            return '/docs/cdp/sources'
+        },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
@@ -145,6 +177,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
+        description:
+            'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
@@ -157,7 +191,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
-    [Scene.HogFunction]: { projectBased: true, name: 'Hog function' },
+    [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -177,15 +211,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true,
         name: 'Notebook',
-        layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
+        canvasBackground: true,
     },
     [Scene.Notebooks]: {
         projectBased: true,
         name: 'Notebooks',
+        description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
     },
@@ -217,6 +251,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Persons]: {
         projectBased: true,
         name: 'Persons',
+        description: 'A catalog of all the people behind your events',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
     },
@@ -267,7 +302,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
         layout: 'app-full-scene-height',
     },
     [Scene.RevenueAnalytics]: {
@@ -286,6 +320,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
+        description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
     },
@@ -342,6 +377,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.EmbeddedAnalytics]: {
         projectBased: true,
         name: 'Embedded analytics',
+        description: 'Define queries your application will use via the API and monitor their cost and usage.',
         layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
@@ -467,7 +503,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.embeddedAnalytics()]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
@@ -503,6 +538,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
+    [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
@@ -576,8 +612,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
-    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],

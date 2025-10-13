@@ -1,25 +1,14 @@
 import sys
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Literal, Optional, TypeAlias
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-ConstantDataType: TypeAlias = Literal[
-    "int",
-    "float",
-    "str",
-    "bool",
-    "array",
-    "tuple",
-    "date",
-    "datetime",
-    "uuid",
-    "unknown",
-]
-ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
-ConstantSupportedData: TypeAlias = (
+type ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+type ConstantSupportedPrimitive = int | float | str | bool | date | datetime | UUID | None
+type ConstantSupportedData = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
 
@@ -34,6 +23,8 @@ DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
 # Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
 MAX_SELECT_RETURNED_ROWS = 50000
+# Max limit for retention queries.
+MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 # Max limit for heatmaps which don't really need 1 billion so have their own max
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
@@ -56,6 +47,7 @@ class LimitContext(StrEnum):
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
     SAVED_QUERY = "saved_query"
+    RETENTION = "retention"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -70,6 +62,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.RETENTION:
+        return MAX_SELECT_RETENTION_LIMIT  # 100k
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
     else:

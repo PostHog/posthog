@@ -28,7 +28,7 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
         usable_user: User = User.objects.get(pk=user.pk)
         login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
 
-        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{login_timestamp}{timestamp}"
+        return f"{usable_user.pk}{usable_user.email}{usable_user.is_email_verified}{usable_user.pending_email}{login_timestamp}{timestamp}"
 
 
 email_verification_token_generator = EmailVerificationTokenGenerator()

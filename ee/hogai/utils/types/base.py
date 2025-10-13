@@ -26,7 +26,13 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
+    TaskExecutionItem,
     TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -54,7 +60,16 @@ AssistantOutput = (
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
-AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+AnyAssistantSupportedQuery = (
+    TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | HogQLQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsTopCustomersQuery
+)
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (
     HumanMessage,
@@ -142,6 +157,50 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class TaskArtifact(BaseModel):
+    """
+    Base artifact created by a task.
+    """
+
+    id: str | int | None = None  # The id of the object referenced by the artifact
+    task_id: str  # The id of the task that created the artifact
+    content: str  # A string content attached to the artifact
+
+
+class InsightArtifact(TaskArtifact):
+    """
+    An insight artifact created by a task.
+    """
+
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
+class TaskResult(BaseModel):
+    """
+    The result of an individual task.
+    """
+
+    id: str
+    description: str
+    result: str
+    artifacts: Sequence[TaskArtifact] = Field(default=[])
+    status: TaskExecutionStatus
+
+
+class InsightQuery(BaseModel):
+    """
+    A single insight query to be included in a dashboard.
+    Includes the name and description of the insight to be included in the dashboard.
+    """
+
+    name: str = Field(
+        description="The short name of the insight to be included in the dashboard, it will be used in the dashboard tile. So keep it short and concise. It will be displayed as a header in the insight tile, so make sure it is starting with a capital letter. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
+    )
+    description: str = Field(
+        description="The detailed description of the insight to be included in the dashboard. Include all relevant context about the insight from earlier messages too, as the tool won't see that conversation history. Do not forget fiters, properties, event names if the user mentioned them. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
+    )
+
+
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
@@ -163,6 +222,17 @@ class BaseStateWithMessages(BaseState):
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
+    """
+
+
+class BaseStateWithTasks(BaseState):
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    """
+    The current tasks.
+    """
+    task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
+    """
+    Results of tasks executed by assistants.
     """
 
 
@@ -249,6 +319,18 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The short ID of the notebook being used.
     """
+    dashboard_name: Optional[str] = Field(default=None)
+    """
+    The name of the dashboard to be created based on the user request.
+    """
+    selected_insight_ids: Optional[list[int]] = Field(default=None)
+    """
+    The selected insights to be included in the dashboard.
+    """
+    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
+    """
+    The user's queries to search for insights.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -293,6 +375,14 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
+    DASHBOARD_CREATION = "dashboard_creation"
+    DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"
+    HOGQL_GENERATOR = "hogql_generator"
+    HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
+    SESSION_REPLAY_FILTER = "session_replay_filter"
+    SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
+    REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
+    REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
 
 
 class AssistantMode(StrEnum):
@@ -309,13 +399,3 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
-
-
-class InsightArtifact(BaseModel):
-    """
-    An artifacts created by a task.
-    """
-
-    id: str
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    description: str
