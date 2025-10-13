@@ -2045,9 +2045,10 @@ export const experimentLogic = kea<experimentLogicType>([
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
-            errors: ({ name, parameters }) => ({
+            errors: ({ name, parameters, feature_flag_key }) => ({
                 name: !name && 'Please enter a name',
-                // feature_flag_key is handled asynchronously
+                // feature_flag_key is handled asynchronously as well, but we check for empty first since the backend error is ambiguous
+                feature_flag_key: !feature_flag_key && 'Feature flag key cannot be empty',
                 parameters: {
                     feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
                         key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
