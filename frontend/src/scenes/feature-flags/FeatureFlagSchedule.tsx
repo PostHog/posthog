@@ -92,6 +92,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
 
+    const { variants: displayVariants, payloads: displayPayloads } = getScheduledVariantsPayloads(
+        featureFlag,
+        schedulePayload
+    )
+
+    const variantRolloutSum = displayVariants.reduce((sum, variant) => sum + (variant.rollout_percentage || 0), 0)
+    const areVariantRolloutsValid = variantRolloutSum === 100
+
     const columns: LemonTableColumns<ScheduledChangeType> = [
         {
             title: 'Change',
@@ -266,9 +274,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
                             featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] &&
                             (() => {
-                                const { variants: displayVariants, payloads: displayPayloads } =
-                                    getScheduledVariantsPayloads(featureFlag, schedulePayload)
-
                                 return (
                                     <div className="border rounded p-4">
                                         <FeatureFlagVariantsForm
@@ -339,7 +344,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
                                           ? 'Fix release condition errors'
-                                          : undefined
+                                          : !areVariantRolloutsValid
+                                            ? `Percentage rollouts for variants must sum to 100 (currently ${variantRolloutSum}).`
+                                            : undefined
                                 }
                             >
                                 Schedule
