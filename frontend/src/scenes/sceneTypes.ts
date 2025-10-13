@@ -176,6 +176,8 @@ export interface Params {
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
+    /** Custom description for the scene, used in the scene title section and tooltips for app */
+    description?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
