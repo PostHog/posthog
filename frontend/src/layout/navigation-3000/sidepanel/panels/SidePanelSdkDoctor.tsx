@@ -129,9 +129,10 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
 ]
 
 export function SidePanelSdkDoctor(): JSX.Element | null {
-    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, outdatedSdkCount, hasErrors } =
+    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, outdatedSdkCount, hasErrors, snoozedUntil } =
         useValues(sidePanelSdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
+
     const { loadTeamSdkVersions, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
 
     const loading = sdkVersionsLoading || teamSdkVersionsLoading
@@ -229,6 +230,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                             hideIcon={false}
                             action={{
                                 children: 'Snooze warning for 30 days',
+                                disabledReason: snoozedUntil ? 'Already snoozed' : undefined,
                                 onClick: () => snoozeSdkDoctor(),
                             }}
                         >
@@ -251,20 +253,12 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
     const { sdkHealth, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
 
-    const title =
-        outdatedSdkCount > 0
-            ? 'Outdated SDKs found'
-            : sdkHealth === 'warning'
-              ? 'Some SDKs have newer versions available'
-              : 'SDK health is good'
+    const title = outdatedSdkCount > 0 ? 'Outdated SDKs found' : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
             <span {...props}>
-                <IconWithBadge
-                    content={sdkHealth !== 'success' && outdatedSdkCount > 0 ? '!' : '✓'}
-                    status={outdatedSdkCount > 0 ? 'danger' : sdkHealth}
-                >
+                <IconWithBadge content={outdatedSdkCount > 0 ? '!' : '✓'} status={sdkHealth}>
                     <IconStethoscope />
                 </IconWithBadge>
             </span>
@@ -273,7 +267,7 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
 }
 
 function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
-    const { sdkVersionsMap, teamSdkVersionsLoading, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkVersionsMap, teamSdkVersionsLoading } = useValues(sidePanelSdkDoctorLogic)
 
     const sdk = sdkVersionsMap[sdkType]!
     const links = SDK_DOCS_LINKS[sdkType]
@@ -286,12 +280,8 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     <div className="flex flex-row gap-2">
                         <h3 className="mb-0">{sdkName}</h3>
                         <span>
-                            <LemonTag type={sdk.isOutdated ? 'danger' : sdkHealth}>
-                                {sdkHealth === 'danger'
-                                    ? 'Critical'
-                                    : sdk.isOutdated || sdkHealth === 'warning'
-                                      ? 'Outdated'
-                                      : 'Up to date'}
+                            <LemonTag type={sdk.isOutdated ? 'warning' : 'success'}>
+                                {sdk.isOutdated ? 'Outdated' : 'Up to date'}
                             </LemonTag>
                         </span>
 
