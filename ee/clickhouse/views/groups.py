@@ -61,6 +61,10 @@ class GroupsTypesViewSet(
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
+    filter_rewrite_rules = {"project_id": "project_id"}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(project_id=self.team.project_id)
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
