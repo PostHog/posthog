@@ -15,6 +15,7 @@ class ExecuteTaskInput:
     task_id: str
     repository: str
     distinct_id: str
+    workflow_id: str
 
 
 @dataclass
@@ -40,7 +41,7 @@ async def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         agent = SandboxAgent(sandbox)
 
         try:
-            result = await agent.execute_task(input.task_id, input.repository)
+            result = await agent.execute_task(input.task_id, input.repository, input.workflow_id)
         except Exception as e:
             raise SandboxExecutionError(
                 f"Failed to execute task in sandbox",

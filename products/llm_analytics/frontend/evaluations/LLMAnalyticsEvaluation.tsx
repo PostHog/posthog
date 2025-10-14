@@ -46,11 +46,8 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
 
-    const handleSave = async (): Promise<void> => {
-        await saveEvaluation()
-        if (isNewEvaluation) {
-            push(urls.llmAnalyticsEvaluations())
-        }
+    const handleSave = (): void => {
+        saveEvaluation()
     }
 
     const handleCancel = (): void => {

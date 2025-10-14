@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -176,10 +177,10 @@ export const personsLogic = kea<personsLogicType>([
                             SELECT
                                 pdi2.distinct_id,
                                 argMax(pdi2.person_id, pdi2.version) AS person_id
-                            FROM person_distinct_id2 pdi2
+                            FROM raw_person_distinct_ids pdi2
                             WHERE pdi2.distinct_id IN (
                                     SELECT distinct_id
-                                    FROM person_distinct_id2
+                                    FROM raw_person_distinct_ids
                                     WHERE person_id = {id}
                                 )
                             GROUP BY pdi2.distinct_id
@@ -337,16 +338,16 @@ export const personsLogic = kea<personsLogicType>([
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.Persons,
-                        name: 'People',
+                        name: 'Persons',
                         path: urls.persons(),
-                        iconType: 'person',
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
                         key: [Scene.Person, person.id || 'unknown'],
                         name: asDisplay(person),
-                        iconType: 'person',
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                     })
                 }
                 return breadcrumbs
