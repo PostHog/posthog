@@ -130,7 +130,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             get_task_details,
             task_id,
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -143,7 +143,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         check_result = await workflow.execute_activity(
             check_snapshot_exists_for_repository,
             check_input,
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -162,8 +162,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             get_sandbox_for_setup,
             get_sandbox_input,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _clone_repository_in_sandbox(self, sandbox_id: str) -> None:
@@ -178,7 +178,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             clone_repository,
             clone_input,
             start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _setup_repository_in_sandbox(self, sandbox_id: str) -> None:
@@ -191,8 +191,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             setup_repository,
             setup_repo_input,
-            start_to_close_timeout=timedelta(minutes=15),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            start_to_close_timeout=timedelta(minutes=60),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _snapshot_sandbox(self, sandbox_id: str) -> str:
@@ -207,7 +207,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             create_snapshot,
             snapshot_input,
-            start_to_close_timeout=timedelta(minutes=25),
+            start_to_close_timeout=timedelta(minutes=20),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -248,7 +248,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             create_sandbox_from_snapshot,
             create_sandbox_input,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _inject_github_token(self, sandbox_id: str) -> None:
@@ -261,7 +261,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             inject_github_token,
             inject_token_input,
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -274,7 +274,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             inject_personal_api_key,
             inject_key_input,
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -283,7 +283,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 cleanup_personal_api_key,
                 personal_api_key_id,
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception as e:
@@ -300,8 +300,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             execute_task_in_sandbox,
             execute_input,
-            start_to_close_timeout=timedelta(minutes=30),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            start_to_close_timeout=timedelta(minutes=60),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
@@ -313,6 +313,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             track_workflow_event,
             track_input,
-            start_to_close_timeout=timedelta(seconds=10),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
