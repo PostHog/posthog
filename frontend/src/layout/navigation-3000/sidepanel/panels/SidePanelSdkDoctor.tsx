@@ -85,7 +85,7 @@ const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
 }
 
 const queryForSdkVersion = (sdkType: SdkType, version: string): string => {
-    return `SELECT * FROM events where properties.$lib = '${sdkType}' and properties.$lib_version = '${version}' ORDER BY timestamp DESC LIMIT 50`
+    return `SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY AND properties.$lib = '${sdkType}' AND properties.$lib_version = '${version}' ORDER BY timestamp DESC LIMIT 50`
 }
 
 const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
