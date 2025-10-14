@@ -153,8 +153,16 @@ function MuteButton(): JSX.Element {
                     <span>{isMuted ? 'Unmute' : 'Mute'}</span> audio <KeyboardShortcut m />
                 </>
             }
-            status={isMuted ? 'danger' : 'default'}
-            icon={<IconBell className={cn('text-xl', isMuted && 'opacity-50')} />}
+            icon={
+                <div className="relative">
+                    <IconBell className="text-base" />
+                    {isMuted && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-full h-[1px] bg-current rotate-135 transform origin-center" />
+                        </div>
+                    )}
+                </div>
+            }
             data-attr={isMuted ? 'unmute-audio' : 'mute-audio'}
         />
     )
