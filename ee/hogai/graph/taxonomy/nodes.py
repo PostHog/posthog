@@ -218,7 +218,7 @@ class TaxonomyAgentToolsNode(
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
         tool_msgs = []
-        for action, _ in steps:
+        for action, _ in intermediate_steps:
             if action.log in invalid_tools:
                 continue
             tool_result = tool_results[action.log]
@@ -234,6 +234,7 @@ class TaxonomyAgentToolsNode(
         return self._partial_state_class(
             tool_progress_messages=[*old_msg, *tool_msgs],
             intermediate_steps=[*steps],
+            iteration_count=state.iteration_count,
         )
 
     def router(self, state: TaxonomyStateType) -> str:
