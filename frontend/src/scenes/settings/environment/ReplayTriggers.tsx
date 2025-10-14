@@ -425,7 +425,7 @@ function UrlConfigSection({
                         value={checkUrl}
                         onChange={handleCheckUrlChange}
                         placeholder="Enter a URL to test (e.g., https://example.com/page)"
-                        data-attr="url-test"
+                        data-attr="url-check-input"
                         className="mb-2"
                     />
                     {checkUrl && (
