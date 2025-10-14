@@ -1008,6 +1008,7 @@ export type AnyPropertyFilter =
     | EventMetadataPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
+    | DraftCohortPropertyFilter
     | RecordingPropertyFilter
     | LogEntryPropertyFilter
     | GroupPropertyFilter
