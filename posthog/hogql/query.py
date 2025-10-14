@@ -43,6 +43,7 @@ class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
     team: Team
     _: dataclasses.KW_ONLY
+    clickhouse_sql: str
     query_type: str = "hogql_query"
     filters: Optional[HogQLFilters] = None
     placeholders: Optional[dict[str, ast.Expr]] = None
@@ -55,7 +56,6 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
-    clickhouse_sql: str
     clickhouse_prepared_ast: Optional[ast.AST] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
