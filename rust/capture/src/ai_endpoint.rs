@@ -78,7 +78,7 @@ pub async fn ai_handler(
     // Extract boundary from Content-Type header using multer's built-in parser
     let boundary = parse_boundary(content_type).map_err(|e| {
         warn!("Failed to parse boundary from Content-Type: {}", e);
-        CaptureError::RequestDecodingError(format!("Invalid boundary in Content-Type: {}", e))
+        CaptureError::RequestDecodingError(format!("Invalid boundary in Content-Type: {e}"))
     })?;
 
     // Check for authentication
@@ -133,7 +133,7 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
 
     decoder.read_to_end(&mut decompressed).map_err(|e| {
         warn!("Failed to decompress gzip body: {}", e);
-        CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {}", e))
+        CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {e}"))
     })?;
 
     debug!(
@@ -184,7 +184,7 @@ async fn parse_multipart_data(
     // Parse each part
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         warn!("Multipart parsing error: {}", e);
-        CaptureError::RequestDecodingError(format!("Multipart parsing failed: {}", e))
+        CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
     })? {
         part_count += 1;
 
@@ -209,8 +209,7 @@ async fn parse_multipart_data(
             // Validate that the first part is the event part
             if field_name != "event" {
                 return Err(CaptureError::RequestDecodingError(format!(
-                    "First part must be 'event', got '{}'",
-                    field_name
+                    "First part must be 'event', got '{field_name}'"
                 )));
             }
 
@@ -220,7 +219,7 @@ async fn parse_multipart_data(
         // Read the field data to get the length (this consumes the field)
         let field_data = field.bytes().await.map_err(|e| {
             warn!("Failed to read field data for '{}': {}", field_name, e);
-            CaptureError::RequestDecodingError(format!("Failed to read field data: {}", e))
+            CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
         })?;
 
         // Track sum of all part sizes
@@ -234,8 +233,7 @@ async fn parse_multipart_data(
             // Check event size limit
             if event_size > MAX_EVENT_SIZE {
                 return Err(CaptureError::EventTooBig(format!(
-                    "Event part size ({} bytes) exceeds maximum allowed size ({} bytes)",
-                    event_size, MAX_EVENT_SIZE
+                    "Event part size ({event_size} bytes) exceeds maximum allowed size ({MAX_EVENT_SIZE} bytes)"
                 )));
             }
 
@@ -272,8 +270,7 @@ async fn parse_multipart_data(
             // This is a blob part - check for duplicates
             if !seen_property_names.insert(field_name.clone()) {
                 return Err(CaptureError::RequestDecodingError(format!(
-                    "Duplicate blob property: {}",
-                    field_name
+                    "Duplicate blob property: {field_name}"
                 )));
             }
 
@@ -283,15 +280,13 @@ async fn parse_multipart_data(
                     let ct_lower = ct.to_lowercase();
                     if !is_valid_blob_content_type(&ct_lower) {
                         return Err(CaptureError::RequestDecodingError(
-                            format!("Unsupported content type for blob part '{}': '{}'. Supported types: application/octet-stream, application/json, text/plain",
-                                    field_name, ct),
+                            format!("Unsupported content type for blob part '{field_name}': '{ct}'. Supported types: application/octet-stream, application/json, text/plain"),
                         ));
                     }
                 }
                 None => {
                     return Err(CaptureError::RequestDecodingError(format!(
-                        "Missing required Content-Type header for blob part '{}'",
-                        field_name
+                        "Missing required Content-Type header for blob part '{field_name}'"
                     )));
                 }
             }
@@ -322,16 +317,14 @@ async fn parse_multipart_data(
     let combined_size = event_size + properties_size;
     if combined_size > MAX_COMBINED_SIZE {
         return Err(CaptureError::EventTooBig(format!(
-            "Combined event and properties size ({} bytes) exceeds maximum allowed size ({} bytes)",
-            combined_size, MAX_COMBINED_SIZE
+            "Combined event and properties size ({combined_size} bytes) exceeds maximum allowed size ({MAX_COMBINED_SIZE} bytes)"
         )));
     }
 
     // Check sum of all parts limit
     if sum_of_parts_bytes > max_sum_of_parts_bytes {
         return Err(CaptureError::EventTooBig(format!(
-            "Sum of all parts ({} bytes) exceeds maximum allowed size ({} bytes)",
-            sum_of_parts_bytes, max_sum_of_parts_bytes
+            "Sum of all parts ({sum_of_parts_bytes} bytes) exceeds maximum allowed size ({max_sum_of_parts_bytes} bytes)"
         )));
     }
 
