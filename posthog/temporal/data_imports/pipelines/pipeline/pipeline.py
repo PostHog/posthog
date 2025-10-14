@@ -339,7 +339,12 @@ class PipelineNonDLT:
             return
 
         self._logger.debug("Triggering compaction and vacuuming on delta table")
-        self._delta_table_helper.compact_table()
+        try:
+            self._delta_table_helper.compact_table()
+        except Exception as e:
+            from posthog.exceptions_capture import capture_exception
+            capture_exception(e)
+            self._logger.exception(f"Compaction failed: {e}", exc_info=e)
 
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
