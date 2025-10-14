@@ -22,7 +22,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
-import { UsageMetric, crmUsageMetricsConfigLogic } from './crmUsageMetricsConfigLogic'
+import { UsageMetric, usageMetricsConfigLogic } from './usageMetricsConfigLogic'
 
 function sanitizeFilters(filters?: FilterType): FilterType {
     if (!filters) {
@@ -43,9 +43,9 @@ function sanitizeFilters(filters?: FilterType): FilterType {
     return sanitized
 }
 
-function CRMUsageMetricsTable(): JSX.Element {
-    const { usageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
-    const { removeUsageMetric } = useActions(crmUsageMetricsConfigLogic)
+function UsageMetricsTable(): JSX.Element {
+    const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
+    const { removeUsageMetric } = useActions(usageMetricsConfigLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
         {
@@ -83,7 +83,7 @@ function CRMUsageMetricsTable(): JSX.Element {
                                         title: 'Edit usage metric',
                                         description: (
                                             <div>
-                                                <CRMUsageMetricsForm metric={metric} />
+                                                <UsageMetricsForm metric={metric} />
                                             </div>
                                         ),
                                         primaryButton: {
@@ -130,12 +130,12 @@ function CRMUsageMetricsTable(): JSX.Element {
     return <LemonTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
 }
 
-interface CRMUsageMetricsFormProps {
+interface UsageMetricsFormProps {
     metric?: UsageMetric
 }
 
-function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element {
-    const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(crmUsageMetricsConfigLogic)
+function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
+    const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
 
     if (metric) {
         setUsageMetricValues(metric)
@@ -153,7 +153,7 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
     ]
 
     return (
-        <Form id="usageMetric" logic={crmUsageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
+        <Form id="usageMetric" logic={usageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
             <div className="flex flex-col gap-2">
                 <div className="grid grid-cols-2 gap-2">
                     <LemonField name="name" label="Name" help="This will be the title of the column in group list">
@@ -236,7 +236,7 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
                                             }
                                             onChange(newValue)
                                         }}
-                                        pageKey="CRMUsageMetricsConfig"
+                                        pageKey="UsageMetricsConfig"
                                     />
                                     <TestAccountFilterSwitch
                                         checked={currentFilters?.filter_test_accounts ?? false}
@@ -277,9 +277,9 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
     )
 }
 
-export function CRMUsageMetricsConfig(): JSX.Element {
-    const { isEditing } = useValues(crmUsageMetricsConfigLogic)
-    const { setIsEditing, resetUsageMetric } = useActions(crmUsageMetricsConfigLogic)
+export function UsageMetricsConfig(): JSX.Element {
+    const { isEditing } = useValues(usageMetricsConfigLogic)
+    const { setIsEditing, resetUsageMetric } = useActions(usageMetricsConfigLogic)
 
     const handleAddMetric = (): void => {
         resetUsageMetric()
@@ -298,7 +298,7 @@ export function CRMUsageMetricsConfig(): JSX.Element {
                         Add metric
                     </LemonButton>
                 )}
-                {isEditing ? <CRMUsageMetricsForm /> : <CRMUsageMetricsTable />}
+                {isEditing ? <UsageMetricsForm /> : <UsageMetricsTable />}
             </div>
         </>
     )

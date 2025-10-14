@@ -7,7 +7,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 
-import type { crmUsageMetricsConfigLogicType } from './crmUsageMetricsConfigLogicType'
+import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
 export interface UsageMetric {
     id: string
@@ -34,8 +34,8 @@ const NEW_USAGE_METRIC = {
     filters: {},
 } as UsageMetricFormData
 
-export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
-    path(['scenes', 'settings', 'environment', 'crmUsageMetricsConfigLogic']),
+export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
+    path(['scenes', 'settings', 'environment', 'usageMetricsConfigLogic']),
     connect(() => ({
         values: [groupsModel, ['groupTypes', 'groupTypesLoading'], projectLogic, ['currentProjectId']],
     })),

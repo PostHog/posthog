@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { CRMUsageMetricsConfig } from 'scenes/settings/environment/CRMUsageMetricsConfig'
+import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
@@ -60,7 +60,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
 const Settings = (): JSX.Element => {
     return (
         <div className="p-2">
-            <CRMUsageMetricsConfig />
+            <UsageMetricsConfig />
         </div>
     )
 }
