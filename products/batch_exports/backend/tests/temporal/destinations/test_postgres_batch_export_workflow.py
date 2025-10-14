@@ -15,6 +15,7 @@ from django.test import override_settings
 
 import psycopg
 from psycopg import sql
+from psycopg.errors import SerializationFailure
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -36,6 +37,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
+    PostgreSQLClient,
     PostgreSQLHeartbeatDetails,
     insert_into_postgres_activity,
     postgres_default_fields,
@@ -1455,3 +1457,30 @@ async def test_insert_into_postgres_activity_completes_range_when_there_is_a_fai
 )
 def test_remove_invalid_json(input_data, expected_data):
     assert remove_invalid_json(input_data) == expected_data
+
+
+async def test_postgres_client_transaction_retries_on_serialization_failure(postgres_config, setup_postgres_test_db):
+    """Test that the `PostgreSQLClient.transaction` retries on serialization failure."""
+
+    retry_count = 0
+
+    def raise_serialization_failure():
+        nonlocal retry_count
+        retry_count += 1
+        raise SerializationFailure("test")
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        has_self_signed_cert=False,
+    )
+
+    async with postgres_client.connect() as pg_client:
+        with pytest.raises(ValueError):
+            async with pg_client.transaction():
+                raise_serialization_failure()
+
+    assert retry_count == 3

@@ -1,6 +1,7 @@
 import re
 import csv
 import json
+import random
 import typing
 import asyncio
 import datetime as dt
@@ -13,6 +14,7 @@ from django.conf import settings
 import psycopg
 import pyarrow as pa
 from psycopg import sql
+from psycopg.errors import SerializationFailure
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -240,6 +242,42 @@ class PostgreSQLClient:
         async with connection as connection:
             self._connection = connection
             yield self
+
+    @contextlib.asynccontextmanager
+    async def transaction(self, max_retries=3):
+        """Handles a PostgreSQL transaction, retrying on serialization failure.
+
+        Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
+
+        If the database returns an error asking to retry the transaction, retry it
+        *max_retries* times before giving up (and propagate it).
+        """
+        # leaving this block the transaction will commit or rollback
+        # (if leaving with an exception)
+        async with self.connection.transaction():
+            for retry in range(1, max_retries + 1):
+                try:
+                    yield
+
+                    # If we reach this point, we were able to commit, so we break
+                    # from the retry loop.
+                    return
+
+                except SerializationFailure as e:
+                    # This is a retry error, so we roll back the current
+                    # transaction and sleep for a bit before retrying. The
+                    # sleep time increases for each failed transaction.
+                    LOGGER.debug("SerializationFailure caught in transaction: %s", e)
+                    await self.connection.rollback()
+                    sleep_seconds = (2**retry) * 0.1 * (random.random() + 0.5)
+                    LOGGER.debug("Sleeping %s seconds", sleep_seconds)
+                    await asyncio.sleep(sleep_seconds)
+
+                except psycopg.Error as e:
+                    LOGGER.debug("got error: %s", e)
+                    raise
+
+            raise ValueError(f"transaction did not succeed after {max_retries} retries")
 
     async def acreate_table(
         self,
