@@ -3,7 +3,6 @@ import {
     BuiltLogic,
     actions,
     afterMount,
-    beforeUnmount,
     connect,
     kea,
     key,
@@ -237,42 +236,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
     })),
 
-    listeners(({ actions, values, cache, props }) => ({
-        askMax: async ({ prompt }) => {
-            if (!values.dataProcessingAccepted) {
-                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
-            }
-            // Clear the question
-            actions.setQuestion('')
-
-            // For a new conversations, set the frontend conversation ID
-            if (!values.conversation) {
-                actions.setConversationId(values.conversationId)
-            } else {
-                const updatedConversation = {
-                    ...values.conversation,
-                    status: ConversationStatus.InProgress,
-                    updated_at: dayjs().toISOString(),
-                }
-                // Update the current status
-                actions.setConversation(updatedConversation)
-                // Update the global conversation cache
-                actions.updateGlobalConversationCache(updatedConversation)
-            }
-
-            actions.streamConversation(
-                {
-                    content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
-                    ui_context: values.compiledContext || undefined,
-                    conversation: values.conversation?.id || values.conversationId,
-                },
-                0
-            )
-        },
-
+    listeners((logic) => ({
         streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+            const { actions, values, cache, mount } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
+            const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
 
             if (generationAttempt === 0 && streamData.content) {
@@ -381,8 +349,41 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.completeThreadGeneration()
             }
             cache.generationController = undefined
+            releaseStreamingLock() // release the lock
         },
+    })),
+    listeners(({ actions, values, cache, props }) => ({
+        askMax: async ({ prompt }) => {
+            if (!values.dataProcessingAccepted) {
+                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
+            // Clear the question
+            actions.setQuestion('')
+            // For a new conversations, set the frontend conversation ID
+            if (!values.conversation) {
+                actions.setConversationId(values.conversationId)
+            } else {
+                const updatedConversation = {
+                    ...values.conversation,
+                    status: ConversationStatus.InProgress,
+                    updated_at: dayjs().toISOString(),
+                }
+                // Update the current status
+                actions.setConversation(updatedConversation)
+                // Update the global conversation cache
+                actions.updateGlobalConversationCache(updatedConversation)
+            }
 
+            actions.streamConversation(
+                {
+                    content: prompt,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    ui_context: values.compiledContext || undefined,
+                    conversation: values.conversation?.id || values.conversationId,
+                },
+                0
+            )
+        },
         stopGeneration: async () => {
             if (!values.conversation?.id) {
                 return
@@ -655,11 +656,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
 
     afterMount((logic) => {
-        const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
-        // Prevent unmounting of the logic until the streaming finishes.
-        // Increment a counter of active logics by one and then decrement it when the logic unmounts or finishes
-        cache.unmount = mount()
-
+        const { actions, values, props } = logic
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
                 // We found a logic with the same conversationId, but a different tabId
@@ -676,12 +673,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
-        }
-    }),
-
-    beforeUnmount(({ cache, values }) => {
-        if (!values.streamingActive) {
-            cache.unmount()
         }
     }),
 ])

@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
@@ -8,7 +8,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -93,9 +92,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         conversationId: threadLogicKey,
         conversation,
     }
-    // Connect the specific thread to the specific max tab
-    useMountedLogic(maxThreadLogic(threadProps))
-    useAttachedLogic(maxThreadLogic(threadProps), maxLogic({ tabId }))
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
