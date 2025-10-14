@@ -97,6 +97,10 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rrule = self.rrule
+
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
         if not self.id or str(self._rrule) != str(self.rrule):
@@ -104,10 +108,6 @@ class Subscription(models.Model):
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rrule = self.rrule
 
     @property
     def rrule(self):

@@ -688,7 +688,7 @@ def map_virtual_properties(e: ast.Expr):
         and e.chain[-1].startswith("$virt")
     ):
         # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
-        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
+        return ast.Field(chain=[*e.chain[:-2], e.chain[-1]])
     return e
 
 
