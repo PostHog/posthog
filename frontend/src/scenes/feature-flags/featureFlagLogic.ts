@@ -366,7 +366,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             defaults: {
                 ...NEW_FLAG,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                _should_create_usage_dashboard: true,
             } as FeatureFlagType,
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
@@ -738,7 +739,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
                 }
 
-                // Add default evaluation tags for new flags
+                // // Add default evaluation tags for new flags
                 if (values.defaultEvaluationEnabled && values.defaultEvaluationTags.length > 0) {
                     const tagNames = values.defaultEvaluationTags.map((tag) => tag.name)
                     newFlag.tags = tagNames

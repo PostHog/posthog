@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconPlus, IconX } from '@posthog/icons'
+import { IconBolt, IconPlus, IconPlusSmall, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -109,7 +109,7 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                                     type="primary"
                                     onClick={handleAddTag}
                                     disabled={!newTagInput.trim()}
-                                    icon={<IconPlus />}
+                                    icon={<IconPlusSmall />}
                                 />
                                 <LemonButton
                                     size="small"
