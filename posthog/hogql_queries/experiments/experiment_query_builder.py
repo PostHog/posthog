@@ -395,6 +395,8 @@ class ExperimentQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
+        # TODO: Rewrite this to be inline for better readability
+
         # Now manually inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
         if query.ctes and "metric_events" in query.ctes:
@@ -403,6 +405,32 @@ class ExperimentQueryBuilder:
                 # Add step columns to the SELECT
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
+
+        # Inject the additional selects we do for getting the data we need to render the funnel chart
+        # Add step counts - how many users reached each step
+        step_count_exprs = []
+        for i in range(num_steps):
+            step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
+        step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+
+        # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+        # that step as their last step in the funnel.
+        # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+        event_uuids_exprs = []
+        for i in range(num_steps + 1):
+            event_uuids_expr = f"""
+                groupArraySampleIf(100)(
+                    if(
+                        entity_metrics.value.2 != '',
+                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2),
+                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid))),
+                    entity_metrics.value.1 = {i} - 1
+                )
+            """
+            event_uuids_exprs.append(event_uuids_expr)
+        event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+
+        query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
 
         return query
 
