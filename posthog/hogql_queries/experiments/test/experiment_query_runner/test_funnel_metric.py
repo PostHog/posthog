@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from typing import cast
 
@@ -66,6 +67,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         # Control: 8 successes, 7 failures (15 total exposures)
+        control_success_events = []
         for i in range(15):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
             _create_event(
@@ -80,8 +82,11 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
             if i < 8:  # First 8 users make purchases
+                event_uuid = str(uuid.uuid4())
+                control_success_events.append(event_uuid)
                 _create_event(
                     team=self.team,
+                    event_uuid=event_uuid,
                     event="purchase",
                     distinct_id=f"user_control_{i}",
                     timestamp="2020-01-02T12:01:00Z",
@@ -145,8 +150,14 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Convert to funnel stats for assertion (sum = success_count, number_of_samples - sum = failure_count)
         self.assertEqual(control_variant.sum, 8)  # success_count
         self.assertEqual(control_variant.number_of_samples - control_variant.sum, 7)  # failure_count
+
         self.assertEqual(test_variant.sum, 10)  # success_count
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 5)  # failure_count
+
+        # Check that we have the correct data for rendering the funnel chart
+        self.assertEqual(control_variant.step_counts, [8])  # contains data for funnel chart
+        control_sampled_success_events = [s.event_uuid for s in control_variant.step_sessions[1]]
+        self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
