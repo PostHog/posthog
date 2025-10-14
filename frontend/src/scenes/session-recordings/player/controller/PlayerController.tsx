@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { IconBell, IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -140,6 +140,26 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
+function MuteButton(): JSX.Element {
+    const { isMuted } = useValues(sessionRecordingPlayerLogic)
+    const { setMuted } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={() => setMuted(!isMuted)}
+            tooltip={
+                <>
+                    <span>{isMuted ? 'Unmute' : 'Mute'}</span> audio <KeyboardShortcut m />
+                </>
+            }
+            status={isMuted ? 'danger' : 'default'}
+            icon={<IconBell className={cn('text-xl', isMuted && 'opacity-50')} />}
+            data-attr={isMuted ? 'unmute-audio' : 'mute-audio'}
+        />
+    )
+}
+
 export function PlayerController(): JSX.Element {
     const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
@@ -178,6 +198,7 @@ export function PlayerController(): JSX.Element {
                             <EmojiCommentOnRecordingButton />
                             <Screenshot />
                             <ClipRecording />
+                            <MuteButton />
                         </>
                     )}
                     {playlistLogic && ModesWithInteractions.includes(playerMode) ? (

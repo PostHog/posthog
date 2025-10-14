@@ -438,6 +438,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
         allowPlayerChromeToHide: true,
+        setMuted: (muted: boolean) => ({ muted }),
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -690,6 +691,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 allowPlayerChromeToHide: () => {
                     return false
                 },
+            },
+        ],
+        isMuted: [
+            true, // Default to muted
+            {
+                setMuted: (_, { muted }) => muted,
             },
         ],
     })),
@@ -1180,6 +1187,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
+
+                // Apply mute state to newly initialized player
+                setTimeout(() => {
+                    actions.setMuted(values.isMuted)
+                }, 100)
             }
         },
         setCurrentSegment: ({ segment }) => {
@@ -1346,6 +1358,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (nextTimestamp !== undefined) {
                 actions.seekToTimestamp(nextTimestamp, true)
             }
+
+            // Apply current mute state to any media elements after a short delay
+            setTimeout(() => {
+                actions.setMuted(values.isMuted)
+            }, 100)
         },
         markViewed: async ({ delay }, breakpoint) => {
             breakpoint()
@@ -1717,6 +1734,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }, interval)
                 return () => clearTimeout(timerId)
             }, 'playerTimeTracking')
+        },
+        setMuted: (isMuted: boolean) => {
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeDocument = iframe?.contentWindow?.document
+            if (!iframeDocument) {
+                return
+            }
+
+            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
+            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
+            const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
+
+            mediaElements.forEach((el) => {
+                el.muted = isMuted
+            })
         },
     })),
 
