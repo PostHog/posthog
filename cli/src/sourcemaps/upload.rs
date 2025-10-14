@@ -6,7 +6,7 @@ use tracing::info;
 use crate::api::symbol_sets::{upload, SymbolSetUpload};
 use crate::invocation_context::context;
 
-use crate::releases::{Release, ReleaseBuilder};
+use crate::api::releases::{Release, ReleaseBuilder};
 use crate::sourcemaps::source_pair::read_pairs;
 use crate::utils::files::delete_files;
 use crate::utils::git::get_git_info;

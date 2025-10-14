@@ -4,8 +4,8 @@ use tracing::info;
 use uuid;
 
 use crate::{
+    api::releases::{Release, ReleaseBuilder},
     invocation_context::context,
-    releases::{Release, ReleaseBuilder},
     sourcemaps::source_pair::read_pairs,
     utils::git::get_git_info,
 };
