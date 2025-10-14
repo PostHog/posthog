@@ -89,13 +89,13 @@ function UsageMetricsTable(): JSX.Element {
                                         primaryButton: {
                                             htmlType: 'submit',
                                             children: 'Save',
-                                            'data-attr': 'update-crm-usage-metric',
+                                            'data-attr': 'update-usage-metric',
                                             form: 'usageMetric',
                                         },
                                         secondaryButton: {
                                             htmlType: 'button',
                                             children: 'Cancel',
-                                            'data-attr': 'cancel-update-crm-usage-metric',
+                                            'data-attr': 'cancel-update-usage-metric',
                                         },
                                     })
                                 },
@@ -256,17 +256,13 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                         <div className="flex gap-2 mt-2">
                             <LemonButton
                                 type="primary"
-                                data-attr="save-crm-usage-metric"
+                                data-attr="save-usage-metric"
                                 htmlType="submit"
                                 form="usageMetric"
                             >
                                 Save
                             </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="cancel-crm-usage-metric"
-                                onClick={handleCancelForm}
-                            >
+                            <LemonButton type="secondary" data-attr="cancel-usage-metric" onClick={handleCancelForm}>
                                 Cancel
                             </LemonButton>
                         </div>

@@ -5,8 +5,6 @@ import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { groupsModel } from '~/models/groupsModel'
-
 import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
 export interface UsageMetric {
@@ -34,21 +32,20 @@ const NEW_USAGE_METRIC = {
     filters: {},
 } as UsageMetricFormData
 
-interface UsageMetricsConfigLogicProps {
+export interface UsageMetricsConfigLogicProps {
     logicKey?: string
 }
 
 export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     path(['scenes', 'settings', 'environment', 'usageMetricsConfigLogic']),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'groupTypesLoading'], projectLogic, ['currentProjectId']],
+        values: [projectLogic, ['currentProjectId']],
     })),
     props({} as UsageMetricsConfigLogicProps),
     key(({ logicKey }) => logicKey || 'defaultKey'),
 
     actions(() => ({
         setIsEditing: (isEditing: boolean) => ({ isEditing }),
-        setCurrentGroupTypeIndex: (groupTypeIndex: number) => ({ groupTypeIndex }),
         addUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         updateUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         removeUsageMetric: (id: string) => ({ id }),
@@ -56,7 +53,6 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
 
     reducers(() => ({
         isEditing: [false, { setIsEditing: (_, { isEditing }) => isEditing }],
-        currentGroupTypeIndex: [0, { setCurrentGroupTypeIndex: (_, { groupTypeIndex }) => groupTypeIndex }],
     })),
 
     lazyLoaders(({ values }) => ({
@@ -80,11 +76,11 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     })),
 
     selectors({
-        availableGroupTypes: [(s) => [s.groupTypes], (groupTypes) => Array.from(groupTypes.values())],
         metricsUrl: [
-            (s) => [s.currentGroupTypeIndex, s.currentProjectId],
-            (currentGroupTypeIndex, currentProjectId) =>
-                `/api/projects/${currentProjectId}/groups_types/${currentGroupTypeIndex}/metrics`,
+            (s) => [s.currentProjectId],
+            // Defaulting group type index to 0 as we want to make this group-agnostic.
+            // Backend model/endpoint will be refactored
+            (currentProjectId) => `/api/projects/${currentProjectId}/groups_types/0/metrics`,
         ],
     }),
 
@@ -116,9 +112,6 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
             actions.loadUsageMetrics()
         },
         removeUsageMetricSuccess: () => {
-            actions.loadUsageMetrics()
-        },
-        setCurrentGroupTypeIndex: () => {
             actions.loadUsageMetrics()
         },
     })),
