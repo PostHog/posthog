@@ -2271,6 +2271,7 @@ class RecordingOrder(StrEnum):
     KEYPRESS_COUNT = "keypress_count"
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
+    RECORDING_TTL = "recording_ttl"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -4813,6 +4814,7 @@ class SessionRecordingType(BaseModel):
     distinct_id: Optional[str] = None
     email: Optional[str] = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
+    expiry_time: Optional[str] = Field(default=None, description="When the recording expires, in ISO format.")
     id: str
     inactive_seconds: Optional[float] = None
     keypress_count: Optional[float] = None
@@ -4829,6 +4831,9 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    recording_ttl: Optional[float] = Field(
+        default=None, description="Number of whole days left until the recording expires."
+    )
     retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")

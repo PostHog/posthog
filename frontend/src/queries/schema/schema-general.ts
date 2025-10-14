@@ -456,6 +456,7 @@ export type RecordingOrder =
     | 'keypress_count'
     | 'mouse_activity_count'
     | 'activity_score'
+    | 'recording_ttl'
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
