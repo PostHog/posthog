@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconBolt, IconPlus, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,9 +9,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { colorForString } from 'lib/utils'
 
-import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
+import { defaultEvaluationEnvironmentsLogic } from './DefaultEvaluationEnvironmentsLogic'
 
 export function DefaultEvaluationEnvironments(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -78,7 +77,8 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                         {tags.map((tag) => (
                             <LemonTag
                                 key={tag.id}
-                                type={colorForString(tag.name)}
+                                type="success"
+                                icon={<IconBolt />}
                                 closable
                                 onClose={() => removeTag(tag.name)}
                             >

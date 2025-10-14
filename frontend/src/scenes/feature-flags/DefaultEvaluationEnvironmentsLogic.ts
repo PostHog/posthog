@@ -53,7 +53,7 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
                         return null
                     }
 
-                    const response = await api.get(`api/environments/${teamId}/default_evaluation_tags/`)
+                    const response = await api.get(`/api/environments/${teamId}/default_evaluation_tags/`)
                     return response as DefaultEvaluationEnvironmentsResponse
                 },
 
@@ -64,7 +64,7 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
                     }
 
                     try {
-                        const response = await api.create(`api/environments/${teamId}/default_evaluation_tags/`, {
+                        const response = await api.create(`/api/environments/${teamId}/default_evaluation_tags/`, {
                             tag_name: tagName,
                         })
 
@@ -99,7 +99,7 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
 
                     try {
                         await api.delete(
-                            `api/environments/${teamId}/default_evaluation_tags/?tag_name=${encodeURIComponent(tagName)}`
+                            `/api/environments/${teamId}/default_evaluation_tags/?tag_name=${encodeURIComponent(tagName)}`
                         )
 
                         const currentData = values.defaultEvaluationEnvironments
@@ -124,13 +124,9 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
 
     listeners(({ actions }) => ({
         toggleEnabled: async ({ enabled }) => {
-            await actions.updateCurrentTeam({
+            actions.updateCurrentTeam({
                 default_evaluation_environments_enabled: enabled,
             })
-
-            lemonToast.success(
-                enabled ? 'Default evaluation environments enabled' : 'Default evaluation environments disabled'
-            )
         },
 
         addTagSuccess: () => {
