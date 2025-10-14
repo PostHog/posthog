@@ -145,14 +145,12 @@ fn detect_group_changes(
 
 /// Create a PostHog group identify event
 fn create_group_identify_event(
-    team_id: i32,
-    token: String,
+    context: &TransformContext,
     distinct_id: String,
     group_type: String,
     group_key: String,
     changes: GroupChanges,
     timestamp: chrono::DateTime<chrono::Utc>,
-    job_id: uuid::Uuid,
 ) -> Result<InternallyCapturedEvent, Error> {
     let event_uuid = Uuid::now_v7();
 
@@ -182,7 +180,7 @@ fn create_group_identify_event(
     );
     properties.insert(
         "$import_job_id".to_string(),
-        Value::String(job_id.to_string()),
+        Value::String(context.job_id.to_string()),
     );
 
     let raw_event = RawEvent {
@@ -191,7 +189,7 @@ fn create_group_identify_event(
         timestamp: Some(timestamp.to_rfc3339()),
         distinct_id: Some(Value::String(distinct_id.clone())),
         uuid: Some(event_uuid),
-        token: Some(token.clone()),
+        token: Some(context.token.clone()),
         offset: None,
         set: None,
         set_once: None,
@@ -204,12 +202,12 @@ fn create_group_identify_event(
         data: serde_json::to_string(&raw_event)?,
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         sent_at: None,
-        token,
+        token: context.token.clone(),
         is_cookieless_mode: false,
     };
 
     Ok(InternallyCapturedEvent {
-        team_id,
+        team_id: context.team_id,
         inner: captured_event,
     })
 }
@@ -547,14 +545,12 @@ impl AmplitudeEvent {
                     Ok(changed_groups) => {
                         for changed_group in changed_groups {
                             match create_group_identify_event(
-                                team_id,
-                                token.clone(),
+                                &context,
                                 distinct_id.clone(),
                                 changed_group.group_type,
                                 changed_group.group_key,
                                 changed_group.changes,
                                 timestamp,
-                                context.job_id,
                             ) {
                                 Ok(group_event) => {
                                     events.push(group_event);
