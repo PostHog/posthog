@@ -51,11 +51,11 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4">
-                <SceneTitleSection name={chatTitle || 'Max AI'} resourceType={{ type: 'chat' }} />
+                <SceneTitleSection name={chatTitle || 'PostHog AI'} resourceType={{ type: 'chat' }} />
                 <SceneDivider />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">This Max chat is currently in the sidebar</h3>
+                    <h3 className="text-xl font-bold mb-1">This chat is currently in the sidebar</h3>
                     <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
                     <LemonButton
                         type="secondary"
@@ -108,9 +108,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         {
                             // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
                             display: 'contents',
-                            '--radius': '0.5rem',
-                            '--radius-sm': '0.375rem',
-                            '--radius-lg': '0.75rem',
                         } as React.CSSProperties
                     }
                 >
@@ -163,13 +160,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         {chatTitle ? (
                             <h3
                                 className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
-                                title={chatTitle !== 'Max AI' ? chatTitle : undefined}
+                                title={chatTitle || undefined}
                             >
-                                {chatTitle !== 'Max AI' ? (
-                                    chatTitle
-                                ) : (
+                                {chatTitle || (
                                     <>
-                                        Max AI
+                                        PostHog AI
                                         <LemonTag size="small" type="warning" className="ml-2">
                                             BETA
                                         </LemonTag>

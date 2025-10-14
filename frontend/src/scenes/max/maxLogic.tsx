@@ -190,18 +190,6 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        description: [
-            (s) => [s.toolDescriptions],
-            (toolDescriptions): string => {
-                if (toolDescriptions.length > 0) {
-                    return `I'm Max. ${toolDescriptions[0]}`
-                }
-                return "I'm Max, here to help you build a successful product."
-            },
-            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
-            { equalityCheck: objectsEqual },
-        ],
-
         toolHeadlines: [(s) => [s.tools], (tools) => tools.map((tool) => tool.introOverride?.headline).filter(Boolean)],
 
         toolDescriptions: [
@@ -254,7 +242,7 @@ export const maxLogic = kea<maxLogicType>([
                     return conversation.title ?? 'New chat'
                 }
 
-                return 'Max AI'
+                return null
             },
         ],
 
@@ -283,7 +271,7 @@ export const maxLogic = kea<maxLogicType>([
                 return [
                     {
                         key: Scene.Max,
-                        name: `Max AI`,
+                        name: `AI`,
                         path: urls.max(),
                         iconType: 'chat',
                     },
@@ -625,7 +613,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I capture an exception?',
             },
         ],
-        tooltip: 'Max has access to PostHog docs and can help you get the most out of PostHog.',
+        tooltip: 'PostHog AI has access to PostHog docs and can help you get the most out of PostHog.',
     },
 ]
 

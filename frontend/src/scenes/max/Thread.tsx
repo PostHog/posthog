@@ -752,7 +752,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
                     }}
                     sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                     size="xsmall"
-                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
                 />
             )}
         </>
