@@ -1675,19 +1675,6 @@
         }
     }
 
-    // Note: Scaling in from 0 is not typically recommended, the smoother alternative is to
-    // scale in from a value between 0.5-0.8 and 0 opacity. But SOME situations call for scaling from 0, like icons
-    /* stylelint-disable-next-line keyframes-name-pattern */
-    @keyframes scale-in {
-        0% {
-            transform: scale(0);
-        }
-
-        100% {
-            transform: scale(1);
-        }
-    }
-
     // Floating animation
 
     /* stylelint-disable-next-line keyframes-name-pattern */
