@@ -41,7 +41,7 @@ describe('Max Logics Integration Tests', () => {
     it('does not update conversation and thread when stream is active', async () => {
         const streamSpy = mockStream()
 
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
         threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
         threadLogic.mount()
