@@ -53,7 +53,7 @@ def reverse_content_type(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0877_delete_named_query_from_state"),
+        ("posthog", "0878_alter_externaldatasource_source_type"),
     ]
 
     operations = [
