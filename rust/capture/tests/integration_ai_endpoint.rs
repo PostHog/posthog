@@ -58,7 +58,7 @@ async fn send_multipart_request(
 ) -> axum_test_helper::TestResponse {
     // Get the boundary from the form
     let boundary = form.boundary().to_string();
-    let content_type = format!("multipart/form-data; boundary={}", boundary);
+    let content_type = format!("multipart/form-data; boundary={boundary}");
 
     // Use into_stream() to get the body bytes
     let mut stream = form.into_stream();
@@ -74,7 +74,7 @@ async fn send_multipart_request(
         .body(body);
 
     if let Some(token) = auth_token {
-        request = request.header("Authorization", format!("Bearer {}", token));
+        request = request.header("Authorization", format!("Bearer {token}"));
     }
 
     request.send().await
@@ -105,7 +105,7 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
     let liveness = HealthRegistry::new("ai_endpoint_tests");
-    let sink = TestSink::default();
+    let sink = TestSink;
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
             .expect("Invalid fixed time format")
@@ -758,8 +758,7 @@ async fn test_all_allowed_ai_event_types_accepted() {
         assert_eq!(
             response.status(),
             StatusCode::OK,
-            "Event type {} should be accepted",
-            event_name
+            "Event type {event_name} should be accepted"
         );
     }
 }
@@ -787,8 +786,7 @@ async fn test_invalid_ai_event_type_returns_400() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "Event type {} should be rejected",
-            event_name
+            "Event type {event_name} should be rejected"
         );
     }
 }
@@ -1366,7 +1364,7 @@ async fn test_gzip_compressed_request() {
 
     // Get the multipart body
     let boundary = form.boundary().to_string();
-    let content_type = format!("multipart/form-data; boundary={}", boundary);
+    let content_type = format!("multipart/form-data; boundary={boundary}");
 
     let mut stream = form.into_stream();
     let mut body = Vec::new();
