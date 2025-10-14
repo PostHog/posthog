@@ -37,11 +37,11 @@ It ingests data from Kafka to a proper ClickHouse shard.
 Ingestion nodes are part of the extended ClickHouse cluster
 
 The way this is done:
- 1. Create a writetable table, this is a Distributed engine table
- 2. Create a table with Kafka engine
+ 1. Create a writeable table, this is a Distributed engine table
+ 2. Create a table with the Kafka engine
  3. Create a materialized view that reads from Kafka and writes to the writetable table
 
-If a desination table is non-sharded, we pick only one node as data for Distrubuted table.
+If a destination table is non-sharded, we pick only one node as data for the Distributed table.
 
 # Migration basics
 
@@ -202,12 +202,10 @@ run_sql_with_exceptions(
 For ingestion layer (recommended):
 ```python
 run_sql_with_exceptions(
-    KAFKA_TABLE_SQL(on_cluster=False),
+    KAFKA_TABLE_SQL(),
     node_roles=[NodeRole.INGESTION_SMALL]
 )
 ```
-
-Note: Pass `on_cluster=False` to SQL functions when creating on ingestion layer.
 
 ## Materialized views
 
@@ -222,7 +220,7 @@ run_sql_with_exceptions(
 For ingestion layer (recommended):
 ```python
 run_sql_with_exceptions(
-    MV_SQL(on_cluster=False),
+    MV_SQL(),
     node_roles=[NodeRole.INGESTION_SMALL]
 )
 ```
@@ -297,10 +295,10 @@ Runs on all nodes because distributed tables exist on all nodes.
 The recommended pattern for new tables uses dedicated ingestion nodes. This separates ingestion load from query load.
 
 Complete pattern:
-1. Create data table on main cluster (DATA + COORDINATOR for non-sharded, DATA only for sharded)
+1. Create data table on the main cluster (DATA + COORDINATOR for non-sharded, DATA only for sharded)
 2. Create writable distributed table on ingestion nodes with `CLICKHOUSE_SINGLE_SHARD_CLUSTER` for non-sharded tables
-3. Create Kafka table on ingestion nodes with `on_cluster=False`
-4. Create materialized view on ingestion nodes with `on_cluster=False`
+3. Create a Kafka table on ingestion nodes
+4. Create a materialized view on ingestion nodes
 
 Example for non-sharded table:
 ```python
@@ -317,12 +315,12 @@ operations = [
     ),
     # 3. Kafka table on ingestion layer
     run_sql_with_exceptions(
-        KAFKA_TABLE_SQL(on_cluster=False),
+        KAFKA_TABLE_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL]
     ),
     # 4. Materialized view on ingestion layer
     run_sql_with_exceptions(
-        MV_SQL(on_cluster=False),
+        MV_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL]
     ),
 ]

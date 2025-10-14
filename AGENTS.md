@@ -54,7 +54,7 @@ Distributed engine:
 - NEVER use `ON CLUSTER` clause in SQL statements
 - Always use `IF EXISTS` / `IF NOT EXISTS` clauses
 - When dropping and recreating in same migration, use `DROP TABLE IF EXISTS ... SYNC`
-- For ingestion layer: Pass `on_cluster=False` to SQL functions (e.g., `KAFKA_TABLE_SQL(on_cluster=False)`)
+- If a function generating SQL has on_cluster param, always set `on_cluster=False`
 - Use `sharded=True` when altering sharded tables
 - Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
 
