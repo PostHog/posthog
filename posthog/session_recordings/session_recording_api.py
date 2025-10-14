@@ -1322,7 +1322,7 @@ class SessionRecordingViewSet(
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
 
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1").time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1", decompress=True).time():
             # streams the file from S3 to the client
             # will not decompress the possibly large file because of `stream=True`
             #
