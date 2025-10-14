@@ -5,16 +5,19 @@ import { useActions, useValues } from 'kea'
 import { MouseEvent, useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconBox } from '@posthog/icons'
+import { IconBox, IconExternal } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 
 import { CodeLine, Language, getLanguage } from '../CodeSnippet/CodeSnippet'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
+import { framesCodeSourceLogic } from './framesCodeSourceLogic'
 import { stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
@@ -155,7 +158,11 @@ function Trace({
 export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
     const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
+    const { getSourceUrlForFrame } = useValues(framesCodeSourceLogic)
+
     const part = getFrameFingerprint(raw_id)
+    const sourceUrl = getSourceUrlForFrame(raw_id)
+
     return (
         <div className="flex flex-1 justify-between items-center h-full">
             <div className="flex flex-wrap gap-x-1">
@@ -178,6 +185,13 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                 </div>
             </div>
             <div className="flex gap-x-1 items-center justify-end">
+                {in_app && sourceUrl && (
+                    <span onClick={cancelEvent} className="text-secondary">
+                        <Link to={sourceUrl} target="_blank">
+                            <LemonButton size="xsmall" tooltip="View on GitHub" icon={<IconExternal />} />
+                        </Link>
+                    </span>
+                )}
                 {resolved && source && (
                     <span onClick={cancelEvent} className="text-secondary">
                         <CopyToClipboardInline
