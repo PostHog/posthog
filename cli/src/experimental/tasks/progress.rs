@@ -3,9 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::experimental::tasks::utils::select_task;
-use crate::utils::auth::load_token;
-use crate::utils::client::get_client;
+use crate::{experimental::tasks::utils::select_task, invocation_context::context};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TaskProgressResponse {
@@ -55,9 +53,9 @@ pub fn show_progress(task_id: Option<&Uuid>) -> Result<()> {
 }
 
 fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
-    let token = load_token().context("Failed to load authentication token")?;
-    let host = token.get_host(None);
-    let client = get_client()?;
+    let token = context().token.clone();
+    let host = token.get_host();
+    let client = context().client.clone();
 
     let url = format!(
         "{}/api/environments/{}/tasks/{}/progress/",

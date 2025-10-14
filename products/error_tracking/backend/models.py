@@ -120,7 +120,13 @@ class ErrorTrackingRelease(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
     # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
-    # id of the model
+    # id of the model - TODO - should this instead by a hash of the project and version?
+    # Note - the "hash" here can be misleading - it's not a hash of the "contents" of the release, but
+    # of some arbitrary set of identifiers. The set of symbol sets associated with a release is
+    # allowed to change over time, without needing to modify this hash_id (this is to support e.g.
+    # retrying uploads that failed in a bad CI job or something). It's purpose is
+    # to provide clients with the ability to fetch a release object based on information they
+    # have locally (like project name and version).
     hash_id = models.TextField(null=False, blank=False)
     created_at = models.DateTimeField(auto_now_add=True)
     version = models.TextField(null=False, blank=False)

@@ -1,9 +1,16 @@
-use posthog_cli::sourcemaps::source_pair::read_pairs;
+use posthog_cli::sourcemaps::source_pair::{read_pairs, SourceMapContent};
+
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 use test_log::test;
+
+macro_rules! case {
+    ($relative_path:expr) => {
+        concat!("_cases/", $relative_path)
+    };
+}
 
 fn get_case_path(relative_path: &str) -> PathBuf {
     PathBuf::from("tests/_cases")
@@ -47,13 +54,13 @@ fn test_pair_inject() {
     assert_file_eq(
         &case_path,
         "chunk.js.expected",
-        &current_pair.source.content,
+        &current_pair.source.inner.content,
     );
-    assert_file_eq(
-        &case_path,
-        "chunk.js.map.expected",
-        &current_pair.sourcemap.content,
-    );
+
+    let expected_val: SourceMapContent =
+        serde_json::from_str(include_str!(case!("inject/chunk.js.map.expected"))).unwrap();
+
+    assert_eq!(expected_val, current_pair.sourcemap.inner.content);
 }
 
 #[test]
@@ -66,6 +73,8 @@ fn test_index_inject() {
         .set_chunk_id(chunk_id.to_string())
         .expect("Failed to set chunk ID");
 
-    let _ = sourcemap::SourceMap::from_slice(current_pair.sourcemap.content.as_bytes())
+    let bytes = serde_json::to_string(&current_pair.sourcemap.inner.content).unwrap();
+
+    let _ = sourcemap::SourceMap::from_slice(bytes.as_bytes())
         .expect("Failed to parse as a flattened sourcemap");
 }

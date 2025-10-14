@@ -1,37 +1,77 @@
 use anyhow::{Context, Result};
 use sha2::Digest;
 use std::path::PathBuf;
+use walkdir::DirEntry;
 
-pub struct SourceFile {
+use crate::sourcemaps::source_pair::SourceMapContent;
+
+pub struct SourceFile<T: SourceContent> {
     pub path: PathBuf,
-    pub content: String,
+    pub content: T,
 }
 
-impl SourceFile {
-    pub fn new(path: PathBuf, content: String) -> Self {
+impl<T: SourceContent> SourceFile<T> {
+    pub fn new(path: PathBuf, content: T) -> Self {
         SourceFile { path, content }
     }
 
     pub fn load(path: &PathBuf) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        Ok(SourceFile::new(path.clone(), content))
+        let content = std::fs::read(path)?;
+        Ok(SourceFile::new(path.clone(), T::parse(content)?))
     }
 
+    // TODO - I'm fairly sure the `dest` is redundant if it's None
     pub fn save(&self, dest: Option<PathBuf>) -> Result<()> {
         let final_path = dest.unwrap_or(self.path.clone());
-        std::fs::write(&final_path, &self.content)?;
+        std::fs::write(&final_path, &self.content.serialize()?)?;
         Ok(())
     }
 }
 
-fn delete_files(paths: Vec<PathBuf>) -> Result<()> {
+pub trait SourceContent {
+    fn parse(content: Vec<u8>) -> Result<Self>
+    where
+        Self: Sized;
+
+    fn serialize(&self) -> Result<Vec<u8>>;
+}
+
+impl SourceContent for String {
+    fn parse(content: Vec<u8>) -> Result<Self> {
+        Ok(String::from_utf8(content)?)
+    }
+
+    fn serialize(&self) -> Result<Vec<u8>> {
+        Ok(self.clone().into_bytes())
+    }
+}
+
+impl SourceContent for SourceMapContent {
+    fn parse(content: Vec<u8>) -> Result<Self> {
+        Ok(serde_json::from_slice(&content)?)
+    }
+
+    fn serialize(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+}
+
+impl SourceContent for Vec<u8> {
+    fn parse(content: Vec<u8>) -> Result<Self> {
+        Ok(content)
+    }
+
+    fn serialize(&self) -> Result<Vec<u8>> {
+        Ok(self.clone())
+    }
+}
+
+pub fn delete_files(paths: Vec<PathBuf>) -> Result<()> {
     // Delete local sourcemaps files from the sourcepair
     for path in paths {
         if path.exists() {
-            std::fs::remove_file(&path).context(format!(
-                "Failed to delete sourcemaps file: {}",
-                path.display()
-            ))?;
+            std::fs::remove_file(&path)
+                .context(format!("Failed to delete file: {}", path.display()))?;
         }
     }
     Ok(())
@@ -48,4 +88,12 @@ where
         hasher.update(data.as_ref());
     }
     format!("{:x}", hasher.finalize())
+}
+
+pub fn is_javascript_file(entry: &DirEntry) -> bool {
+    entry.file_type().is_file()
+        && entry
+            .path()
+            .extension()
+            .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }

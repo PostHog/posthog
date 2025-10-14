@@ -5,9 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
-use crate::experimental::tasks::utils::select_task;
-use crate::utils::auth::load_token;
-use crate::utils::client::get_client;
+use crate::{experimental::tasks::utils::select_task, invocation_context::context};
 
 struct StageChoice(WorkflowStage);
 
@@ -23,9 +21,9 @@ struct UpdateStageRequest {
 }
 
 pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
-    let token = load_token().context("Failed to load authentication token")?;
-    let host = token.get_host(None);
-    let client = get_client()?;
+    let token = context().token.clone();
+    let host = token.get_host();
+    let client = context().client.clone();
 
     let task = match task_id {
         Some(id) => fetch_task(&client, &host, &token, id)?,

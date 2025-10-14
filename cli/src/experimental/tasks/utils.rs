@@ -4,7 +4,9 @@ use reqwest::blocking::Client;
 use std::collections::VecDeque;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
-use crate::{experimental::tasks::list::TaskIterator, utils::auth::Token};
+use crate::{
+    experimental::tasks::list::TaskIterator, invocation_context::context, utils::auth::Token,
+};
 
 const PAGE_SIZE: usize = 10;
 const BUFFER_SIZE: usize = 50;
@@ -27,9 +29,9 @@ impl std::fmt::Display for SelectionChoice {
 }
 
 pub fn select_task(prompt: &str) -> Result<Task> {
-    let token = crate::utils::auth::load_token().context("Failed to load authentication token")?;
-    let host = token.get_host(None);
-    let client = crate::utils::client::get_client()?;
+    let token = context().token.clone();
+    let host = token.get_host();
+    let client = context().client.clone();
 
     let mut task_iter = fetch_tasks(client, host, token, None)?;
 

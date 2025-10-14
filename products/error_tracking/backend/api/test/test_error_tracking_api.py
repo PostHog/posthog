@@ -460,3 +460,26 @@ class TestErrorTracking(APIBaseTest):
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
+
+    def test_fetch_release_by_hash_id(self) -> None:
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="test-hash-123",
+            version="1.0.0",
+            project="my-project",
+            metadata={"commit": "abc123"},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/{release.hash_id}")
+        assert response.status_code == status.HTTP_200_OK
+
+        response_json = response.json()
+        assert response_json["id"] == str(release.id)
+        assert response_json["hash_id"] == "test-hash-123"
+        assert response_json["version"] == "1.0.0"
+        assert response_json["project"] == "my-project"
+        assert response_json["metadata"] == {"commit": "abc123"}
+
+    def test_fetch_release_by_hash_id_not_found(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/nonexistent-hash")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

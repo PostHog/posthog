@@ -7,6 +7,7 @@ use crate::{
         utils::{fetch_stages, fetch_tasks, fetch_workflows},
         Task,
     },
+    invocation_context::context,
     utils::auth::Token,
 };
 
@@ -175,9 +176,9 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
 }
 
 pub fn list_tasks(limit: Option<&usize>, offset: Option<&usize>) -> Result<()> {
-    let token = crate::utils::auth::load_token().context("Failed to load authentication token")?;
-    let host = token.get_host(None);
-    let client = Client::new();
+    let token = context().token.clone();
+    let host = token.get_host();
+    let client = context().client.clone();
 
     let workflows: Result<Vec<TaskWorkflow>> =
         fetch_workflows(client.clone(), host.clone(), token.clone())?.collect();

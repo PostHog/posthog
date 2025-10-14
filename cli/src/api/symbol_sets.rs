@@ -1,27 +1,19 @@
 use anyhow::{anyhow, bail, Context, Result};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use reqwest::blocking::{
-    multipart::{Form, Part},
-    Client,
-};
+use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, warn};
 
-use crate::utils::{
-    auth::load_token,
-    client::{get_client, SKIP_SSL},
-    files::content_hash,
-};
+use crate::{invocation_context::context, utils::files::content_hash};
 
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SymbolSetUpload {
     pub chunk_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
-    #[serde(skip)]
+
     pub data: Vec<u8>,
 }
 
@@ -39,7 +31,7 @@ pub struct PresignedUrl {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadStartRequest {
-    symbol_sets: Vec<SymbolSetUpload>,
+    symbol_sets: Vec<CreateSymbolSetRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,25 +44,8 @@ struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
 }
 
-pub fn upload(
-    host: Option<String>,
-    input_sets: &[SymbolSetUpload],
-    batch_size: usize,
-    skip_ssl_verification: bool,
-) -> Result<()> {
-    // TODO - this is just a global setting, set it globally in one place
-    *SKIP_SSL.lock().unwrap() = skip_ssl_verification;
-
-    let token = load_token().context("While starting upload command")?;
-    let host = token.get_host(host.as_deref());
-
-    let base_url = format!(
-        "{}/api/environments/{}/error_tracking/symbol_sets",
-        host, token.env_id
-    );
-    let client = get_client()?;
-
-    let to_upload: Vec<_> = input_sets
+pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
+    let upload_requests: Vec<_> = input_sets
         .iter()
         .filter(|s| {
             if s.data.len() > MAX_FILE_SIZE {
@@ -83,8 +58,8 @@ pub fn upload(
         })
         .collect();
 
-    for batch in to_upload.chunks(batch_size) {
-        let start_response = start_upload(&client, &base_url, &token.token, batch)?;
+    for batch in upload_requests.chunks(batch_size) {
+        let start_response = start_upload(batch)?;
 
         let id_map: HashMap<_, _> = batch
             .into_iter()
@@ -101,29 +76,35 @@ pub fn upload(
                 ))?;
 
                 let content_hash = content_hash([&upload.data]);
-                upload_to_s3(&client, data.presigned_url.clone(), &upload.data)?;
+                upload_to_s3(data.presigned_url.clone(), &upload.data)?;
                 Ok((data.symbol_set_id, content_hash))
             })
             .collect();
 
         let content_hashes = res?;
 
-        finish_upload(&client, &base_url, &token.token, content_hashes)?;
+        finish_upload(content_hashes)?;
     }
 
     Ok(())
 }
 
-fn start_upload(
-    client: &Client,
-    base_url: &str,
-    auth_token: &str,
-    symbol_sets: &[&SymbolSetUpload],
-) -> Result<BulkUploadStartResponse> {
+fn start_upload<'a>(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse> {
+    let base_url = format!(
+        "{}/api/environments/{}/error_tracking/symbol_sets",
+        context().token.get_host(),
+        context().token.env_id
+    );
+    let client = &context().client;
+    let auth_token = &context().token.token;
+
     let start_upload_url: String = format!("{}{}", base_url, "/bulk_start_upload");
 
     let request = BulkUploadStartRequest {
-        symbol_sets: symbol_sets.iter().map(|s| s.cheap_clone()).collect(),
+        symbol_sets: symbol_sets
+            .iter()
+            .map(|s| CreateSymbolSetRequest::new(s))
+            .collect(),
     };
 
     let res = client
@@ -140,7 +121,8 @@ fn start_upload(
     Ok(res.json()?)
 }
 
-fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
+fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
+    let client = &context().client;
     let mut last_err = None;
     let mut delay = std::time::Duration::from_millis(500);
     for attempt in 1..=3 {
@@ -176,12 +158,15 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: &[u8]) -> Re
     Err(last_err.unwrap_or_else(|| anyhow!("Unknown error during upload")))
 }
 
-fn finish_upload(
-    client: &Client,
-    base_url: &str,
-    auth_token: &str,
-    content_hashes: HashMap<String, String>,
-) -> Result<()> {
+fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
+    let base_url = format!(
+        "{}/api/environments/{}/error_tracking/symbol_sets",
+        context().token.get_host(),
+        context().token.env_id
+    );
+    let client = &context().client;
+    let auth_token = &context().token.token;
+
     let finish_upload_url: String = format!("{}/{}", base_url, "bulk_finish_upload");
     let request = BulkUploadFinishRequest { content_hashes };
 
@@ -206,6 +191,23 @@ impl SymbolSetUpload {
             chunk_id: self.chunk_id.clone(),
             release_id: self.release_id.clone(),
             data: vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CreateSymbolSetRequest {
+    chunk_id: String,
+    release_id: Option<String>,
+    content_hash: String,
+}
+
+impl CreateSymbolSetRequest {
+    pub fn new(inner: &SymbolSetUpload) -> Self {
+        Self {
+            chunk_id: inner.chunk_id.clone(),
+            release_id: inner.release_id.clone(),
+            content_hash: content_hash([&inner.data]),
         }
     }
 }

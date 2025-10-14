@@ -2,6 +2,7 @@ pub mod api;
 pub mod commands;
 pub mod error;
 pub mod experimental;
+pub mod invocation_context;
 pub mod login;
 pub mod releases;
 pub mod sourcemaps;
