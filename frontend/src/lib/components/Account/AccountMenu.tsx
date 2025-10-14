@@ -20,6 +20,7 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -61,7 +62,7 @@ interface AccountMenuProps extends DropdownMenuContentProps {
     trigger: JSX.Element
 }
 
-function ThemeDropdown(): JSX.Element {
+function ThemeMenu(): JSX.Element {
     const { themeMode } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
     const { customCssEnabled } = useValues(themeLogic)
@@ -75,8 +76,11 @@ function ThemeDropdown(): JSX.Element {
             <DropdownMenuSubTrigger asChild>
                 <ButtonPrimitive menuItem>
                     <IconPalette />
-                    Color theme {themeMode}
-                    <DropdownMenuOpenIndicator intent="sub" />
+                    Color theme
+                    <div className="ml-auto flex items-center gap-1">
+                        <LemonTag>{themeMode}</LemonTag>
+                        <DropdownMenuOpenIndicator intent="sub" />
+                    </div>
                 </ButtonPrimitive>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -297,7 +301,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         </>
                     )}
 
-                    <ThemeDropdown />
+                    <ThemeMenu />
 
                     <DropdownMenuItem asChild>
                         <Link
