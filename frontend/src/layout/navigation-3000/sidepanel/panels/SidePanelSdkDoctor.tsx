@@ -8,7 +8,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
@@ -80,16 +82,26 @@ const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
     },
 }
 
+const queryForSdkVersion = (sdkType: SdkType, version: string): string => {
+    return `SELECT * FROM events where properties.$lib = '${sdkType}' and properties.$lib_version = '${version}' ORDER BY timestamp DESC LIMIT 50`
+}
+
 const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
         title: 'Version',
         dataIndex: 'version',
         render: function RenderVersion(_, record) {
             return (
-                <div className="flex items-center gap-2 justify-end">
-                    <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">
-                        {record.version}
-                    </code>
+                <div className="flex items-center gap-2 justify-start">
+                    <Tooltip title="View events" delayMs={0}>
+                        <Link
+                            onClick={() =>
+                                newInternalTab(urls.sqlEditor(queryForSdkVersion(record.type, record.version)))
+                            }
+                        >
+                            <code className="text-xs font-mono bg-muted-highlight rounded-sm">{record.version}</code>
+                        </Link>
+                    </Tooltip>
                     {record.isOutdated ? (
                         <Tooltip
                             placement="right"
@@ -99,13 +111,9 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                 Outdated
                             </LemonTag>
                         </Tooltip>
-                    ) : record.latestVersion && record.version === record.latestVersion ? (
-                        <LemonTag type="success" className="shrink-0">
-                            Current
-                        </LemonTag>
                     ) : (
                         <LemonTag type="success" className="shrink-0">
-                            Recent
+                            {record.latestVersion && record.version === record.latestVersion ? 'Current' : 'Recent'}
                         </LemonTag>
                     )}
                 </div>
