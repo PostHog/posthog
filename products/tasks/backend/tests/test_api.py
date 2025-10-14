@@ -802,13 +802,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         self.client.force_authenticate(None)
 
         data = {}
-        if method == "POST" and "tasks" in url:
+        if method == "POST" and url == "/api/projects/@current/tasks/":
             data = {
                 "title": "New Task",
                 "description": "Description",
                 "origin_product": Task.OriginProduct.USER_CREATED,
             }
-        elif method == "POST" and "workflows" in url:
+        elif method == "POST" and "/workflows/" in url and not url.endswith("/"):
             data = {
                 "name": "New Workflow",
                 "description": "Description",

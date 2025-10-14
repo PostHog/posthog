@@ -578,7 +578,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
     @extend_schema(
-        summary="Run task processing",
+        summary="Run task",
         description="Kick off the workflow for the task in its current stage.",
         request=None,
         responses={
