@@ -860,7 +860,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv ON CLUSTER 'posthog'
-  TO posthog_test.error_tracking_issue_fingerprint_overrides
+  TO writable_error_tracking_issue_fingerprint_overrides
   AS SELECT
   team_id,
   fingerprint,
@@ -4564,6 +4564,25 @@
       matches SimpleAggregateFunction(sum, UInt64),
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_error_tracking_issue_fingerprint_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_error_tracking_issue_fingerprint_overrides 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'error_tracking_issue_fingerprint_overrides')
   
   '''
 # ---
