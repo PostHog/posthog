@@ -57,8 +57,8 @@ export class TeamFilter {
             return null
         }
 
-        const retention_period = await this.teamService.getRetentionPeriodByTeamId(team.teamId)
-        if (!retention_period) {
+        const retentionPeriod = await this.teamService.getRetentionPeriodByTeamId(team.teamId)
+        if (!retentionPeriod) {
             dropMessage('team_missing_retention_period')
             return null
         }
