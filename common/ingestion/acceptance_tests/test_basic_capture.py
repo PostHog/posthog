@@ -34,14 +34,6 @@ class TestBasicCapture:
             project_id = project["id"]
             project_api_key = project["api_token"]
             logger.info("Project created: %s", project_id)
-            # Log redacted API key for debugging
-            if not project_api_key:
-                logger.debug("API key: NONE")
-            elif len(project_api_key) > 8:
-                redacted_key = f"{project_api_key[:6]}...{project_api_key[-2:]}"
-                logger.debug("API key: %s", redacted_key)
-            else:
-                logger.debug("API key: [redacted]")
 
             # Step 3: Prepare test event
             logger.info("Step 3: Preparing test event")

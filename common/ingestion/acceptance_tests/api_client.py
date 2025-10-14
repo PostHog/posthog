@@ -57,16 +57,6 @@ class PostHogTestClient:
         result = response.json()
         logger.info("Project created with ID: %s", result.get("id"))
 
-        # Log redacted token for debugging purposes
-        token = result.get("api_token", "")
-        if not token:
-            logger.debug("Project API token: NONE")
-        elif len(token) > 8:
-            redacted_token = f"{token[:6]}...{token[-2:]}"
-            logger.debug("Project API token: %s", redacted_token)
-        else:
-            logger.debug("Project API token: [redacted]")
-
         # Wait for project to be available in query API
         self._wait_for_project_ready(result.get("id"))
 
@@ -119,14 +109,6 @@ class PostHogTestClient:
         timestamp = event_data.get("timestamp")
 
         logger.info("Creating PostHog client instance")
-        # Log redacted API key for debugging
-        if not api_key:
-            logger.debug("API Key: NONE")
-        elif len(api_key) > 8:
-            redacted_key = f"{api_key[:6]}...{api_key[-2:]}"
-            logger.debug("API Key: %s", redacted_key)
-        else:
-            logger.debug("API Key: [redacted]")
         logger.debug("Host: %s", self.base_url)
 
         # Create PostHog client instance with the API key
