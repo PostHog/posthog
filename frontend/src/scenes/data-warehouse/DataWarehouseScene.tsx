@@ -17,10 +17,13 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource } from '~/types'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseManagedSourcesTable } from './settings/DataWarehouseManagedSourcesTable'
+import { DataWarehouseSelfManagedSourcesTable } from './settings/DataWarehouseSelfManagedSourcesTable'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
@@ -292,8 +295,20 @@ function ModelsTab(): JSX.Element {
 
 function SourcesTab(): JSX.Element {
     return (
-        <div className="space-y-4">
-            <p className="text-muted">Sources view coming soon</p>
+        <div className="flex flex-col gap-4">
+            <SceneSection
+                title="Managed data warehouse sources"
+                description="PostHog can connect to external sources and automatically import data from them into the PostHog data warehouse"
+            >
+                <DataWarehouseManagedSourcesTable />
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection
+                title="Self-managed data warehouse sources"
+                description="Connect to your own data sources, making them queryable in PostHog"
+            >
+                <DataWarehouseSelfManagedSourcesTable />
+            </SceneSection>
         </div>
     )
 }
