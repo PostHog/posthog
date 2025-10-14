@@ -106,22 +106,15 @@ def tiktok_ads_source(
                     resource_endpoint["paginator"] = TikTokAdsPaginator()
 
     # Apply retry logic to the entire resource creation process
-    def get_dlt_resources():
-        """Get DLT resources - creates fresh generators on each attempt."""
-        return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-
-    # Apply TikTok-specific retry settings
-    retryable_get_resources = make_sync_retryable_with_exponential_backoff(
-        get_dlt_resources,
+    dlt_resources = make_sync_retryable_with_exponential_backoff(
+        lambda: rest_api_resources(config, team_id, job_id, db_incremental_field_last_value),
         max_attempts=5,
         initial_retry_delay=300,  # TikTok's 5-minute circuit breaker
         max_retry_delay=3600 * 5,  # Cap at 5 hours
         exponential_backoff_coefficient=2,  # Standard exponential backoff: attempt^2
         retryable_exceptions=(TikTokAdsAPIError, Exception),
         is_exception_retryable=TikTokErrorHandler.is_retryable,
-    )
-
-    dlt_resources = retryable_get_resources()
+    )()
 
     if is_report:
         items = TikTokReportResource.process_resources(dlt_resources)
