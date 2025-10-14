@@ -195,7 +195,11 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 })}
             />
 
-            <ButtonGroupPrimitive groupVariant="default" fullWidth className="border-0 rounded-none">
+            <ButtonGroupPrimitive
+                groupVariant="default"
+                fullWidth
+                className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
+            >
                 <ButtonPrimitive
                     onClick={(e) => {
                         e.stopPropagation()

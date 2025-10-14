@@ -29,7 +29,14 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, EvaluationViewSet, LLMProxyViewSet
+from products.error_tracking.backend.api import error_tracking
+from products.llm_analytics.backend.api import (
+    DatasetItemViewSet,
+    DatasetViewSet,
+    EvaluationRunViewSet,
+    EvaluationViewSet,
+    LLMProxyViewSet,
+)
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
@@ -49,7 +56,6 @@ from . import (
     comments,
     dead_letter_queue,
     debug_ch_queries,
-    error_tracking,
     event_definition,
     exports,
     feature_flag,
@@ -879,5 +885,12 @@ environments_router.register(
     r"evaluations",
     EvaluationViewSet,
     "environment_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"evaluation_runs",
+    EvaluationRunViewSet,
+    "environment_evaluation_runs",
     ["team_id"],
 )
