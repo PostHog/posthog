@@ -700,10 +700,18 @@ async function onEventImplementation(
             return
         }
         if (isHumanMessage(parsedResponse)) {
-            actions.replaceMessage(values.threadRaw.length - 1, {
-                ...parsedResponse,
-                status: 'completed',
-            })
+            // Find the most recent Human message (the provisional bubble we added on ask)
+            const lastHumanIndex = [...values.threadRaw]
+                .map((m, i) => [m, i] as const)
+                .reverse()
+                .find(([m]) => isHumanMessage(m))?.[1]
+
+            if (lastHumanIndex != null) {
+                actions.replaceMessage(lastHumanIndex, { ...parsedResponse, status: 'completed' })
+            } else {
+                // Fallback – if we somehow don't have a provisional Human message, just add it
+                actions.addMessage({ ...parsedResponse, status: 'completed' })
+            }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                 await values.toolMap[toolName]?.callback?.(toolResult)
