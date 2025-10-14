@@ -97,7 +97,9 @@
          NULL AS format,
          NULL AS display,
          NULL AS interval,
-         NULL AS value
+         NULL AS value,
+         NULL AS previous,
+         NULL AS change_from_previous_pct
   WHERE 0
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -157,7 +159,9 @@
          NULL AS format,
          NULL AS display,
          NULL AS interval,
-         NULL AS value
+         NULL AS value,
+         NULL AS previous,
+         NULL AS change_from_previous_pct
   WHERE 0
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
