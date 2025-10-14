@@ -259,6 +259,7 @@ export type AssistantContextualTool =
     | 'analyze_survey_responses'
     | 'search_docs'
     | 'search_insights'
+    | 'search_entity'
     | 'session_summarization'
     | 'create_dashboard'
     | 'filter_revenue_analytics'

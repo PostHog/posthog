@@ -498,6 +498,7 @@ class RootNode(RootNodeUIContextMixin):
             create_dashboard,
             get_contextual_tool_class,
             search_documentation,
+            search_entity,
             search_insights,
             session_summarization,
         )
@@ -511,6 +512,8 @@ class RootNode(RootNodeUIContextMixin):
             available_tools.append(session_summarization)
         # Add dashboard creation tool (always available)
         available_tools.append(create_dashboard)
+        # Add entity search tool (always available)
+        available_tools.append(search_entity)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -750,6 +753,13 @@ class RootNodeTools(AssistantNode):
                 search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "search_entity":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                entity_search_query=tool_call.args["query"],
+                entity_search_types=tool_call.args.get("entity_types", []),
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             try:
@@ -828,6 +838,8 @@ class RootNodeTools(AssistantNode):
                     return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
+                if tool_call_name == "search_entity":
+                    return "entity_search"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:

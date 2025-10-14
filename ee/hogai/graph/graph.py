@@ -272,6 +272,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
+            "entity_search": AssistantNodeName.ENTITY_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
@@ -411,6 +412,15 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
 
+    def add_entity_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        from ee.hogai.graph.entity_search.nodes import EntitySearchNode
+
+        builder = self._graph
+        entity_search_node = EntitySearchNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.ENTITY_SEARCH, entity_search_node)
+        builder.add_edge(AssistantNodeName.ENTITY_SEARCH, AssistantNodeName.ROOT)
+        return self
+
     def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         dashboard_creation_node = DashboardCreationNode(self._team, self._user)
@@ -429,6 +439,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_inkeep_docs()
             .add_billing()
             .add_insights_search()
+            .add_entity_search()
             .add_session_summarization()
             .add_dashboard_creation()
             .compile(checkpointer=checkpointer)

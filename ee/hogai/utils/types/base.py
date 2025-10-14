@@ -348,6 +348,14 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's queries to search for insights.
     """
+    entity_search_query: Optional[str] = Field(default=None)
+    """
+    The user's search query for finding entities.
+    """
+    entity_search_types: Optional[list[str]] = Field(default=None)
+    """
+    The entity types to search for.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -391,6 +399,7 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
+    ENTITY_SEARCH = "entity_search"
     SESSION_SUMMARIZATION = "session_summarization"
     DASHBOARD_CREATION = "dashboard_creation"
     DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"

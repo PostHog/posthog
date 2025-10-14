@@ -139,6 +139,26 @@ class create_dashboard(BaseModel):
     )
 
 
+EntityTypes = Literal[
+    "insight", "dashboard", "cohort", "action", "experiment", "feature_flag", "notebook", "survey", "event_definition"
+]
+
+
+class search_entity(BaseModel):
+    """
+    Search for entities (insights, dashboards, cohorts, actions, experiments, etc.) by their name or description.
+    Use this tool when users ask to find, search for, or look up existing entities across PostHog.
+    """
+
+    query: str = Field(
+        description="The search query to find entities by name or description. "
+        "This will search across all entity types (insights, dashboards, cohorts, actions, etc.)."
+    )
+    entity_types: list[EntityTypes] = Field(
+        description="List of entity types to search for that the user mentioned in their query."
+    )
+
+
 class search_documentation(BaseModel):
     """
     Answer the question using the latest PostHog documentation. This performs a documentation search.

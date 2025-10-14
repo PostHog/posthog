@@ -150,6 +150,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Filter revenue analytics to find the most impactful revenue insights',
         product: Scene.RevenueAnalytics,
     },
+    search_entity: {
+        name: 'Search entities',
+        description: 'Search for insights, dashboards, cohorts, actions, and other entities by name or description',
+        product: null,
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [

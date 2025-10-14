@@ -89,6 +89,7 @@ class AssistantContextualTool(StrEnum):
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
+    ENTITY_SEARCH = "entity_search"
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
