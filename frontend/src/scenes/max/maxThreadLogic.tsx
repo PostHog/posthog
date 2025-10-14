@@ -185,8 +185,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                resetThread: (state) => filterOutReasoningMessages(state),
-                completeThreadGeneration: (state) => filterOutReasoningMessages(state),
                 setThread: (_, { thread }) => thread,
             },
         ],
@@ -774,15 +772,6 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
-}
-
-/**
- * Filter out reasoning messages from the thread.
- * @param thread
- * @returns
- */
-function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
-    return thread.filter((message) => !isReasoningMessage(message))
 }
 
 /**

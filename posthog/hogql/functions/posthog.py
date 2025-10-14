@@ -1,4 +1,4 @@
-from posthog.hogql.ast import DateTimeType, DateType, DecimalType, StringType
+from posthog.hogql.ast import ArrayType, BooleanType, DateTimeType, DateType, DecimalType, IntegerType, StringType
 
 from .core import HogQLFunctionMeta
 
@@ -7,6 +7,14 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
     "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
+    # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization
+    "sortablesemver": HogQLFunctionMeta(
+        "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({}), '(\\d+(\\.\\d+)+)')))",
+        1,
+        1,
+        case_sensitive=False,
+        signatures=[((StringType(),), ArrayType(item_type=IntegerType()))],
+    ),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
@@ -47,5 +55,12 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 DecimalType(),
             ),
         ],
+    ),
+    # survey functions
+    "getSurveyResponse": HogQLFunctionMeta(
+        "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
+    ),
+    "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
+        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
     ),
 }

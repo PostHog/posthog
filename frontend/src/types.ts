@@ -3897,6 +3897,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        timeseries?: boolean
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
