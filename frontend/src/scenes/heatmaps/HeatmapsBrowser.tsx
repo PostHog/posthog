@@ -27,7 +27,7 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
-import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { ScreenshotHeatmapBrowser } from './ScreenshotHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 function ExportButton({
@@ -92,9 +92,17 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
         hasValidReplayIframeData,
         browserSearchTerm,
         displayUrl,
+        screenshotLoading,
+        screenshotError,
     } = useValues(heatmapsBrowserLogic)
-    const { setBrowserSearch, setDataUrl, setReplayIframeData, setReplayIframeDataURL, setDisplayUrl } =
-        useActions(heatmapsBrowserLogic)
+    const {
+        setBrowserSearch,
+        setDataUrl,
+        setReplayIframeData,
+        setReplayIframeDataURL,
+        setDisplayUrl,
+        generateScreenshot,
+    } = useActions(heatmapsBrowserLogic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -146,6 +154,18 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             }}
                                             className="truncate flex-1"
                                         />
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            data-attr="heatmaps-load-screenshot"
+                                            loading={screenshotLoading}
+                                            disabled={!displayUrl || !isBrowserUrlValid}
+                                            onClick={() => {
+                                                generateScreenshot()
+                                            }}
+                                        >
+                                            Load heatmap
+                                        </LemonButton>
                                         <LemonButton
                                             type="secondary"
                                             icon={<IconOpenInNew />}
@@ -213,6 +233,13 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                         <ExportButton iframeRef={iframeRef} />
                                     </div>
                                 </div>
+
+                                {/* Screenshot display section */}
+                                {screenshotError && (
+                                    <div className="mt-2">
+                                        <LemonBanner type="error">{screenshotError}</LemonBanner>
+                                    </div>
+                                )}
                             </>
                         )}
                     </div>
@@ -355,12 +382,12 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
                 <Warnings />
-                <div className="overflow-hidden w-full h-screen">
+                <div className="overflow-hidden w-full min-h-screen">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel />
                     <LemonDivider className="my-4" />
-                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
+                    <div className="relative flex flex-1 overflow-hidden min-h-screen">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (
@@ -369,9 +396,8 @@ export function HeatmapsBrowser(): JSX.Element {
                                     <ForbiddenURL />
                                 ) : !isBrowserUrlValid ? (
                                     <InvalidURL />
-                                ) : (
-                                    <IframeHeatmapBrowser iframeRef={iframeRef} />
-                                )}
+                                ) : null}
+                                <ScreenshotHeatmapBrowser />
                             </>
                         ) : (
                             <HeatmapsBrowserIntro />

@@ -50,6 +50,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
+from .heatmap_screenshot import HeatmapScreenshot
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
@@ -142,6 +143,7 @@ __all__ = [
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
+    "HeatmapScreenshot",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",

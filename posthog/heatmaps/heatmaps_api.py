@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from typing import Any, List, Literal  # noqa: UP035
 
+from django.http import HttpResponse
+
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse
@@ -15,8 +17,11 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
+from posthog.models.heatmap_screenshot import HeatmapScreenshot
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
@@ -282,3 +287,108 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 class LegacyHeatmapViewSet(HeatmapViewSet):
     param_derived_from_user_current_team = "team_id"
+
+
+# Heatmap Screenshot functionality
+class HeatmapScreenshotRequestSerializer(serializers.Serializer):
+    url = serializers.URLField(required=True, max_length=2000)
+    width = serializers.IntegerField(required=False, default=1400, min_value=100, max_value=3000)
+    force_reload = serializers.BooleanField(required=False, default=False)
+
+
+class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HeatmapScreenshot
+        fields = ["id", "url", "width", "status", "has_content", "created_at", "updated_at", "exception"]
+        read_only_fields = ["id", "status", "has_content", "created_at", "updated_at", "exception"]
+
+
+class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapScreenshotResponseSerializer
+    authentication_classes = [TemporaryTokenAuthentication]
+    queryset = HeatmapScreenshot.objects.all()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    @action(methods=["POST"], detail=False)
+    def generate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_serializer = HeatmapScreenshotRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        url = request_serializer.validated_data["url"]
+        width = request_serializer.validated_data["width"]
+        force_reload = request_serializer.validated_data["force_reload"]
+
+        # Check if screenshot already exists
+        existing_screenshot = None
+        try:
+            existing_screenshot = HeatmapScreenshot.objects.get(team=self.team, url=url, width=width)
+        except HeatmapScreenshot.DoesNotExist:
+            pass
+
+        # Handle existing screenshot based on force_reload and status
+        if existing_screenshot and not force_reload:
+            if existing_screenshot.status == HeatmapScreenshot.Status.COMPLETED and existing_screenshot.has_content:
+                # Return existing completed screenshot
+                response_serializer = HeatmapScreenshotResponseSerializer(existing_screenshot)
+                return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+            elif existing_screenshot.status == HeatmapScreenshot.Status.PROCESSING:
+                # Return processing screenshot
+                response_serializer = HeatmapScreenshotResponseSerializer(existing_screenshot)
+                return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+        # Create new screenshot or update existing one for force_reload
+        if existing_screenshot and force_reload:
+            existing_screenshot.status = HeatmapScreenshot.Status.PROCESSING
+            existing_screenshot.content = None
+            existing_screenshot.content_location = None
+            existing_screenshot.exception = None
+            existing_screenshot.created_by = request.user
+            existing_screenshot.save()
+            screenshot = existing_screenshot
+        elif not existing_screenshot:
+            screenshot = HeatmapScreenshot.objects.create(
+                team=self.team,
+                url=url,
+                width=width,
+                created_by=request.user,
+                status=HeatmapScreenshot.Status.PROCESSING,
+            )
+        else:
+            # This should not happen as we already handled existing screenshots above
+            screenshot = existing_screenshot
+
+        generate_heatmap_screenshot.delay(screenshot.id)
+
+        response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+        return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+    @action(methods=["GET"], detail=True)
+    def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        screenshot = self.get_object()
+
+        if not screenshot.has_content:
+            # Return JSON response with screenshot status instead of plain text error
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+        if screenshot.content:
+            http_response = HttpResponse(screenshot.content, content_type="image/jpeg")
+            http_response["Content-Disposition"] = f'attachment; filename="screenshot-{screenshot.id}.jpg"'
+            return http_response
+        elif screenshot.content_location:
+            # Handle object storage case (similar to ExportedAsset)
+            # For now, just return not implemented
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(
+                {**response_serializer.data, "error": "Content location not implemented yet"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+        else:
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(
+                {**response_serializer.data, "error": "No content available"}, status=status.HTTP_404_NOT_FOUND
+            )

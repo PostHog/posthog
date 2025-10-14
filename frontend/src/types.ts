@@ -5811,6 +5811,22 @@ export interface DataWarehouseActivityRecord {
     workflow_run_id?: string
 }
 
+export interface HeatmapScreenshotType {
+    id: number
+    url: string
+    width: number
+    status: 'processing' | 'completed' | 'failed'
+    has_content: boolean
+    created_at: string
+    updated_at: string
+    exception?: string
+    error?: string // Added for error responses from content endpoint
+}
+
+export type HeatmapScreenshotContentResponse =
+    | { success: true; data: Response } // 200: PNG image data
+    | { success: false; data: HeatmapScreenshotType } // 202/404/501: JSON with screenshot metadata
+
 export interface DataWarehouseDashboardDataSource {
     id: string
     name: string

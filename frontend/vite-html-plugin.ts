@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { dirname, resolve } from 'path'
 import type { Plugin } from 'vite'
 
-const distHtmlFiles = ['dist/index.html', 'dist/layout.html']
+const distHtmlFiles = ['dist/index.html', 'dist/layout.html', , 'dist/exporter.html'] //REMOVE!!!!
 
-const srcHtmlFiles = ['src/index.html', 'src/layout.html']
+const srcHtmlFiles = ['src/index.html', 'src/layout.html', 'src/exporter/index.html'] //REMOVE!!!!
 
 function deleteHtmlFiles(): void {
     distHtmlFiles.forEach((file) => {
@@ -51,7 +51,10 @@ function generateHtmlFiles(): void {
 
     // Copy HTML files
     srcHtmlFiles.forEach((file) => {
-        copyHtmlFile(file, `dist/${file.replace('src/', '')}`)
+        //copyHtmlFile(file, `dist/${file.replace('src/', '')}`)
+        const outputFile =
+            file === 'src/exporter/index.html' ? 'dist/exporter.html' : `dist/${file.replace('src/', '')}`
+        copyHtmlFile(file, outputFile) //REMOVE!!!!
     })
 }
 

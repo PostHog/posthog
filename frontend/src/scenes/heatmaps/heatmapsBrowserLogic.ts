@@ -99,6 +99,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         stopTrackingLoading: true,
         setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
         setReplayIframeDataURL: (url: string | null) => ({ url }),
+        generateScreenshot: true,
+        setScreenshotUrl: (url: string | null) => ({ url }),
+        setScreenshotError: (error: string | null) => ({ error }),
+        pollScreenshotStatus: (id: number) => ({ id }),
+        setGeneratingScreenshot: (generatingScreenshot: boolean) => ({ generatingScreenshot }),
     }),
 
     loaders(({ values }) => ({
@@ -143,6 +148,24 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     const res = await api.queryHogQL(query)
 
                     return res.results?.map((x) => ({ url: x[0], count: x[1] })) as { url: string; count: number }[]
+                },
+            },
+        ],
+
+        screenshot: [
+            null as { id: number; url: string; width: number; status: string; has_content: boolean } | null,
+            {
+                generateScreenshot: async () => {
+                    if (!values.displayUrl) {
+                        throw new Error('No URL provided')
+                    }
+
+                    const response = await api.heatmapScreenshots.generate({
+                        url: values.displayUrl,
+                        width: values.widthOverride || 1400,
+                        force_reload: false,
+                    })
+                    return response
                 },
             },
         ],
@@ -247,6 +270,35 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             { persist: true, prefix: `${teamId}__` },
             {
                 setDisplayUrl: (_, { url }) => url,
+            },
+        ],
+        screenshotUrl: [
+            null as string | null,
+            {
+                setScreenshotUrl: (_, { url }) => url,
+                generateScreenshotSuccess: (_, { screenshot }) =>
+                    screenshot?.has_content
+                        ? `/api/environments/${teamId}/heatmap_screenshots/${screenshot.id}/content/`
+                        : null,
+            },
+        ],
+        screenshotError: [
+            null as string | null,
+            {
+                generateScreenshot: () => null,
+                generateScreenshotFailure: (_, { error }) => {
+                    if (typeof error === 'object' && error && 'message' in error) {
+                        return (error as any).message || 'Failed to generate screenshot'
+                    }
+                    return String(error) || 'Failed to generate screenshot'
+                },
+                setScreenshotError: (_, { error }) => error,
+            },
+        ],
+        generatingScreenshot: [
+            false as boolean,
+            {
+                setGeneratingScreenshot: (_, { generatingScreenshot }) => generatingScreenshot,
             },
         ],
     }),
@@ -412,6 +464,58 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
             clearTimeout(cache.errorTimeout)
             clearTimeout(cache.warnTimeout)
+        },
+
+        generateScreenshotSuccess: ({ screenshot }) => {
+            if (screenshot?.status === 'completed' && screenshot.has_content) {
+                actions.setScreenshotUrl(`/api/environments/${teamId}/heatmap_screenshots/${screenshot.id}/content/`)
+            } else if (screenshot?.status === 'processing') {
+                actions.pollScreenshotStatus(screenshot.id)
+            }
+        },
+
+        pollScreenshotStatus: async ({ id }, breakpoint) => {
+            actions.setGeneratingScreenshot(true)
+            let attempts = 0
+            const maxAttempts = 30
+
+            while (attempts < maxAttempts) {
+                await breakpoint(1000)
+
+                try {
+                    const contentResponse = await api.heatmapScreenshots.getContent(id)
+
+                    if (contentResponse.success) {
+                        actions.setScreenshotUrl(`/api/environments/${teamId}/heatmap_screenshots/${id}/content/`)
+                        break
+                    } else {
+                        const screenshot = contentResponse.data
+
+                        if (screenshot.status === 'completed' && screenshot.has_content) {
+                            actions.setGeneratingScreenshot(false)
+                            actions.setScreenshotUrl(
+                                `/api/environments/${teamId}/heatmap_screenshots/${screenshot.id}/content/`
+                            )
+                            break
+                        } else if (screenshot.status === 'failed') {
+                            actions.setScreenshotError(
+                                screenshot.exception || screenshot.error || 'Screenshot generation failed'
+                            )
+                            break
+                        }
+                    }
+
+                    attempts++
+                } catch (error) {
+                    actions.setScreenshotError('Failed to check screenshot status')
+                    console.error(error)
+                    break
+                }
+            }
+
+            if (attempts >= maxAttempts) {
+                actions.setScreenshotError('Screenshot generation timed out')
+            }
         },
     })),
 
