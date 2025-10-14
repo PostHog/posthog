@@ -32,6 +32,7 @@ from posthog.schema import (
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import add_query_builder_flag
 from posthog.models.action.action import Action
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -280,150 +281,154 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         )  # failure_count (6 groups don't purchase)
 
     @parameterized.expand(
-        [
-            ###
-            # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-            ###
+        add_query_builder_flag(
             [
-                "person_id_override_properties_on_events_no_filter",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                None,
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            [
-                "person_id_override_properties_on_events_filter_earlierevent",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "key": "email",
-                    "value": "@earlierevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            [
-                "person_id_override_properties_on_events_filter_laterevent",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "key": "email",
-                    "value": "@laterevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 1,
-                    "test_failure": 12,
-                },
-            ],
-            ###
-            # PERSON_ID_OVERRIDE_PROPERTIES_JOINED
-            ###
-            [
-                "person_id_override_properties_joined_no_filter",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                None,
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            [
-                "person_id_override_properties_joined_filter_earlierevent",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                {
-                    "key": "email",
-                    "value": "@earlierevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            [
-                "person_id_override_properties_joined_filter_laterevent",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                {
-                    "key": "email",
-                    "value": "@laterevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            ###
-            # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-            ###
-            [
-                "person_id_no_override_properties_on_events_no_filter",
-                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                None,
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            [
-                "person_id_no_override_properties_on_events_filter_earlierevent",
-                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "key": "email",
-                    "value": "@earlierevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 8,
-                    "test_failure": 5,
-                },
-            ],
-            [
-                "person_id_no_override_properties_on_events_filter_laterevent",
-                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "key": "email",
-                    "value": "@laterevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 8,
-                    "control_failure": 5,
-                    "test_success": 6,
-                    "test_failure": 7,
-                },
-            ],
-        ]
+                ###
+                # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ###
+                [
+                    "person_id_override_properties_on_events_no_filter",
+                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    None,
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                [
+                    "person_id_override_properties_on_events_filter_earlierevent",
+                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    {
+                        "key": "email",
+                        "value": "@earlierevent.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    },
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                [
+                    "person_id_override_properties_on_events_filter_laterevent",
+                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    {
+                        "key": "email",
+                        "value": "@laterevent.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    },
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 1,
+                        "test_failure": 12,
+                    },
+                ],
+                ###
+                # PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                ###
+                [
+                    "person_id_override_properties_joined_no_filter",
+                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                    None,
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                [
+                    "person_id_override_properties_joined_filter_earlierevent",
+                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                    {
+                        "key": "email",
+                        "value": "@earlierevent.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    },
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                [
+                    "person_id_override_properties_joined_filter_laterevent",
+                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                    {
+                        "key": "email",
+                        "value": "@laterevent.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    },
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                ###
+                # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ###
+                [
+                    "person_id_no_override_properties_on_events_no_filter",
+                    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    None,
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                [
+                    "person_id_no_override_properties_on_events_filter_earlierevent",
+                    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    {
+                        "key": "email",
+                        "value": "@earlierevent.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    },
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 8,
+                        "test_failure": 5,
+                    },
+                ],
+                [
+                    "person_id_no_override_properties_on_events_filter_laterevent",
+                    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    {
+                        "key": "email",
+                        "value": "@laterevent.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    },
+                    {
+                        "control_success": 8,
+                        "control_failure": 5,
+                        "test_success": 6,
+                        "test_failure": 7,
+                    },
+                ],
+            ]
+        )
     )
     @snapshot_clickhouse_queries
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_query_runner_with_persons_on_events_mode(self, name, persons_on_events_mode, filters, expected_results):
+    def test_query_runner_with_persons_on_events_mode(
+        self, name, persons_on_events_mode, filters, expected_results, use_new_query_builder
+    ):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -579,7 +584,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             self.team.test_account_filters = [filters]
         self.team.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         if expected_results is None:
             with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
