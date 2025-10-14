@@ -40,11 +40,10 @@ export default function SchemaForm(): JSX.Element {
     }
 
     const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
-        const timestampType = 'timestamp'
         // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
         const updatedAt = fields.find((field) => {
             const regex = /^updated/i
-            return regex.test(field.field) && field.field_type === timestampType
+            return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
         })
         if (updatedAt) {
             return updatedAt
@@ -52,26 +51,23 @@ export default function SchemaForm(): JSX.Element {
         // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
         const createdAt = fields.find((field) => {
             const regex = /^created/i
-            return regex.test(field.field) && field.field_type === timestampType
+            return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
         })
         if (createdAt) {
             return createdAt
         }
-        // fallback to any timestamp field
+        // fallback to any timestamp or datetime field
         const timestamp = fields.find((field) => {
-            return field.field_type === timestampType
+            return field.field_type === 'timestamp' || field.type === 'datetime'
         })
         if (timestamp) {
             return timestamp
         }
-        // fallback to fields matching "id" or "uuid" case insensitive
+        // fallback to numeric fields matching "id" or "uuid" case insensitive
         const id = fields.find((field) => {
             const idRegex = /^id/i
-            if (idRegex.test(field.field)) {
-                return true
-            }
             const uuidRegex = /^uuid/i
-            return uuidRegex.test(field.field)
+            return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
         })
         if (id) {
             return id
@@ -104,7 +100,7 @@ export default function SchemaForm(): JSX.Element {
 
     useEffect(() => {
         smartConfigureTables(databaseSchema)
-    }, [])
+    }, [smartConfigureTables, databaseSchema])
 
     // scroll to top of container
     useEffect(() => {
@@ -217,14 +213,20 @@ export default function SchemaForm(): JSX.Element {
                                 isHidden: !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
                                     if (schema.sync_type !== null && schema.incremental_field) {
-                                        return (
-                                            <>
-                                                <span className="leading-5">{schema.incremental_field}</span>
-                                                <LemonTag className="ml-2" type="success">
-                                                    {schema.incremental_field_type}
-                                                </LemonTag>
-                                            </>
-                                        )
+                                        const field =
+                                            schema.incremental_fields.find(
+                                                (f) => f.field == schema.incremental_field
+                                            ) ?? null
+                                        if (field) {
+                                            return (
+                                                <>
+                                                    <span className="leading-5">{field.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {field.type}
+                                                    </LemonTag>
+                                                </>
+                                            )
+                                        }
                                     }
                                 },
                             },

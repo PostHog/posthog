@@ -6,6 +6,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconCircleDashed,
     IconCode2,
     IconCursor,
     IconDashboard,
@@ -34,6 +35,7 @@ import {
     IconStickiness,
     IconToggle,
     IconTrends,
+    IconUser,
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
@@ -52,6 +54,9 @@ import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-ge
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+    default_icon_type: {
+        icon: <IconCircleDashed />,
+    },
     dashboard: {
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
@@ -171,8 +176,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     ingestion_warning: {
         icon: <IconWarning />,
     },
-    person: {
+    persons: {
         icon: <IconPeople />,
+    },
+    user: {
+        icon: <IconUser />,
     },
     cohort: {
         icon: <IconPeople />,
@@ -211,6 +219,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     team_activity: {
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
+    },
+    apps: {
+        icon: <IconApps />,
+    },
+    live: {
+        icon: <IconLive />,
     },
     chat: {
         icon: <IconFeatures />,
@@ -454,14 +468,14 @@ export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
         category: 'People',
-        iconType: 'person' as FileSystemIconType,
+        iconType: 'persons',
         href: urls.persons(),
         visualOrder: 10,
     },
     {
         path: 'Cohorts',
         category: 'People',
-        type: 'cohort' as FileSystemIconType,
+        type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,
     },

@@ -92,7 +92,7 @@ export class SessionBatchRecorder {
         const teamId = message.team.teamId
         const teamSessionKey = `${teamId}$${sessionId}`
 
-        const isAllowed = this.rateLimiter.handleEvent(teamSessionKey, partition)
+        const isAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
 
         if (!isAllowed) {
             logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {

@@ -1,1 +1,1 @@
-0876_add_marketing_analytics_attribution_settings
+0879_migrate_error_tracking_models

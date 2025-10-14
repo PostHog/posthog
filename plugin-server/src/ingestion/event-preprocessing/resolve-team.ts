@@ -58,7 +58,7 @@ export function createResolveTeamStep<T extends { message: Message; headers: Eve
         const eventWithTeam = await resolveTeam(hub, message, headers, event.event)
 
         if (!eventWithTeam) {
-            return drop('Failed to resolve team')
+            return drop('failed_resolve_team')
         }
 
         return ok({ ...input, eventWithTeam })

@@ -476,6 +476,7 @@ export function FeatureFlagReleaseConditions({
                                                 value: variant.key,
                                             }))}
                                             data-attr="feature-flags-variant-override-select"
+                                            truncateText={{ maxWidthClass: 'max-w-[7rem]' }}
                                         />
                                     </div>
                                 </div>

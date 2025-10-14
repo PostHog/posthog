@@ -46,7 +46,7 @@ describe('createApplyDropRestrictionsStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event dropped due to token restrictions'))
+        expect(result).toEqual(drop('blocked_token'))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
             'blocked-token-abc',
             'blocked-user-def'
