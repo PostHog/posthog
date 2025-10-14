@@ -233,11 +233,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         githubSearchResult: [
-            null as { found: boolean; url?: string; path?: string; repository?: string; error?: string } | null,
+            null as { found: boolean; url?: string } | null,
             {
                 searchGitHub: async ({ owner, repository, query }) => {
-                    const response = await api.githubSearch.search(owner, repository, query)
-                    return response
+                    return await api.githubSearch.search(owner, repository, query)
                 },
             },
         ],

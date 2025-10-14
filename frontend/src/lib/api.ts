@@ -2980,11 +2980,7 @@ const api = {
     },
 
     githubSearch: {
-        async search(
-            owner: string,
-            repository: string,
-            query: string
-        ): Promise<{ found: boolean; url?: string; path?: string; repository?: string; error?: string }> {
+        async search(owner: string, repository: string, query: string): Promise<{ found: boolean; url?: string }> {
             return await new ApiRequest().githubSearch().create({ data: { owner, repository, query } })
         },
     },

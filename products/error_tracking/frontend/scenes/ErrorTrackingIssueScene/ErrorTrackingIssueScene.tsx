@@ -108,8 +108,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <ButtonPrimitive
                         size="lg"
                         onClick={() => {
-                            const errorMessage = issue?.name || 'RangeError'
-                            searchGitHub('ablaszkiewicz', 'posthog-cli-github-action-test', errorMessage)
+                            searchGitHub('ablaszkiewicz', 'python-scripts', 'python-scripts')
                         }}
                         disabled={githubSearchResultLoading}
                     >
@@ -117,24 +116,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </ButtonPrimitive>
                     {githubSearchResult && (
                         <div className="mt-2 p-4 border rounded">
-                            {githubSearchResult.found ? (
+                            {githubSearchResult.found && githubSearchResult.url ? (
                                 <div>
                                     <div className="font-bold text-success">Found in GitHub!</div>
                                     <div className="mt-2">
-                                        <div>Repository: {githubSearchResult.repository}</div>
-                                        <div>Path: {githubSearchResult.path}</div>
-                                        <div className="mt-2">
-                                            <Link to={githubSearchResult.url} target="_blank">
-                                                View on GitHub →
-                                            </Link>
-                                        </div>
+                                        <Link to={githubSearchResult.url} target="_blank">
+                                            View on GitHub →
+                                        </Link>
                                     </div>
                                 </div>
                             ) : (
-                                <div>
-                                    <div className="font-bold text-danger">Not found</div>
-                                    {githubSearchResult.error && <div className="mt-1">{githubSearchResult.error}</div>}
-                                </div>
+                                <div className="font-bold text-danger">Not found in GitHub</div>
                             )}
                         </div>
                     )}
