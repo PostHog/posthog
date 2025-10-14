@@ -11,7 +11,6 @@ enum Level {
     Warning,
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct LogEntry {
     team_id: u32,
