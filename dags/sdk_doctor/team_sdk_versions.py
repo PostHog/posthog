@@ -19,6 +19,7 @@ from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
 default_logger = structlog.get_logger(__name__)
 
 CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
+BATCH_SIZE = 1000
 
 
 def get_sdk_versions_for_team(
@@ -109,7 +110,7 @@ def get_and_cache_team_sdk_versions(
 
 
 @dagster.op(
-    out=dagster.DynamicOut(int),
+    out=dagster.DynamicOut(list[int]),
     config_schema={
         "team_ids": dagster.Field(
             dagster.Array(dagster.Int),
@@ -120,7 +121,7 @@ def get_and_cache_team_sdk_versions(
     },
 )
 def get_all_team_ids_op(context: dagster.OpExecutionContext):
-    """Fetch all team IDs to process."""
+    """Fetch all team IDs to process in batches of BATCH_SIZE."""
     override_team_ids = context.op_config["team_ids"]
 
     if override_team_ids:
@@ -130,8 +131,9 @@ def get_all_team_ids_op(context: dagster.OpExecutionContext):
         team_ids = list(Team.objects.values_list("id", flat=True))
         context.log.info(f"Processing all {len(team_ids)} teams")
 
-    for team_id in team_ids:
-        yield dagster.DynamicOutput(team_id, mapping_key=str(team_id))
+    for i in range(0, len(team_ids), BATCH_SIZE):
+        batch = team_ids[i : i + BATCH_SIZE]
+        yield dagster.DynamicOutput(batch, mapping_key=f"batch_{i // BATCH_SIZE}")
 
 
 @dataclass(kw_only=True)
@@ -141,50 +143,72 @@ class CacheTeamSdkVersionsResult:
     status: Literal["success", "empty", "failed", "error"]
 
 
-@dagster.op
+@dagster.op(
+    retry_policy=dagster.RetryPolicy(
+        max_retries=3,
+        delay=1,  # 1s
+        backoff=dagster.Backoff.EXPONENTIAL,
+        jitter=dagster.Jitter.PLUS_MINUS,
+    )
+)
 def cache_team_sdk_versions_for_team_op(
     context: dagster.OpExecutionContext,
     redis_client: dagster.ResourceParam[redis.Redis],
-    team_id: int,
-) -> CacheTeamSdkVersionsResult:
-    """Fetch and cache SDK versions for a single team."""
-    try:
-        sdk_versions = get_and_cache_team_sdk_versions(team_id, redis_client, logger=context.log)
+    team_ids: list[int],
+) -> list[CacheTeamSdkVersionsResult]:
+    """Fetch and cache SDK versions for a batch of teams."""
+    results = []
 
-        sdk_count = 0 if sdk_versions is None else len(sdk_versions)
-        context.add_output_metadata(
-            {
-                "team_id": dagster.MetadataValue.int(team_id),
-                "sdk_count": dagster.MetadataValue.int(sdk_count),
-            }
-        )
+    for team_id in team_ids:
+        try:
+            sdk_versions = get_and_cache_team_sdk_versions(team_id, redis_client, logger=context.log)
 
-        status: Literal["success", "empty", "failed", "error"] = "error"
-        if sdk_versions is not None:
-            if len(sdk_versions) == 0:
-                context.log.debug(f"Team {team_id} has no SDK versions")
-                status = "empty"
+            sdk_count = 0 if sdk_versions is None else len(sdk_versions)
+
+            status: Literal["success", "empty", "failed", "error"] = "error"
+            if sdk_versions is not None:
+                if len(sdk_versions) == 0:
+                    context.log.debug(f"Team {team_id} has no SDK versions")
+                    status = "empty"
+                else:
+                    context.log.info(f"Cached {sdk_count} SDK types for team {team_id}")
+                    status = "success"
             else:
-                context.log.info(f"Cached {sdk_count} SDK types for team {team_id}")
-                status = "success"
-        else:
-            context.log.warning(f"Failed to get SDK versions for team {team_id}")
-            status = "failed"
+                context.log.warning(f"Failed to get SDK versions for team {team_id}")
+                status = "failed"
 
-        return CacheTeamSdkVersionsResult(team_id=team_id, sdk_count=sdk_count, status=status)
-    except Exception as e:
-        context.log.exception(f"Failed to process SDK versions for team {team_id}")
-        capture_exception(e)
-        return CacheTeamSdkVersionsResult(team_id=team_id, sdk_count=0, status="error")
+            results.append(CacheTeamSdkVersionsResult(team_id=team_id, sdk_count=sdk_count, status=status))
+        except Exception as e:
+            context.log.exception(f"Failed to process SDK versions for team {team_id}")
+            capture_exception(e)
+            results.append(CacheTeamSdkVersionsResult(team_id=team_id, sdk_count=0, status="error"))
+
+    empty_results = [r for r in results if r.status == "empty"]
+    failed_results = [r for r in results if r.status in ("failed", "error")]
+    success_results = [r for r in results if r.status == "success"]
+
+    context.add_output_metadata(
+        {
+            "batch_size": dagster.MetadataValue.int(len(team_ids)),
+            "processed": dagster.MetadataValue.int(len(results)),
+            "empty_count": dagster.MetadataValue.int(len(empty_results)),
+            "failed_count": dagster.MetadataValue.int(len(failed_results)),
+            "success_count": dagster.MetadataValue.int(len(success_results)),
+        }
+    )
+
+    return results
 
 
 @dagster.op
-def aggregate_results_op(context: dagster.OpExecutionContext, results: list[CacheTeamSdkVersionsResult]) -> None:
+def aggregate_results_op(context: dagster.OpExecutionContext, results: list[list[CacheTeamSdkVersionsResult]]) -> None:
     """Aggregate results from all team processing ops."""
-    total_teams = len(results)
-    cached_count = sum(1 for r in results if r.status == "success")
-    empty_count = sum(1 for r in results if r.status == "empty")
-    failed_count = sum(1 for r in results if r.status in ("failed", "error"))
+    flat_results = [r for batch in results for r in batch]
+
+    total_teams = len(flat_results)
+    cached_count = sum(1 for r in flat_results if r.status == "success")
+    empty_count = sum(1 for r in flat_results if r.status == "empty")
+    failed_count = sum(1 for r in flat_results if r.status in ("failed", "error"))
 
     context.log.info(
         f"Completed processing {total_teams} teams: {cached_count} cached, {empty_count} empty, {failed_count} failed"
@@ -200,7 +224,7 @@ def aggregate_results_op(context: dagster.OpExecutionContext, results: list[Cach
     )
 
     if failed_count > 0:
-        failed_team_ids = [r.team_id for r in results if r.status in ("failed", "error")]
+        failed_team_ids = [r.team_id for r in flat_results if r.status in ("failed", "error")]
         raise Exception(f"Failed to cache SDK versions for {failed_count} teams: {failed_team_ids}")
 
 
