@@ -116,7 +116,7 @@ operations = [
     run_sql_with_exceptions(DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
-    run_sql_with_exceptions(DEAD_LETTER_QUEUE_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(DEAD_LETTER_QUEUE_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(
         DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE_SQL, node_roles=[NodeRole.DATA]
@@ -125,7 +125,10 @@ operations = [
         WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]
     ),
     run_sql_with_exceptions(
-        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]
+        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(on_cluster=False),
+        node_roles=[NodeRole.INGESTION_SMALL],
     ),
-    run_sql_with_exceptions(ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(
+        ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
 ]
