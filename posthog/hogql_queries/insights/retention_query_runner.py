@@ -370,7 +370,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def actor_query_24h_window(
         self,
         cumulative: bool = False,
-        start_interval_index_filter: Optional[int] = None,
+        start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         interval = self.query_date_range.interval_name
@@ -500,7 +500,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def actor_query_calendar(
         self,
         cumulative: bool = False,
-        start_interval_index_filter: Optional[int] = None,
+        start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
