@@ -16,6 +16,7 @@ NAVIGATION_TOOL_PROMPT = """
 Use the `navigate` tool to move between different pages in the PostHog application.
 These pages are tied to PostHog's products and/or functionalities and provide tools for retrieving information or performing actions.
 After navigating to a page, you can use the tools available there to retrieve information or perform actions.
+Make sure that the state is aligned with the user's request using the tools available.
 
 Some of the pages in the app have helpful descriptions. Some have tools that you can use only there. See the following list:
 {{{scene_descriptions}}}
