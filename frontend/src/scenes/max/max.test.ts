@@ -43,7 +43,7 @@ describe('Max Logics Integration Tests', () => {
 
         logic = maxLogic()
         logic.mount()
-        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+        threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
         threadLogic.mount()
 
         // Wait for all the microtasks to finish
@@ -54,13 +54,13 @@ describe('Max Logics Integration Tests', () => {
 
         // update props
         maxThreadLogic({
+            tabId: 'test',
             conversationId: MOCK_CONVERSATION_ID,
             conversation: {
                 ...MOCK_IN_PROGRESS_CONVERSATION,
                 messages: [
                     {
                         content: 'hello2',
-                        status: 'completed',
                         type: AssistantMessageType.Assistant,
                         id: 'test-id',
                     },

@@ -125,10 +125,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             </span>
                             <span className="text-primary flex gap-1 items-center">
                                 {/* if the filtered results length is 0, this will be the first to focus */}
-                                <ListBox.Item
-                                    asChild
-                                    focusFirst={filteredItemsGrid.filter((a) => a.types?.length > 0).length === 0}
-                                >
+                                <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
                                     <ButtonPrimitive
                                         size="xxs"
                                         onClick={() => router.actions.push(urls.max(undefined, search))}

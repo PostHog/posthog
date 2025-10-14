@@ -77,10 +77,10 @@ const meta: Meta = {
 }
 export default meta
 
-const Template = ({ className, ...props }: MaxInstanceProps & { className?: string }): JSX.Element => {
+const Template = ({ className, ...props }: Omit<MaxInstanceProps, 'tabId'> & { className?: string }): JSX.Element => {
     return (
         <div className={twMerge('relative flex flex-col h-fit', className)}>
-            <MaxInstance {...props} />
+            <MaxInstance tabId="storybook" {...props} />
         </div>
     )
 }

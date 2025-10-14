@@ -2,7 +2,6 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
-import React from 'react'
 
 import { SidePanelTab } from '~/types'
 

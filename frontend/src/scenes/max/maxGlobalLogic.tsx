@@ -14,7 +14,7 @@ import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ConversationDetail, SidePanelTab } from '~/types'
+import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
