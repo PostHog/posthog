@@ -78,7 +78,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
-        searchGitHub: (owner: string, repository: string, query: string) => ({ owner, repository, query }),
+        searchGitHub: (owner: string, repository: string, codeSample: string) => ({ owner, repository, codeSample }),
     }),
 
     defaults({
@@ -235,8 +235,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         githubSearchResult: [
             null as { found: boolean; url?: string } | null,
             {
-                searchGitHub: async ({ owner, repository, query }) => {
-                    return await api.githubSearch.search(owner, repository, query)
+                searchGitHub: async ({ owner, repository, codeSample }) => {
+                    return await api.githubSearch.search(owner, repository, codeSample)
                 },
             },
         ],

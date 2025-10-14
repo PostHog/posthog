@@ -4,18 +4,19 @@ from django.conf import settings
 
 import requests
 import structlog
-from rest_framework import serializers, viewsets
+from rest_framework import viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.models.integration import GitHubIntegration, Integration
 
 logger = structlog.get_logger(__name__)
 
 
-def search_github_code(query: str, token: str, owner: str, repository: str) -> str | None:
+def get_github_file_url_by_code_sample(code_sample: str, token: str, owner: str, repository: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
-    search_query = f"{query} repo:{owner}/{repository}"
+    search_query = f"{code_sample} repo:{owner}/{repository}"
     encoded_query = urllib.parse.quote(search_query)
     url = f"https://api.github.com/search/code?q={encoded_query}"
 
@@ -42,28 +43,25 @@ def search_github_code(query: str, token: str, owner: str, repository: str) -> s
         return None
 
 
-class GitHubSearchSerializer(serializers.Serializer):
-    owner = serializers.CharField(required=True)
-    repository = serializers.CharField(required=True)
-    query = serializers.CharField(required=True)
-
-
 class GitHubSearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
-    def create(self, request, **kwargs):
-        serializer = GitHubSearchSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    @action(methods=["GET"], detail=False, url_path="search")
+    def search(self, request, **kwargs):
+        owner = request.GET.get("owner")
+        repository = request.GET.get("repository")
+        code_sample = request.GET.get("code_sample")
 
-        owner = serializer.validated_data["owner"]
-        repository = serializer.validated_data["repository"]
-        query = serializer.validated_data["query"]
+        if not owner or not repository or not code_sample:
+            return Response({"found": False, "error": "owner, repository, and code_sample are required"})
 
         url = None
 
         # Try with posthogs token first (public repos)
         if settings.GITHUB_TOKEN:
-            url = search_github_code(query=query, token=settings.GITHUB_TOKEN, owner=owner, repository=repository)
+            url = get_github_file_url_by_code_sample(
+                code_sample=code_sample, token=settings.GITHUB_TOKEN, owner=owner, repository=repository
+            )
             if url:
                 return Response({"found": True, "url": url})
 
@@ -78,7 +76,9 @@ class GitHubSearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             token = github.integration.sensitive_config.get("access_token")
             if token:
-                url = search_github_code(query=query, token=token, owner=owner, repository=repository)
+                url = get_github_file_url_by_code_sample(
+                    code_sample=code_sample, token=token, owner=owner, repository=repository
+                )
                 if url:
                     return Response({"found": True, "url": url})
 
