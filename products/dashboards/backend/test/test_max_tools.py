@@ -23,14 +23,15 @@ class TestEditCurrentDashboardTool:
         mock_team = team or Mock()
         mock_user = user or Mock()
 
-        tool = EditCurrentDashboardTool(team=mock_team, user=mock_user)
-        tool._config = {"configurable": {"team": mock_team, "user": mock_user}}
-        tool._state = Mock()
+        tool = EditCurrentDashboardTool(
+            team=mock_team,
+            user=mock_user,
+            config={"configurable": {"team": mock_team, "user": mock_user}},
+            state=Mock(),
+        )
 
         if context is not None:
-            tool._context = context
-        else:
-            tool._context = {}
+            tool._config["configurable"] = {"contextual_tools": {"edit_current_dashboard": context}}
 
         return tool
 

@@ -93,16 +93,17 @@ async def dashboard_setup():
 @pytest.mark.django_db
 async def test_dashboard_metadata_update(dashboard_setup):
     dashboard, conversation, _ = dashboard_setup
-    tool = EditCurrentDashboardTool(team=dashboard.team, user=conversation.user)
-    tool._init_run(
-        RunnableConfig(
+    tool = EditCurrentDashboardTool(
+        team=dashboard.team,
+        user=conversation.user,
+        config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
                 "team": dashboard.team,
                 "user": conversation.user,
                 "contextual_tools": {"edit_current_dashboard": {"current_dashboard": {"id": dashboard.id}}},
             }
-        )
+        ),
     )
     result_message, _ = await tool._arun_impl(dashboard_name="New Dashboard", dashboard_description="New description")
     await dashboard.arefresh_from_db()
@@ -128,16 +129,17 @@ async def dashboard_setup_no_perms():
 @pytest.mark.django_db
 async def test_dashboard_metadata_update_no_permissions(dashboard_setup_no_perms):
     dashboard, conversation, _ = dashboard_setup_no_perms
-    tool = EditCurrentDashboardTool(team=dashboard.team, user=conversation.user)
-    tool._init_run(
-        RunnableConfig(
+    tool = EditCurrentDashboardTool(
+        team=dashboard.team,
+        user=conversation.user,
+        config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
                 "team": dashboard.team,
                 "user": conversation.user,
                 "contextual_tools": {"edit_current_dashboard": {"current_dashboard": {"id": dashboard.id}}},
             }
-        )
+        ),
     )
     result_message, _ = await tool._arun_impl(dashboard_name="New Dashboard")
     assert result_message == "The user does not have permission to edit this dashboard."
@@ -148,16 +150,17 @@ async def test_dashboard_metadata_update_no_permissions(dashboard_setup_no_perms
 @pytest.mark.django_db
 async def test_dashboard_add_insights(dashboard_setup):
     dashboard, conversation, _ = dashboard_setup
-    tool = EditCurrentDashboardTool(team=dashboard.team, user=conversation.user)
-    tool._init_run(
-        RunnableConfig(
+    tool = EditCurrentDashboardTool(
+        team=dashboard.team,
+        user=conversation.user,
+        config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
                 "team": dashboard.team,
                 "user": conversation.user,
                 "contextual_tools": {"edit_current_dashboard": {"current_dashboard": {"id": dashboard.id}}},
             }
-        )
+        ),
     )
 
     # Create insights to add
