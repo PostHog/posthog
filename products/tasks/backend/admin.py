@@ -26,5 +26,3 @@ class SandboxSnapshotAdmin(admin.ModelAdmin):
                 obj.integration.kind,
             )
         return "-"
-
-    integration_link.short_description = "Integration"
