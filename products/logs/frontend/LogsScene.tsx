@@ -68,7 +68,9 @@ export function LogsScene(): JSX.Element {
                         onSelectionChange={onSelectionChange}
                     />
                 ) : !sparklineLoading ? (
-                    <div className="flex-1text-muted text-center">No data</div>
+                    <div className="flex-1 text-muted flex items-center justify-center">
+                        No results matching filters
+                    </div>
                 ) : null}
                 {sparklineLoading && <SpinnerOverlay />}
             </div>

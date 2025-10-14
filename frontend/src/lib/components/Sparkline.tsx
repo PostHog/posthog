@@ -270,7 +270,7 @@ export function Sparkline({
     if (dragStartRef.current) {
         if (hoveredElementX === dragStartRef.current.x) {
             // If the same we just show it in the middle of the bar
-        } else if (hoveredElementX > (dragStartRef.current.x ?? 0)) {
+        } else if (hoveredElementX > dragStartRef.current.x) {
             // If we are hovering past where we started we set it to be before the bar and after the next
             selectionLeft = dragStartRef.current.x - hoveredElementWidth / 2
             selectionWidth = hoveredElementX + hoveredElementWidth / 2 - selectionLeft
@@ -282,7 +282,7 @@ export function Sparkline({
     }
 
     return !loading ? (
-        <div className={finalClassName} onMouseDown={onMouseDown}>
+        <div className={finalClassName} onMouseDown={onSelectionChange ? onMouseDown : undefined}>
             <canvas ref={canvasRef} />
             <>
                 {tooltipVisible && onSelectionChange && (
