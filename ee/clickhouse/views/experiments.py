@@ -843,11 +843,7 @@ class EnterpriseExperimentsViewSet(
         serializer = FeatureFlagSerializer(
             results,
             many=True,
-            context={
-                "request": request,
-                "team_id": self.team_id,
-                "project_id": self.project_id,
-            },
+            context=self.get_serializer_context(),
         )
 
         return Response(

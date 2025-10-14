@@ -1288,6 +1288,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    SHOPIFY = "Shopify"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1345,6 +1346,7 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
+    DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
@@ -1376,7 +1378,8 @@ class FileSystemIconType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
-    PERSON = "person"
+    PERSONS = "persons"
+    USER = "user"
     COHORT = "cohort"
     GROUP = "group"
     INSIGHT_FUNNELS = "insight/funnels"
@@ -1388,6 +1391,8 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
+    APPS = "apps"
+    LIVE = "live"
 
 
 class FileSystemImport(BaseModel):
@@ -2342,6 +2347,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class TimeWindowMode(StrEnum):
+    STRICT_CALENDAR_DATES = "strict_calendar_dates"
+    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
 
 
 class RetentionPeriod(StrEnum):
@@ -10910,6 +10920,9 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
+    timeWindowMode: Optional[TimeWindowMode] = Field(
+        default=None, description="The time window mode to use for retention calculations"
+    )
     totalIntervals: Optional[int] = 8
 
 
