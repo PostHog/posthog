@@ -255,7 +255,7 @@ class TestRunSQLOperations:
         assert risk.score == 5
         assert risk.level == RiskLevel.BLOCKED
         assert "no prior state removal" in risk.reason.lower()
-        assert "SeparateDatabaseAndState" in risk.guidance
+        assert risk.guidance is not None and "SeparateDatabaseAndState" in risk.guidance
 
     def test_run_sql_with_update(self):
         op = create_mock_operation(

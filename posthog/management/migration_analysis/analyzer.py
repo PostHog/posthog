@@ -141,7 +141,7 @@ class RiskAnalyzer:
         if analyzer:
             # Pass migration context to RunSQLAnalyzer for DROP TABLE validation
             if op_type == "RunSQL" and hasattr(self, "migration") and hasattr(self, "loader"):
-                return analyzer.analyze(op, migration=self.migration, loader=self.loader)
+                return analyzer.analyze(op, migration=self.migration, loader=self.loader)  # type: ignore[call-arg]
             return analyzer.analyze(op)
 
         # Fallback for unscored operation types
