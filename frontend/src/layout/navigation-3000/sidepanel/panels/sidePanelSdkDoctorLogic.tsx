@@ -104,6 +104,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
     actions({
         snoozeSdkDoctor: true,
+        unsnooze: true,
     }),
 
     reducers(() => ({
@@ -112,6 +113,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             { persist: true },
             {
                 snoozeSdkDoctor: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                unsnooze: () => null,
             },
         ],
     })),
@@ -210,9 +212,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         ],
 
         needsAttention: [
-            (s) => [s.sdkHealth, s.snoozedUntil],
-            (sdkHealth: SdkHealthStatus, snoozedUntil: string | null): boolean =>
-                sdkHealth !== 'success' && (snoozedUntil === null || new Date(snoozedUntil) < new Date()),
+            (s) => [s.outdatedSdkCount, s.snoozedUntil],
+            (outdatedSdkCount: number, snoozedUntil: string | null): boolean =>
+                outdatedSdkCount > 1 && snoozedUntil === null,
         ],
         hasErrors: [
             (s) => [s.sdkVersions, s.sdkVersionsLoading, s.teamSdkVersions, s.teamSdkVersionsLoading],
@@ -236,9 +238,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         },
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadTeamSdkVersions()
         actions.loadSdkVersions()
+
+        if (values.snoozedUntil && new Date(values.snoozedUntil) < new Date()) {
+            actions.unsnooze()
+        }
     }),
 ])
 
