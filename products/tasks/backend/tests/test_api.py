@@ -769,16 +769,19 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "POST", "/api/projects/@current/workflows/", False),
             ("task:read", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", False),
+            ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", False),
             ("task:write", "GET", "/api/projects/@current/tasks/", True),
             ("task:write", "POST", "/api/projects/@current/tasks/", True),
             ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:write", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:write", "POST", "/api/projects/@current/workflows/", True),
             ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
             ("*", "GET", "/api/projects/@current/tasks/", True),
             ("*", "POST", "/api/projects/@current/tasks/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
