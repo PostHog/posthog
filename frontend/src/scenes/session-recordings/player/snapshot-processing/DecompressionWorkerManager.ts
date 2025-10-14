@@ -13,21 +13,18 @@ export class DecompressionWorkerManager {
     private async initWorker(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                // In development, proxy worker through Django to avoid cross-origin issues
-                // In production, Vite bundles workers properly
-
-                // Use ?worker_file to get the actual worker URL directly (bypassing the wrapper)
+                // Use blob workaround for cross-origin worker loading in development
+                // See: https://github.com/vitejs/vite/issues/13680
                 const workerUrl = new URL('./decompressionWorker.ts?worker_file&type=module', import.meta.url)
+                const js = `import ${JSON.stringify(workerUrl.href)}`
+                const blob = new Blob([js], { type: 'application/javascript' })
+                const objURL = URL.createObjectURL(blob)
 
-                // If the worker URL is cross-origin (different port), proxy it through Django
-                const isDev = process.env.NODE_ENV === 'development'
-                if (isDev && workerUrl.origin !== window.location.origin) {
-                    const proxyPath = workerUrl.pathname + workerUrl.search
-                    const actualWorkerUrl = `${window.location.origin}/_vite${proxyPath}`
-                    this.worker = new Worker(actualWorkerUrl, { type: 'module' })
-                } else {
-                    this.worker = new Worker(workerUrl, { type: 'module' })
-                }
+                this.worker = new Worker(objURL, { type: 'module' })
+
+                this.worker.addEventListener('error', () => {
+                    URL.revokeObjectURL(objURL)
+                })
 
                 // Set up error listener to catch loading errors
                 this.worker.addEventListener('error', (error) => {

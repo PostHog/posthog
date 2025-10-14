@@ -98,12 +98,11 @@ export default defineConfig(({ mode }) => {
             sourcemap: true,
         },
         worker: {
-            format: 'iife', // Use IIFE format to bundle everything into a single file
+            format: 'es', // Use ES modules to support WASM imports
             plugins: () => [react()],
             rollupOptions: {
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
-                    inlineDynamicImports: true, // Bundle all imports into single file
                 },
             },
         },
@@ -121,6 +120,7 @@ export default defineConfig(({ mode }) => {
         },
         optimizeDeps: {
             include: ['react', 'react-dom', 'buffer'],
+            exclude: ['snappy-wasm'], // Don't pre-bundle snappy-wasm so WASM file stays with JS
         },
     }
 })

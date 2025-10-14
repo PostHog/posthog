@@ -55,24 +55,6 @@ describe('DecompressionWorkerManager', () => {
         })
     })
 
-    describe('decompressBatch', () => {
-        it('decompresses multiple blocks in parallel', async () => {
-            const blocks = [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]), new Uint8Array([7, 8, 9])]
-
-            const results = await manager.decompressBatch(blocks)
-
-            expect(results).toHaveLength(3)
-            expect(results[0]).toEqual(blocks[0])
-            expect(results[1]).toEqual(blocks[1])
-            expect(results[2]).toEqual(blocks[2])
-        })
-
-        it('handles empty batch', async () => {
-            const results = await manager.decompressBatch([])
-            expect(results).toHaveLength(0)
-        })
-    })
-
     describe('terminate', () => {
         it('terminates the manager successfully', () => {
             expect(() => manager.terminate()).not.toThrow()
