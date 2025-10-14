@@ -35,20 +35,6 @@ export default defineConfig(({ mode }) => {
                     })
                 },
             },
-            {
-                name: 'cors-headers',
-                configureServer(server) {
-                    server.middlewares.use((_req, res, next) => {
-                        // Set CORS headers for cross-origin worker access
-                        res.setHeader('Access-Control-Allow-Origin', 'http://localhost:8010')
-                        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                        res.setHeader('Access-Control-Allow-Credentials', 'true')
-                        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
-                        res.setHeader('Cache-Control', 'no-store')
-                        next()
-                    })
-                },
-            },
         ],
         resolve: {
             alias: {
@@ -109,6 +95,11 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
+            cors: {
+                // Allow Django backend to access Vite dev server
+                origin: ['http://localhost:8000', 'http://localhost:8010'],
+            },
+            // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
         },
         define: {
