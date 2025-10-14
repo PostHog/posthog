@@ -30,24 +30,8 @@ self.addEventListener('message', async (event: MessageEvent<DecompressionRequest
         // Ensure snappy is initialized
         await initSnappy()
 
-        let decompressed: Uint8Array
-
-        try {
-            // Try direct decompression (Python snappy.decompress equivalent)
-            decompressed = decompress_raw(compressedData)
-        } catch {
-            // If that fails, try skipping varint prefix (Node.js snappy.compressSync format)
-            let offset = 0
-            while (offset < compressedData.length) {
-                const byte = compressedData[offset++]
-                if ((byte & 0x80) === 0) {
-                    break
-                }
-            }
-
-            const dataWithoutPrefix = compressedData.slice(offset)
-            decompressed = decompress_raw(dataWithoutPrefix)
-        }
+        // Decompress using raw snappy format (matches Python's snappy.compress/decompress)
+        const decompressed = decompress_raw(compressedData)
 
         // Send the result back to the main thread
         const response: DecompressionResponse = {
