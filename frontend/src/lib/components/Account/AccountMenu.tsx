@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconDay,
     IconFeatures,
+    IconGear,
     IconLaptop,
     IconLeave,
     IconLive,
@@ -140,7 +141,12 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-            <DropdownMenuContent {...props} collisionPadding={{ bottom: 0 }} alignOffset={2}>
+            <DropdownMenuContent
+                {...props}
+                collisionPadding={{ bottom: 0 }}
+                alignOffset={2}
+                className="min-w-[var(--project-panel-width)]"
+            >
                 <DropdownMenuGroup>
                     <Label intent="menu" className="px-2">
                         Signed in as
@@ -154,6 +160,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 menuItem: true,
                                 truncate: true,
                             }}
+                            tooltip="Account settings"
+                            tooltipPlacement="right"
                             data-attr="top-menu-account-owner"
                         >
                             <ProfilePicture user={user} size="xs" />
@@ -161,27 +169,11 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 <span className="font-semibold truncate">{user?.first_name}</span>
                                 <span className="text-tertiary text-xs truncate">{user?.email}</span>
                             </span>
+                            <div className="ml-auto">
+                                <IconGear className="text-tertiary" />
+                            </div>
                         </Link>
                     </DropdownMenuItem>
-                    {isCloudOrDev ? (
-                        <DropdownMenuItem asChild>
-                            <Link
-                                to={
-                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                        ? urls.organizationBillingSection('overview')
-                                        : urls.organizationBilling()
-                                }
-                                buttonProps={{
-                                    className: 'flex items-center gap-2',
-                                    menuItem: true,
-                                    truncate: true,
-                                }}
-                            >
-                                <IconReceipt />
-                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
-                            </Link>
-                        </DropdownMenuItem>
-                    ) : null}
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive
                             onClick={() => {
@@ -209,6 +201,9 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 menuItem: true,
                                 truncate: true,
                             }}
+                            tooltip="Organization settings"
+                            tooltipPlacement="right"
+                            data-attr="top-menu-organization-settings"
                         >
                             {currentOrganization ? (
                                 <UploadedLogo
@@ -224,13 +219,32 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 {currentOrganization ? currentOrganization.name : 'Select organization'}
                             </span>
                             {currentOrganization && (
-                                <div className="ml-auto">
+                                <div className="ml-auto flex items-center gap-1">
                                     <AccessLevelIndicator organization={currentOrganization} />
+                                    <IconGear className="text-tertiary" />
                                 </div>
                             )}
                         </Link>
                     </DropdownMenuItem>
-
+                    {isCloudOrDev ? (
+                        <DropdownMenuItem asChild>
+                            <Link
+                                to={
+                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+                                        ? urls.organizationBillingSection('overview')
+                                        : urls.organizationBilling()
+                                }
+                                buttonProps={{
+                                    className: 'flex items-center gap-2',
+                                    menuItem: true,
+                                    truncate: true,
+                                }}
+                            >
+                                <IconReceipt />
+                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
+                            </Link>
+                        </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
                             <ButtonPrimitive menuItem>
@@ -239,7 +253,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 <DropdownMenuOpenIndicator intent="sub" />
                             </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
+                        <DropdownMenuSubContent className="min-w-[var(--project-panel-width)]">
                             <OrgCombobox />
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>
@@ -299,6 +313,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             }}
                             data-attr="whats-new-button"
                             target="_blank"
+                            tooltip="View our changelog"
+                            tooltipPlacement="right"
                         >
                             <IconLive />
                             What's new?
@@ -311,6 +327,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 menuItem: true,
                             }}
                             data-attr="top-menu-feature-previews"
+                            tooltip="View and access upcoming features"
+                            tooltipPlacement="right"
                         >
                             <IconFeatures />
                             Feature previews
@@ -349,8 +367,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     buttonProps={{
                                         menuItem: true,
                                     }}
-                                    tooltip="Django admin"
-                                    tooltipPlacement="right"
                                     data-attr="top-menu-django-admin"
                                     disableClientSideRouting
                                 >
