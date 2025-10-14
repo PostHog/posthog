@@ -469,8 +469,9 @@ class SessionReplayEvents:
         query = """
                 SELECT
                     session_id,
+                    min(min_first_timestamp) as start_time,
                     max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
