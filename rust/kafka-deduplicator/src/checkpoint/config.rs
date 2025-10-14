@@ -25,17 +25,19 @@ pub struct CheckpointConfig {
     /// AWS region for S3
     pub aws_region: String,
 
-    /// Maximum number of local checkpoints to keep around *per partition*
-    pub max_local_checkpoints: usize,
+    /// Maximum number of local checkpoint attempts to keep around *per partition*
+    pub checkpoints_per_partition: usize,
 
-    /// Maximum number of hours for which any local checkpoint is retained
+    /// Maximum number of hours any local checkpoint attempt should be retained
     pub max_checkpoint_retention_hours: u32,
 
-    /// Maximum number of concurrent checkpoints to perform
+    /// Maximum number of concurrent checkpoint attempts to perform on a single node.
+    /// NOTE: checkpoint attempts are unique to a given partition; no two for the same
+    /// partition can be in-flight at the same time
     pub max_concurrent_checkpoints: usize,
 
-    /// How often to attempt to check if a slot is available
-    /// when max_concurrent_checkpoints slots are occupied
+    /// Polling interval to check if a concurrent checkpoint attempt slot
+    /// has become available when max_concurrent_checkpoints slots are occupied
     pub checkpoint_gate_interval: Duration,
 
     /// Timeout for checkpoint worker graceful shutdown (applied in CheckpointManager::stop)
@@ -57,7 +59,7 @@ impl Default for CheckpointConfig {
             s3_key_prefix: "deduplication-checkpoints".to_string(),
             full_upload_interval: 0, // TODO: always full checkpoints until we impl incremental
             aws_region: "us-east-1".to_string(),
-            max_local_checkpoints: 10,
+            checkpoints_per_partition: 5,
             max_checkpoint_retention_hours: 2,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),

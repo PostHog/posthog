@@ -1676,6 +1676,10 @@ export interface SessionRecordingType {
     activity_score?: number
     /** retention period for this recording */
     retention_period_days?: number
+    /** When the recording expires, in ISO format. */
+    expiry_time?: string
+    /** Number of whole days left until the recording expires. */
+    recording_ttl?: number
 }
 
 export interface SessionRecordingUpdateType {
@@ -3951,7 +3955,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface CoreFilterDefinition {
     label: string
     description?: string | ReactNode
-    examples?: (string | number)[]
+    examples?: (string | number | boolean)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
@@ -4518,6 +4522,7 @@ export type APIScopeObject =
     | 'dashboard_template'
     | 'dataset'
     | 'early_access_feature'
+    | 'endpoint'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
@@ -5246,6 +5251,7 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
+    SdkDoctor = 'sdk-doctor',
 }
 
 export interface ProductPricingTierSubrows {

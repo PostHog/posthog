@@ -49,4 +49,7 @@ class TitleGeneratorNode(AssistantNode):
             max_completion_tokens=100,
             user=self._user,
             team=self._team,
+            streaming=False,
+            stream_usage=False,
+            disable_streaming=True,
         )
