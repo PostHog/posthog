@@ -8,7 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 
 import { hogqlQuery } from '~/queries/query'
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
 import { ViewLinkKeyLabel } from './ViewLinkModal'
@@ -369,27 +369,28 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             await loadTablePreviewData(tableName, actions.setJoiningTablePreviewData)
         },
         validateJoin: async () => {
+            const sourceTableKey = values.viewLink.source_table_key
+            const joiningTableKey = values.viewLink.joining_table_key
+
             if (
                 !values.selectedSourceTableName ||
                 !values.selectedJoiningTableName ||
-                !values.selectedSourceKey ||
-                !values.selectedJoiningKey
+                !sourceTableKey ||
+                !joiningTableKey
             ) {
                 actions.setIsJoinValid(false)
                 return
             }
             try {
-                const sourceTable = hogql.identifier(values.selectedSourceTableName)
-                const sourceKey = hogql.identifier(values.selectedSourceKey)
-                const joiningTable = hogql.identifier(values.selectedJoiningTableName)
-                const joiningKey = hogql.identifier(values.selectedJoiningKey)
+                const sourceKeyExpression = `${values.selectedSourceTableName}.${sourceTableKey}`
+                const joiningKeyExpression = `${values.selectedJoiningTableName}.${joiningTableKey}`
                 const response = await hogqlQuery(
-                    hogql`
-                    SELECT ${sourceTable}.${sourceKey}, ${joiningTable}.${joiningKey}
-                    FROM ${sourceTable}
-                    JOIN ${joiningTable}
-                    ON ${sourceTable}.${sourceKey} = ${joiningTable}.${joiningKey}
-                    LIMIT 10`
+                    `
+                    SELECT ${sourceKeyExpression} as source_key, ${joiningKeyExpression} as joining_key
+                    FROM ${values.selectedSourceTableName}
+                    JOIN ${values.selectedJoiningTableName}
+                    ON ${sourceKeyExpression} = ${joiningKeyExpression}
+                    LIMIT 10` as HogQLQueryString
                 )
                 if (response.results.length === 0) {
                     actions.setValidationWarning('No matching data found between source and joining tables.')
