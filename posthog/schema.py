@@ -4214,7 +4214,7 @@ class LogMessage(BaseModel):
     instrumentation_scope: str
     level: LogSeverityLevel
     observed_timestamp: datetime
-    resource: str
+    resource_attributes: Any
     severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
