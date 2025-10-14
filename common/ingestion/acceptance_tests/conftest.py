@@ -5,7 +5,7 @@ import logging
 
 import pytest
 
-from api_client import PostHogTestClient
+from .api_client import PostHogTestClient
 
 logger = logging.getLogger(__name__)
 
