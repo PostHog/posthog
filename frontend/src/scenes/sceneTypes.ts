@@ -3,6 +3,8 @@ import { LogicWrapper } from 'kea'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
+// Product scene imports removed - scenes are now auto-generated directly in the enum
+
 import { SettingSectionId } from './settings/types'
 
 // The enum here has to match the first and only exported component of the scene.
@@ -122,7 +124,30 @@ export enum Scene {
     EmbeddedAnalytics = 'EmbeddedAnalytics',
     QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
+
+    // AUTO-GENERATED PRODUCT SCENES - DO NOT EDIT MANUALLY
+    ActionNew = 'ActionNew',
+    EarlyAccessFeature = 'EarlyAccessFeature',
+    EndpointsScene = 'EndpointsScene',
+    EndpointsUsage = 'EndpointsUsage',
+    Game368Hedgehogs = 'Game368Hedgehogs',
+    LLMAnalytics = 'LLMAnalytics',
+    LLMAnalyticsDataset = 'LLMAnalyticsDataset',
+    LLMAnalyticsDatasets = 'LLMAnalyticsDatasets',
+    LLMAnalyticsEvaluation = 'LLMAnalyticsEvaluation',
+    LLMAnalyticsEvaluations = 'LLMAnalyticsEvaluations',
+    LLMAnalyticsPlayground = 'LLMAnalyticsPlayground',
+    LLMAnalyticsTrace = 'LLMAnalyticsTrace',
+    LLMAnalyticsUsers = 'LLMAnalyticsUsers',
+    Logs = 'Logs',
+    ManagedMigration = 'ManagedMigration',
+    ManagedMigrationNew = 'ManagedMigrationNew',
+    MessagingLibraryTemplate = 'MessagingLibraryTemplate',
+    TaskDetail = 'TaskDetail',
+    TaskTracker = 'TaskTracker',
 }
+
+// Product scenes are auto-generated directly in the Scene enum above by build-products.mjs
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
 export type SceneProps = Record<string, any>
