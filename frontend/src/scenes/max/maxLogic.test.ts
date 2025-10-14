@@ -27,7 +27,7 @@ describe('maxLogic', () => {
         sidePanelStateLogic.mount()
 
         // Mount maxLogic after setting up the sidePanelStateLogic state
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
 
         // Check that the question has been set to "Foo" (via sidePanelStateLogic automatically)
@@ -42,7 +42,7 @@ describe('maxLogic', () => {
         sidePanelStateLogic.mount()
 
         // Must create the logic first to spy on its actions
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
 
         // Only mount maxLogic after setting up the router and sidePanelStateLogic
@@ -70,7 +70,7 @@ describe('maxLogic', () => {
             },
         })
 
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
 
         // Wait for initial conversationHistory load to complete
@@ -102,7 +102,7 @@ describe('maxLogic', () => {
     })
 
     it('manages suggestion group selection correctly', async () => {
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
@@ -137,7 +137,7 @@ describe('maxLogic', () => {
     })
 
     it('generates and uses frontendConversationId correctly', async () => {
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
 
         const initialFrontendId = logic.values.frontendConversationId
@@ -163,7 +163,7 @@ describe('maxLogic', () => {
     })
 
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
-        logic = maxLogic()
+        logic = maxLogic({ tabId: 'test' })
         logic.mount()
 
         // When no conversation ID is set, should use frontendConversationId
