@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -161,7 +162,7 @@ class TikTokReportResource:
     ) -> list[dict]:
         """
         Create multiple resources for date chunking with rest_api_resources.
-        Each chunk becomes a separate resource that can be processed in parallel.
+        Each chunk becomes a separate resource.
         """
         date_chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
         resources = []
@@ -194,44 +195,29 @@ class TikTokReportResource:
         return resources
 
     @classmethod
-    def process_resources(cls, dlt_resources: list) -> Any:
+    def process_resources(cls, dlt_resources: list) -> Iterable[Any]:
         """
         Process and flatten DLT resources from report endpoints.
         Handles both single and multiple chunked resources.
         """
-        if len(dlt_resources) > 1:
-            return cls._combine_and_flatten_resources(dlt_resources)
-        else:
-            return cls._flatten_single_resource(dlt_resources[0])
+        result = []
+
+        for _i, resource in enumerate(dlt_resources):
+            result.extend(cls._flatten_single_resource(resource))
+
+        return result
 
     @classmethod
-    def _flatten_single_resource(cls, resource: Any) -> Any:
-        """Flatten a single report resource."""
-
-        def flattened_resource():
-            for item in resource:
-                if isinstance(item, list):
-                    yield from cls.flatten_records(item)
-                elif isinstance(item, dict):
-                    yield cls.flatten_record(item)
-                else:
-                    yield item
-
-        return flattened_resource()
-
-    @classmethod
-    def _combine_and_flatten_resources(cls, resources: list) -> Any:
-        """Combine and flatten multiple report resources (from date chunking)."""
-
-        def combined_resource():
-            for resource in resources:
-                for item in resource:
-                    if isinstance(item, list):
-                        yield from cls.flatten_records(item)
-                    else:
-                        yield cls.flatten_record(item)
-
-        return combined_resource()
+    def _flatten_single_resource(cls, resource: Any) -> list[dict[str, Any]]:
+        result = []
+        for item in resource:
+            if isinstance(item, list):
+                result.extend(cls.flatten_records(item))
+            elif isinstance(item, dict):
+                result.append(cls.flatten_record(item))
+            else:
+                result.append(item)
+        return result
 
     @classmethod
     def setup_report_resources(
@@ -250,8 +236,6 @@ class TikTokReportResource:
         )
 
         if not should_use_incremental_field:
-            from datetime import datetime, timedelta
-
             ends_at = datetime.now().strftime("%Y-%m-%d")
             starts_at = (datetime.now() - timedelta(days=MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS)).strftime("%Y-%m-%d")
 
