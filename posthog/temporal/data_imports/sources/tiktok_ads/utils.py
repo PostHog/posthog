@@ -134,13 +134,16 @@ class TikTokReportResource:
             "impressions": "23241"
         }
         """
-        if isinstance(record, dict) and "metrics" in record and "dimensions" in record:
-            flattened = {}
-            flattened.update(record.get("dimensions", {}))
+        flattened = {}
+        if isinstance(record, dict) and "metrics" in record:
             flattened.update(record.get("metrics", {}))
+
+        if isinstance(record, dict) and "dimensions" in record:
+            flattened.update(record.get("dimensions", {}))
+
+        if flattened:
             return flattened
-        else:
-            return record
+        return record
 
     @staticmethod
     def flatten_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
