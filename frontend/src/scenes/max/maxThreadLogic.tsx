@@ -189,8 +189,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                resetThread: (state) => filterOutReasoningMessages(state),
-                completeThreadGeneration: (state) => filterOutReasoningMessages(state),
                 setThread: (_, { thread }) => thread,
             },
         ],
@@ -715,13 +713,13 @@ async function onEventImplementation(
                         toolResult.page_key,
                         breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
                     )
+                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool
                 }
             }
             actions.addMessage({
                 ...parsedResponse,
                 status: 'completed',
             })
-            actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the tool(s)
         } else {
             if (isNotebookUpdateMessage(parsedResponse)) {
                 actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
@@ -783,15 +781,6 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
-}
-
-/**
- * Filter out reasoning messages from the thread.
- * @param thread
- * @returns
- */
-function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
-    return thread.filter((message) => !isReasoningMessage(message))
 }
 
 /**

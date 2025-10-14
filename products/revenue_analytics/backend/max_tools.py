@@ -173,7 +173,7 @@ class FilterRevenueAnalyticsTool(MaxTool):
         - "search for" synonyms: "find", "look up", and similar
     """
     thinking_message: str = "Coming up with filters"
-    root_system_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
+    context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
     show_tool_call_message: bool = False
 

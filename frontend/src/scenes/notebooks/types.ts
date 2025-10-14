@@ -59,6 +59,7 @@ export enum NotebookNodeType {
     TaskCreate = 'ph-task-create',
     LLMTrace = 'ph-llm-trace',
     Issues = 'ph-issues',
+    UsageMetrics = 'ph-usage-metrics',
 }
 
 export type NotebookNodeResource = {
