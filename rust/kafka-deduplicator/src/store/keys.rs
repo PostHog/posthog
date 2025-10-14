@@ -215,10 +215,10 @@ impl UuidIndexKey {
     /// Create a range end key for deletion (exclusive)
     /// We add 0xFF bytes to ensure this key comes after all keys with the cleanup timestamp
     pub fn range_end(cleanup_timestamp: u64) -> Vec<u8> {
-        let mut bytes = cleanup_timestamp.to_be_bytes().to_vec();
-        // Add a suffix to ensure this key is greater than any key with this timestamp
-        bytes.push(0xFF);
-        bytes
+        cleanup_timestamp
+            .checked_add(1)
+            .map(|v| v.to_be_bytes().to_vec())
+            .unwrap()
     }
 }
 
