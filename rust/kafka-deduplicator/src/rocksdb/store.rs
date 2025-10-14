@@ -101,8 +101,8 @@ fn rocksdb_options() -> Options {
 
     // IO & safety
     opts.set_paranoid_checks(true);
-    opts.set_bytes_per_sync(1 * 1024 * 1024);
-    opts.set_wal_bytes_per_sync(1 * 1024 * 1024);
+    opts.set_bytes_per_sync(1024 * 1024);
+    opts.set_wal_bytes_per_sync(1024 * 1024);
     opts.set_use_direct_reads(true);
     opts.set_use_direct_io_for_flush_and_compaction(true);
     opts.set_compaction_readahead_size(2 * 1024 * 1024);
