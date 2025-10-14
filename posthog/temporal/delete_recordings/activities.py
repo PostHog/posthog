@@ -113,6 +113,16 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[list[Record
     return block_groups
 
 
+def overwrite_block(path: str, start_byte: int, block_length: int, buffer_size: int = 1024) -> None:
+    with open(path, "rb+") as fp:
+        fp.seek(start_byte)
+
+        for _ in range(block_length // buffer_size):
+            fp.write(bytearray(buffer_size))
+
+        fp.write(bytearray(block_length % buffer_size))
+
+
 @activity.defn(name="delete-recording-blocks")
 async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
     bind_contextvars(
@@ -130,10 +140,10 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
             match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
 
             if not match:
-                raise Exception()
+                raise DeleteRecordingError(f"Got malformed byte range in block URL: {query}")
 
             start_byte, end_byte = int(match.group(1)), int(match.group(2))
-            expected_length = end_byte - start_byte + 1
+            block_length = end_byte - start_byte + 1
             key = path.lstrip("/")
 
             try:
@@ -143,13 +153,7 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
 
                 size_before = Path(tmpfile).stat().st_size
 
-                with open(tmpfile, "rb+") as fp:
-                    fp.seek(start_byte)
-
-                    for _ in range(expected_length // 1024):
-                        fp.write(bytearray(1024))
-
-                    fp.write(bytearray(expected_length % 1024))
+                overwrite_block(tmpfile, start_byte, block_length)
 
                 size_after = Path(tmpfile).stat().st_size
 
