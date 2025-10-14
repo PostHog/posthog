@@ -426,6 +426,24 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 
+    async def fetch_file_bytes(self, blob_key: str) -> bytes:
+        try:
+            kwargs = {
+                "Bucket": self.bucket,
+                "Key": blob_key,
+            }
+            s3_response = await self.aws_client.get_object(**kwargs)
+            return await s3_response["Body"].read()
+        except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
+            logger.exception(
+                "async_session_recording_v2_object_storage.fetch_file_bytes_failed",
+                bucket=self.bucket,
+                file_name=blob_key,
+                error=e,
+            )
+            raise FileFetchError(f"Failed to read compressed file: {str(e)}")
+
     async def _fetch_compressed_block(self, block_url: str) -> bytes:
         """Internal method to fetch and validate compressed block"""
         # Parse URL and extract key and byte range

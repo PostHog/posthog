@@ -198,6 +198,37 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         assert result == compressed_data
         assert result != test_data.encode("utf-8")  # Should NOT be decompressed
 
+    def test_fetch_file_decompresses(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = storage.fetch_file("test-file-key")
+
+        assert result == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
+
+    def test_fetch_file_bytes_returns_compressed(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = storage.fetch_file_bytes("test-file-key")
+
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")
+        assert snappy.decompress(result).decode("utf-8") == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
+
     def test_store_lts_recording_success(self):
         mock_client = MagicMock()
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
@@ -417,6 +448,37 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         assert isinstance(result, bytes)
         assert result == compressed_data
         assert result != test_data.encode("utf-8")  # Should NOT be decompressed
+
+    async def test_fetch_file_decompresses(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = await storage.fetch_file("test-file-key")
+
+        assert result == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
+
+    async def test_fetch_file_bytes_returns_compressed(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = await storage.fetch_file_bytes("test-file-key")
+
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")
+        assert snappy.decompress(result).decode("utf-8") == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
 
     async def test_store_lts_recording_success(self):
         mock_client = AsyncMock()
