@@ -442,9 +442,30 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (root === 'products://' || root === 'data://') {
+                if (root === 'products://' || root === 'data://' || root === 'persons://') {
                     let key = item.record?.sceneKey
-                    return <>{sceneConfigurations[key]?.description || item.name}</>
+                    return (
+                        <>
+                            {sceneConfigurations[key]?.description || item.name}
+
+                            {item.tags?.length && (
+                                <>
+                                    {item.tags?.map((tag) => (
+                                        <LemonTag
+                                            key={tag}
+                                            type={
+                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
+                                            }
+                                            size="small"
+                                            className="ml-2 relative top-[-1px]"
+                                        >
+                                            {tag.toUpperCase()}
+                                        </LemonTag>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )
                 }
                 if (root === 'persons://') {
                     return (
@@ -531,7 +552,7 @@ export function ProjectTree({
                             </span>
                         )}
 
-                        {item.record?.protocol === 'products://' && item.tags?.length && (
+                        {item.tags?.length && (
                             <>
                                 {item.tags?.map((tag) => (
                                     <LemonTag
