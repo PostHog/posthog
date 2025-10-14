@@ -144,7 +144,6 @@ class PostgreSQLTransactionError(Exception):
 
     def __init__(self, max_attempts: int, err_msg: str):
         super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
-        self.max_attempts = max_attempts
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -319,7 +318,7 @@ class PostgreSQLClient:
                 fields=sql.SQL(",").join(sql.Identifier(field[0]) for field in primary_key)
             )
 
-        async with self.connection.transaction():
+        async def _create_table_in_transaction():
             async with self.connection.cursor() as cursor:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
@@ -340,6 +339,8 @@ class PostgreSQLClient:
 
                 await cursor.execute(query)
 
+        await run_in_retryable_transaction(self.connection, _create_table_in_transaction)
+
     async def adelete_table(self, schema: str | None, table_name: str, not_found_ok: bool = True) -> None:
         """Delete a table in PostgreSQL.
 
@@ -358,11 +359,12 @@ class PostgreSQLClient:
         else:
             base_query = "DROP TABLE {table}"
 
-        async with self.connection.transaction():
+        async def _delete_table_in_transaction():
             async with self.connection.cursor() as cursor:
                 await cursor.execute("SET TRANSACTION READ WRITE")
-
                 await cursor.execute(sql.SQL(base_query).format(table=table_identifier))
+
+        await run_in_retryable_transaction(self.connection, _delete_table_in_transaction)
 
     async def aget_table_columns(self, schema: str | None, table_name: str) -> list[str]:
         """Get the column names for a table in PostgreSQL.
@@ -379,11 +381,12 @@ class PostgreSQLClient:
         else:
             table_identifier = sql.Identifier(table_name)
 
-        async with self.connection.transaction():
+        async def _get_columns_in_transaction():
             async with self.connection.cursor() as cursor:
                 await cursor.execute(sql.SQL("SELECT * FROM {} WHERE 1=0").format(table_identifier))
-                columns = [column.name for column in cursor.description or []]
-                return columns
+                return [column.name for column in cursor.description or []]
+
+        return await run_in_retryable_transaction(self.connection, _get_columns_in_transaction)
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -496,7 +499,7 @@ class PostgreSQLClient:
             field_names=field_names,
         )
 
-        async with self.connection.transaction():
+        async def _merge_tables_in_transaction():
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
@@ -506,6 +509,8 @@ class PostgreSQLClient:
                     await cursor.execute(merge_query)
                 except psycopg.errors.InvalidColumnReference:
                     raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
+
+        await run_in_retryable_transaction(self.connection, _merge_tables_in_transaction)
 
     async def copy_tsv_to_postgres(
         self,
@@ -524,7 +529,7 @@ class PostgreSQLClient:
         """
         tsv_file.seek(0)
 
-        async with self.connection.transaction():
+        async def _copy_tsv_in_transaction():
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
@@ -541,6 +546,8 @@ class PostgreSQLClient:
                     while data := await asyncio.to_thread(tsv_file.read):
                         data = remove_invalid_json(data)
                         await copy.write(data)
+
+        await run_in_retryable_transaction(self.connection, _copy_tsv_in_transaction)
 
 
 def remove_invalid_json(data: bytes) -> bytes:
