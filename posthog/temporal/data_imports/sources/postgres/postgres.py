@@ -757,7 +757,6 @@ def postgres_source(
 
                         successive_errors += 1
                         if successive_errors >= 30:
-                            logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
                             raise Exception(
                                 f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
                             ) from e
