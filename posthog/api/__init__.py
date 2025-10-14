@@ -29,7 +29,13 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, EvaluationViewSet, LLMProxyViewSet
+from products.llm_analytics.backend.api import (
+    DatasetItemViewSet,
+    DatasetViewSet,
+    EvaluationRunViewSet,
+    EvaluationViewSet,
+    LLMProxyViewSet,
+)
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
@@ -211,8 +217,13 @@ project_features_router = projects_router.register(
 
 projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 
+# Agents endpoints
 projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
 
+# Task progress endpoints
+projects_router.register(r"task_progress", tasks.TaskProgressViewSet, "project_task_progress", ["team_id"])
+
+# Workflows endpoints
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 project_workflows_router = projects_router.register(
@@ -874,5 +885,12 @@ environments_router.register(
     r"evaluations",
     EvaluationViewSet,
     "environment_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"evaluation_runs",
+    EvaluationRunViewSet,
+    "environment_evaluation_runs",
     ["team_id"],
 )

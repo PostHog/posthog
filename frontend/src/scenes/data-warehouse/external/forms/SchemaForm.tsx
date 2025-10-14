@@ -100,7 +100,7 @@ export default function SchemaForm(): JSX.Element {
 
     useEffect(() => {
         smartConfigureTables(databaseSchema)
-    }, [databaseSchema, smartConfigureTables])
+    }, [smartConfigureTables, databaseSchema])
 
     // scroll to top of container
     useEffect(() => {
