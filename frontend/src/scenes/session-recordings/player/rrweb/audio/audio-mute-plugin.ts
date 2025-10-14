@@ -40,6 +40,12 @@ export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
         } else {
             element.removeAttribute('muted')
             mediaElement.muted = false
+
+            // Clean up listeners when unmuting since they're no longer needed
+            if ((mediaElement as any).__muteListenersCleanup) {
+                ;(mediaElement as any).__muteListenersCleanup()
+                delete (mediaElement as any).__muteListenersCleanup
+            }
         }
     }
 
