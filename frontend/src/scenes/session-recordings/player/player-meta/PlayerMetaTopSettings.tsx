@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
@@ -64,14 +65,19 @@ function InspectDOM(): JSX.Element {
 
 function TTLWarning(): JSX.Element | null {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const lowTtl =
+        sessionPlayerMetaData?.recording_ttl &&
+        sessionPlayerMetaData.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
 
-    if (
-        !sessionPlayerMetaData?.recording_ttl ||
-        sessionPlayerMetaData.recording_ttl > SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
-    ) {
+    useEffect(() => {
+        if (lowTtl) {
+            posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
+        }
+    }, [sessionPlayerMetaData, lowTtl])
+
+    if (!lowTtl) {
         return null
     }
-    posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
 
     return (
         <div className="font-medium">

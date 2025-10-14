@@ -1676,7 +1676,7 @@ export interface SessionRecordingType {
     activity_score?: number
     /** retention period for this recording */
     retention_period_days?: number
-    /** When the recordings expires, in ISO format. */
+    /** When the recording expires, in ISO format. */
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number

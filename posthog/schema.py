@@ -4809,7 +4809,7 @@ class SessionRecordingType(BaseModel):
     distinct_id: Optional[str] = None
     email: Optional[str] = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
-    expiry_time: Optional[str] = Field(default=None, description="When the recordings expires, in ISO format.")
+    expiry_time: Optional[str] = Field(default=None, description="When the recording expires, in ISO format.")
     id: str
     inactive_seconds: Optional[float] = None
     keypress_count: Optional[float] = None

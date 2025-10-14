@@ -24137,7 +24137,7 @@
                     "type": "string"
                 },
                 "expiry_time": {
-                    "description": "When the recordings expires, in ISO format.",
+                    "description": "When the recording expires, in ISO format.",
                     "type": "string"
                 },
                 "id": {
